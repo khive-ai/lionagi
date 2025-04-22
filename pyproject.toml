@@ -102,3 +102,11 @@ exclude = [
     "temp_logs/*",
     "logs/*"
 ]
+
+[project.scripts]
+lionagi = "lionagi.scripts.cli:main"
+
+# Build hooks to generate the adapter registry during build
+[tool.hatch.build.hooks.custom]
+path = "lionagi/scripts/build_hooks.py"
+dependencies = []
