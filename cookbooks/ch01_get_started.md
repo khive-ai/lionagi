@@ -2,19 +2,21 @@
 
 ## Chapter 1: Building Your First AI Assistant
 
-LionAGI helps you build AI-powered applications quickly and reliably. In this chapter, you'll create a **research assistant** that:
+LionAGI helps you build AI-powered applications quickly and reliably. In this
+chapter, you'll create a **research assistant** that:
 
-- Researches topics thoroughly  
-- Saves findings to files  
-- Handles conversations naturally  
-- Manages errors gracefully  
+- Researches topics thoroughly
+- Saves findings to files
+- Handles conversations naturally
+- Manages errors gracefully
 
 ---
 
 ### Prerequisites
-- Python 3.10 or higher  
-- Basic Python knowledge  
-- OpenAI API key  
+
+- Python 3.10 or higher
+- Basic Python knowledge
+- OpenAI API key
 
 ---
 
@@ -30,6 +32,7 @@ source env/bin/activate  # On Windows: env\Scripts\activate
 # Install LionAGI and dotenv
 pip install lionagi
 ```
+
 ### 1.2 API Setup
 
 ```python
@@ -47,7 +50,9 @@ os.environ["OPENAI_API_KEY"] = "your-api-key"
 
 ## 2. Building a Basic Assistant
 
-The Basic Assistant shows how to query GPT-based models with LionAGI. We’ll ask a few questions about AI Safety as an example.
+The Basic Assistant shows how to query GPT-based models with LionAGI. We’ll ask
+a few questions about AI Safety as an example.
+
 ```python
 from timeit import default_timer as timer
 
@@ -58,6 +63,7 @@ import lionagi
 print(f"Imported lionagi in {timer()-start:.3f} seconds")
 print(f"lionagi version: {lionagi.__version__}")
 ```
+
 if this code runs without errors, you have successfully installed LionAGI.
 
 ```python
@@ -104,22 +110,24 @@ for question in questions:
     responses.append({"question": question, "answer": response})
 ```
 
-
 Explanation:
-1.	iModel configures how we interact with OpenAI. We specify the model name and temperature.
-2.	Branch sets up a conversational context (the system prompt).
-3.	assistant.chat() sends queries (prompts) to GPT.
-4.	We collect results in responses, which you can later print or save.
 
-3. Building an Advanced Assistant
+1. iModel configures how we interact with OpenAI. We specify the model name and
+   temperature.
+2. Branch sets up a conversational context (the system prompt).
+3. assistant.chat() sends queries (prompts) to GPT.
+4. We collect results in responses, which you can later print or save.
+
+5. Building an Advanced Assistant
 
 ## 3. Building an Advanced Assistant
 
 Now let’s expand on the basic approach. The Advanced Assistant adds:
-1.	Persistent storage for research (JSON files)
-2.	Error handling (API key issues, rate limits)
-3.	Summaries of research topics
-4.	Retrieval of previously saved topics
+
+1. Persistent storage for research (JSON files)
+2. Error handling (API key issues, rate limits)
+3. Summaries of research topics
+4. Retrieval of previously saved topics
 
 ```python
 from lionagi import Branch, iModel
@@ -248,8 +256,8 @@ class ResearchAssistant:
         return self.topics.get(topic)
 ```
 
-Usage Example
-:
+Usage Example :
+
 ```python
 from IPython.display import display, Markdown
 
@@ -306,27 +314,39 @@ async def research_project():
 # else you can use:
 # asyncio.run(research_project())
 ```
+
 ```python
 # Example call (in an async environment, such as Jupyter Notebook):
 await research_project()
 ```
+
 Explanation
-1.	ResearchAssistant Class: Encapsulates functions to query GPT, track and load previous research, and generate summaries.
-2.	_load_history(): Loads prior research from JSON files in save_dir.
-3.	research_topic(): Prompts GPT with each question, saves answers to a local JSON file, and updates an internal topics dictionary.
-4.	get_summary(): Builds a customized summary prompt and returns GPT’s response.
-5.	Error Handling: Uses Python exceptions to catch and respond to common issues (invalid key, rate limits).
+
+1. ResearchAssistant Class: Encapsulates functions to query GPT, track and load
+   previous research, and generate summaries.
+2. _load_history(): Loads prior research from JSON files in save_dir.
+3. research_topic(): Prompts GPT with each question, saves answers to a local
+   JSON file, and updates an internal topics dictionary.
+4. get_summary(): Builds a customized summary prompt and returns GPT’s response.
+5. Error Handling: Uses Python exceptions to catch and respond to common issues
+   (invalid key, rate limits).
 
 ## 4. Best Practices
-1.	Assistant Design
+
+1. Assistant Design
+
 - Provide a clear system message (role, instructions, style).
 - Configure model parameters (model, temperature) carefully.
 - Gracefully handle common errors (API key problems, rate limits).
-2.	Code Structure
+
+2. Code Structure
+
 - Use type hints for clarity (e.g., -> dict[str, str]).
 - Keep code modular and documented.
 - Follow PEP 8 style guidelines.
-3.	User Experience
+
+3. User Experience
+
 - Persist research results so users can revisit them.
 - Offer summaries or highlights.
 - Provide progress/error notifications to guide the user.
@@ -334,6 +354,7 @@ Explanation
 5. Quick Reference
 
 A minimal snippet for reference:
+
 ```python
 from lionagi import Branch, iModel
 
@@ -362,12 +383,16 @@ except Exception as e:
 ## 6. Next Steps
 
 You have now learned:
-1.	How to create a Basic AI Assistant
-2.	How to research topics, save results, and manage errors
-3.	How to retrieve and summarize past research
 
-In Chapter 2, we’ll explore LionAGI’s core concepts and dive deeper into its architecture.
+1. How to create a Basic AI Assistant
+2. How to research topics, save results, and manage errors
+3. How to retrieve and summarize past research
 
-You’ll learn how to handle more complex conversation flows, manipulate prompts dynamically, and use advanced features like multiple branches or streaming responses.
+In Chapter 2, we’ll explore LionAGI’s core concepts and dive deeper into its
+architecture.
+
+You’ll learn how to handle more complex conversation flows, manipulate prompts
+dynamically, and use advanced features like multiple branches or streaming
+responses.
 
 Happy coding and researching!
