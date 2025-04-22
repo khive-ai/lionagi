@@ -18,6 +18,8 @@ K.D KHIVE-DEV TEAM **MUST RETAIN FROM** EDITING THE FOLLOWING FOLDERS: 'docs/`
 
 # project: lionagi
 
+! WARNING: IN LIONAGI, USE `uv run pytest tests` to test, don't use `khive ci`
+
 - _GitHub Owner:_ **khive-ai**
 - _Repository:_ **lionagi**
 
