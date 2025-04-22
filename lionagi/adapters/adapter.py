@@ -12,6 +12,7 @@ import logging
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from typing_extensions import get_protocol_members
+from .._errors import MissingAdapterError
 
 T = TypeVar("T")
 
@@ -98,8 +99,12 @@ class AdapterRegistry:
     def get(cls, obj_key: type | str) -> Adapter:
         try:
             return cls._adapters[obj_key]
+        except KeyError:
+            logging.error(f"Error getting adapter for {obj_key}. Adapter not found.")
+            raise MissingAdapterError(f"Adapter for key '{obj_key}' not found")
         except Exception as e:
             logging.error(f"Error getting adapter for {obj_key}. Error: {e}")
+            raise
 
     @classmethod
     def adapt_from(
@@ -107,14 +112,20 @@ class AdapterRegistry:
     ) -> dict | list[dict]:
         try:
             return cls.get(obj_key).from_obj(subj_cls, obj, **kwargs)
+        except MissingAdapterError:
+            logging.error(f"Error adapting data from {obj_key}. Adapter not found.")
+            raise
         except Exception as e:
             logging.error(f"Error adapting data from {obj_key}. Error: {e}")
-            raise e
+            raise
 
     @classmethod
     def adapt_to(cls, subj: T, obj_key: type | str, **kwargs) -> Any:
         try:
             return cls.get(obj_key).to_obj(subj, **kwargs)
+        except MissingAdapterError:
+            logging.error(f"Error adapting data to {obj_key}. Adapter not found.")
+            raise
         except Exception as e:
             logging.error(f"Error adapting data to {obj_key}. Error: {e}")
-            raise e
+            raise
