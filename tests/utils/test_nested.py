@@ -5,20 +5,20 @@
 import pytest
 
 from lionagi.libs.nested import (
-    flatten,
-    unflatten,
-    nget,
-    nset,
-    npop,
-    ninsert,
-    nmerge,
-    nfilter,
-    get_target_container,
+    deep_update,
     ensure_list_index,
+    flatten,
+    get_target_container,
     is_homogeneous,
     is_same_dtype,
     is_structure_homogeneous,
-    deep_update,
+    nfilter,
+    nget,
+    ninsert,
+    nmerge,
+    npop,
+    nset,
+    unflatten,
 )
 
 
@@ -26,27 +26,27 @@ from lionagi.libs.nested import (
 def test_flatten_basic():
     """Test basic flattening of nested dictionaries."""
     nested = {"a": 1, "b": {"c": 2, "d": [3, 4]}}
-    expected = {'a': 1, 'b|c': 2, 'b|d|0': 3, 'b|d|1': 4}
+    expected = {"a": 1, "b|c": 2, "b|d|0": 3, "b|d|1": 4}
     assert flatten(nested) == expected
 
 
 def test_flatten_with_max_depth():
     """Test flattening with max_depth parameter."""
     nested = {"a": 1, "b": {"c": 2, "d": {"e": 3}}}
-    expected = {'a': 1, 'b|c': 2, 'b|d': {"e": 3}}
+    expected = {"a": 1, "b|c": 2, "b|d": {"e": 3}}
     assert flatten(nested, max_depth=2) == expected
 
 
 def test_unflatten_basic():
     """Test basic unflattening of flat dictionaries."""
-    flat = {'a': 1, 'b|c': 2, 'b|d|0': 3, 'b|d|1': 4}
+    flat = {"a": 1, "b|c": 2, "b|d|0": 3, "b|d|1": 4}
     expected = {"a": 1, "b": {"c": 2, "d": [3, 4]}}
     assert unflatten(flat) == expected
 
 
 def test_unflatten_inplace():
     """Test unflattening with inplace=True."""
-    flat = {'a': 1, 'b|c': 2, 'b|d|0': 3, 'b|d|1': 4}
+    flat = {"a": 1, "b|c": 2, "b|d|0": 3, "b|d|1": 4}
     expected = {"a": 1, "b": {"c": 2, "d": [3, 4]}}
     result = unflatten(flat, inplace=True)
     assert result == expected
@@ -129,7 +129,7 @@ def test_empty_structures():
     """Test handling of empty structures."""
     assert flatten({}) == {}
     assert unflatten({}) == {}
-    
+
     # Test with empty nested structures
     nested = {"a": {}, "b": []}
     flat = flatten(nested)
@@ -140,18 +140,18 @@ def test_nested_lists():
     """Test handling of nested lists."""
     nested = [1, [2, [3, 4]]]
     flat = flatten(nested, dynamic=True)
-    assert flat == {'0': 1, '1|0': 2, '1|1|0': 3, '1|1|1': 4}
-    
+    assert flat == {"0": 1, "1|0": 2, "1|1|0": 3, "1|1|1": 4}
+
     # Test with coerce_sequence="dict"
     flat_dict = flatten(nested, dynamic=True, coerce_sequence="dict")
-    assert flat_dict == {'0': 1, '1|0': 2, '1|1|0': 3, '1|1|1': 4}
+    assert flat_dict == {"0": 1, "1|0": 2, "1|1|0": 3, "1|1|1": 4}
 
 
 def test_mixed_types():
     """Test handling of mixed types."""
     nested = {"a": 1, "b": [2, {"c": 3}]}
     flat = flatten(nested)
-    assert flat == {'a': 1, 'b|0': 2, 'b|1|c': 3}
+    assert flat == {"a": 1, "b|0": 2, "b|1|c": 3}
     assert unflatten(flat) == nested
 
 

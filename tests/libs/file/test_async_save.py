@@ -1,10 +1,11 @@
-import os
 import json
-import pytest
+import os
 import tempfile
 from pathlib import Path
 
-from lionagi.libs.file.save import async_save_to_file, async_save_chunks
+import pytest
+
+from lionagi.libs.file.save import async_save_chunks, async_save_to_file
 
 
 @pytest.mark.asyncio
@@ -21,7 +22,7 @@ async def test_async_save_to_file():
             extension="txt",
             verbose=False,
         )
-        
+
         assert file_path.exists()
         with open(file_path, "r") as f:
             assert f.read() == text
@@ -35,7 +36,7 @@ async def test_async_save_to_file():
             timestamp=True,
             verbose=False,
         )
-        
+
         assert file_path.exists()
         # Filename should contain the timestamp
         assert file_path.stem != "test_file_timestamp"
@@ -52,7 +53,7 @@ async def test_async_save_to_file():
             random_hash_digits=6,
             verbose=False,
         )
-        
+
         assert file_path.exists()
         # Filename should contain the hash
         assert file_path.stem != "test_file_hash"
@@ -71,7 +72,7 @@ async def test_async_save_chunks():
             {"chunk_content": "Chunk 1", "chunk_id": 1},
             {"chunk_content": "Chunk 2", "chunk_id": 2},
         ]
-        
+
         # Test saving chunks
         await async_save_chunks(
             chunks=chunks,
@@ -80,11 +81,11 @@ async def test_async_save_chunks():
             timestamp=False,
             random_hash_digits=0,
         )
-        
+
         # Verify the chunks were saved
         files = list(Path(temp_dir).glob("*.json"))
         assert len(files) == 2
-        
+
         # Verify the content of the files
         for i, file in enumerate(sorted(files, key=lambda x: x.name)):
             with open(file, "r") as f:
@@ -101,11 +102,11 @@ async def test_async_save_chunks():
                 timestamp=True,
                 random_hash_digits=0,
             )
-            
+
             # Verify the chunks were saved
             files = list(Path(temp_dir2).glob("*.json"))
             assert len(files) == 2
-            
+
             # Verify the filenames contain timestamps
             for file in files:
                 assert "chunk_" in file.stem
@@ -118,6 +119,7 @@ async def test_sync_vs_async_save_performance():
     """Test performance comparison between sync and async file saving."""
     import asyncio
     import time
+
     from lionagi.libs.file.save import save_to_file
 
     # Create a temporary directory
@@ -125,7 +127,7 @@ async def test_sync_vs_async_save_performance():
         # Create some test content
         num_files = 50
         text = "Test content" * 1000  # Make it reasonably large
-        
+
         # Test synchronous saving
         start_time = time.time()
         for i in range(num_files):
@@ -137,7 +139,7 @@ async def test_sync_vs_async_save_performance():
                 verbose=False,
             )
         sync_time = time.time() - start_time
-        
+
         # Test asynchronous saving
         start_time = time.time()
         tasks = [
@@ -152,11 +154,11 @@ async def test_sync_vs_async_save_performance():
         ]
         await asyncio.gather(*tasks)
         async_time = time.time() - start_time
-        
+
         # For small files or in certain environments, async might have more overhead
         # We're just printing the times for information, not asserting
         print(f"Sync time: {sync_time:.4f}s, Async time: {async_time:.4f}s")
-        
+
         # The real benefit of async I/O is seen with many concurrent operations
         # or when I/O operations are slow (like network requests)
         # For local file operations, the difference might not be as pronounced
