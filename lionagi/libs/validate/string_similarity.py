@@ -297,8 +297,7 @@ def string_similarity(
         score_func = algorithm
     else:
         raise ValueError(
-            "algorithm must be a string specifying a built-in algorithm or "
-            "a callable"
+            "algorithm must be a string specifying a built-in algorithm or a callable"
         )
 
     # Calculate similarities

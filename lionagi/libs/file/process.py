@@ -4,16 +4,16 @@
 
 import asyncio
 import logging
-from collections.abc import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Literal, Union, TypeVar, cast
+from typing import Any, Literal, TypeVar, Union, cast
 
 from lionagi.utils import lcall
 
 from .chunk import chunk_content
 from .file_ops import async_read_file
-from .save import save_chunks, async_save_chunks
+from .save import async_save_chunks, save_chunks
 
 
 def dir_to_files(
@@ -140,17 +140,21 @@ async def async_dir_to_files(
 
     # This is CPU-bound, so we use to_thread
     file_iterator = await asyncio.to_thread(
-        lambda: list(directory_path.rglob("*") if recursive else directory_path.glob("*"))
+        lambda: list(
+            directory_path.rglob("*")
+            if recursive
+            else directory_path.glob("*")
+        )
     )
-    
+
     # Filter for files only
     file_iterator = [f for f in file_iterator if f.is_file()]
-    
+
     try:
         # Process files concurrently
         tasks = [process_file(f) for f in file_iterator]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Filter out exceptions and None values
         files = []
         for result in results:
@@ -292,7 +296,7 @@ async def async_file_to_chunks(
 
         # Read the file asynchronously
         text = await async_read_file(file_path)
-        
+
         # Get file stats (this is fast, so we can do it synchronously)
         file_size = file_path.stat().st_size
 
@@ -429,7 +433,7 @@ def chunk(
     return [c.content for c in chunks]
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 async def async_chunk(
@@ -445,12 +449,14 @@ async def async_chunk(
     threshold: int = 200,
     output_file: str | Path | None = None,
     metadata: dict[str, Any] | None = None,
-    reader_tool: Union[Callable[[str], str], Callable[[str], Awaitable[str]], str] = None,
+    reader_tool: Union[
+        Callable[[str], str], Callable[[str], Awaitable[str]], str
+    ] = None,
     as_node: bool = False,
 ) -> list:
     """
     Asynchronously chunk text or files.
-    
+
     Args:
         text: Text to chunk. If provided, url_or_path is ignored.
         url_or_path: Path to file or directory to chunk.
@@ -465,7 +471,7 @@ async def async_chunk(
         metadata: Additional metadata to include with each chunk.
         reader_tool: Function to use for reading files.
         as_node: If True, return chunks as Node objects.
-        
+
     Returns:
         List of chunks.
     """
@@ -504,13 +510,13 @@ async def async_chunk(
                 import_name="DocumentConverter",
             )
             converter = DocumentConverter()
-            
+
             async def async_docling_reader(x: str) -> str:
                 # This is CPU-bound, so we use to_thread
                 return await asyncio.to_thread(
                     lambda: converter.convert(x).document.export_to_markdown()
                 )
-                
+
             reader_tool = async_docling_reader
 
         # Handle both async and sync reader tools
@@ -523,10 +529,10 @@ async def async_chunk(
             else:
                 # For sync reader tool, run in thread pool
                 sync_reader = cast(Callable[[str], T], reader_tool)
-                
+
                 async def run_sync_reader(file_path):
                     return await asyncio.to_thread(sync_reader, file_path)
-                
+
                 tasks = [run_sync_reader(f) for f in files]
                 texts = await asyncio.gather(*tasks)
     else:
@@ -547,22 +553,23 @@ async def async_chunk(
             tokenizer=tokenizer or str.split,
         )
     )
-    
+
     if threshold:
         chunks = [c for c in chunks if len(c.content) > threshold]
 
     if output_file:
-        from lionagi.protocols.generic.pile import Pile
         import json
 
+        from lionagi.protocols.generic.pile import Pile
+
         output_file = Path(output_file)
-        
+
         # Ensure parent directory exists
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Create a Pile from the chunks
         p = Pile(chunks)
-        
+
         try:
             # File I/O operations should be async
             if output_file.suffix == ".csv":
@@ -573,15 +580,23 @@ async def async_chunk(
                 if as_node:
                     # Convert chunks to dictionaries
                     chunk_dicts = [chunk.dict() for chunk in chunks]
-                    async with aiofiles.open(output_file, 'w', encoding='utf-8') as f:
+                    async with aiofiles.open(
+                        output_file, "w", encoding="utf-8"
+                    ) as f:
                         await f.write(json.dumps(chunk_dicts, indent=2))
                 else:
                     # Use the Pile's to_json_file method
-                    await asyncio.to_thread(p.to_json_file, output_file, use_pd=True)
+                    await asyncio.to_thread(
+                        p.to_json_file, output_file, use_pd=True
+                    )
             elif output_file.suffix in Pile.list_adapters():
-                await asyncio.to_thread(p.adapt_to, output_file.suffix, fp=output_file)
+                await asyncio.to_thread(
+                    p.adapt_to, output_file.suffix, fp=output_file
+                )
             else:
-                raise ValueError(f"Unsupported output file format: {output_file}")
+                raise ValueError(
+                    f"Unsupported output file format: {output_file}"
+                )
         except Exception as e:
             # Log the error but don't fail the entire operation
             print(f"Error saving chunks to {output_file}: {e}")
@@ -590,12 +605,18 @@ async def async_chunk(
                 try:
                     # Convert chunks to a simple format
                     if as_node:
-                        simple_chunks = [{"content": chunk.content} for chunk in chunks]
+                        simple_chunks = [
+                            {"content": chunk.content} for chunk in chunks
+                        ]
                     else:
-                        simple_chunks = [{"content": chunk} for chunk in chunks]
-                    
+                        simple_chunks = [
+                            {"content": chunk} for chunk in chunks
+                        ]
+
                     # Write directly to file
-                    async with aiofiles.open(output_file, 'w', encoding='utf-8') as f:
+                    async with aiofiles.open(
+                        output_file, "w", encoding="utf-8"
+                    ) as f:
                         await f.write(json.dumps(simple_chunks, indent=2))
                 except Exception as e2:
                     print(f"Fallback save also failed: {e2}")

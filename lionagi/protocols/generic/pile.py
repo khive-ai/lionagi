@@ -855,8 +855,7 @@ class Pile(Element, Collective[E], Generic[E]):
                 if self.strict_type:
                     if type(i) not in self.item_type:
                         raise TypeError(
-                            "Invalid item type in pile."
-                            f" Expected {self.item_type}",
+                            f"Invalid item type in pile. Expected {self.item_type}",
                         )
                 else:
                     if not any(issubclass(type(i), t) for t in self.item_type):

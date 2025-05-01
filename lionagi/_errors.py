@@ -33,6 +33,7 @@ class OperationError(LionError):
 
 class ExecutionError(LionError):
     pass
+
+
 class MissingAdapterError(LionError):
     pass
-
