@@ -6,8 +6,6 @@ import ast
 import importlib.util
 import os
 from typing import TypeVar
-from ._errors import MissingAdapterError
-
 
 T = TypeVar("T")
 LION_CLASS_REGISTRY: dict[str, type[T]] = {}
@@ -109,4 +107,4 @@ def get_class(class_name: str) -> type:
         found_class_dict = get_class_objects(found_class_filepath)
         return found_class_dict[class_name]
     except Exception as e:
-        raise MissingAdapterError(f"Adapter for key '{class_name}' not found")
+        raise ValueError(f"Unable to find class {class_name}: {e}")

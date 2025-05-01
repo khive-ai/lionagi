@@ -3,9 +3,9 @@ postfix = "source_codes"
 crates = ["lionagi"]
 
 compress_prefix = ""
-compress = False
+compress = True
 compress_cumulative = False
-compression_iterations = 0
+compression_iterations = 1
 
 config = {
     "dir": "/Users/lion/lionagi/",
@@ -13,7 +13,6 @@ config = {
     "prefix": prefix,
     "postfix": postfix,
     "crates": crates,
-    "exclude_patterns": [".venv", "dist", "node_modules", "target", "package-lock", "lock", "__pycache__", ".git", ".idea", ".vscode", ".DS_Store", ".github", ".gitignore"],
-    "file_types": [".tsx", ".ts", ".py", ".md", ".js", ".jsx", ".rs", ".toml", ".yaml", ".json"],
+    "exclude_patterns": [".venv"],
+    "file_types": [".py"],
 }
-
