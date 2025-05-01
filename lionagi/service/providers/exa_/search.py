@@ -51,7 +51,6 @@ SEARCH_CONFIG = {
 
 
 class ExaSearchEndPoint(EndPoint):
-
     def __init__(self, config: dict = SEARCH_CONFIG):
         super().__init__(config)
 

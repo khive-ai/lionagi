@@ -8,7 +8,6 @@ experimental
 
 
 class OperationManager(Manager):
-
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.registry: dict[str, Callable] = {}

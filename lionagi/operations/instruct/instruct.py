@@ -16,10 +16,10 @@ async def instruct(
     /,
     **kwargs,
 ) -> Any:
-    config = {
-        **(instruct.to_dict() if isinstance(instruct, Instruct) else instruct),
-        **kwargs,
-    }
+    if isinstance(instruct, Instruct):
+        config = {**instruct.to_dict(), **kwargs}
+    else:
+        config = {**instruct, **kwargs}
     if any(i in config and config[i] for i in Instruct.reserved_kwargs):
         if "response_format" in config or "request_model" in config:
             return await branch.operate(**config)

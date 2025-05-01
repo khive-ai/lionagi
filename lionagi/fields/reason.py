@@ -11,7 +11,6 @@ __all__ = ("Reason",)
 
 
 class Reason(HashableModel):
-
     title: str | None = None
     content: str | None = None
     confidence_score: float | None = Field(

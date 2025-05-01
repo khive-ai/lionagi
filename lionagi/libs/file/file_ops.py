@@ -63,11 +63,11 @@ async def async_copy_file(src: Path | str, dest: Path | str) -> None:
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         # Read the source file asynchronously
-        async with aiofiles.open(src_path, mode='rb') as source_file:
+        async with aiofiles.open(src_path, mode="rb") as source_file:
             content = await source_file.read()
-            
+
         # Write to the destination file asynchronously
-        async with aiofiles.open(dest_path, mode='wb') as dest_file:
+        async with aiofiles.open(dest_path, mode="wb") as dest_file:
             await dest_file.write(content)
     except PermissionError as e:
         raise PermissionError(
@@ -132,7 +132,9 @@ async def async_get_file_size(path: Path | str) -> int:
             # For directories, we need to gather all file sizes
             # This is CPU-bound, so we use to_thread
             return await asyncio.to_thread(
-                lambda: sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+                lambda: sum(
+                    f.stat().st_size for f in path.rglob("*") if f.is_file()
+                )
             )
         else:
             raise FileNotFoundError(f"{path} does not exist.")
@@ -236,7 +238,9 @@ async def async_read_file(path: Path | str, /) -> str:
             the file.
     """
     try:
-        async with aiofiles.open(Path(path), mode='r', encoding='utf-8') as file:
+        async with aiofiles.open(
+            Path(path), mode="r", encoding="utf-8"
+        ) as file:
             return await file.read()
     except FileNotFoundError as e:
         logging.error(f"File not found: {path}: {e}")

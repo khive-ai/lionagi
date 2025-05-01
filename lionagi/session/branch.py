@@ -184,7 +184,6 @@ class Branch(Element, Communicatable, Relational):
                 use_lion_system_message,
             ]
         ):
-
             if use_lion_system_message:
                 system = f"Developer Prompt: {str(system)}" if system else ""
                 system = (LION_SYSTEM_MESSAGE + "\n\n" + system).strip()
@@ -640,7 +639,6 @@ class Branch(Element, Communicatable, Relational):
         """
         meta = {}
         if "clone_from" in self.metadata:
-
             # Provide some reference info about the source from which we cloned
             meta["clone_from"] = {
                 "id": str(self.metadata["clone_from"].id),

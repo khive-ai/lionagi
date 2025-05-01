@@ -134,7 +134,6 @@ def hash_dict(data) -> int:
 
 
 class Params(BaseModel):
-
     def keys(self):
         return self.model_fields.keys()
 
@@ -900,7 +899,6 @@ async def bcall(
     flatten_tuple_set: bool = False,
     **kwargs: Any,
 ) -> AsyncGenerator[list[T | tuple[T, float]], None]:
-
     input_ = to_list(input_, flatten=True, dropna=True)
 
     for i in range(0, len(input_), batch_size):
@@ -1372,7 +1370,6 @@ def xml_to_dict(
 
 
 def dict_to_xml(data: dict, /, root_tag: str = "root") -> str:
-
     root = ET.Element(root_tag)
 
     def convert(dict_obj: dict, parent: Any) -> None:
@@ -1471,7 +1468,6 @@ def recursive_to_dict(
     recursive_custom_types: bool = False,
     **kwargs: Any,
 ) -> Any:
-
     if not isinstance(max_recursive_depth, int):
         max_recursive_depth = 5
     else:
@@ -1504,7 +1500,6 @@ def _recur_to_dict(
     recursive_custom_types: bool = False,
     **kwargs: Any,
 ) -> Any:
-
     if current_depth >= max_recursive_depth:
         return input_
 
@@ -1675,7 +1670,6 @@ def _to_dict(
     use_enum_values: bool = True,
     **kwargs: Any,
 ) -> dict[str, Any]:
-
     if isinstance(input_, set):
         return _set_to_dict(input_)
 
@@ -2307,7 +2301,6 @@ def parse_number(type_and_value: tuple[str, str]) -> float | complex:
 def breakdown_pydantic_annotation(
     model: type[B], max_depth: int | None = None, current_depth: int = 0
 ) -> dict[str, Any]:
-
     if not _is_pydantic_model(model):
         raise TypeError("Input must be a Pydantic model")
 
@@ -2397,7 +2390,7 @@ def check_import(
     if not is_import_installed(package_name):
         if attempt_install:
             logging.info(
-                f"Package {package_name} not found. Attempting " "to install.",
+                f"Package {package_name} not found. Attempting to install.",
             )
             try:
                 return install_import(
@@ -2576,7 +2569,7 @@ def pdf_to_images(
     saved_paths = []
     for i, image in enumerate(images):
         # Construct the output file name
-        image_file = os.path.join(output_folder, f"page_{i+1}.{fmt}")
+        image_file = os.path.join(output_folder, f"page_{i + 1}.{fmt}")
         image.save(image_file, fmt.upper())
         saved_paths.append(image_file)
 

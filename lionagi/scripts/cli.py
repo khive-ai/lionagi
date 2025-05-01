@@ -10,7 +10,6 @@ Command-line interface for lionagi utilities.
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
@@ -33,7 +32,7 @@ def main():
         help="Command to run",
         required=True,
     )
-    
+
     # Add the build-registry command
     build_registry_parser = subparsers.add_parser(
         "build-registry",
@@ -53,16 +52,20 @@ def main():
         help="Path to the output JSON file (default: adapter_map.json in the package directory)",
     )
     build_registry_parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable verbose logging",
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.command == "build-registry":
         from .build_adapter_registry import main as build_registry_main
-        sys.argv = [sys.argv[0]] + sys.argv[2:]  # Remove the 'build-registry' command
+
+        sys.argv = [sys.argv[0]] + sys.argv[
+            2:
+        ]  # Remove the 'build-registry' command
         build_registry_main()
     else:
         parser.print_help()

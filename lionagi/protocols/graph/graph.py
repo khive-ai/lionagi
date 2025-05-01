@@ -21,7 +21,6 @@ __all__ = ("Graph",)
 
 
 class Graph(Element, Relational):
-
     internal_nodes: Pile[Node] = Field(
         default_factory=lambda: Pile(item_type={Node}, strict_type=False),
         title="Internal Nodes",
@@ -52,8 +51,7 @@ class Graph(Element, Relational):
         """Add a node to the graph."""
         if not isinstance(node, Relational):
             raise RelationError(
-                "Failed to add node: Invalid node type: "
-                "not a <Relational> entity."
+                "Failed to add node: Invalid node type: not a <Relational> entity."
             )
         _id = ID.get_id(node)
         try:

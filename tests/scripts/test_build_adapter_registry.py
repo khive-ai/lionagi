@@ -77,7 +77,9 @@ class NotAnAdapter:
 def test_find_adapter_classes():
     """Test the find_adapter_classes function."""
     # Create a temporary file with a class that has an obj_key attribute
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".py", delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(
+        mode="w+", suffix=".py", delete=False
+    ) as temp_file:
         temp_file.write(
             """
 class TestAdapter:
@@ -171,9 +173,19 @@ class Adapter1:
         output_file = os.path.join(temp_dir, "adapter_map.json")
 
         # Mock the command-line arguments
-        with patch("sys.argv", ["build_adapter_registry", "--adapters-dir", temp_dir, "--output", output_file]):
+        with patch(
+            "sys.argv",
+            [
+                "build_adapter_registry",
+                "--adapters-dir",
+                temp_dir,
+                "--output",
+                output_file,
+            ],
+        ):
             # Import and run the main function
             from lionagi.scripts.build_adapter_registry import main
+
             main()
 
         # Verify the output file was created

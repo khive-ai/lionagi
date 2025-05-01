@@ -86,7 +86,6 @@ class Session(Node, Communicatable, Relational):
         tools: Tool | Callable | list = None,
         **kwargs,  # additional branch parameters
     ) -> Branch:
-
         kwargs["system"] = system
         kwargs["system_sender"] = system_sender
         kwargs["system_datetime"] = system_datetime

@@ -232,7 +232,6 @@ class RoledMessage(Node, Sendable):
             self.template = template
 
     def __str__(self) -> str:
-
         content_preview = (
             f"{str(self.content)[:75]}..."
             if len(str(self.content)) > 75

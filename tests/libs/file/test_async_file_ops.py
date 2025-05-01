@@ -1,7 +1,8 @@
 import os
-import pytest
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from lionagi.libs.file.file_ops import (
     async_copy_file,
@@ -112,34 +113,37 @@ async def test_sync_vs_async_read_performance():
     """Test performance comparison between sync and async file reading."""
     import asyncio
     import time
+
     from lionagi.libs.file.file_ops import read_file
 
     # Create multiple temporary files - use more files for a more realistic test
     num_files = 50
     temp_files = []
-    
+
     for i in range(num_files):
         with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_file:
-            temp_file.write(f"Test content {i}" * 1000)  # Make it reasonably large
+            temp_file.write(
+                f"Test content {i}" * 1000
+            )  # Make it reasonably large
             temp_files.append(temp_file.name)
-    
+
     try:
         # Test synchronous reading
         start_time = time.time()
         for file_path in temp_files:
             read_file(file_path)
         sync_time = time.time() - start_time
-        
+
         # Test asynchronous reading
         start_time = time.time()
         tasks = [async_read_file(file_path) for file_path in temp_files]
         await asyncio.gather(*tasks)
         async_time = time.time() - start_time
-        
+
         # For small files or in certain environments, async might have more overhead
         # We're just printing the times for information, not asserting
         print(f"Sync time: {sync_time:.4f}s, Async time: {async_time:.4f}s")
-        
+
         # The real benefit of async I/O is seen with many concurrent operations
         # or when I/O operations are slow (like network requests)
         # For local file operations, the difference might not be as pronounced

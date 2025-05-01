@@ -21,7 +21,6 @@ __all__ = (
 
 
 class SynthlangFramework(Resource):
-
     category: ResourceCategory = Field(
         default=ResourceCategory.FRAMEWORK, frozen=True
     )
@@ -72,7 +71,6 @@ class SynthlangFramework(Resource):
         framework_options: list[FRAMEWORK_CHOICES] = None,
         additional_text: str = "",
     ) -> str:
-
         framework_options_text = self.build_framework_text(framework_options)
         base_prompt = self.load_base_system_prompt()
         template_details = (

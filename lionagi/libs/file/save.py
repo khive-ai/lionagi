@@ -144,7 +144,7 @@ def save_chunks(
     for i, chunk in enumerate(chunks):
         file_path = create_path(
             directory=output_path,
-            filename=f"chunk_{i+1}",
+            filename=f"chunk_{i + 1}",
             extension="json",
             timestamp=timestamp,
             random_hash_digits=random_hash_digits,
@@ -166,11 +166,11 @@ async def async_save_chunks(
 ) -> None:
     """Asynchronously save chunks to files."""
     output_path = Path(output_dir)
-    
+
     async def save_chunk(i: int, chunk: dict[str, Any]) -> None:
         file_path = create_path(
             directory=output_path,
-            filename=f"chunk_{i+1}",
+            filename=f"chunk_{i + 1}",
             extension="json",
             timestamp=timestamp,
             random_hash_digits=random_hash_digits,
@@ -181,9 +181,9 @@ async def async_save_chunks(
             filename=file_path.name,
             verbose=verbose,
         )
-    
+
     # Create tasks for saving each chunk
     tasks = [save_chunk(i, chunk) for i, chunk in enumerate(chunks)]
-    
+
     # Run all tasks concurrently
     await asyncio.gather(*tasks)

@@ -15,7 +15,6 @@ from .message import MessageRole, RoledMessage, Template, jinja_env
 def prepare_assistant_response(
     assistant_response: BaseModel | list[BaseModel] | dict | str | Any, /
 ) -> dict:
-
     assistant_response = (
         [assistant_response]
         if not isinstance(assistant_response, list)
@@ -26,7 +25,6 @@ def prepare_assistant_response(
     model_responses = []
 
     for i in assistant_response:
-
         if isinstance(i, BaseModel):
             i = i.model_dump(exclude_none=True, exclude_unset=True)
 

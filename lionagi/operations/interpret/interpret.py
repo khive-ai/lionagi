@@ -23,10 +23,7 @@ async def interpret(
         "Return only the re-written prompt. Do not assume any details not mentioned in the input, nor "
         "give additional instruction than what is explicitly stated."
     )
-    guidance = (
-        f"Domain hint: {domain or 'general'}. "
-        f"Desired style: {style or 'concise'}. "
-    )
+    guidance = f"Domain hint: {domain or 'general'}. Desired style: {style or 'concise'}. "
     if sample_writing:
         guidance += f" Sample writing: {sample_writing}"
 

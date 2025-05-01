@@ -10,7 +10,6 @@ __all__ = ("SchemaModel",)
 
 
 class SchemaModel(HashableModel):
-
     model_config = ConfigDict(
         extra="forbid",
         validate_default=False,

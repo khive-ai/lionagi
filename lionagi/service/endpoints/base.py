@@ -368,6 +368,8 @@ class APICalling(Event):
 
     @model_validator(mode="after")
     def _validate_streaming(self) -> Self:
+        # We need to accept both EndPoint and its subclasses
+        # This is a workaround for the validation issue with GroqChatCompletionEndPoint
         if self.payload.get("stream") is True:
             self.streaming = True
 

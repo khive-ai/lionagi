@@ -113,7 +113,6 @@ class ReActAnalysis(HashableModel):
 
 
 class Analysis(HashableModel):
-
     answer: str | None = None
 
     @field_validator("answer", mode="before")

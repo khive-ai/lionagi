@@ -231,7 +231,6 @@ async def plan(
 
         # We now handle multiple strategies:
         match execution_strategy:
-
             # ---------------------------------------------------------
             # Strategy A: SEQUENTIAL
             # ---------------------------------------------------------

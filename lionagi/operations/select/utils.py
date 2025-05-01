@@ -65,7 +65,6 @@ def parse_to_representation(
 
 
 def get_choice_representation(choice: Any) -> str:
-
     if isinstance(choice, str):
         return choice
 
@@ -77,7 +76,6 @@ def get_choice_representation(choice: Any) -> str:
 
 
 def parse_selection(selection_str: str, choices: Any):
-
     select_from = []
 
     if isinstance(choices, dict):

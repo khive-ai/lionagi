@@ -6,8 +6,8 @@ import ast
 import importlib.util
 import os
 from typing import TypeVar
-from ._errors import MissingAdapterError
 
+from ._errors import MissingAdapterError
 
 T = TypeVar("T")
 LION_CLASS_REGISTRY: dict[str, type[T]] = {}

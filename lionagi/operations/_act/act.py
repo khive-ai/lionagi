@@ -20,7 +20,6 @@ async def _act(
     suppress_errors: bool = False,
     verbose_action: bool = False,
 ) -> "ActionResponseModel":
-
     _request = {}
 
     if isinstance(action_request, BaseModel):

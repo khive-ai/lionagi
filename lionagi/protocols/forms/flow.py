@@ -46,7 +46,9 @@ class FlowDefinition(BaseModel):
             ins_str, outs_str = seg.split("->", 1)
             inputs = [x.strip() for x in ins_str.split(",") if x.strip()]
             outputs = [y.strip() for y in outs_str.split(",") if y.strip()]
-            step = FlowStep(name=f"step_{i+1}", inputs=inputs, outputs=outputs)
+            step = FlowStep(
+                name=f"step_{i + 1}", inputs=inputs, outputs=outputs
+            )
             self.steps.append(step)
 
     def get_required_fields(self) -> set[str]:
