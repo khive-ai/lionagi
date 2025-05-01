@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Literal, TypeVar, Union, cast
 
+import aiofiles
+
 from lionagi.utils import lcall
 
 from .chunk import chunk_content
