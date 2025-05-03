@@ -14,9 +14,6 @@ from .adapter import Adapter
 T = TypeVar("T", bound=BaseModel)
 
 
-# --------------------------------------------------------------------------- #
-# Helper to normalise 'many' TOML data                                        #
-# --------------------------------------------------------------------------- #
 def _ensure_list(data: Any) -> list[dict]:
     """Return *list of dicts* no matter the input shape."""
     if isinstance(data, list):
@@ -31,15 +28,11 @@ def _ensure_list(data: Any) -> list[dict]:
     return [data]
 
 
-# --------------------------------------------------------------------------- #
-# TOML string adapter                                                         #
-# --------------------------------------------------------------------------- #
 class TomlAdapter(Adapter[T]):
     """Convert to/from **in-memory** TOML strings."""
 
     obj_key = "toml"
 
-    # --------------- incoming ------------------------------------------------
     @classmethod
     def from_obj(
         cls,
@@ -56,7 +49,6 @@ class TomlAdapter(Adapter[T]):
             return [subj_cls.model_validate(r) for r in records]
         return subj_cls.model_validate(parsed)
 
-    # --------------- outgoing ------------------------------------------------
     @classmethod
     def to_obj(
         cls,
@@ -76,9 +68,6 @@ class TomlAdapter(Adapter[T]):
         return toml.dumps(payload, **kwargs)
 
 
-# --------------------------------------------------------------------------- #
-# TOML file adapter                                                           #
-# --------------------------------------------------------------------------- #
 class TomlFileAdapter(Adapter[T]):
     """Read/write **.toml files** on disk."""
 

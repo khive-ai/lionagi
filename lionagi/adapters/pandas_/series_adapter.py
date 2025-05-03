@@ -1,4 +1,3 @@
-
 """Adapter that converts pandas.Series <-> single domain object."""
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from pydantic import BaseModel
 from ..adapter import Adapter
 
 T = TypeVar("T", bound=BaseModel)
+
 
 class SeriesAdapter(Adapter[T]):
     obj_key = "pd.Series"
