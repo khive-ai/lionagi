@@ -1,4 +1,4 @@
-from ...adapters.adaptable import Adaptable
+from ..adapters.adaptable import Adaptable
 from .identifiable import Identifiable, Metadata
 from .invokable import Invokable, Invokation
 from .not_reconstructable import NotReconstructable

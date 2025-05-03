@@ -5,7 +5,7 @@ Requires:  pymongo>=4
 
 from __future__ import annotations
 
-from typing import List, TypeVar
+from typing import TypeVar
 from collections.abc import Sequence
 
 from pydantic import BaseModel

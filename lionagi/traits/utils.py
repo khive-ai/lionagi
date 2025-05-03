@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from integrity import Algo, digest
+from lionagi.traits._integrity import Algo, digest
 from pydantic import BaseModel
 
 

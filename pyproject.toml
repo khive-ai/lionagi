@@ -52,6 +52,9 @@ dev = [
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.5",
 ]
+db = [
+    "sqlalchemy>=2.0.40",
+]
 
 [project.optional-dependencies]
 tools = [

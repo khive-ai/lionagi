@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from .integrity import Algo, digest
+from ._integrity import Algo, digest
 
 
 # --------------------------------------------------------------------------- #
@@ -79,9 +79,7 @@ class Identifiable(BaseModel):
         """Return hex digest of the *content* (excluding metadata)."""
         return digest(self._content_dump(), algo=algo)
 
-    def prepare_for_storage(
-        self, *, algo: Algo = Algo.SHA256
-    ) -> "Identifiable":
+    def prepare_for_storage(self, *, algo: Algo = Algo.SHA256) -> Identifiable:
         """Return a **copy** whose metadata carries a fresh digest."""
         new_meta = self.metadata.model_copy(
             update={
