@@ -7,7 +7,7 @@ from typing import List, TypeVar
 import pandas as pd
 from pydantic import BaseModel
 
-from ..adapter import Adapter
+from .adapter import Adapter
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -36,7 +36,7 @@ class DataFrameAdapter(Adapter[T]):
     @classmethod
     def to_obj(
         cls,
-        subj: T | List[T],
+        subj: T | list[T],
         /,
         *,
         many: bool = True,

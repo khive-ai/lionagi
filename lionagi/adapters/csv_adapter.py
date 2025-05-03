@@ -7,7 +7,7 @@ from typing import TypeVar
 
 import pandas as pd
 
-from ..adapter import Adapter
+from .adapter import Adapter
 from .pd_dataframe_adapter import DataFrameAdapter
 
 T = TypeVar("T")

@@ -1,11 +1,10 @@
-
 """TOML adapters for any :class:`Adaptable` domain class."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, List, TypeVar
+from typing import Any, TypeVar
 
 import toml
 from pydantic import BaseModel
@@ -18,7 +17,7 @@ T = TypeVar("T", bound=BaseModel)
 # --------------------------------------------------------------------------- #
 # Helper to normalise 'many' TOML data                                        #
 # --------------------------------------------------------------------------- #
-def _ensure_list(data: Any) -> List[dict]:
+def _ensure_list(data: Any) -> list[dict]:
     """Return *list of dicts* no matter the input shape."""
     if isinstance(data, list):
         return data
@@ -69,7 +68,9 @@ class TomlAdapter(Adapter[T]):
     ) -> str:
         items = subj if isinstance(subj, list) else [subj]
         if many:
-            payload: dict[str, list[dict]] = { "items": [i.model_dump() for i in items] }
+            payload: dict[str, list[dict]] = {
+                "items": [i.model_dump() for i in items]
+            }
         else:
             payload = items[0].model_dump()
         return toml.dumps(payload, **kwargs)
@@ -115,7 +116,9 @@ class TomlFileAdapter(Adapter[T]):
         path = Path(fp)
         items = subj if isinstance(subj, list) else [subj]
         if many:
-            payload: dict[str, list[dict]] = { "items": [i.model_dump() for i in items] }
+            payload: dict[str, list[dict]] = {
+                "items": [i.model_dump() for i in items]
+            }
         else:
             payload = items[0].model_dump()
         with path.open(mode, encoding="utf-8") as f:
