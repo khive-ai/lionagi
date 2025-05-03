@@ -1,20 +1,22 @@
-import logging
+"""CSV adapter built on top of pandas DataFrame adapter."""
+
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TypeVar
 
 import pandas as pd
 
-from lionagi.protocols._concepts import Collective
+from ..adapter import Adapter
+from .pd_dataframe_adapter import DataFrameAdapter
 
-from ..adapter import Adapter, T
+T = TypeVar("T")
 
 
-class CSVFileAdapter(Adapter):
-    """
-    Reads/writes CSV files to a list of dicts or vice versa,
-    using `pandas`.
-    """
+class CsvAdapter(Adapter[T]):
+    """External representation: CSV *file* path or CSV text."""
 
-    obj_key = ".csv"
+    obj_key = "csv"
 
     @classmethod
     def from_obj(
@@ -23,72 +25,24 @@ class CSVFileAdapter(Adapter):
         obj: str | Path,
         /,
         *,
-        many: bool = False,
+        many: bool = True,
         **kwargs,
-    ) -> list[dict]:
-        """
-        Read a CSV file into a list of dictionaries.
-
-        Parameters
-        ----------
-        subj_cls : type[T]
-            The target class for context (not used).
-        obj : str | Path
-            The CSV file path.
-        many : bool, optional
-            If True, returns list[dict]; if False, returns only
-            the first dict.
-        **kwargs
-            Additional options for `pd.read_csv`.
-
-        Returns
-        -------
-        list[dict]
-            The parsed CSV data as a list of row dictionaries.
-        """
-        df: pd.DataFrame = pd.read_csv(obj, **kwargs)
-        dicts_ = df.to_dict(orient="records")
-        if many:
-            return dicts_
-        return dicts_[0] if len(dicts_) > 0 else {}
+    ):
+        # If obj is a path, read file; else assume CSV string
+        if isinstance(obj, (str, Path)) and Path(obj).exists():
+            df = pd.read_csv(obj, **kwargs)
+        else:
+            df = pd.read_csv(pd.compat.StringIO(str(obj)), **kwargs)
+        return DataFrameAdapter.from_obj(subj_cls, df, many=many)
 
     @classmethod
     def to_obj(
         cls,
-        subj: T,
+        subj: T | list[T],
         /,
         *,
-        fp: str | Path,
-        many: bool = False,
+        many: bool = True,
         **kwargs,
-    ) -> None:
-        """
-        Write an object's data to a CSV file.
-
-        Parameters
-        ----------
-        subj : T
-            The item(s) to convert. If `many=True`, can be a Collective.
-        fp : str | Path
-            File path to write the CSV.
-        many : bool
-            If True, we assume a collection of items, else a single item.
-        **kwargs
-            Extra params for `DataFrame.to_csv`.
-
-        Returns
-        -------
-        None
-        """
-        kwargs["index"] = False  # By default, do not save index
-        if many:
-            if isinstance(subj, Collective):
-                pd.DataFrame([i.to_dict() for i in subj]).to_csv(fp, **kwargs)
-            else:
-                pd.DataFrame([subj.to_dict()]).to_csv(fp, **kwargs)
-        else:
-            pd.DataFrame([subj.to_dict()]).to_csv(fp, **kwargs)
-        logging.info(f"CSV data saved to {fp}")
-
-
-# File: lionagi/protocols/adapters/pandas_/csv_adapter.py
+    ) -> str:
+        df = DataFrameAdapter.to_obj(subj, many=many)
+        return df.to_csv(index=False, **kwargs)

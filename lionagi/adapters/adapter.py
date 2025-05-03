@@ -1,120 +1,109 @@
-# Copyright (c) 2023 - 2025, HaiyangLi <quantocean.li at gmail dot com>
-#
-# SPDX-License-Identifier: Apache-2.0
+"""Polished *Adapter* abstraction and *AdapterRegistry*.
 
+An *adapter* converts between an internal domain object and some external
+representation (JSON string, CSV file, pandas.DataFrame, ...).
+
+Design goals
+------------
+* **Stateless** - all conversion logic is expressed as *class methods*.
+* **Pluggable** - register new adapters at runtime.
+* **Type-safe** - uses a *single* type parameter `T` representing the subject.
+* **Minimal surface** - exactly two conversion hooks: `from_obj` and `to_obj`.
 """
-Defines the `Adapter` protocol (a formal interface), along with the
-`AdapterRegistry` that maps string/file extensions or object keys to
-specific adapter implementations.
-"""
+
+from __future__ import annotations
 
 import logging
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, ClassVar, Protocol, TypeVar, runtime_checkable
 
-from typing_extensions import get_protocol_members
-
-T = TypeVar("T")
-
-__all__ = (
-    "Adapter",
-    "ADAPTER_MEMBERS",
-    "AdapterRegistry",
-)
+T = TypeVar("T")  # internal subject type
 
 
+# --------------------------------------------------------------------------- #
+# Adapter protocol                                                            #
+# --------------------------------------------------------------------------- #
 @runtime_checkable
-class Adapter(Protocol):
-    """
-    Describes a two-way converter that knows how to transform an object
-    from an external representation to an internal format, and vice versa.
+class Adapter(Protocol[T]):
+    """A stateless conversion helper between *subject* and *external* form.
 
-    Attributes
-    ----------
-    obj_key : str
-        A unique key or extension that identifies what format this
-        adapter supports (e.g. ".csv", "json", "pd_dataframe").
+    Each concrete adapter must declare a unique :pyattr:`obj_key`
+    (file-extension-style string, e.g. ``"json"``, ``".csv"``).
 
-    Methods
-    -------
-    from_obj(subj_cls: type[T], obj: Any, /, many: bool, **kwargs) -> dict|list[dict]
-        Converts a raw external object (file contents, JSON string, etc.)
-        into a dictionary or list of dictionaries.
-    to_obj(subj: T, /, many: bool, **kwargs) -> Any
-        Converts an internal object (e.g., a Pydantic-based model)
-        into the target format (file, JSON, DataFrame, etc.).
+    Implementations *must* provide two classmethods:
+
+    * :py:meth:`from_obj` - build **one or many** instances of ``T`` from
+      external object
+    * :py:meth:`to_obj`   - convert **one or many** ``T`` into external object
     """
 
-    obj_key: str
+    # unique identifier (e.g. "json", ".csv", "pd_dataframe")
+    obj_key: ClassVar[str]
 
+    # ---------- required conversion hooks ----------
     @classmethod
     def from_obj(
-        cls,
+        cls, subj_cls: type[T], obj: Any, /, *, many: bool = False, **kwargs
+    ) -> T | list[T]: ...
+
+    @classmethod
+    def to_obj(
+        cls, subj: T | list[T], /, *, many: bool = False, **kwargs
+    ) -> Any: ...
+
+
+# --------------------------------------------------------------------------- #
+# Adapter registry                                                            #
+# --------------------------------------------------------------------------- #
+class AdapterRegistry:
+    """Keeps a mapping ``obj_key -> adapter_cls``."""
+
+    def __init__(self) -> None:
+        self._reg: dict[str, type[Adapter]] = {}
+
+    # --------------------------------------------------------------------- #
+    # public API                                                            #
+    # --------------------------------------------------------------------- #
+    def register(self, adapter_cls: type[Adapter]) -> None:
+        key = getattr(adapter_cls, "obj_key", None)
+        if not key:
+            raise AttributeError(
+                "Adapter class must define 'obj_key' attribute"
+            )
+        if key in self._reg:
+            logging.warning(
+                "Adapter for '%s' replaced: %s -> %s",
+                key,
+                self._reg[key],
+                adapter_cls,
+            )
+        self._reg[key] = adapter_cls
+
+    def get(self, obj_key: str) -> type[Adapter]:
+        try:
+            return self._reg[obj_key]
+        except KeyError as exc:
+            raise KeyError(f"No adapter registered for '{obj_key}'") from exc
+
+    # convenience shortcuts
+    def adapt_from(
+        self,
         subj_cls: type[T],
         obj: Any,
         /,
         *,
-        many: bool,
+        obj_key: str,
+        many: bool = False,
         **kwargs,
-    ) -> dict | list[dict]: ...
+    ) -> T | list[T]:
+        return self.get(obj_key).from_obj(subj_cls, obj, many=many, **kwargs)
 
-    @classmethod
-    def to_obj(
-        cls,
-        subj: T,
+    def adapt_to(
+        self,
+        subj: T | list[T],
         /,
         *,
-        many: bool,
+        obj_key: str,
+        many: bool = False,
         **kwargs,
-    ) -> Any: ...
-
-
-ADAPTER_MEMBERS = get_protocol_members(Adapter)  # duck typing
-
-
-class AdapterRegistry:
-
-    _adapters: dict[str, Adapter] = {}
-
-    @classmethod
-    def list_adapters(cls) -> list[tuple[str | type, ...]]:
-        return list(cls._adapters.keys())
-
-    @classmethod
-    def register(cls, adapter: type[Adapter]) -> None:
-        for member in ADAPTER_MEMBERS:
-            if not hasattr(adapter, member):
-                _str = getattr(adapter, "obj_key", None) or repr(adapter)
-                _str = _str[:50] if len(_str) > 50 else _str
-                raise AttributeError(
-                    f"Adapter {_str} missing required methods."
-                )
-
-        if isinstance(adapter, type):
-            cls._adapters[adapter.obj_key] = adapter()
-        else:
-            cls._adapters[adapter.obj_key] = adapter
-
-    @classmethod
-    def get(cls, obj_key: type | str) -> Adapter:
-        try:
-            return cls._adapters[obj_key]
-        except Exception as e:
-            logging.error(f"Error getting adapter for {obj_key}. Error: {e}")
-
-    @classmethod
-    def adapt_from(
-        cls, subj_cls: type[T], obj: Any, obj_key: type | str, **kwargs
-    ) -> dict | list[dict]:
-        try:
-            return cls.get(obj_key).from_obj(subj_cls, obj, **kwargs)
-        except Exception as e:
-            logging.error(f"Error adapting data from {obj_key}. Error: {e}")
-            raise e
-
-    @classmethod
-    def adapt_to(cls, subj: T, obj_key: type | str, **kwargs) -> Any:
-        try:
-            return cls.get(obj_key).to_obj(subj, **kwargs)
-        except Exception as e:
-            logging.error(f"Error adapting data to {obj_key}. Error: {e}")
-            raise e
+    ) -> Any:
+        return self.get(obj_key).to_obj(subj, many=many, **kwargs)

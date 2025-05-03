@@ -1,94 +1,62 @@
-"""
-Provides an ExcelFileAdapter for reading/writing Excel (.xlsx) files
-via pandas.
-"""
+"""Excel adapter built on top of pandas DataFrame adapter."""
 
-import logging
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any, TypeVar
 
 import pandas as pd
 
-from lionagi.protocols._concepts import Collective
+from ..adapter import Adapter
+from .pd_dataframe_adapter import DataFrameAdapter
 
-from ..adapter import Adapter, T
+T = TypeVar("T")
 
 
-class ExcelFileAdapter(Adapter):
-    """
-    Reads/writes Excel (XLSX) files, using `pandas`.
-    """
+class ExcelAdapter(Adapter[T]):
+    """External representation: Excel *file* path or bytes stream."""
 
-    obj_key = ".xlsx"
+    obj_key = "xlsx"
 
     @classmethod
     def from_obj(
         cls,
         subj_cls: type[T],
-        obj: str | Path,
+        obj: str | Path | bytes,
         /,
         *,
-        many: bool = False,
+        many: bool = True,
+        sheet_name: str | int = 0,
         **kwargs,
-    ) -> list[dict]:
-        """
-        Read an Excel file into a list of dictionaries.
+    ):
+        if isinstance(obj, bytes):
+            import io
 
-        Parameters
-        ----------
-        subj_cls : type[T]
-            Target class for context.
-        obj : str | Path
-            The Excel file path.
-        many : bool, optional
-            If True, returns list[dict]. If False, returns single dict or first element.
-        **kwargs
-            Additional options for `pd.read_excel`.
-
-        Returns
-        -------
-        list[dict]
-        """
-        df: pd.DataFrame = pd.read_excel(obj, **kwargs)
-        dicts_ = df.to_dict(orient="records")
-        if many:
-            return dicts_
-        return dicts_[0] if len(dicts_) > 0 else {}
+            df = pd.read_excel(
+                io.BytesIO(obj), sheet_name=sheet_name, **kwargs
+            )
+        else:
+            df = pd.read_excel(obj, sheet_name=sheet_name, **kwargs)
+        return DataFrameAdapter.from_obj(subj_cls, df, many=many)
 
     @classmethod
     def to_obj(
         cls,
-        subj: T,
+        subj: T | list[T],
         /,
         *,
-        fp: str | Path,
-        many: bool = False,
+        many: bool = True,
+        sheet_name: str = "Sheet1",
+        path: str | Path | None = None,
         **kwargs,
-    ) -> None:
-        """
-        Write data to an Excel file.
+    ) -> bytes:
+        df = DataFrameAdapter.to_obj(subj, many=many)
+        import io
 
-        Parameters
-        ----------
-        subj : T
-            The object(s) to convert to Excel rows.
-        fp : str | Path
-            Path to save the XLSX file.
-        many : bool
-            If True, writes multiple items (e.g., a Collective).
-        **kwargs
-            Extra parameters for `DataFrame.to_excel`.
-        """
-        kwargs["index"] = False
-        if many:
-            if isinstance(subj, Collective):
-                pd.DataFrame([i.to_dict() for i in subj]).to_excel(
-                    fp, **kwargs
-                )
-            else:
-                pd.DataFrame([subj.to_dict()]).to_excel(fp, **kwargs)
-        else:
-            pd.DataFrame([subj.to_dict()]).to_excel(fp, **kwargs)
-        logging.info(f"Excel data saved to {fp}")
-
-
-# File: lionagi/protocols/adapters/pandas_/excel_adapter.py
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            df.to_excel(writer, sheet_name=sheet_name, index=False, **kwargs)
+        if path:
+            with open(path, "wb") as f:
+                f.write(buffer.getvalue())
+        return buffer.getvalue()
