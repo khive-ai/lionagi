@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import copy as _copy
 import functools
-import importlib.metadata
 import importlib.util
 import json
 import logging

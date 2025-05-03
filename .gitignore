@@ -176,3 +176,4 @@ notebooks/meta.json
 logs/
 temp_logs/
 dev/
+*.DS_Store
