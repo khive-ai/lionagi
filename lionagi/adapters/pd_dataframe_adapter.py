@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, TypeVar
+from typing import TypeVar
 
 import pandas as pd
 from pydantic import BaseModel
@@ -12,7 +12,7 @@ from .adapter import Adapter
 T = TypeVar("T", bound=BaseModel)
 
 
-class DataFrameAdapter(Adapter[T]):
+class PandasDataFrameAdapter(Adapter[T]):
     obj_key = "pd.DataFrame"
 
     @classmethod

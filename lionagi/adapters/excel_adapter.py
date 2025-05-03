@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import pandas as pd
 
 from .adapter import Adapter
-from .pd_dataframe_adapter import DataFrameAdapter
+from .pd_dataframe_adapter import PandasDataFrameAdapter
 
 T = TypeVar("T")
 
@@ -37,7 +37,7 @@ class ExcelAdapter(Adapter[T]):
             )
         else:
             df = pd.read_excel(obj, sheet_name=sheet_name, **kwargs)
-        return DataFrameAdapter.from_obj(subj_cls, df, many=many)
+        return PandasDataFrameAdapter.from_obj(subj_cls, df, many=many)
 
     @classmethod
     def to_obj(
@@ -50,7 +50,7 @@ class ExcelAdapter(Adapter[T]):
         path: str | Path | None = None,
         **kwargs,
     ) -> bytes:
-        df = DataFrameAdapter.to_obj(subj, many=many)
+        df = PandasDataFrameAdapter.to_obj(subj, many=many)
         import io
 
         buffer = io.BytesIO()

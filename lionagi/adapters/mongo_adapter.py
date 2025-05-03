@@ -5,7 +5,8 @@ Requires:  pymongo>=4
 
 from __future__ import annotations
 
-from typing import List, Sequence, TypeVar
+from typing import List, TypeVar
+from collections.abc import Sequence
 
 from pydantic import BaseModel
 
@@ -39,7 +40,7 @@ class MongoAdapter(Adapter[T]):
         *,
         many: bool = False,
         **kwargs,
-    ) -> T | List[T]:
+    ) -> T | list[T]:
         """
         obj must contain:  { "mongo_url": "...", "db": "...", "collection": "...", "filter": {...}}
         """

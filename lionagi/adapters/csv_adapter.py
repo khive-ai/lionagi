@@ -8,7 +8,7 @@ from typing import TypeVar
 import pandas as pd
 
 from .adapter import Adapter
-from .pd_dataframe_adapter import DataFrameAdapter
+from .pd_dataframe_adapter import PandasDataFrameAdapter
 
 T = TypeVar("T")
 
@@ -33,7 +33,7 @@ class CsvAdapter(Adapter[T]):
             df = pd.read_csv(obj, **kwargs)
         else:
             df = pd.read_csv(pd.compat.StringIO(str(obj)), **kwargs)
-        return DataFrameAdapter.from_obj(subj_cls, df, many=many)
+        return PandasDataFrameAdapter.from_obj(subj_cls, df, many=many)
 
     @classmethod
     def to_obj(
@@ -44,5 +44,5 @@ class CsvAdapter(Adapter[T]):
         many: bool = True,
         **kwargs,
     ) -> str:
-        df = DataFrameAdapter.to_obj(subj, many=many)
+        df = PandasDataFrameAdapter.to_obj(subj, many=many)
         return df.to_csv(index=False, **kwargs)

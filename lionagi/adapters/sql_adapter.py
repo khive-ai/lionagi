@@ -1,12 +1,13 @@
 # sql_adapter.py
 """
-SQLAdapter – converts between DB rows and pydantic models.
+SQLAdapter - converts between DB rows and pydantic models.
 Requires:  sqlalchemy>=2.0
 """
 
 from __future__ import annotations
 
-from typing import List, Sequence, TypeVar
+from typing import TypeVar
+from collections.abc import Sequence
 
 from pydantic import BaseModel
 
@@ -60,7 +61,7 @@ class SQLAdapter(Adapter[T]):
         *,
         many: bool = False,
         **kwargs,
-    ) -> T | List[T]:
+    ) -> T | list[T]:
         url = obj["engine_url"]
         table_name = obj["table"]
         selectors = obj.get("selectors") or {}
