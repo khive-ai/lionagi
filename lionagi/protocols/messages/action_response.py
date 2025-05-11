@@ -44,9 +44,7 @@ class ActionResponse(RoledMessage):
     the arguments used, and the output produced by the function.
     """
 
-    template: Template | str | None = jinja_env.get_template(
-        "action_response.jinja2"
-    )
+    template: Template | str | None = jinja_env.get_template("action_response.jinja2")
 
     @property
     def function(self) -> str:
@@ -148,9 +146,7 @@ class ActionResponse(RoledMessage):
                 action_request=action_request, output=output or self.output
             )
             action_request.action_response_id = self.id
-        super().update(
-            sender=sender, recipient=recipient, template=template, **kwargs
-        )
+        super().update(sender=sender, recipient=recipient, template=template, **kwargs)
 
 
 # File: lionagi/protocols/messages/action_response.py

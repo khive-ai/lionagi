@@ -4,8 +4,6 @@ import pytest
 from pydantic import ConfigDict
 
 from lionagi.protocols.types import (
-    MESSAGE_FIELDS,
-    MessageField,
     MessageFlag,
     MessageRole,
     RoledMessage,
@@ -45,9 +43,7 @@ def test_message_flag_enum():
 
 def test_roled_message_initialization():
     """Test basic initialization of RoledMessage"""
-    message = CustomMessage(
-        role=MessageRole.USER, sender="user", recipient="assistant"
-    )
+    message = CustomMessage(role=MessageRole.USER, sender="user", recipient="assistant")
 
     assert message.role == MessageRole.USER
     assert isinstance(message.content, dict)
@@ -59,16 +55,12 @@ def test_roled_message_role_validation():
     """Test role validation in RoledMessage"""
     # Valid roles
     for role in MessageRole:
-        message = CustomMessage(
-            role=role, sender="user", recipient="assistant"
-        )
+        message = CustomMessage(role=role, sender="user", recipient="assistant")
         assert message.role == role
 
     # Invalid role
     with pytest.raises(ValueError):
-        CustomMessage(
-            role="invalid_role", sender="user", recipient="assistant"
-        )
+        CustomMessage(role="invalid_role", sender="user", recipient="assistant")
 
 
 def test_roled_message_clone():

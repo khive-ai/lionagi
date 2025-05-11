@@ -35,9 +35,7 @@ def format_system_content(
         if isinstance(system_datetime, str):
             content["system_datetime"] = system_datetime
         else:
-            content["system_datetime"] = datetime.now().isoformat(
-                timespec="minutes"
-            )
+            content["system_datetime"] = datetime.now().isoformat(timespec="minutes")
     return content
 
 
@@ -48,9 +46,7 @@ class System(RoledMessage):
     constraints or identity.
     """
 
-    template: str | Template | None = jinja_env.get_template(
-        "system_message.jinja2"
-    )
+    template: str | Template | None = jinja_env.get_template("system_message.jinja2")
 
     @override
     @classmethod
@@ -137,9 +133,7 @@ class System(RoledMessage):
             self.content = format_system_content(
                 system_datetime=system_datetime, system_message=system_message
             )
-        super().update(
-            sender=sender, recipient=recipient, template=template, **kwargs
-        )
+        super().update(sender=sender, recipient=recipient, template=template, **kwargs)
 
 
 # File: lionagi/protocols/messages/system.py

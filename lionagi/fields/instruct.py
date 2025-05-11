@@ -97,12 +97,10 @@ class Instruct(HashableModel):
             "None: Contextual execution."
         ),
     )
-    action_strategy: Literal["batch", "sequential", "concurrent"] | None = (
-        Field(
-            None,
-            description="Action strategy to use for executing actions. Default "
-            "is 'concurrent'. Only provide for if actions are enabled.",
-        )
+    action_strategy: Literal["batch", "sequential", "concurrent"] | None = Field(
+        None,
+        description="Action strategy to use for executing actions. Default "
+        "is 'concurrent'. Only provide for if actions are enabled.",
     )
     batch_size: int | None = Field(
         None,

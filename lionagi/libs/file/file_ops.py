@@ -57,20 +57,14 @@ def get_file_size(path: Path | str) -> int:
         if path.is_file():
             return path.stat().st_size
         elif path.is_dir():
-            return sum(
-                f.stat().st_size for f in path.rglob("*") if f.is_file()
-            )
+            return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
         else:
             raise FileNotFoundError(f"{path} does not exist.")
     except PermissionError as e:
-        raise PermissionError(
-            f"Permission denied when accessing {path}"
-        ) from e
+        raise PermissionError(f"Permission denied when accessing {path}") from e
 
 
-def list_files(
-    dir_path: Path | str, extension: str | None = None
-) -> list[Path]:
+def list_files(dir_path: Path | str, extension: str | None = None) -> list[Path]:
     """
     List all files in a specified directory with an optional extension
     filter, including files in subdirectories.
@@ -111,8 +105,8 @@ def read_file(path: Path | str, /) -> str:
     try:
         return Path(path).read_text(encoding="utf-8")
     except FileNotFoundError as e:
-        logging.error(f"File not found: {path}: {e}")
+        logging.exception(f"File not found: {path}: {e}")
         raise
     except PermissionError as e:
-        logging.error(f"Permission denied when reading file: {path}: {e}")
+        logging.exception(f"Permission denied when reading file: {path}: {e}")
         raise

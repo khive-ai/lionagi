@@ -20,13 +20,10 @@ async def _act(
     suppress_errors: bool = False,
     verbose_action: bool = False,
 ) -> "ActionResponseModel":
-
     _request = {}
 
     if isinstance(action_request, BaseModel):
-        if hasattr(action_request, "function") and hasattr(
-            action_request, "arguments"
-        ):
+        if hasattr(action_request, "function") and hasattr(action_request, "arguments"):
             _request["function"] = action_request.function
             _request["arguments"] = action_request.arguments
     elif isinstance(action_request, dict):
@@ -42,9 +39,7 @@ async def _act(
 
         func_call = await branch._action_manager.invoke(_request)
         if verbose_action:
-            print(
-                f"Action {_request['function']} invoked, status: {func_call.status}."
-            )
+            print(f"Action {_request['function']} invoked, status: {func_call.status}.")
 
     except Exception as e:
         content = {
@@ -55,11 +50,9 @@ async def _act(
         }
         branch._log_manager.log(Log(content=content))
         if verbose_action:
-            print(f"Action {_request['function']} failed, error: {str(e)}.")
+            print(f"Action {_request['function']} failed, error: {e!s}.")
         if suppress_errors:
-            logging.error(
-                f"Error invoking action '{_request['function']}': {e}"
-            )
+            logging.exception(f"Error invoking action '{_request['function']}': {e}")
             return None
         raise e
 

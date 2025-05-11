@@ -54,9 +54,7 @@ async def chat(
     )
 
     progression = progression or branch.msgs.progression
-    messages: list[RoledMessage] = [
-        branch.msgs.messages[i] for i in progression
-    ]
+    messages: list[RoledMessage] = [branch.msgs.messages[i] for i in progression]
 
     use_ins = None
     _to_use = []
@@ -112,9 +110,7 @@ async def chat(
         for i in messages[1:]:
             if isinstance(i, AssistantResponse):
                 if isinstance(_msgs[-1], AssistantResponse):
-                    _msgs[-1].response = (
-                        f"{_msgs[-1].response}\n\n{i.response}"
-                    )
+                    _msgs[-1].response = f"{_msgs[-1].response}\n\n{i.response}"
                 else:
                     _msgs.append(i)
             else:

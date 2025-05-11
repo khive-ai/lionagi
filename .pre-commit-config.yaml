@@ -55,13 +55,3 @@ repos:
         # args: [--preview] # Only if preview is NOT set globally in ruff.toml and you want it for format specifically
         # files: \.(py|pyi|ipynb)$ # Explicitly include ipynb if you want ruff to format notebooks
         # types_or: [python, pyi, jupyter]
-
-  # Optional: If you still prefer Black for Jupyter notebooks and find ruff-format
-  # not yet suitable for your .ipynb files. Test ruff-format on notebooks first.
-  - repo: https://github.com/psf/black
-    rev: 24.4.2 # Or the version matching your dev dependencies (if any)
-    hooks:
-      - id: black-jupyter # Or just `id: black` if only for notebooks
-        name: black-format-ipynb
-        files: \.ipynb$
-        # additional_dependencies: ["black[jupyter]"] # if not in global env

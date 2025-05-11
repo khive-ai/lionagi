@@ -215,16 +215,12 @@ async def test_invoke_action_no_tools(branch_with_mock_imodel: Branch):
     If we pass an ActionRequest referencing an unregistered tool,
     we expect None + a Log error about 'not registered'.
     """
-    req = ActionRequest.create(
-        function="unregistered_tool", arguments={"x": 1}
-    )
+    req = ActionRequest.create(function="unregistered_tool", arguments={"x": 1})
     resp = await branch_with_mock_imodel.act(req)
     assert resp == []
     # logs => check the last entry for 'not registered'
     assert len(branch_with_mock_imodel.logs) == 1
-    assert "not registered" in (
-        branch_with_mock_imodel.logs[-1].content["error"] or ""
-    )
+    assert "not registered" in (branch_with_mock_imodel.logs[-1].content["error"] or "")
 
 
 @pytest.mark.asyncio
@@ -239,9 +235,7 @@ async def test_invoke_action_ok(branch_with_mock_imodel: Branch):
     # register the tool
     branch_with_mock_imodel.acts.register_tool(echo_tool)
 
-    req = ActionRequest.create(
-        function="echo_tool", arguments={"text": "hello"}
-    )
+    req = ActionRequest.create(function="echo_tool", arguments={"text": "hello"})
     resp = await branch_with_mock_imodel.act(req)
     # Should get ActionResponseModel with output = "ECHO: hello"
     assert resp is not None
@@ -277,7 +271,6 @@ def test_clone_with_id_sender(branch_with_mock_imodel: Branch):
     If clone requires an ID for 'sender', pass an actual ID.
     All messages in the clone have new 'sender' and the clone's id as 'recipient'.
     """
-    from lionagi.protocols.types import ID
 
     # add a roled message
     msg = RoledMessage(
@@ -301,7 +294,6 @@ async def test_aclone(branch_with_mock_imodel: Branch):
     """
     aclone(...) => same as clone, but async context lock on messages.
     """
-    from lionagi.protocols.types import ID
 
     msg = RoledMessage(
         role=MessageRole.USER,
@@ -423,8 +415,6 @@ async def test_instruct_calls_operate_when_actions_true(
     If instruct.actions=True, instruct => operate => returns 'mocked_response' unless skip_validation or parse is customized.
     """
     instruct = Instruct(instruction="Need actions", actions=True)
-    result = await branch_with_mock_imodel.instruct(
-        instruct, skip_validation=True
-    )
+    result = await branch_with_mock_imodel.instruct(instruct, skip_validation=True)
     assert result == """{"foo": "mocked_response", "bar": 123}"""
     assert len(branch_with_mock_imodel.messages) == 2

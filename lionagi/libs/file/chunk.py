@@ -202,11 +202,7 @@ def _format_chunks(
     chunks: list[list[str]], return_tokens: bool
 ) -> list[str | list[str]]:
     """Format chunks based on the return_tokens flag."""
-    return (
-        chunks
-        if return_tokens
-        else [" ".join(chunk).strip() for chunk in chunks]
-    )
+    return chunks if return_tokens else [" ".join(chunk).strip() for chunk in chunks]
 
 
 def chunk_content(

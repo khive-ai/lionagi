@@ -15,7 +15,6 @@ from .message import MessageRole, RoledMessage, Template, jinja_env
 def prepare_assistant_response(
     assistant_response: BaseModel | list[BaseModel] | dict | str | Any, /
 ) -> dict:
-
     assistant_response = (
         [assistant_response]
         if not isinstance(assistant_response, list)
@@ -26,7 +25,6 @@ def prepare_assistant_response(
     model_responses = []
 
     for i in assistant_response:
-
         if isinstance(i, BaseModel):
             i = i.model_dump(exclude_none=True, exclude_unset=True)
 
@@ -36,9 +34,7 @@ def prepare_assistant_response(
             # anthropic standard
             if "content" in i:
                 content = i["content"]
-                content = (
-                    [content] if not isinstance(content, list) else content
-                )
+                content = [content] if not isinstance(content, list) else content
                 for j in content:
                     if isinstance(j, dict):
                         if j.get("type") == "text":
@@ -49,9 +45,7 @@ def prepare_assistant_response(
             # openai standard
             elif "choices" in i:
                 choices = i["choices"]
-                choices = (
-                    [choices] if not isinstance(choices, list) else choices
-                )
+                choices = [choices] if not isinstance(choices, list) else choices
                 for j in choices:
                     if "message" in j:
                         text_contents.append(j["message"]["content"] or "")
@@ -147,9 +141,7 @@ class AssistantResponse(RoledMessage):
 
     def update(
         self,
-        assistant_response: (
-            BaseModel | list[BaseModel] | dict | str | Any
-        ) = None,
+        assistant_response: (BaseModel | list[BaseModel] | dict | str | Any) = None,
         sender: SenderRecipient | None = None,
         recipient: SenderRecipient | None = None,
         template: Template | str | None = None,
@@ -173,9 +165,7 @@ class AssistantResponse(RoledMessage):
         if assistant_response:
             content = prepare_assistant_response(assistant_response)
             self.content.update(content)
-        super().update(
-            sender=sender, recipient=recipient, template=template, **kwargs
-        )
+        super().update(sender=sender, recipient=recipient, template=template, **kwargs)
 
 
 # File: lionagi/protocols/messages/assistant_response.py

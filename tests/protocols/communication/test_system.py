@@ -27,9 +27,7 @@ def test_system_with_datetime():
 def test_system_with_custom_datetime():
     """Test System with custom datetime string"""
     custom_datetime = "2023-01-01 12:00:00"
-    system = System.create(
-        system_message="Test", system_datetime=custom_datetime
-    )
+    system = System.create(system_message="Test", system_datetime=custom_datetime)
 
     assert custom_datetime in system.content["system_datetime"]
     assert custom_datetime in system.rendered

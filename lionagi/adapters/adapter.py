@@ -72,7 +72,6 @@ ADAPTER_MEMBERS = get_protocol_members(Adapter)  # duck typing
 
 
 class AdapterRegistry:
-
     _adapters: dict[str, Adapter] = {}
 
     @classmethod
@@ -85,9 +84,7 @@ class AdapterRegistry:
             if not hasattr(adapter, member):
                 _str = getattr(adapter, "obj_key", None) or repr(adapter)
                 _str = _str[:50] if len(_str) > 50 else _str
-                raise AttributeError(
-                    f"Adapter {_str} missing required methods."
-                )
+                raise AttributeError(f"Adapter {_str} missing required methods.")
 
         if isinstance(adapter, type):
             cls._adapters[adapter.obj_key] = adapter()
@@ -99,7 +96,7 @@ class AdapterRegistry:
         try:
             return cls._adapters[obj_key]
         except Exception as e:
-            logging.error(f"Error getting adapter for {obj_key}. Error: {e}")
+            logging.exception(f"Error getting adapter for {obj_key}. Error: {e}")
 
     @classmethod
     def adapt_from(
@@ -108,7 +105,7 @@ class AdapterRegistry:
         try:
             return cls.get(obj_key).from_obj(subj_cls, obj, **kwargs)
         except Exception as e:
-            logging.error(f"Error adapting data from {obj_key}. Error: {e}")
+            logging.exception(f"Error adapting data from {obj_key}. Error: {e}")
             raise e
 
     @classmethod
@@ -116,5 +113,5 @@ class AdapterRegistry:
         try:
             return cls.get(obj_key).to_obj(subj, **kwargs)
         except Exception as e:
-            logging.error(f"Error adapting data to {obj_key}. Error: {e}")
+            logging.exception(f"Error adapting data to {obj_key}. Error: {e}")
             raise e

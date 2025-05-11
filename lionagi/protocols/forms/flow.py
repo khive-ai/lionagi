@@ -13,9 +13,7 @@ class FlowStep(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str = Field(..., description="Identifier for the step.")
-    inputs: list[str] = Field(
-        ..., description="Which fields are needed for this step."
-    )
+    inputs: list[str] = Field(..., description="Which fields are needed for this step.")
     outputs: list[str] = Field(
         ..., description="Which fields are produced by this step."
     )
@@ -46,7 +44,7 @@ class FlowDefinition(BaseModel):
             ins_str, outs_str = seg.split("->", 1)
             inputs = [x.strip() for x in ins_str.split(",") if x.strip()]
             outputs = [y.strip() for y in outs_str.split(",") if y.strip()]
-            step = FlowStep(name=f"step_{i+1}", inputs=inputs, outputs=outputs)
+            step = FlowStep(name=f"step_{i + 1}", inputs=inputs, outputs=outputs)
             self.steps.append(step)
 
     def get_required_fields(self) -> set[str]:

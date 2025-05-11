@@ -56,7 +56,6 @@ select = [
     "I",    # isort (ensure this is selected for import sorting)
     "ICN",  # flake8-import-conventions
     "INT",  # flake8-gettext
-    "ISC",  # implicit-str-concat (will be auto-fixed by ruff format)
     "LOG",  # flake8-logging
     "N",    # pep8-naming
     "PERF", # perflint
@@ -79,8 +78,6 @@ select = [
 
 ignore = [
     "B028",   # No explicit `stacklevel` keyword argument found
-    # "COM812", # No longer needed as ruff format handles trailing commas
-    # "ISC001", # No longer needed as ruff format handles implicit string concatenation
     "G004",   # Logging statement uses f-string
     "N818",   # Exception name should be named with an Error suffix
     "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
@@ -126,11 +123,11 @@ ignore = [
 # Configuration for the 'isort' import sorter.
 [lint.isort]
 known-first-party = ["lionagi"] # Example: Define your project's own modules
-profile = "black" # Ruff's default is largely compatible with black, explicit if needed
+# profile = "black" # Ruff's default is largely compatible with black, explicit if needed
 
 # Configuration for 'pydocstyle' if you enable 'D' rules in `select`.
 # [lint.pydocstyle]
-convention = "google" # Or "numpy", "pep257"
+# convention = "google" # Or "numpy", "pep257"
 # Example: Add D rules to `select` like "D100", "D101", "D102", "D103"
 # You would then uncomment the D-related ignores in `per-file-ignores` as needed.
 

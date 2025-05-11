@@ -4,7 +4,6 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import ClassVar
 
 from pydantic import (
     BaseModel,
@@ -12,7 +11,6 @@ from pydantic import (
     JsonValue,
     field_serializer,
     field_validator,
-    model_validator,
 )
 
 from lionagi.protocols.action.tool import Tool
@@ -49,9 +47,7 @@ class ResourceMeta(BaseModel):
 
 class Resource(Node):
     content: JsonValue = None
-    category: ResourceCategory = Field(
-        default=ResourceCategory.OTHER, frozen=True
-    )
+    category: ResourceCategory = Field(default=ResourceCategory.OTHER, frozen=True)
 
     @property
     def meta_obj(self) -> ResourceMeta:
@@ -69,10 +65,8 @@ class Resource(Node):
             return value
         if isinstance(value, str):
             return ResourceCategory(value)
-        raise ValueError(f"Invalid resource category: {str(value)}")
+        raise ValueError(f"Invalid resource category: {value!s}")
 
 
 class Prompt(Resource):
-    category: ResourceCategory = Field(
-        default=ResourceCategory.PROMPT, frozen=True
-    )
+    category: ResourceCategory = Field(default=ResourceCategory.PROMPT, frozen=True)

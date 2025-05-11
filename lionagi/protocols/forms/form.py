@@ -74,9 +74,7 @@ class Form(BaseForm):
         return {
             "assignment": self.assignment,
             "flow": (
-                self.flow_definition.model_dump()
-                if self.flow_definition
-                else None
+                self.flow_definition.model_dump() if self.flow_definition else None
             ),
             "guidance": self.guidance,
             "task": self.task,

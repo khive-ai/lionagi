@@ -58,9 +58,7 @@ class ActionRequest(RoledMessage):
     arguments, and optional linking to a subsequent `ActionResponse`.
     """
 
-    template: Template | str | None = jinja_env.get_template(
-        "action_request.jinja2"
-    )
+    template: Template | str | None = jinja_env.get_template("action_request.jinja2")
 
     @property
     def action_response_id(self) -> IDType | None:
@@ -193,9 +191,7 @@ class ActionRequest(RoledMessage):
                 function or self.function, arguments or self.arguments
             )
             self.content.update(action_request)
-        super().update(
-            sender=sender, recipient=recipient, template=template, **kwargs
-        )
+        super().update(sender=sender, recipient=recipient, template=template, **kwargs)
 
     def is_responded(self) -> bool:
         """

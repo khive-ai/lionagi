@@ -186,9 +186,7 @@ async def brainstormStream(
         logging.warning(
             "The 'operative_model' parameter is deprecated and will be removed in a future version.use 'response_format' instead."
         )
-        kwargs["response_format"] = kwargs.get(
-            "response_format", operative_model
-        )
+        kwargs["response_format"] = kwargs.get("response_format", operative_model)
 
     # -----------------------------------------------------------------
     # Basic Validations and Setup
@@ -252,25 +250,17 @@ async def brainstormStream(
         # If the initial result has instructions, run them
         if hasattr(res1, "instruct_models"):
             instructs: list[Instruct] = res1.instruct_models
-            brainstorm_results = await alcall(
-                instructs, run_brainstorm_instruction
-            )
-            brainstorm_results = to_list(
-                brainstorm_results, dropna=True, flatten=True
-            )
+            brainstorm_results = await alcall(instructs, run_brainstorm_instruction)
+            brainstorm_results = to_list(brainstorm_results, dropna=True, flatten=True)
 
             # Filter out plain str/dict responses, keep model-based
             filtered = [
                 r if not isinstance(r, (str, dict)) else None
                 for r in brainstorm_results
             ]
-            filtered = to_list(
-                filtered, unique=True, dropna=True, flatten=True
-            )
+            filtered = to_list(filtered, unique=True, dropna=True, flatten=True)
 
-            out.brainstorm = (
-                filtered if isinstance(filtered, list) else [filtered]
-            )
+            out.brainstorm = filtered if isinstance(filtered, list) else [filtered]
             # Insert the initial result at index 0 for reference
             filtered.insert(0, res1)
             response_ = filtered
@@ -282,11 +272,7 @@ async def brainstormStream(
         if response_ and auto_explore:
             # Gather all newly generated instructions
             all_explore_instructs = to_list(
-                [
-                    r.instruct_models
-                    for r in response_
-                    if hasattr(r, "instruct_models")
-                ],
+                [r.instruct_models for r in response_ if hasattr(r, "instruct_models")],
                 dropna=True,
                 unique=True,
                 flatten=True,
@@ -308,9 +294,7 @@ async def brainstormStream(
                             )
                             print(f"\n-----Exploring Idea-----\n{snippet}")
                         new_branch = session.split(branch)
-                        resp = await new_branch.instruct(
-                            ins_, **(explore_kwargs or {})
-                        )
+                        resp = await new_branch.instruct(ins_, **(explore_kwargs or {}))
                         return InstructResponse(instruct=ins_, response=resp)
 
                     res_explore = await alcall(
@@ -356,12 +340,8 @@ async def brainstormStream(
                                 else i.guidance
                             )
                             print(f"\n-----Exploring Idea-----\n{snippet}")
-                        seq_res = await branch.instruct(
-                            i, **(explore_kwargs or {})
-                        )
-                        ins_res = InstructResponse(
-                            instruct=i, response=seq_res
-                        )
+                        seq_res = await branch.instruct(i, **(explore_kwargs or {}))
+                        ins_res = InstructResponse(instruct=i, response=seq_res)
                         explore_results.append(ins_res)
                         yield ins_res
 
@@ -391,9 +371,7 @@ async def brainstormStream(
                             child_resp = await child_branch.instruct(
                                 ins_, **(explore_kwargs or {})
                             )
-                            return InstructResponse(
-                                instruct=ins_, response=child_resp
-                            )
+                            return InstructResponse(instruct=ins_, response=child_resp)
 
                         # Run all instructions in the chunk concurrently
                         res_chunk = await alcall(sub_instructs, _explore)
@@ -428,9 +406,7 @@ async def brainstormStream(
                 # ---------------------------------------------------------
                 case "concurrent_sequential_chunk":
                     chunk_size = (explore_kwargs or {}).get("chunk_size", 5)
-                    all_chunks = list(
-                        chunked(all_explore_instructs, chunk_size)
-                    )
+                    all_chunks = list(chunked(all_explore_instructs, chunk_size))
 
                     async def explore_chunk_sequentially(
                         sub_instructs: list[Instruct],
@@ -456,9 +432,7 @@ async def brainstormStream(
                                 ins_, **(explore_kwargs or {})
                             )
                             chunk_results.append(
-                                InstructResponse(
-                                    instruct=ins_, response=seq_resp
-                                )
+                                InstructResponse(instruct=ins_, response=seq_resp)
                             )
 
                         return chunk_results

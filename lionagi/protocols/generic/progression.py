@@ -116,9 +116,7 @@ class Progression(Element, Ordering[E], Generic[E]):
         """
         if not isinstance(key, (int, slice)):
             key_cls = key.__class__.__name__
-            raise TypeError(
-                f"indices must be integers or slices, not {key_cls}"
-            )
+            raise TypeError(f"indices must be integers or slices, not {key_cls}")
         try:
             a = self.order[key]
             if not a:

@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import Field
 
-from lionagi._errors import IDError, ItemNotFoundError
+from lionagi._errors import ItemNotFoundError
 from lionagi.protocols.types import ID, Element, IDType, Progression
 
 
@@ -25,9 +25,7 @@ def sample_progression(sample_elements):
 
 
 def generate_random_string(length: int) -> str:
-    return "".join(
-        random.choices(string.ascii_letters + string.digits, k=length)
-    )
+    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
 @pytest.mark.parametrize(
@@ -115,7 +113,7 @@ def test_delitem_slice(sample_progression):
 
 
 def test_iter(sample_progression, sample_elements):
-    for prog_item, element in zip(sample_progression, sample_elements):
+    for prog_item, element in zip(sample_progression, sample_elements, strict=False):
         assert prog_item == element.id
 
 
@@ -354,9 +352,7 @@ def test_progression_memory_efficiency():
     p = Progression(order=[Element() for _ in range(1000000)])
 
     # Calculate memory usage
-    memory_usage = sys.getsizeof(p) + sum(
-        sys.getsizeof(item) for item in p.order
-    )
+    memory_usage = sys.getsizeof(p) + sum(sys.getsizeof(item) for item in p.order)
 
     # Check if memory usage is reasonable (less than 100MB for 1 million elements)
     assert memory_usage < 100 * 1024 * 1024  # 100MB in bytes
@@ -370,8 +366,7 @@ def test_progression_serialization_advanced():
 
     p = Progression(
         order=[
-            ComplexElement(data={"value": i, "nested": {"x": i * 2}})
-            for i in range(5)
+            ComplexElement(data={"value": i, "nested": {"x": i * 2}}) for i in range(5)
         ]
     )
 
@@ -379,7 +374,5 @@ def test_progression_serialization_advanced():
     deserialized = Progression.from_dict(json.loads(serialized))
 
     assert len(deserialized) == 5
-    assert all(
-        isinstance(elem, IDType) for elem in deserialized
-    )  # IDs are IDTypes
+    assert all(isinstance(elem, IDType) for elem in deserialized)  # IDs are IDTypes
     assert p == deserialized

@@ -17,18 +17,14 @@ if TYPE_CHECKING:
 async def parse(
     branch: "Branch",
     text: str,
-    handle_validation: Literal[
-        "raise", "return_value", "return_none"
-    ] = "return_value",
+    handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
     max_retries: int = 3,
     request_type: type[BaseModel] = None,
     operative: Operative = None,
     similarity_algo="jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,
-    handle_unmatched: Literal[
-        "ignore", "raise", "remove", "fill", "force"
-    ] = "force",
+    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "force",
     fill_value: Any = None,
     fill_mapping: dict[str, Any] | None = None,
     strict: bool = False,
@@ -92,8 +88,6 @@ async def parse(
             case "return_none":
                 return None
             case "raise":
-                raise ValueError(
-                    "Failed to parse response into request format"
-                )
+                raise ValueError("Failed to parse response into request format")
 
     return response_model

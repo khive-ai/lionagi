@@ -21,7 +21,6 @@ __all__ = (
 
 
 def parse_action_request(content: str | dict) -> list[dict]:
-
     json_blocks = []
 
     if isinstance(content, BaseModel):
@@ -52,11 +51,7 @@ def parse_action_request(content: str | dict) -> list[dict]:
                 if "name" in i["function"]:
                     i["function"] = i["function"]["name"]
             for k, v in i.items():
-                k = (
-                    k.replace("action_", "")
-                    .replace("recipient_", "")
-                    .replace("s", "")
-                )
+                k = k.replace("action_", "").replace("recipient_", "").replace("s", "")
                 if k in ["name", "function", "recipient"]:
                     j["function"] = v
                 elif k in ["parameter", "argument", "arg", "param"]:

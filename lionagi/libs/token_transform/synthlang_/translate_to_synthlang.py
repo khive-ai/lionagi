@@ -42,32 +42,22 @@ async def translate_to_synthlang(
                 "num_encodings must be at least 1 if encode_token_map is provided"
             )
         if isinstance(encode_token_map, TokenMappingTemplate | str):
-            encode_token_map = TokenMapping.load_from_template(
-                encode_token_map
-            )
+            encode_token_map = TokenMapping.load_from_template(encode_token_map)
             additional_text += (
                 f"\nTransforming text with {encode_token_map.metadata['title']}"
                 f"\nOverview: {encode_token_map.metadata['overview']}"
             )
             encode_token_map = encode_token_map.content
         if not isinstance(encode_token_map, dict):
-            raise ValueError(
-                "encode_token_map must be a dict or TokenMappingTemplate"
-            )
+            raise ValueError("encode_token_map must be a dict or TokenMappingTemplate")
         for _ in range(num_encodings):
-            text = " ".join(
-                [str(i).strip() for i in text.split() if i.strip()]
-            )
+            text = " ".join([str(i).strip() for i in text.split() if i.strip()])
             for k, v in encode_token_map.items():
                 text = text.replace(k, v)
                 text = text.strip()
-        additional_text += (
-            f"\nthesaurus, lexicon, glossary:\n{encode_token_map}"
-        )
+        additional_text += f"\nthesaurus, lexicon, glossary:\n{encode_token_map}"
     if not isinstance(framework_template, SynthlangFramework):
-        framework_template = SynthlangFramework.load_from_template(
-            framework_template
-        )
+        framework_template = SynthlangFramework.load_from_template(framework_template)
 
     final_prompt = framework_template.create_system_prompt(
         framework_options, additional_text
@@ -108,7 +98,7 @@ async def translate_to_synthlang(
     )
 
     out = await branch.chat(
-        instruction=f"Converts the given text into SynthLang's hyper-efficient format.",
+        instruction="Converts the given text into SynthLang's hyper-efficient format.",
         context="Text to convert:\n\n" + text,
         chat_model=chat_model or branch.chat_model,
         **kwargs,
@@ -118,9 +108,7 @@ async def translate_to_synthlang(
     if encode_output:
         if isinstance(num_output_encodings, int) and num_output_encodings > 0:
             for _ in range(num_output_encodings):
-                out = " ".join(
-                    [str(i).strip() for i in out.split(" ") if i.strip()]
-                )
+                out = " ".join([str(i).strip() for i in out.split(" ") if i.strip()])
                 for k, v in encode_token_map.items():
                     out = out.replace(k, v).strip()
 
@@ -130,7 +118,7 @@ async def translate_to_synthlang(
     len_ = calculator.tokenize(out)
     if verbose:
         msg = "------------------------------------------\n"
-        msg += f"Compression Method: SynthLang\n"
+        msg += "Compression Method: SynthLang\n"
         msg += f"Compressed Token number: {len_}\n"
         msg += f"Token Compression Ratio: {len_ / len_tokens:.1%}\n"
         msg += f"Compression Time: {timer() - start:.03f} seconds\n"

@@ -48,9 +48,7 @@ async def operate(
     actions: bool = False,
     reason: bool = False,
     action_kwargs: dict = None,
-    action_strategy: Literal[
-        "sequential", "concurrent", "batch"
-    ] = "concurrent",
+    action_strategy: Literal["sequential", "concurrent", "batch"] = "concurrent",
     action_batch_size: int = None,
     verbose_action: bool = False,
     field_models: list[FieldModel] = None,
@@ -59,9 +57,7 @@ async def operate(
     request_param_kwargs: dict = None,
     response_params: ModelParams = None,
     response_param_kwargs: dict = None,
-    handle_validation: Literal[
-        "raise", "return_value", "return_none"
-    ] = "return_value",
+    handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
     operative_model: type[BaseModel] = None,
     request_model: type[BaseModel] = None,
     include_token_usage_to_model: bool = False,
@@ -163,9 +159,7 @@ async def operate(
             max_retries=operative.max_retries,
             handle_validation="return_value",
         )
-        operative.response_model = operative.update_response_model(
-            text=response_model
-        )
+        operative.response_model = operative.update_response_model(text=response_model)
 
     # If we still fail to parse, handle according to user preference
     if not isinstance(response_model, BaseModel):

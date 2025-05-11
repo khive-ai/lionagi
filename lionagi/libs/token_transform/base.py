@@ -22,15 +22,11 @@ class TokenMappingTemplate(str, Enum):
 
 
 class TokenMapping(Resource):
-    category: ResourceCategory = Field(
-        default=ResourceCategory.UTILITY, frozen=True
-    )
+    category: ResourceCategory = Field(default=ResourceCategory.UTILITY, frozen=True)
     content: dict
 
     @classmethod
-    def load_from_template(
-        cls, template: TokenMappingTemplate | str
-    ) -> TokenMapping:
+    def load_from_template(cls, template: TokenMappingTemplate | str) -> TokenMapping:
         if isinstance(template, str):
             template = template.lower().strip()
             template = (

@@ -31,9 +31,7 @@ def make_mocked_branch_for_react():
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(
-        "test_mock", model="test_chat_model", api_key="test_key"
-    )
+    mock_chat_model = iModel("test_mock", model="test_chat_model", api_key="test_key")
     mock_chat_model.invoke = mock_invoke
 
     branch.chat_model = mock_chat_model
@@ -59,11 +57,7 @@ async def test_react_basic_flow():
         "lionagi.session.branch.Branch.operate",
         new=AsyncMock(
             return_value=FakeAnalysis(
-                **{
-                    "analysis": "final_answer_mock",
-                    "extension_needed": False,
-                    "action_requests": [],
-                }
+                analysis="final_answer_mock", extension_needed=False, action_requests=[]
             )
         ),
     ):

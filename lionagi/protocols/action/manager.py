@@ -88,9 +88,7 @@ class ActionManager(Manager):
         if callable(tool):
             tool = Tool(func_callable=tool)
         if not isinstance(tool, Tool):
-            raise TypeError(
-                "Must provide a `Tool` object or a callable function."
-            )
+            raise TypeError("Must provide a `Tool` object or a callable function.")
         self.registry[tool.function] = tool
 
     def register_tools(
@@ -127,9 +125,7 @@ class ActionManager(Manager):
         Returns:
             FunctionCalling: The event object that can be invoked.
         """
-        if not isinstance(
-            action_request, ActionRequest | ActionRequestModel | dict
-        ):
+        if not isinstance(action_request, ActionRequest | ActionRequestModel | dict):
             raise TypeError(f"Unsupported type {type(action_request)}")
 
         func, args = None, None
@@ -239,10 +235,7 @@ class ActionManager(Manager):
                 return self.registry[name].tool_schema
             raise ValueError(f"Tool {name} is not registered.")
         elif isinstance(tool, list):
-            return [
-                self._get_tool_schema(t, auto_register=auto_register)
-                for t in tool
-            ]
+            return [self._get_tool_schema(t, auto_register=auto_register) for t in tool]
         raise TypeError(f"Unsupported type {type(tool)}")
 
 

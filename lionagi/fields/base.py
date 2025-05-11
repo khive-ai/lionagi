@@ -126,9 +126,7 @@ class OutlineItem(HashableModel):
     )
     summary: str | None = Field(
         default=None,
-        description=(
-            "A brief description of what this section will cover, if known."
-        ),
+        description=("A brief description of what this section will cover, if known."),
     )
 
 

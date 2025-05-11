@@ -41,9 +41,7 @@ def concat_files(
         )
 
     texts = []
-    data_path = (
-        [str(data_path)] if not isinstance(data_path, list) else data_path
-    )
+    data_path = [str(data_path)] if not isinstance(data_path, list) else data_path
     data_path = sorted(data_path)
     data_path = [Path(dp) for dp in data_path if Path(dp).exists()]
 
@@ -52,16 +50,14 @@ def concat_files(
         _fps = dir_to_files(dp, recursive=recursive, file_types=file_types)
 
         data_path = sorted([str(i) for i in _fps])
-        data_path: list[Path] = [
-            Path(dp) for dp in data_path if Path(dp).exists()
-        ]
+        data_path: list[Path] = [Path(dp) for dp in data_path if Path(dp).exists()]
 
         for fp in data_path:
             text = fp.read_text(encoding="utf-8")
             if len(text) >= threshold:
                 fp_text = (
                     "\n----------------------------------------------------\n"
-                    f"{str(fp)}"
+                    f"{fp!s}"
                     "\n----------------------------------------------------\n"
                 )
                 text = fp_text + text

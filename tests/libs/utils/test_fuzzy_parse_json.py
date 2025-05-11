@@ -103,14 +103,12 @@ def test_fix_json_string_escaped():
     """Test handling of escaped characters."""
     # Escaped quotes
     assert (
-        fix_json_string('{"key": "value \\"quote\\"')
-        == '{"key": "value \\"quote\\"}'
+        fix_json_string('{"key": "value \\"quote\\"') == '{"key": "value \\"quote\\"}'
     )
 
     # Escaped brackets
     assert (
-        fix_json_string('{"key": "\\{not a bracket"')
-        == '{"key": "\\{not a bracket"}'
+        fix_json_string('{"key": "\\{not a bracket"') == '{"key": "\\{not a bracket"}'
     )
 
 

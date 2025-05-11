@@ -39,9 +39,7 @@ async def communicate(
     **kwargs,
 ):
     if operative_model:
-        logging.warning(
-            "operative_model is deprecated. Use response_format instead."
-        )
+        logging.warning("operative_model is deprecated. Use response_format instead.")
     if (
         (operative_model and response_format)
         or (operative_model and request_model)

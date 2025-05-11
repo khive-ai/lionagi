@@ -113,9 +113,7 @@ class Operative(SchemaModel):
             d_.update(data)
             self.response_model = self.response_type.model_validate(d_)
 
-        if not self.response_model and isinstance(
-            self.response_str_dict, list
-        ):
+        if not self.response_model and isinstance(self.response_str_dict, list):
             try:
                 self.response_model = [
                     self.request_type.model_validate(d_)

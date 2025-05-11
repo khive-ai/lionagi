@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from functools import lru_cache, partial
+from functools import partial
 from inspect import isclass
 from pathlib import Path
 from typing import (
@@ -134,14 +134,11 @@ def hash_dict(data) -> int:
 
 
 class Params(BaseModel):
-
     def keys(self):
         return self.model_fields.keys()
 
     def __call__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "This method should be implemented in a subclass"
-        )
+        raise NotImplementedError("This method should be implemented in a subclass")
 
 
 class DataClass(ABC):
@@ -195,9 +192,7 @@ def time(
         return now
     elif type_ == "custom":
         if not custom_format:
-            raise ValueError(
-                "custom_format must be provided when type_='custom'"
-            )
+            raise ValueError("custom_format must be provided when type_='custom'")
         formatted_time = now.strftime(custom_format)
         if custom_sep is not None:
             for old_sep in ("-", ":", "."):
@@ -248,7 +243,7 @@ def is_same_dtype(
     return (result, dtype) if return_dtype else result
 
 
-@lru_cache(maxsize=None)
+@functools.cache
 def is_coro_func(func: Callable[..., Any]) -> bool:
     return asyncio.iscoroutinefunction(func)
 
@@ -360,8 +355,7 @@ def to_list(
 
         for item in lst:
             if dropna and (
-                item is None
-                or isinstance(item, (UndefinedType, PydanticUndefinedType))
+                item is None or isinstance(item, (UndefinedType, PydanticUndefinedType))
             ):
                 continue
 
@@ -372,15 +366,11 @@ def to_list(
                 item_list = list(item)
                 if flatten:
                     result.extend(
-                        _process_list(
-                            item_list, flatten=flatten, dropna=dropna
-                        )
+                        _process_list(item_list, flatten=flatten, dropna=dropna)
                     )
                 else:
                     result.append(
-                        _process_list(
-                            item_list, flatten=flatten, dropna=dropna
-                        )
+                        _process_list(item_list, flatten=flatten, dropna=dropna)
                     )
             else:
                 result.append(item)
@@ -397,9 +387,7 @@ def to_list(
         Returns:
             list: Initial list conversion of input.
         """
-        if input_ is None or isinstance(
-            input_, (UndefinedType, PydanticUndefinedType)
-        ):
+        if input_ is None or isinstance(input_, (UndefinedType, PydanticUndefinedType)):
             return []
 
         if isinstance(input_, list):
@@ -407,11 +395,7 @@ def to_list(
 
         if isinstance(input_, type) and issubclass(input_, Enum):
             members = input_.__members__.values()
-            return (
-                [member.value for member in members]
-                if use_values
-                else list(members)
-            )
+            return [member.value for member in members] if use_values else list(members)
 
         if isinstance(input_, (str, bytes, bytearray)):
             return list(input_) if use_values else [input_]
@@ -531,9 +515,7 @@ def lcall(
         try:
             func_list = list(func)
             if len(func_list) != 1 or not callable(func_list[0]):
-                raise ValueError(
-                    "func must contain exactly one callable function."
-                )
+                raise ValueError("func must contain exactly one callable function.")
             func = func_list[0]
         except TypeError as e:
             raise ValueError(
@@ -607,9 +589,7 @@ class CallParams(Params):
         return _d
 
     def __call__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "This method should be implemented in a subclass"
-        )
+        raise NotImplementedError("This method should be implemented in a subclass")
 
 
 class LCallParams(CallParams):
@@ -817,9 +797,7 @@ async def alcall(
 
     if retry_timing:
         # (index, result, duration)
-        filtered = [
-            (r[1], r[2]) for r in results if not dropna or r[1] is not None
-        ]
+        filtered = [(r[1], r[2]) for r in results if not dropna or r[1] is not None]
         return filtered
     else:
         # (index, result)
@@ -900,11 +878,10 @@ async def bcall(
     flatten_tuple_set: bool = False,
     **kwargs: Any,
 ) -> AsyncGenerator[list[T | tuple[T, float]], None]:
-
     input_ = to_list(input_, flatten=True, dropna=True)
 
     for i in range(0, len(input_), batch_size):
-        batch = input_[i : i + batch_size]  # noqa: E203
+        batch = input_[i : i + batch_size]
         yield await alcall(
             batch,
             func,
@@ -1057,9 +1034,7 @@ class CreatePathParams(Params):
     timestamp_format: str | None = None
     random_hash_digits: int = 0
 
-    def __call__(
-        self, directory: Path | str = None, filename: str = None
-    ) -> Path:
+    def __call__(self, directory: Path | str = None, filename: str = None) -> Path:
         return create_path(
             directory or self.directory,
             filename or self.filename,
@@ -1132,9 +1107,7 @@ def to_xml(
     return f"<{root_name}>{inner_xml}</{root_name}>"
 
 
-def fuzzy_parse_json(
-    str_to_parse: str, /
-) -> dict[str, Any] | list[dict[str, Any]]:
+def fuzzy_parse_json(str_to_parse: str, /) -> dict[str, Any] | list[dict[str, Any]]:
     """
     Attempt to parse a JSON string, trying a few minimal "fuzzy" fixes if needed.
 
@@ -1258,9 +1231,7 @@ class XMLParser:
         """Parse a single XML element and its children."""
         self._skip_whitespace()
         if self.xml_string[self.index] != "<":
-            raise ValueError(
-                f"Expected '<', found '{self.xml_string[self.index]}'"
-            )
+            raise ValueError(f"Expected '<', found '{self.xml_string[self.index]}'")
 
         tag, attributes = self._parse_opening_tag()
         children: dict[str, str | list | dict] = {}
@@ -1271,9 +1242,7 @@ class XMLParser:
             if self.xml_string.startswith("</", self.index):
                 closing_tag = self._parse_closing_tag()
                 if closing_tag != tag:
-                    raise ValueError(
-                        f"Mismatched tags: '{tag}' and '{closing_tag}'"
-                    )
+                    raise ValueError(f"Mismatched tags: '{tag}' and '{closing_tag}'")
                 break
             elif self.xml_string.startswith("<", self.index):
                 child = self._parse_element()
@@ -1301,7 +1270,7 @@ class XMLParser:
         """Parse an opening XML tag and its attributes."""
         match = re.match(
             r'<(\w+)((?:\s+\w+="[^"]*")*)\s*/?>',
-            self.xml_string[self.index :],  # noqa
+            self.xml_string[self.index :],
         )
         if not match:
             raise ValueError("Invalid opening tag")
@@ -1312,7 +1281,7 @@ class XMLParser:
 
     def _parse_closing_tag(self) -> str:
         """Parse a closing XML tag."""
-        match = re.match(r"</(\w+)>", self.xml_string[self.index :])  # noqa
+        match = re.match(r"</(\w+)>", self.xml_string[self.index :])
         if not match:
             raise ValueError("Invalid closing tag")
         self.index += match.end()
@@ -1321,17 +1290,14 @@ class XMLParser:
     def _parse_text(self) -> str:
         """Parse text content between XML tags."""
         start = self.index
-        while (
-            self.index < len(self.xml_string)
-            and self.xml_string[self.index] != "<"
-        ):
+        while self.index < len(self.xml_string) and self.xml_string[self.index] != "<":
             self.index += 1
-        return self.xml_string[start : self.index]  # noqa
+        return self.xml_string[start : self.index]
 
     def _skip_whitespace(self) -> None:
         """Skip any whitespace characters at the current parsing position."""
-        p_ = len(self.xml_string[self.index :])  # noqa
-        m_ = len(self.xml_string[self.index :].lstrip())  # noqa
+        p_ = len(self.xml_string[self.index :])
+        m_ = len(self.xml_string[self.index :].lstrip())
 
         self.index += p_ - m_
 
@@ -1372,7 +1338,6 @@ def xml_to_dict(
 
 
 def dict_to_xml(data: dict, /, root_tag: str = "root") -> str:
-
     root = ET.Element(root_tag)
 
     def convert(dict_obj: dict, parent: Any) -> None:
@@ -1471,20 +1436,15 @@ def recursive_to_dict(
     recursive_custom_types: bool = False,
     **kwargs: Any,
 ) -> Any:
-
     if not isinstance(max_recursive_depth, int):
         max_recursive_depth = 5
     else:
         if max_recursive_depth < 0:
-            raise ValueError(
-                "max_recursive_depth must be a non-negative integer"
-            )
+            raise ValueError("max_recursive_depth must be a non-negative integer")
         if max_recursive_depth == 0:
             return input_
         if max_recursive_depth > 10:
-            raise ValueError(
-                "max_recursive_depth must be less than or equal to 10"
-            )
+            raise ValueError("max_recursive_depth must be less than or equal to 10")
 
     return _recur_to_dict(
         input_,
@@ -1504,7 +1464,6 @@ def _recur_to_dict(
     recursive_custom_types: bool = False,
     **kwargs: Any,
 ) -> Any:
-
     if current_depth >= max_recursive_depth:
         return input_
 
@@ -1604,9 +1563,7 @@ def _str_to_dict(
     """
     if not parser:
         if str_type == "xml" and not parser:
-            parser = partial(
-                xml_to_dict, remove_root=remove_root, root_tag=root_tag
-            )
+            parser = partial(xml_to_dict, remove_root=remove_root, root_tag=root_tag)
 
         elif fuzzy_parse:
             parser = fuzzy_parse_json
@@ -1675,7 +1632,6 @@ def _to_dict(
     use_enum_values: bool = True,
     **kwargs: Any,
 ) -> dict[str, Any]:
-
     if isinstance(input_, set):
         return _set_to_dict(input_)
 
@@ -1754,9 +1710,7 @@ def to_json(
     # If only one match, return single dict; if multiple, return list of dicts
     if len(matches) == 1:
         data_str = matches[0]
-        return (
-            fuzzy_parse_json(data_str) if fuzzy_parse else json.loads(data_str)
-        )
+        return fuzzy_parse_json(data_str) if fuzzy_parse else json.loads(data_str)
 
     # Multiple matches
     if fuzzy_parse:
@@ -1880,9 +1834,7 @@ def force_async(fn: Callable[..., T]) -> Callable[..., Callable[..., T]]:
     return wrapper
 
 
-def throttle(
-    func: Callable[..., T], period: float
-) -> Callable[..., Callable[..., T]]:
+def throttle(func: Callable[..., T], period: float) -> Callable[..., Callable[..., T]]:
     """
     Throttle function execution to limit the rate of calls.
 
@@ -2034,10 +1986,8 @@ def to_num(
 
         except Exception as e:
             if len(type_and_value) == 2:
-                raise type(e)(
-                    f"Error processing {type_and_value[1]}: {str(e)}"
-                )
-            raise type(e)(f"Error processing {type_and_value}: {str(e)}")
+                raise type(e)(f"Error processing {type_and_value[1]}: {e!s}")
+            raise type(e)(f"Error processing {type_and_value}: {e!s}")
 
     if results and num_count == 1:
         return results[0]
@@ -2197,9 +2147,7 @@ def convert_type(
             raise TypeError("Cannot convert complex number to int")
         return target_type(value)
     except (ValueError, TypeError) as e:
-        raise TypeError(
-            f"Cannot convert {value} to {target_type.__name__}"
-        ) from e
+        raise TypeError(f"Cannot convert {value} to {target_type.__name__}") from e
 
 
 def apply_bounds(
@@ -2301,13 +2249,12 @@ def parse_number(type_and_value: tuple[str, str]) -> float | complex:
         raise ValueError(f"Unknown number type: {num_type}")
     except Exception as e:
         # Preserve the specific error type but wrap with more context
-        raise type(e)(f"Failed to parse {value} as {num_type}: {str(e)}")
+        raise type(e)(f"Failed to parse {value} as {num_type}: {e!s}")
 
 
 def breakdown_pydantic_annotation(
     model: type[B], max_depth: int | None = None, current_depth: int = 0
 ) -> dict[str, Any]:
-
     if not _is_pydantic_model(model):
         raise TypeError("Input must be a Pydantic model")
 
@@ -2318,16 +2265,12 @@ def breakdown_pydantic_annotation(
     for k, v in model.__annotations__.items():
         origin = get_origin(v)
         if _is_pydantic_model(v):
-            out[k] = breakdown_pydantic_annotation(
-                v, max_depth, current_depth + 1
-            )
+            out[k] = breakdown_pydantic_annotation(v, max_depth, current_depth + 1)
         elif origin is list:
             args = get_args(v)
             if args and _is_pydantic_model(args[0]):
                 out[k] = [
-                    breakdown_pydantic_annotation(
-                        args[0], max_depth, current_depth + 1
-                    )
+                    breakdown_pydantic_annotation(args[0], max_depth, current_depth + 1)
                 ]
             else:
                 out[k] = [args[0] if args else Any]
@@ -2407,9 +2350,7 @@ def check_import(
                     pip_name=pip_name,
                 )
             except ImportError as e:
-                raise ValueError(
-                    f"Failed to install {package_name}: {e}"
-                ) from e
+                raise ValueError(f"Failed to install {package_name}: {e}") from e
         else:
             logging.info(
                 f"Package {package_name} not found. {error_message}",
@@ -2449,9 +2390,7 @@ def import_module(
 
         if import_name:
             import_name = (
-                [import_name]
-                if not isinstance(import_name, list)
-                else import_name
+                [import_name] if not isinstance(import_name, list) else import_name
             )
             a = __import__(
                 full_import_path,
@@ -2464,9 +2403,7 @@ def import_module(
             return __import__(full_import_path)
 
     except ImportError as e:
-        raise ImportError(
-            f"Failed to import module {full_import_path}: {e}"
-        ) from e
+        raise ImportError(f"Failed to import module {full_import_path}: {e}") from e
 
 
 def install_import(
@@ -2563,9 +2500,7 @@ def pdf_to_images(
     """
     import os
 
-    convert_from_path = check_import(
-        "pdf2image", import_name="convert_from_path"
-    )
+    convert_from_path = check_import("pdf2image", import_name="convert_from_path")
 
     # Ensure the output folder exists
     os.makedirs(output_folder, exist_ok=True)
@@ -2576,7 +2511,7 @@ def pdf_to_images(
     saved_paths = []
     for i, image in enumerate(images):
         # Construct the output file name
-        image_file = os.path.join(output_folder, f"page_{i+1}.{fmt}")
+        image_file = os.path.join(output_folder, f"page_{i + 1}.{fmt}")
         image.save(image_file, fmt.upper())
         saved_paths.append(image_file)
 

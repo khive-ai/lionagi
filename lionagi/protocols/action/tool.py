@@ -80,9 +80,7 @@ class Tool(Element):
 
     @field_validator("func_callable", mode="before")
     def _validate_func_callable(cls, value: Any) -> Callable[..., Any]:
-        return validate_callable(
-            cls, value, undefind_able=False, check_name=True
-        )
+        return validate_callable(cls, value, undefind_able=False, check_name=True)
 
     @model_validator(mode="after")
     def _validate_tool_schema(self) -> Self:
@@ -112,9 +110,7 @@ class Tool(Element):
         try:
             a = {
                 k
-                for k, v in inspect.signature(
-                    self.func_callable
-                ).parameters.items()
+                for k, v in inspect.signature(self.func_callable).parameters.items()
                 if v.default == inspect.Parameter.empty
             }
             if "kwargs" in a:

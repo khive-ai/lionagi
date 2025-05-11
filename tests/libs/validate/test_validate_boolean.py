@@ -73,13 +73,9 @@ class TestValidateBoolean:
             validate_boolean(None)
 
         # Test empty string
-        with pytest.raises(
-            ValueError, match="Cannot convert empty string to boolean"
-        ):
+        with pytest.raises(ValueError, match="Cannot convert empty string to boolean"):
             validate_boolean("")
-        with pytest.raises(
-            ValueError, match="Cannot convert empty string to boolean"
-        ):
+        with pytest.raises(ValueError, match="Cannot convert empty string to boolean"):
             validate_boolean("   ")
 
         # Test invalid strings

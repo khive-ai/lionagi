@@ -1,6 +1,5 @@
 # File: tests/test_validate/test_validate_key.py
 
-from typing import Any
 
 import pytest
 
@@ -61,9 +60,7 @@ class TestValidateKeys:
         assert "emailAddress" not in result
 
         # Test with fuzzy matching disabled
-        result_no_fuzzy = fuzzy_match_keys(
-            test_dict, expected, fuzzy_match=False
-        )
+        result_no_fuzzy = fuzzy_match_keys(test_dict, expected, fuzzy_match=False)
         assert "user_name" in result_no_fuzzy
         assert "emailAddress" in result_no_fuzzy
 
@@ -77,9 +74,7 @@ class TestValidateKeys:
             fuzzy_match_keys(test_dict, expected, handle_unmatched="raise")
 
         # Test remove mode
-        result_remove = fuzzy_match_keys(
-            test_dict, expected, handle_unmatched="remove"
-        )
+        result_remove = fuzzy_match_keys(test_dict, expected, handle_unmatched="remove")
         assert "extra" not in result_remove
 
         # Test fill mode

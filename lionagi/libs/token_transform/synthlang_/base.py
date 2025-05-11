@@ -21,10 +21,7 @@ __all__ = (
 
 
 class SynthlangFramework(Resource):
-
-    category: ResourceCategory = Field(
-        default=ResourceCategory.FRAMEWORK, frozen=True
-    )
+    category: ResourceCategory = Field(default=ResourceCategory.FRAMEWORK, frozen=True)
 
     @classmethod
     def load_framework_options(cls) -> dict:
@@ -61,9 +58,7 @@ class SynthlangFramework(Resource):
                 lines.append(f"{fw['name']}: {fw['description']}")
                 lines.append("Glyphs:")
                 for g in fw["glyphs"]:
-                    lines.append(
-                        f"  {g['symbol']} -> {g['name']} ({g['description']})"
-                    )
+                    lines.append(f"  {g['symbol']} -> {g['name']} ({g['description']})")
                 lines.append("")
         return "\n".join(lines).strip()
 
@@ -72,13 +67,12 @@ class SynthlangFramework(Resource):
         framework_options: list[FRAMEWORK_CHOICES] = None,
         additional_text: str = "",
     ) -> str:
-
         framework_options_text = self.build_framework_text(framework_options)
         base_prompt = self.load_base_system_prompt()
         template_details = (
             f"Title: {self.meta_obj.title}\n"
-            f"Domain: {str(self.meta_obj.domain)}\n"
-            f"Category: {str(self.category)}\n"
+            f"Domain: {self.meta_obj.domain!s}\n"
+            f"Category: {self.category!s}\n"
             f"Overview: {self.meta_obj.overview}\n"
             "Excerpt:\n"
             f"{self.content}\n"

@@ -43,17 +43,12 @@ def extract_docstring(
     style = str(style).strip().lower()
 
     if style == "google":
-        func_description, params_description = (
-            _extract_docstring_details_google(func)
-        )
+        func_description, params_description = _extract_docstring_details_google(func)
     elif style == "rest":
-        func_description, params_description = _extract_docstring_details_rest(
-            func
-        )
+        func_description, params_description = _extract_docstring_details_rest(func)
     else:
         raise ValueError(
-            f'{style} is not supported. Please choose either "google" or'
-            ' "reST".'
+            f'{style} is not supported. Please choose either "google" or' ' "reST".'
         )
     return func_description, params_description
 
@@ -117,9 +112,7 @@ def _extract_docstring_details_google(
         elif lines[i].startswith(" "):
             param_desc = lines[i].split(":", 1)
             if len(param_desc) == 1:
-                params_description[
-                    current_param
-                ] += f" {param_desc[0].strip()}"
+                params_description[current_param] += f" {param_desc[0].strip()}"
                 continue
             param, desc = param_desc
             param = param.split("(")[0].strip()

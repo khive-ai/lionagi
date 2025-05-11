@@ -114,7 +114,4 @@ def test_element_bool():
 
 def test_element_class_name():
     assert Element.class_name() == "Element"
-    assert (
-        Element.class_name(full=True)
-        == "lionagi.protocols.generic.element.Element"
-    )
+    assert Element.class_name(full=True) == "lionagi.protocols.generic.element.Element"

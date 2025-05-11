@@ -25,7 +25,6 @@ CHAT_COMPLETION_CONFIG = {
 
 
 class ChatCompletionEndPoint(EndPoint):
-
     def __init__(self, config: dict = CHAT_COMPLETION_CONFIG):
         super().__init__(config)
 
@@ -45,7 +44,7 @@ class ChatCompletionEndPoint(EndPoint):
 
         provider = self.config.provider
 
-        if not provider in payload["model"]:
+        if provider not in payload["model"]:
             payload["model"] = f"{provider}/{payload['model']}"
 
         api_key = None
@@ -85,7 +84,7 @@ class ChatCompletionEndPoint(EndPoint):
 
         provider = self.config.provider
 
-        if not provider in payload["model"]:
+        if provider not in payload["model"]:
             payload["model"] = f"{provider}/{payload['model']}"
 
         api_key = None

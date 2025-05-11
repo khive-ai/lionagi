@@ -86,7 +86,7 @@ class OperableModel(HashableModel):
             dict[str, Any]: Serialized field values.
         """
         output_dict = {}
-        for k in value.keys():
+        for k in value:
             k_value = self.__dict__.get(k)
             if hasattr(k_value, "to_dict"):
                 k_value = k_value.to_dict()
@@ -225,9 +225,7 @@ class OperableModel(HashableModel):
                 UNDEFINED,
                 PydanticUndefined,
             ]:
-                setattr(
-                    self, field_name, self.extra_fields[field_name].default
-                )
+                setattr(self, field_name, self.extra_fields[field_name].default)
                 return
             if self.extra_fields[field_name].default_factory is not UNDEFINED:
                 setattr(
@@ -344,9 +342,7 @@ class OperableModel(HashableModel):
 
         if field_model:
             if not isinstance(field_model, FieldModel):
-                raise ValueError(
-                    "Invalid field_model, should be a FieldModel object"
-                )
+                raise ValueError("Invalid field_model, should be a FieldModel object")
             self.extra_fields[field_name] = field_model.field_info
             self.extra_field_models[field_name] = field_model
 
@@ -378,9 +374,9 @@ class OperableModel(HashableModel):
                     value = self.__dict__.get(field_name)
             if getattr(self, field_name, UNDEFINED) is not UNDEFINED:
                 value = getattr(self, field_name)
-            elif getattr(field_obj, "default") is not PydanticUndefined:
+            elif field_obj.default is not PydanticUndefined:
                 value = field_obj.default
-            elif getattr(field_obj, "default_factory"):
+            elif field_obj.default_factory:
                 value = field_obj.default_factory()
 
         setattr(self, field_name, value)
@@ -551,9 +547,7 @@ class OperableModel(HashableModel):
             >>> user = NewModel(name="Alice", age=30)
         """
 
-        use_fields = (
-            set(use_fields) if use_fields else set(self.all_fields.keys())
-        )
+        use_fields = set(use_fields) if use_fields else set(self.all_fields.keys())
         if not use_fields.issubset(self.all_fields.keys()):
             raise ValueError("Invalid field names in use_fields")
 

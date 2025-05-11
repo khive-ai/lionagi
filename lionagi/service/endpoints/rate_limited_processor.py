@@ -18,7 +18,6 @@ __all__ = (
 
 
 class RateLimitedAPIProcessor(Processor):
-
     event_type = APICalling
 
     def __init__(
@@ -42,9 +41,7 @@ class RateLimitedAPIProcessor(Processor):
         self.available_token = self.limit_tokens
         self._rate_limit_replenisher_task: asyncio.Task | None = None
         self._lock: asyncio.Lock = asyncio.Lock()
-        self._concurrency_sem = asyncio.Semaphore(
-            concurrency_limit or queue_capacity
-        )
+        self._concurrency_sem = asyncio.Semaphore(concurrency_limit or queue_capacity)
 
     async def start_replenishing(self):
         """Start replenishing rate limit capacities at regular intervals."""
@@ -63,7 +60,7 @@ class RateLimitedAPIProcessor(Processor):
         except asyncio.CancelledError:
             logging.info("Rate limit replenisher task cancelled.")
         except Exception as e:
-            logging.error(f"Error in rate limit replenisher: {e}")
+            logging.exception(f"Error in rate limit replenisher: {e}")
 
     @override
     async def stop(self) -> None:
@@ -125,7 +122,6 @@ class RateLimitedAPIProcessor(Processor):
 
 
 class RateLimitedAPIExecutor(Executor):
-
     processor_type = RateLimitedAPIProcessor
 
     def __init__(
@@ -146,9 +142,7 @@ class RateLimitedAPIExecutor(Executor):
             "limit_tokens": limit_tokens,
             "concurrency_limit": concurrency_limit,
         }
-        super().__init__(
-            processor_config=config, strict_event_type=strict_event_type
-        )
+        super().__init__(processor_config=config, strict_event_type=strict_event_type)
         self.config = config
         self.interval = interval
         self.limit_requests = limit_requests

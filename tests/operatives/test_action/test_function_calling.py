@@ -68,9 +68,7 @@ async def test_function_calling_init():
 async def test_function_calling_with_sync_function():
     """Test FunctionCalling with synchronous function."""
     tool = Tool(func_callable=helper_sync_func)
-    func_call = FunctionCalling(
-        func_tool=tool, arguments={"x": 1, "y": "test"}
-    )
+    func_call = FunctionCalling(func_tool=tool, arguments={"x": 1, "y": "test"})
 
     await func_call.invoke()
     assert func_call.status == EventStatus.COMPLETED
@@ -82,9 +80,7 @@ async def test_function_calling_with_sync_function():
 @pytest.mark.asyncio
 async def test_function_calling_with_async_function(async_tool):
     """Test FunctionCalling with asynchronous function."""
-    func_call = FunctionCalling(
-        func_tool=async_tool, arguments={"x": 1, "y": "test"}
-    )
+    func_call = FunctionCalling(func_tool=async_tool, arguments={"x": 1, "y": "test"})
 
     await func_call.invoke()
     assert func_call.status == EventStatus.COMPLETED
@@ -124,9 +120,7 @@ async def test_function_calling_error_handling():
 def test_function_calling_str_representation():
     """Test FunctionCalling string representations."""
     tool = Tool(func_callable=helper_sync_func)
-    func_call = FunctionCalling(
-        func_tool=tool, arguments={"x": 1, "y": "test"}
-    )
+    func_call = FunctionCalling(func_tool=tool, arguments={"x": 1, "y": "test"})
 
     # Test __str__
     str_rep = str(func_call)
@@ -192,9 +186,7 @@ async def test_strict_mode_exact_arguments():
     In strict mode, passing exactly the required parameters should succeed.
     """
     tool = Tool(func_callable=strict_func, strict_func_call=True)
-    func_call = FunctionCalling(
-        func_tool=tool, arguments={"a": 10, "b": "required"}
-    )
+    func_call = FunctionCalling(func_tool=tool, arguments={"a": 10, "b": "required"})
     await func_call.invoke()
 
     assert func_call.status == EventStatus.COMPLETED
@@ -249,9 +241,7 @@ async def test_non_strict_mode_minimum_required():
 async def test_non_strict_mode_extra_arguments():
     tool = Tool(func_callable=non_strict_func, strict_func_call=False)
     # 'd' is extra, not in the function signature.
-    func_call = FunctionCalling(
-        func_tool=tool, arguments={"a": 1, "b": "override"}
-    )
+    func_call = FunctionCalling(func_tool=tool, arguments={"a": 1, "b": "override"})
     await func_call.invoke()
 
     assert func_call.status == EventStatus.COMPLETED

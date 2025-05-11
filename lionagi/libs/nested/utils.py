@@ -109,16 +109,10 @@ def is_structure_homogeneous(
         return True, structure_type
 
     is_homogeneous, structure_type = _check_structure(structure)
-    return (
-        (is_homogeneous, structure_type)
-        if return_structure_type
-        else is_homogeneous
-    )
+    return (is_homogeneous, structure_type) if return_structure_type else is_homogeneous
 
 
-def deep_update(
-    original: dict[Any, Any], update: dict[Any, Any]
-) -> dict[Any, Any]:
+def deep_update(original: dict[Any, Any], update: dict[Any, Any]) -> dict[Any, Any]:
     """
     Recursively merge two dicts, updating nested dicts instead of overwriting.
 
@@ -176,14 +170,10 @@ def get_target_container(
             else:
                 raise KeyError("Key not found in dictionary")
         else:
-            raise TypeError(
-                "Current element is neither a list nor a dictionary"
-            )
+            raise TypeError("Current element is neither a list nor a dictionary")
     return current_element
 
 
-def ensure_list_index(
-    lst: list[Any], index: int, default: Any = UNDEFINED
-) -> None:
+def ensure_list_index(lst: list[Any], index: int, default: Any = UNDEFINED) -> None:
     while len(lst) <= index:
         lst.append(default if default is not UNDEFINED else None)

@@ -20,14 +20,10 @@ __all__ = (
 
 
 class FuzzyMatchKeysParams(Params):
-    similarity_algo: SIMILARITY_TYPE | Callable[[str, str], float] = (
-        "jaro_winkler"
-    )
+    similarity_algo: SIMILARITY_TYPE | Callable[[str, str], float] = "jaro_winkler"
     similarity_threshold: float = 0.85
     fuzzy_match: bool = True
-    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = (
-        "ignore"
-    )
+    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "ignore"
     fill_value: Any = None
     fill_mapping: dict[str, Any] | None = None
     strict: bool = False
@@ -53,14 +49,10 @@ def fuzzy_match_keys(
     keys: Sequence[str] | KeysDict,
     /,
     *,
-    similarity_algo: (
-        SIMILARITY_TYPE | Callable[[str, str], float]
-    ) = "jaro_winkler",
+    similarity_algo: (SIMILARITY_TYPE | Callable[[str, str], float]) = "jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,
-    handle_unmatched: Literal[
-        "ignore", "raise", "remove", "fill", "force"
-    ] = "ignore",
+    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "ignore",
     fill_value: Any = None,
     fill_mapping: dict[str, Any] | None = None,
     strict: bool = False,
@@ -113,9 +105,7 @@ def fuzzy_match_keys(
     # Get similarity function
     if isinstance(similarity_algo, str):
         if similarity_algo not in SIMILARITY_ALGO_MAP:
-            raise ValueError(
-                f"Unknown similarity algorithm: {similarity_algo}"
-            )
+            raise ValueError(f"Unknown similarity algorithm: {similarity_algo}")
         similarity_func = SIMILARITY_ALGO_MAP[similarity_algo]
     else:
         similarity_func = similarity_algo

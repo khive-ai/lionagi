@@ -160,9 +160,7 @@ class TestGraphContainment:
         graph, _, _, edge = simple_graph
         assert edge in graph
         assert (
-            Edge(
-                head=create_test_node("Node1"), tail=create_test_node("Node2")
-            )
+            Edge(head=create_test_node("Node1"), tail=create_test_node("Node2"))
             not in graph
         )
 

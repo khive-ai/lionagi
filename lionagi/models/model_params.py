@@ -117,18 +117,10 @@ class ModelParams(SchemaModel):
             A dictionary mapping field names to tuples of (type, FieldInfo),
             containing only the fields that should be included in the new model.
         """
-        params = {
-            k: v
-            for k, v in self.parameter_fields.items()
-            if k in self._use_keys
-        }
-        params.update(
-            {
-                f.name: f.field_info
-                for f in self.field_models
-                if f.name in self._use_keys
-            }
-        )
+        params = {k: v for k, v in self.parameter_fields.items() if k in self._use_keys}
+        params.update({
+            f.name: f.field_info for f in self.field_models if f.name in self._use_keys
+        })
         return {k: (v.annotation, v) for k, v in params.items()}
 
     @field_validator("parameter_fields", mode="before")
@@ -261,9 +253,7 @@ class ModelParams(SchemaModel):
         if self.base_type is not None:
             self.parameter_fields.update(copy(self.base_type.model_fields))
 
-        self.parameter_fields.update(
-            {f.name: f.field_info for f in self.field_models}
-        )
+        self.parameter_fields.update({f.name: f.field_info for f in self.field_models})
 
         use_keys = list(self.parameter_fields.keys())
         use_keys.extend(list(self._use_keys))
@@ -308,9 +298,7 @@ class ModelParams(SchemaModel):
         base_type = self.base_type if self.inherit_base else None
 
         if base_type and self.exclude_fields:
-            if any(
-                i in self.exclude_fields for i in self.base_type.model_fields
-            ):
+            if any(i in self.exclude_fields for i in self.base_type.model_fields):
                 base_type = None
 
         a: type[BaseModel] = create_model(

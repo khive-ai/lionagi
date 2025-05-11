@@ -56,8 +56,8 @@ def test_fill_fields():
     """Test fill_fields method."""
     form = Form(assignment="input -> output")
     form.fill_fields(input="value1", output="value2")
-    assert getattr(form, "input") == "value1"
-    assert getattr(form, "output") == "value2"
+    assert form.input == "value1"
+    assert form.output == "value2"
 
 
 def test_to_instructions():
@@ -85,9 +85,7 @@ def test_to_instructions():
 
 def test_form_with_none_values():
     """Test form behavior with None values."""
-    form = SimpleTaskForm(
-        assignment="input_value -> output_value", none_as_valid=True
-    )
+    form = SimpleTaskForm(assignment="input_value -> output_value", none_as_valid=True)
 
     # None should be valid
     form.input_value = None

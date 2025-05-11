@@ -96,9 +96,7 @@ def test_jaro_winkler_similarity_with_scaling(
 ) -> None:
     """Test Jaro-Winkler similarity function with various inputs and scaling."""
     assert (
-        pytest.approx(
-            jaro_winkler_similarity(s1, s2, scaling=scaling), abs=1e-4
-        )
+        pytest.approx(jaro_winkler_similarity(s1, s2, scaling=scaling), abs=1e-4)
         == expected
     )
 
@@ -169,9 +167,7 @@ def test_similarity_algorithms_bounds() -> None:
     for algo_name, func in SIMILARITY_ALGO_MAP.items():
         for s1, s2 in test_cases:
             score = func(s1, s2)
-            assert (
-                0 <= score <= 1
-            ), f"{algo_name} returned {score} for {s1}, {s2}"
+            assert 0 <= score <= 1, f"{algo_name} returned {score} for {s1}, {s2}"
 
 
 def test_all_algorithms_handle_special_characters() -> None:
@@ -269,9 +265,7 @@ def test_string_similarity_threshold(word, words, threshold, expected):
         ("Python", ["python", "PYTHON"], False, ["python", "PYTHON"]),
     ],
 )
-def test_string_similarity_case_sensitivity(
-    word, words, case_sensitive, expected
-):
+def test_string_similarity_case_sensitivity(word, words, case_sensitive, expected):
     """Test case sensitivity handling."""
     result = string_similarity(word, words, case_sensitive=case_sensitive)
     assert result == expected
@@ -327,23 +321,15 @@ def test_string_similarity_edge_cases():
 
     # Unicode
     assert (
-        string_similarity(
-            "hello世界", ["hello世界", "hello"], return_most_similar=True
-        )
+        string_similarity("hello世界", ["hello世界", "hello"], return_most_similar=True)
         == "hello世界"
     )
 
     # Numbers
-    assert (
-        string_similarity("123", ["123", "456"], return_most_similar=True)
-        == "123"
-    )
+    assert string_similarity("123", ["123", "456"], return_most_similar=True) == "123"
 
     # Special characters
-    assert (
-        string_similarity("!@#", ["!@#", "abc"], return_most_similar=True)
-        == "!@#"
-    )
+    assert string_similarity("!@#", ["!@#", "abc"], return_most_similar=True) == "!@#"
 
 
 def test_string_similarity_with_threshold():

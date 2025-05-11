@@ -114,9 +114,7 @@ def format_text_content(content: dict) -> str:
                 # Indent or bullet the rendered result if multiline
                 # We'll keep it minimal: each line is prefixed with "  ".
                 lines.extend(
-                    f"  {line}"
-                    for line in rendered.split("\n")
-                    if line.strip()
+                    f"  {line}" for line in rendered.split("\n") if line.strip()
                 )
 
     # Join all lines into a single string
@@ -257,9 +255,7 @@ def prepare_instruction_content(
         ValueError: If request_fields and request_model are both given.
     """
     if request_fields and request_model:
-        raise ValueError(
-            "only one of request_fields or request_model can be provided"
-        )
+        raise ValueError("only one of request_fields or request_model can be provided")
 
     out_ = {"context": []}
     if guidance:
@@ -358,13 +354,7 @@ class Instruction(RoledMessage):
             ValueError: If more than one of `request_fields`, `request_model`,
                 or `response_format` is passed at once.
         """
-        if (
-            sum(
-                bool(i)
-                for i in [request_fields, request_model, response_format]
-            )
-            > 1
-        ):
+        if sum(bool(i) for i in [request_fields, request_model, response_format]) > 1:
             raise ValueError(
                 "only one of request_fields or request_model can be provided"
                 "response_format is alias of request_model"
@@ -420,9 +410,7 @@ class Instruction(RoledMessage):
         if ctx is None:
             self.content["context"] = []
         else:
-            self.content["context"] = (
-                list(ctx) if isinstance(ctx, list) else [ctx]
-            )
+            self.content["context"] = list(ctx) if isinstance(ctx, list) else [ctx]
 
     @property
     def tool_schemas(self) -> JsonValue | None:
@@ -466,8 +454,8 @@ class Instruction(RoledMessage):
     @request_fields.setter
     def request_fields(self, fields: dict) -> None:
         self.content["request_fields"] = fields
-        self.content["request_response_format"] = (
-            prepare_request_response_format(fields)
+        self.content["request_response_format"] = prepare_request_response_format(
+            fields
         )
 
     @property

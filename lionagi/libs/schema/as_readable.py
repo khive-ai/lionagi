@@ -116,11 +116,7 @@ def as_readable(
                 # Single item
                 maybe_list = to_dict_safe(i_)
                 # If it's a list, store as items; else just single
-                items = (
-                    maybe_list
-                    if isinstance(maybe_list, list)
-                    else [maybe_list]
-                )
+                items = maybe_list if isinstance(maybe_list, list) else [maybe_list]
         except Exception:
             # If conversion fails, fallback to str
             return str(i_)
@@ -135,9 +131,7 @@ def as_readable(
                 # JSON approach
                 try:
                     # Provide indentation, ensure ASCII not forced
-                    rendered.append(
-                        json.dumps(item, indent=2, ensure_ascii=False)
-                    )
+                    rendered.append(json.dumps(item, indent=2, ensure_ascii=False))
                 except Exception:
                     # fallback
                     rendered.append(str(item))

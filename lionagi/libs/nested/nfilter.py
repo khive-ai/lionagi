@@ -34,9 +34,7 @@ def nfilter(
     elif isinstance(nested_structure, list):
         return _filter_list(nested_structure, condition)
     else:
-        raise TypeError(
-            "The nested_structure must be either a dict or a list."
-        )
+        raise TypeError("The nested_structure must be either a dict or a list.")
 
 
 def _filter_dict(
@@ -49,9 +47,7 @@ def _filter_dict(
     }
 
 
-def _filter_list(
-    lst: list[Any], condition: Callable[[Any], bool]
-) -> list[Any]:
+def _filter_list(lst: list[Any], condition: Callable[[Any], bool]) -> list[Any]:
     return [
         nfilter(item, condition) if isinstance(item, dict | list) else item
         for item in lst

@@ -1,5 +1,3 @@
-import pytest
-
 from lionagi.protocols.types import ActionRequest, ActionResponse, MessageRole
 
 
@@ -13,9 +11,7 @@ def test_action_response_initialization():
     )
     output = {"result": "success"}
 
-    response = ActionResponse.create(
-        action_request=action_request, output=output
-    )
+    response = ActionResponse.create(action_request=action_request, output=output)
 
     assert response.role == MessageRole.ACTION
     assert response.function == action_request.function
@@ -46,9 +42,7 @@ def test_action_response_content_format():
         recipient="assistant",
     )
     output = {"status": "complete"}
-    response = ActionResponse.create(
-        action_request=action_request, output=output
-    )
+    response = ActionResponse.create(action_request=action_request, output=output)
 
     formatted = response.chat_msg
     assert formatted["role"] == MessageRole.ACTION.value
@@ -64,9 +58,7 @@ def test_action_response_properties():
         recipient="assistant",
     )
     output = {"status": "success"}
-    response = ActionResponse.create(
-        action_request=action_request, output=output
-    )
+    response = ActionResponse.create(action_request=action_request, output=output)
 
     assert response.function == "test_function"
     assert response.arguments == {"param": "value"}

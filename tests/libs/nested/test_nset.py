@@ -107,9 +107,7 @@ def test_nset_with_negative_list_index():
 
 def test_nset_with_string_key_for_list():
     data = [1, 2, 3]
-    with pytest.raises(
-        TypeError, match="Cannot use non-integer index on a list"
-    ):
+    with pytest.raises(TypeError, match="Cannot use non-integer index on a list"):
         nset(data, ["key"], 4)
 
 

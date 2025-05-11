@@ -60,15 +60,13 @@ class PerplexityScores:
         if "tokens" in log_prob and "token_logprobs" in log_prob:
             # OpenAI style logprobs
             for token, lp in zip(
-                log_prob["tokens"], log_prob["token_logprobs"]
+                log_prob["tokens"], log_prob["token_logprobs"], strict=False
             ):
                 outs.append({"token": token, "logprob": lp})
         elif "content" in log_prob:
             # Old style logprobs
             for item in log_prob["content"]:
-                outs.append(
-                    {"token": item["token"], "logprob": item["logprob"]}
-                )
+                outs.append({"token": item["token"], "logprob": item["logprob"]})
         return outs
 
     def to_dict(self) -> dict:
@@ -117,9 +115,7 @@ async def compute_perplexity(
     if n_samples == 1:
         samples = [tokens]
     else:
-        samples = [
-            tokens[: (i + 1) * sample_token_len] for i in range(n_samples)
-        ]
+        samples = [tokens[: (i + 1) * sample_token_len] for i in range(n_samples)]
         if use_residue and residue != 0:
             samples.append(tokens[-residue:])
 
@@ -149,9 +145,7 @@ async def compute_perplexity(
         else:
             messages.append({"role": "user", "content": sample_txt})
 
-        api_calls.append(
-            chat_model.create_api_calling(messages=messages, **kwargs)
-        )
+        api_calls.append(chat_model.create_api_calling(messages=messages, **kwargs))
 
     results = await alcall(api_calls, _inner, max_concurrent=50)
 
@@ -307,12 +301,10 @@ class LLMCompressor:
                 seg_toks = i if isinstance(i, list) else [i]
                 segments.append(" ".join(seg_toks))
 
-        tasks = [
-            asyncio.create_task(_get_item_perplexity(seg)) for seg in segments
-        ]
+        tasks = [asyncio.create_task(_get_item_perplexity(seg)) for seg in segments]
         results = await asyncio.gather(*tasks)
         # Pair each item with the first pplex (p[0]) if multiple were returned
-        pairs = [(itm, pplex[0]) for itm, pplex in zip(items, results)]
+        pairs = [(itm, pplex[0]) for itm, pplex in zip(items, results, strict=False)]
 
         # Sort descending by perplexity
         return sorted(pairs, key=lambda x: x[1].perplexity, reverse=True)
@@ -362,8 +354,7 @@ class LLMCompressor:
         # Select
         selected = self.select_by_pplex(
             ranked_items=ranked,
-            target_compression_ratio=compression_ratio
-            or self.compression_ratio,
+            target_compression_ratio=compression_ratio or self.compression_ratio,
             original_length=original_len,
             min_pplx=min_pplx or self.min_pplx,
         )
@@ -375,7 +366,7 @@ class LLMCompressor:
             compressed_chars = len(out_str)
             ratio = compressed_chars / ttl_chars if original_len else 1
             msg = "------------------------------------------\n"
-            msg += f"Compression Method: Perplexity\n"
+            msg += "Compression Method: Perplexity\n"
             msg += f"Compressed Characters number: {compressed_chars}\n"
             msg += f"Character Compression Ratio: {ratio:.1%}\n"
             msg += f"Compression Time: {timer() - start:.3f}s\n"

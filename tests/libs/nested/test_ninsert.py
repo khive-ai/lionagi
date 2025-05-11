@@ -90,9 +90,7 @@ def test_ninsert_with_large_nested_structure():
         ({}, ["a", 0, "b"], 1, {"a": [{"b": 1}]}),
     ],
 )
-def test_ninsert_create_intermediate_structures(
-    data, indices, value, expected
-):
+def test_ninsert_create_intermediate_structures(data, indices, value, expected):
     ninsert(data, indices, value)
     assert data == expected
 

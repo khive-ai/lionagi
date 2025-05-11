@@ -26,17 +26,13 @@ class Report(BaseForm):
         description="Mapping from form ID -> assignment string",
     )
 
-    def add_completed_form(
-        self, form: Form, update_report_fields: bool = False
-    ):
+    def add_completed_form(self, form: Form, update_report_fields: bool = False):
         """
         Add a completed form. Optionally update the report’s fields from the form's output.
         """
         missing = form.check_completeness()
         if missing:
-            raise ValueError(
-                f"Form {form.id} is incomplete: missing {missing}."
-            )
+            raise ValueError(f"Form {form.id} is incomplete: missing {missing}.")
         self.completed_forms.append(form)
         self.form_assignments[form.id] = form.assignment or ""
         # optionally update the report’s own fields

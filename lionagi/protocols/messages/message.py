@@ -130,9 +130,9 @@ class RoledMessage(Node, Sendable):
             RoledMessage: A newly constructed instance.
         """
         try:
-            self: RoledMessage = super().from_dict(
-                {k: v for k, v in dict_.items() if v}
-            )
+            self: RoledMessage = super().from_dict({
+                k: v for k, v in dict_.items() if v
+            })
             self._flag = MessageFlag.MESSAGE_LOAD
             return self
         except Exception as e:
@@ -191,9 +191,7 @@ class RoledMessage(Node, Sendable):
                     "original_created_at": origin_info["created_at"],
                     "original_sender": origin_info["sender"],
                     "original_recipient": origin_info["recipient"],
-                    "original_lion_class": origin_info["metadata"][
-                        "lion_class"
-                    ],
+                    "original_lion_class": origin_info["metadata"]["lion_class"],
                     "original_role": origin_info["role"],
                 }
             }
@@ -232,7 +230,6 @@ class RoledMessage(Node, Sendable):
             self.template = template
 
     def __str__(self) -> str:
-
         content_preview = (
             f"{str(self.content)[:75]}..."
             if len(str(self.content)) > 75

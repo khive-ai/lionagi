@@ -149,9 +149,7 @@ class MailManager(Manager):
             mail: Mail = mailbox.pile_.pop(mail_id)
             if mail.recipient not in self.sources:
                 rec_ = mail.recipient
-                raise ItemNotFoundError(
-                    f"Recipient source {rec_} does not exist"
-                )
+                raise ItemNotFoundError(f"Recipient source {rec_} does not exist")
             if mail.sender not in self.mails[mail.recipient]:
                 self.mails[mail.recipient].update({mail.sender: deque()})
             self.mails[mail.recipient][mail.sender].append(mail)
@@ -171,9 +169,7 @@ class MailManager(Manager):
             If the recipient ID is not recognized.
         """
         if recipient not in self.sources:
-            raise ItemNotFoundError(
-                f"Recipient source {recipient} does not exist."
-            )
+            raise ItemNotFoundError(f"Recipient source {recipient} does not exist.")
         if not self.mails[recipient]:
             return
         for key in list(self.mails[recipient].keys()):

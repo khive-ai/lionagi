@@ -21,9 +21,7 @@ class PandasDataFrameAdapter(Adapter):
     alias = ("pandas_dataframe", "pd.DataFrame", "pd_dataframe")
 
     @classmethod
-    def from_obj(
-        cls, subj_cls: type[T], obj: pd.DataFrame, /, **kwargs
-    ) -> list[dict]:
+    def from_obj(cls, subj_cls: type[T], obj: pd.DataFrame, /, **kwargs) -> list[dict]:
         """
         Convert an existing DataFrame into a list of dicts.
 
@@ -66,16 +64,12 @@ class PandasDataFrameAdapter(Adapter):
             # Attempt to parse timestamps
             if "created_at" in _dict:
                 try:
-                    _dict["created_at"] = datetime.fromtimestamp(
-                        _dict["created_at"]
-                    )
+                    _dict["created_at"] = datetime.fromtimestamp(_dict["created_at"])
                 except Exception:
                     pass
             out_.append(_dict)
         df = pd.DataFrame(out_, **kwargs)
         # Convert created_at to datetime if present
         if "created_at" in df.columns:
-            df["created_at"] = pd.to_datetime(
-                df["created_at"], errors="coerce"
-            )
+            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
         return df

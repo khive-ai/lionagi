@@ -44,10 +44,7 @@ class FunctionCalling(Event):
             self.arguments = args.model_dump(exclude_unset=True)
 
         if self.func_tool.strict_func_call is True:
-            if (
-                not set(self.arguments.keys())
-                == self.func_tool.required_fields
-            ):
+            if not set(self.arguments.keys()) == self.func_tool.required_fields:
                 raise ValueError("arguments must match the function schema")
 
         else:

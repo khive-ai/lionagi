@@ -6,41 +6,37 @@ from numbers import Complex
 from typing import Any, Final
 
 # Define constants for valid boolean string representations
-TRUE_VALUES: Final[frozenset[str]] = frozenset(
-    [
-        "true",
-        "1",
-        "yes",
-        "y",
-        "on",
-        "correct",
-        "t",
-        "enabled",
-        "enable",
-        "active",
-        "activated",
-    ]
-)
+TRUE_VALUES: Final[frozenset[str]] = frozenset([
+    "true",
+    "1",
+    "yes",
+    "y",
+    "on",
+    "correct",
+    "t",
+    "enabled",
+    "enable",
+    "active",
+    "activated",
+])
 
-FALSE_VALUES: Final[frozenset[str]] = frozenset(
-    [
-        "false",
-        "0",
-        "no",
-        "n",
-        "off",
-        "incorrect",
-        "f",
-        "disabled",
-        "disable",
-        "inactive",
-        "deactivated",
-        "none",
-        "null",
-        "n/a",
-        "na",
-    ]
-)
+FALSE_VALUES: Final[frozenset[str]] = frozenset([
+    "false",
+    "0",
+    "no",
+    "n",
+    "off",
+    "incorrect",
+    "f",
+    "disabled",
+    "disable",
+    "inactive",
+    "deactivated",
+    "none",
+    "null",
+    "n/a",
+    "na",
+])
 
 
 def validate_boolean(x: Any, /) -> bool:
@@ -103,7 +99,7 @@ def validate_boolean(x: Any, /) -> bool:
         try:
             x = str(x)
         except Exception as e:
-            raise TypeError(f"Cannot convert {type(x)} to boolean: {str(e)}")
+            raise TypeError(f"Cannot convert {type(x)} to boolean: {e!s}")
 
     # Handle string inputs
     x_cleaned = str(x).strip().lower()

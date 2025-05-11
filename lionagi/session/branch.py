@@ -184,9 +184,8 @@ class Branch(Element, Communicatable, Relational):
                 use_lion_system_message,
             ]
         ):
-
             if use_lion_system_message:
-                system = f"Developer Prompt: {str(system)}" if system else ""
+                system = f"Developer Prompt: {system!s}" if system else ""
                 system = (LION_SYSTEM_MESSAGE + "\n\n" + system).strip()
 
             self._message_manager.add_message(
@@ -209,9 +208,7 @@ class Branch(Element, Communicatable, Relational):
         if isinstance(parse_model, dict):
             parse_model = iModel.from_dict(parse_model)
 
-        self._imodel_manager = iModelManager(
-            chat=chat_model, parse=parse_model
-        )
+        self._imodel_manager = iModelManager(chat=chat_model, parse=parse_model)
 
         # --- ActionManager ---
         self._action_manager = ActionManager()
@@ -397,11 +394,7 @@ class Branch(Element, Communicatable, Relational):
         if progression is None:
             progression = self.msgs.progression
 
-        msgs = [
-            self.msgs.messages[i]
-            for i in progression
-            if i in self.msgs.messages
-        ]
+        msgs = [self.msgs.messages[i] for i in progression if i in self.msgs.messages]
         p = Pile(collections=msgs)
         return p.to_df(columns=MESSAGE_FIELDS)
 
@@ -640,20 +633,16 @@ class Branch(Element, Communicatable, Relational):
         """
         meta = {}
         if "clone_from" in self.metadata:
-
             # Provide some reference info about the source from which we cloned
             meta["clone_from"] = {
                 "id": str(self.metadata["clone_from"].id),
                 "user": str(self.metadata["clone_from"].user),
                 "created_at": self.metadata["clone_from"].created_at,
                 "progression": [
-                    str(i)
-                    for i in self.metadata["clone_from"].msgs.progression
+                    str(i) for i in self.metadata["clone_from"].msgs.progression
                 ],
             }
-        meta.update(
-            copy({k: v for k, v in self.metadata.items() if k != "clone_from"})
-        )
+        meta.update(copy({k: v for k, v in self.metadata.items() if k != "clone_from"}))
 
         dict_ = super().to_dict()
         dict_["messages"] = self.messages.to_dict()
@@ -799,9 +788,7 @@ class Branch(Element, Communicatable, Relational):
             request_fields=request_fields,
             response_format=response_format,
             progression=progression,
-            chat_model=kwargs.pop("chat_model", None)
-            or imodel
-            or self.chat_model,
+            chat_model=kwargs.pop("chat_model", None) or imodel or self.chat_model,
             tool_schemas=tool_schemas,
             images=images,
             image_detail=image_detail,
@@ -908,15 +895,11 @@ class Branch(Element, Communicatable, Relational):
         skip_validation: bool = False,
         tools: ToolRef = None,
         operative: Operative = None,
-        response_format: type[
-            BaseModel
-        ] = None,  # alias of operative.request_type
+        response_format: type[BaseModel] = None,  # alias of operative.request_type
         actions: bool = False,
         reason: bool = False,
         action_kwargs: dict = None,
-        action_strategy: Literal[
-            "sequential", "concurrent", "batch"
-        ] = "concurrent",
+        action_strategy: Literal["sequential", "concurrent", "batch"] = "concurrent",
         action_batch_size: int = None,
         verbose_action: bool = False,
         field_models: list[FieldModel] = None,
@@ -1244,9 +1227,7 @@ class Branch(Element, Communicatable, Relational):
                 The result or results from the invoked tool(s).
         """
         if batch_size and not strategy == "batch":
-            raise ValueError(
-                "Batch size is only applicable for 'batch' strategy."
-            )
+            raise ValueError("Batch size is only applicable for 'batch' strategy.")
 
         match strategy:
             case "concurrent":
@@ -1313,9 +1294,7 @@ class Branch(Element, Communicatable, Relational):
         verbose_action: bool = False,
     ) -> list:
         action_request = (
-            action_request
-            if isinstance(action_request, list)
-            else [action_request]
+            action_request if isinstance(action_request, list) else [action_request]
         )
         results = []
         for req in action_request:

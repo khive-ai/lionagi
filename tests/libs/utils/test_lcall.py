@@ -19,7 +19,7 @@ async def mock_func_with_error(x: int) -> int:
 
 
 async def mock_handler(e: Exception) -> str:
-    return f"handled: {str(e)}"
+    return f"handled: {e!s}"
 
 
 class TestLCallFunction(unittest.IsolatedAsyncioTestCase):

@@ -10,7 +10,6 @@ from .imodel import iModel
 
 
 class iModelManager(Manager):
-
     def __init__(self, *args: iModel, **kwargs):
         super().__init__()
 

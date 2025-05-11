@@ -39,9 +39,7 @@ class LogManagerConfig(BaseModel):
     def _validate_non_negative(cls, value):
         if value is not None:
             if not isinstance(value, int) or value < 0:
-                raise ValueError(
-                    "Capacity and hash_digits must be non-negative."
-                )
+                raise ValueError("Capacity and hash_digits must be non-negative.")
         return value
 
     @field_validator("extension")
@@ -92,7 +90,7 @@ class Log(Element):
         else:
             content = to_dict(content, recursive=True, suppress=True)
 
-        if content is {}:
+        if content == {}:
             logging.warning(
                 "No content to log, or original data was of invalid type. Making an empty log..."
             )
@@ -148,7 +146,7 @@ class LogManager(Manager):
             try:
                 self.dump(clear=self._config.clear_after_dump)
             except Exception as e:
-                logging.error(f"Failed to auto-dump logs: {e}")
+                logging.exception(f"Failed to auto-dump logs: {e}")
         self.logs.include(log_)
 
     async def alog(self, log_: Log) -> None:
@@ -182,13 +180,11 @@ class LogManager(Manager):
                 raise ValueError(f"Unsupported file extension: {suffix}")
 
             logging.info(f"Dumped logs to {fp}")
-            do_clear = (
-                self._config.clear_after_dump if clear is None else clear
-            )
+            do_clear = self._config.clear_after_dump if clear is None else clear
             if do_clear:
                 self.logs.clear()
         except Exception as e:
-            logging.error(f"Failed to dump logs: {e}")
+            logging.exception(f"Failed to dump logs: {e}")
             raise
 
     async def adump(
@@ -222,12 +218,10 @@ class LogManager(Manager):
             try:
                 self.dump(clear=self._config.clear_after_dump)
             except Exception as e:
-                logging.error(f"Failed to save logs on exit: {e}")
+                logging.exception(f"Failed to save logs on exit: {e}")
 
     @classmethod
-    def from_config(
-        cls, config: LogManagerConfig, logs: Any = None
-    ) -> LogManager:
+    def from_config(cls, config: LogManagerConfig, logs: Any = None) -> LogManager:
         """
         Construct a LogManager from a LogManagerConfig.
         """

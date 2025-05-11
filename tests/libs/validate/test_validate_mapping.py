@@ -1,6 +1,5 @@
 # File: tests/test_validate/test_validate_mapping.py
 
-from typing import Any
 
 import pytest
 from pydantic import BaseModel

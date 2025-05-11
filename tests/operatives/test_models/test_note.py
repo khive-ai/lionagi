@@ -49,9 +49,7 @@ class TestNote:
 
     def test_pop_method(self):
         """Test pop method with various indices."""
-        note = Note(
-            field1={"nested1": "value1", "nested2": "value2"}, field2=[1, 2, 3]
-        )
+        note = Note(field1={"nested1": "value1", "nested2": "value2"}, field2=[1, 2, 3])
 
         # Pop single level
         value = note.pop("field2")
@@ -109,9 +107,7 @@ class TestNote:
         assert note.get("nonexistent", default="default") == "default"
 
         # Get nested with default
-        assert (
-            note.get(["nested", "nonexistent"], default="default") == "default"
-        )
+        assert note.get(["nested", "nonexistent"], default="default") == "default"
 
     def test_keys_method(self):
         """Test keys method with flat and nested options."""

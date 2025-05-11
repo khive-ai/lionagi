@@ -56,9 +56,7 @@ def nmerge(
         )
 
 
-def _deep_merge_dicts(
-    dict1: dict[str, Any], dict2: dict[str, Any]
-) -> dict[str, Any]:
+def _deep_merge_dicts(dict1: dict[str, Any], dict2: dict[str, Any]) -> dict[str, Any]:
     """
     Recursively merges two dictionaries, combining values where keys overlap.
 

@@ -50,9 +50,7 @@ def npop(
                 raise KeyError(f"{key} is not found in {current}")
         elif isinstance(current, list) and isinstance(key, int):
             if key >= len(current):
-                raise KeyError(
-                    f"{key} exceeds the length of the list {current}"
-                )
+                raise KeyError(f"{key} exceeds the length of the list {current}")
             elif key < 0:
                 raise ValueError("list index cannot be negative")
             current = current[key]

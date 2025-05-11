@@ -24,31 +24,21 @@ __all__ = (
 class Observer(ABC):
     """Base for all observers."""
 
-    pass
-
 
 class Manager(Observer):
     """Base for all managers."""
-
-    pass
 
 
 class Relational(ABC):
     """Base for graph-connectable objects."""
 
-    pass
-
 
 class Sendable(ABC):
     """Sendable entities must define 'sender' and 'recipient'."""
 
-    pass
-
 
 class Observable(ABC):
     """Observable entities must define 'id'."""
-
-    pass
 
 
 class Communicatable(Observable):

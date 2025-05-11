@@ -23,23 +23,14 @@ def nget(
             isinstance(target_container, list)
             and isinstance(last_index, int)
             and last_index < len(target_container)
-        ):
-            return target_container[last_index]
-        elif (
-            isinstance(target_container, dict)
-            and last_index in target_container
-        ):
+        ) or (isinstance(target_container, dict) and last_index in target_container):
             return target_container[last_index]
         elif default is not UNDEFINED:
             return default
         else:
-            raise LookupError(
-                "Target not found and no default value provided."
-            )
+            raise LookupError("Target not found and no default value provided.")
     except (IndexError, KeyError, TypeError):
         if default is not UNDEFINED:
             return default
         else:
-            raise LookupError(
-                "Target not found and no default value provided."
-            )
+            raise LookupError("Target not found and no default value provided.")

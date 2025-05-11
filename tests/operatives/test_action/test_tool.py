@@ -138,9 +138,9 @@ def test_tool_minimum_acceptable_fields():
 
     tool = Tool(func_callable=func_mixed_args)
     # Only "x" has no default in the signature (others are either defaulted or *args/**kwargs).
-    assert tool.minimum_acceptable_fields == {
-        "x"
-    }, f"Expected only 'x' to be the minimum required, got {tool.minimum_acceptable_fields}"
+    assert (
+        tool.minimum_acceptable_fields == {"x"}
+    ), f"Expected only 'x' to be the minimum required, got {tool.minimum_acceptable_fields}"
 
 
 def test_tool_strict_func_call():
@@ -150,15 +150,11 @@ def test_tool_strict_func_call():
         return a + 1
 
     tool = Tool(func_callable=sample_func, strict_func_call=True)
-    assert (
-        tool.strict_func_call is True
-    ), "strict_func_call should be set to True."
+    assert tool.strict_func_call is True, "strict_func_call should be set to True."
 
     # Change strict_func_call
     tool.strict_func_call = False
-    assert (
-        tool.strict_func_call is False
-    ), "strict_func_call should now be False."
+    assert tool.strict_func_call is False, "strict_func_call should now be False."
 
 
 def test_tool_to_dict():
@@ -171,9 +167,7 @@ def test_tool_to_dict():
     serialized = tool.to_dict()
 
     # Basic checks on the serialized dict
-    assert (
-        "function" in serialized
-    ), "Serialized dict should contain 'function' key."
+    assert "function" in serialized, "Serialized dict should contain 'function' key."
     assert (
         serialized["function"] == "sample_func"
     ), f"Expected function name 'sample_func', got {serialized['function']}"

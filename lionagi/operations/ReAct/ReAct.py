@@ -164,9 +164,7 @@ async def ReActStream(
 
         irfm = FieldModel(
             name="intermediate_response_options",
-            annotation=(
-                m_ | None if not intermediate_listable else list[m_] | None
-            ),
+            annotation=(m_ | None if not intermediate_listable else list[m_] | None),
             description="Optional intermediate deliverable outputs. fill as needed ",
             validator=lambda cls, x: None if not x else x,
         )
@@ -179,11 +177,7 @@ async def ReActStream(
     instruction_str = None
     if interpret:
         instruction_str = await branch.interpret(
-            str(
-                instruct.to_dict()
-                if isinstance(instruct, Instruct)
-                else instruct
-            ),
+            str(instruct.to_dict() if isinstance(instruct, Instruct) else instruct),
             domain=interpret_domain,
             style=interpret_style,
             sample_writing=interpret_sample,
@@ -204,9 +198,7 @@ async def ReActStream(
 
     # Convert Instruct to dict if necessary
     instruct_dict = (
-        instruct.to_dict()
-        if isinstance(instruct, Instruct)
-        else dict(instruct)
+        instruct.to_dict() if isinstance(instruct, Instruct) else dict(instruct)
     )
 
     # Overwrite "instruction" with the interpreted prompt (if any) plus a note about expansions
@@ -220,9 +212,7 @@ async def ReActStream(
     kwargs_for_operate = copy(kwargs)
     kwargs_for_operate["actions"] = True
     kwargs_for_operate["reason"] = True
-    kwargs_for_operate["include_token_usage_to_model"] = (
-        include_token_usage_to_model
-    )
+    kwargs_for_operate["include_token_usage_to_model"] = include_token_usage_to_model
 
     # Step 1: Generate initial ReAct analysis
     analysis: ReActAnalysis = await branch.operate(
@@ -248,9 +238,7 @@ async def ReActStream(
 
     # Validate and clamp max_extensions if needed
     if max_extensions and max_extensions > 100:
-        logging.warning(
-            "max_extensions should not exceed 100; defaulting to 100."
-        )
+        logging.warning("max_extensions should not exceed 100; defaulting to 100.")
         max_extensions = 100
 
     # Step 2: Possibly loop through expansions if extension_needed
@@ -282,15 +270,13 @@ async def ReActStream(
         operate_kwargs["reason"] = True
         operate_kwargs["response_format"] = ReActAnalysis
         operate_kwargs["action_strategy"] = analysis.action_strategy
-        operate_kwargs["include_token_usage_to_model"] = (
-            include_token_usage_to_model
-        )
+        operate_kwargs["include_token_usage_to_model"] = include_token_usage_to_model
         if analysis.action_batch_size:
             operate_kwargs["action_batch_size"] = analysis.action_batch_size
         if irfm:
-            operate_kwargs["field_models"] = operate_kwargs.get(
-                "field_models", []
-            ) + [irfm]
+            operate_kwargs["field_models"] = operate_kwargs.get("field_models", []) + [
+                irfm
+            ]
         if reasoning_effort:
             guide = None
             if reasoning_effort == "low":
@@ -299,9 +285,7 @@ async def ReActStream(
                 guide = "Reasonably balanced reasoning.\n"
             if reasoning_effort == "high":
                 guide = "Thorough, try as hard as you can in reasoning.\n"
-            operate_kwargs["guidance"] = guide + operate_kwargs.get(
-                "guidance", ""
-            )
+            operate_kwargs["guidance"] = guide + operate_kwargs.get("guidance", "")
             operate_kwargs["reasoning_effort"] = reasoning_effort
 
         analysis = await branch.operate(
@@ -312,9 +296,7 @@ async def ReActStream(
         )
         round_count += 1
 
-        if isinstance(analysis, dict) and all(
-            i is None for i in analysis.values()
-        ):
+        if isinstance(analysis, dict) and all(i is None for i in analysis.values()):
             if not continue_after_failed_response:
                 raise ValueError(
                     "All values in the response are None. "
@@ -353,9 +335,7 @@ async def ReActStream(
             response_format=response_format,
             **(response_kwargs or {}),
         )
-        if isinstance(analysis, dict) and all(
-            i is None for i in analysis.values()
-        ):
+        if isinstance(analysis, dict) and all(i is None for i in analysis.values()):
             if not continue_after_failed_response:
                 raise ValueError(
                     "All values in the response are None. "

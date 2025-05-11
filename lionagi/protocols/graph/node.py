@@ -60,9 +60,7 @@ class Node(Element, Relational):
         LION_CLASS_REGISTRY[cls.class_name(full=True)] = cls
 
     @field_validator("embedding", mode="before")
-    def _parse_embedding(
-        cls, value: list[float] | str | None
-    ) -> list[float] | None:
+    def _parse_embedding(cls, value: list[float] | str | None) -> list[float] | None:
         if value is None:
             return None
         if isinstance(value, str):
@@ -78,19 +76,13 @@ class Node(Element, Relational):
                 return [float(x) for x in value]
             except Exception as e:
                 raise ValueError("Invalid embedding list.") from e
-        raise ValueError(
-            "Invalid embedding type; must be list or JSON-encoded string."
-        )
+        raise ValueError("Invalid embedding type; must be list or JSON-encoded string.")
 
-    def adapt_to(
-        self, obj_key: str, /, many: bool = False, **kwargs: Any
-    ) -> Any:
+    def adapt_to(self, obj_key: str, /, many: bool = False, **kwargs: Any) -> Any:
         """
         Convert this Node to another format using a registered adapter.
         """
-        return self._get_adapter_registry().adapt_to(
-            self, obj_key, many=many, **kwargs
-        )
+        return self._get_adapter_registry().adapt_to(self, obj_key, many=many, **kwargs)
 
     @classmethod
     def adapt_from(

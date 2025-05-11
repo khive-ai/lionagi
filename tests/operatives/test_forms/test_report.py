@@ -48,7 +48,7 @@ def test_add_completed_form_with_update():
 
     # Add form and update report fields
     report.add_completed_form(form, update_report_fields=True)
-    assert getattr(report, "output") == "test value"
+    assert report.output == "test value"
 
 
 def test_multiple_forms():
@@ -82,7 +82,7 @@ def test_report_with_flow():
     form.c = "final"
 
     report.add_completed_form(form, update_report_fields=True)
-    assert getattr(report, "c") == "final"
+    assert report.c == "final"
     assert form.id in report.form_assignments
 
 
@@ -100,4 +100,4 @@ def test_report_field_updates():
     form2 = Form(assignment="a -> b")
     form2.b = "value2"
     report.add_completed_form(form2, update_report_fields=True)
-    assert getattr(report, "b") == "value2"
+    assert report.b == "value2"

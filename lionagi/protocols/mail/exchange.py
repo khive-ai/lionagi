@@ -67,9 +67,7 @@ class Exchange:
             If the given sources already exist in this exchange.
         """
         if sources in self.sources:
-            raise ValueError(
-                f"Source {sources} already exists in the mail manager."
-            )
+            raise ValueError(f"Source {sources} already exists in the mail manager.")
 
         self.sources.include(sources)
         for source in sources:
@@ -91,10 +89,8 @@ class Exchange:
         ValueError
             If the given sources do not exist in this exchange.
         """
-        if not sources in self.sources:
-            raise ValueError(
-                f"Source {sources} does not exist in the mail manager."
-            )
+        if sources not in self.sources:
+            raise ValueError(f"Source {sources} does not exist in the mail manager.")
 
         self.sources.exclude(sources)
         for source in sources:
@@ -130,9 +126,7 @@ class Exchange:
         Mail
             A newly created Mail object ready for sending.
         """
-        package = Package(
-            category=category, item=item, request_source=request_source
-        )
+        package = Package(category=category, item=item, request_source=request_source)
         return Mail(sender=sender, recipient=recipient, package=package)
 
     def collect(self, sender: ID[Communicatable]) -> None:

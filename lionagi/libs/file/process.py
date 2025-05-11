@@ -47,9 +47,7 @@ def dir_to_files(
     """
     directory_path = Path(directory)
     if not directory_path.is_dir():
-        raise ValueError(
-            f"The provided path is not a valid directory: {directory}"
-        )
+        raise ValueError(f"The provided path is not a valid directory: {directory}")
 
     def process_file(file_path: Path) -> Path | None:
         try:
@@ -63,15 +61,11 @@ def dir_to_files(
                 raise ValueError(f"Error processing {file_path}: {e}") from e
         return None
 
-    file_iterator = (
-        directory_path.rglob("*") if recursive else directory_path.glob("*")
-    )
+    file_iterator = directory_path.rglob("*") if recursive else directory_path.glob("*")
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
-                executor.submit(process_file, f)
-                for f in file_iterator
-                if f.is_file()
+                executor.submit(process_file, f) for f in file_iterator if f.is_file()
             ]
             files = [
                 future.result()
@@ -197,9 +191,7 @@ def chunk(
                 files = [url_or_path]
         else:
             files = (
-                [str(url_or_path)]
-                if not isinstance(url_or_path, list)
-                else url_or_path
+                [str(url_or_path)] if not isinstance(url_or_path, list) else url_or_path
             )
 
         if reader_tool is None:
@@ -214,9 +206,7 @@ def chunk(
                 import_name="DocumentConverter",
             )
             converter = DocumentConverter()
-            reader_tool = lambda x: converter.convert(
-                x
-            ).document.export_to_markdown()
+            reader_tool = lambda x: converter.convert(x).document.export_to_markdown()
 
         texts = lcall(files, reader_tool)
 

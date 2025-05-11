@@ -82,9 +82,7 @@ class TestOperableModel:
         object.__setattr__(model, "field_info_test", "test")
 
         assert model.field_info_test == "test"
-        assert (
-            model.extra_fields["field_info_test"].description == "Test field"
-        )
+        assert model.extra_fields["field_info_test"].description == "Test field"
 
     def test_add_duplicate_field(self):
         """Test adding duplicate field raises error."""
@@ -111,10 +109,7 @@ class TestOperableModel:
         object.__setattr__(model, "test_field", "test")
 
         model.field_setattr("test_field", "description", "Updated description")
-        assert (
-            model.extra_fields["test_field"].description
-            == "Updated description"
-        )
+        assert model.extra_fields["test_field"].description == "Updated description"
 
     def test_field_setattr(self):
         """Test setting field attributes."""
@@ -123,9 +118,7 @@ class TestOperableModel:
         object.__setattr__(model, "test_field", "test")
 
         model.field_setattr("test_field", "description", "New description")
-        assert (
-            model.extra_fields["test_field"].description == "New description"
-        )
+        assert model.extra_fields["test_field"].description == "New description"
 
     def test_field_getattr(self):
         """Test getting field attributes."""
@@ -134,16 +127,10 @@ class TestOperableModel:
         model.extra_fields["test_field"] = field_info
         object.__setattr__(model, "test_field", "test")
 
-        assert (
-            model.field_getattr("test_field", "description")
-            == "Test description"
-        )
+        assert model.field_getattr("test_field", "description") == "Test description"
 
         # Test with default value
-        assert (
-            model.field_getattr("test_field", "nonexistent", "default")
-            == "default"
-        )
+        assert model.field_getattr("test_field", "nonexistent", "default") == "default"
 
     def test_field_hasattr(self):
         """Test checking field attributes."""
@@ -210,9 +197,7 @@ class TestOperableModel:
 
         # Test providing both default and default_factory
         with pytest.raises(ValueError):
-            model.add_field(
-                "invalid_field", default="value", default_factory=list
-            )
+            model.add_field("invalid_field", default="value", default_factory=list)
 
     def test_nested_field_updates(self):
         """Test updating nested model fields."""
@@ -246,9 +231,7 @@ def test_override_builtin_attribute():
 
     # Because `__dict__` is a special attribute,
     # we expect an error or unexpected behavior if we try to add it.
-    with pytest.raises(
-        AttributeError, match="Cannot directly assign to dunder fields"
-    ):
+    with pytest.raises(AttributeError, match="Cannot directly assign to dunder fields"):
         model.add_field(builtin_name, value="should_fail")
 
 
@@ -299,9 +282,7 @@ def test_remove_field_not_implemented():
     model.remove_field("temp_field")
     assert "temp_field" not in model.all_fields
     with pytest.raises(AttributeError):
-        _ = (
-            model.temp_field
-        )  # Should no longer exist, or at least not be accessible.
+        _ = model.temp_field  # Should no longer exist, or at least not be accessible.
 
 
 def test_add_field_with_field_model():
@@ -315,9 +296,7 @@ def test_add_field_with_field_model():
         return value
 
     model = OperableModel()
-    field_model = FieldModel(
-        name="score", annotation=int, validator=validate_positive
-    )
+    field_model = FieldModel(name="score", annotation=int, validator=validate_positive)
 
     model.add_field("score", field_model=field_model, value=10)
     assert model.score == 10

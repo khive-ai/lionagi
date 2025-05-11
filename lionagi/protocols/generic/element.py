@@ -153,9 +153,7 @@ class Element(BaseModel, Observable):
         frozen=True,
     )
     created_at: float = Field(
-        default_factory=lambda: time(
-            tz=Settings.Config.TIMEZONE, type_="timestamp"
-        ),
+        default_factory=lambda: time(tz=Settings.Config.TIMEZONE, type_="timestamp"),
         title="Creation Timestamp",
         description="Timestamp of element creation.",
         frozen=True,
@@ -187,9 +185,7 @@ class Element(BaseModel, Observable):
             return {}
         if not isinstance(val, dict):
             val = to_dict(val, recursive=True, suppress=True)
-        if "lion_class" in val and val["lion_class"] != cls.class_name(
-            full=True
-        ):
+        if "lion_class" in val and val["lion_class"] != cls.class_name(full=True):
             raise ValueError("Metadata class mismatch.")
         if not isinstance(val, dict):
             raise ValueError("Invalid metadata.")
@@ -325,14 +321,11 @@ class Element(BaseModel, Observable):
             if subcls != Element.class_name(full=True):
                 try:
                     # Attempt dynamic lookup by registry
-                    subcls_type: type[Element] = get_class(
-                        subcls.split(".")[-1]
-                    )
+                    subcls_type: type[Element] = get_class(subcls.split(".")[-1])
                     # If there's a custom from_dict, delegate to it
                     if (
                         hasattr(subcls_type, "from_dict")
-                        and subcls_type.from_dict.__func__
-                        != cls.from_dict.__func__
+                        and subcls_type.from_dict.__func__ != cls.from_dict.__func__
                     ):
                         return subcls_type.from_dict(data)
 
@@ -343,9 +336,7 @@ class Element(BaseModel, Observable):
                     mod, imp = subcls.rsplit(".", 1)
                     subcls_type = import_module(mod, import_name=imp)
                     data["metadata"] = metadata
-                    if hasattr(subcls_type, "from_dict") and (
-                        subcls_type is not cls
-                    ):
+                    if hasattr(subcls_type, "from_dict") and (subcls_type is not cls):
                         return subcls_type.from_dict(data)
         data["metadata"] = metadata
         return cls.model_validate(data)
@@ -383,9 +374,7 @@ def validate_order(order: Any) -> list[IDType]:
             out.append(cur.id)
         elif isinstance(cur, IDType):
             out.append(cur)
-        elif isinstance(cur, UUID):
-            out.append(IDType.validate(cur))
-        elif isinstance(cur, str):
+        elif isinstance(cur, UUID) or isinstance(cur, str):
             out.append(IDType.validate(cur))
         elif isinstance(cur, (list, tuple, set)):
             stack.extend(reversed(cur))

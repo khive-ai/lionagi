@@ -17,12 +17,9 @@ def list_installed_packages() -> list[str]:
         List[str]: A list of names of installed packages.
     """
     try:
-        return [
-            dist.metadata["Name"]
-            for dist in importlib.metadata.distributions()
-        ]
+        return [dist.metadata["Name"] for dist in importlib.metadata.distributions()]
     except Exception as e:
-        logging.error(f"Failed to list installed packages: {e}")
+        logging.exception(f"Failed to list installed packages: {e}")
         return []
 
 
@@ -40,7 +37,7 @@ def uninstall_package(package_name: str) -> None:
         run_package_manager_command(["uninstall", package_name, "-y"])
         logging.info(f"Successfully uninstalled {package_name}.")
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to uninstall {package_name}. Error: {e}")
+        logging.exception(f"Failed to uninstall {package_name}. Error: {e}")
         raise
 
 
@@ -58,5 +55,5 @@ def update_package(package_name: str) -> None:
         run_package_manager_command(["install", "--upgrade", package_name])
         logging.info(f"Successfully updated {package_name}.")
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to update {package_name}. Error: {e}")
+        logging.exception(f"Failed to update {package_name}. Error: {e}")
         raise

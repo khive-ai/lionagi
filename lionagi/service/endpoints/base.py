@@ -173,11 +173,7 @@ class EndPoint(ABC):
     @property
     def acceptable_kwargs(self) -> set[str]:
         """set[str]: All parameters that are not explicitly prohibited."""
-        return (
-            self.required_kwargs
-            | self.optional_kwargs
-            | self.deprecated_kwargs
-        )
+        return self.required_kwargs | self.optional_kwargs | self.deprecated_kwargs
 
     @property
     def full_url(self) -> str:
@@ -326,9 +322,7 @@ class EndPoint(ABC):
         """
         if self.requires_tokens:
             if "messages" in payload:
-                return TokenCalculator.calculate_message_tokens(
-                    payload["messages"]
-                )
+                return TokenCalculator.calculate_message_tokens(payload["messages"])
             if "embed" in self.full_url:
                 return TokenCalculator.calcualte_embed_token(**payload)
         return 0
@@ -375,9 +369,7 @@ class APICalling(Event):
             if isinstance(self.payload["messages"][-1], dict):
                 required_tokens = self.required_tokens
                 content = self.payload["messages"][-1]["content"]
-                token_msg = (
-                    f"\n\nEstimated Current Token Usage: {required_tokens}"
-                )
+                token_msg = f"\n\nEstimated Current Token Usage: {required_tokens}"
 
                 if "model" in self.payload:
                     if (
@@ -386,15 +378,16 @@ class APICalling(Event):
                         or "o1-preview" in self.payload["model"]
                     ):
                         token_msg += "/128_000"
-                    elif "o1" in self.payload["model"]:
+                    elif (
+                        "o1" in self.payload["model"]
+                        or "sonnet" in self.payload["model"]
+                        or "haiku" in self.payload["model"]
+                    ):
                         token_msg += "/200_000"
-                    elif "sonnet" in self.payload["model"]:
-                        token_msg += "/200_000"
-                    elif "haiku" in self.payload["model"]:
-                        token_msg += "/200_000"
-                    elif "gemini" in self.payload["model"]:
-                        token_msg += "/1_000_000"
-                    elif "qwen-turbo" in self.payload["model"]:
+                    elif (
+                        "gemini" in self.payload["model"]
+                        or "qwen-turbo" in self.payload["model"]
+                    ):
                         token_msg += "/1_000_000"
 
                 if isinstance(content, str):
@@ -431,9 +424,7 @@ class APICalling(Event):
             ExecutionError: For other API call failures.
             asyncio.CancelledError: If the operation is cancelled externally.
         """
-        if not self.endpoint.required_kwargs.issubset(
-            set(self.payload.keys())
-        ):
+        if not self.endpoint.required_kwargs.issubset(set(self.payload.keys())):
             raise ValueError(
                 f"Required kwargs not provided: {self.endpoint.required_kwargs}"
             )
@@ -447,9 +438,7 @@ class APICalling(Event):
                 try:
                     method_func = getattr(session, self.endpoint.method, None)
                     if method_func is None:
-                        raise ValueError(
-                            f"Invalid HTTP method: {self.endpoint.method}"
-                        )
+                        raise ValueError(f"Invalid HTTP method: {self.endpoint.method}")
                     async with method_func(
                         self.endpoint.full_url, **kwargs
                     ) as response:
@@ -459,9 +448,7 @@ class APICalling(Event):
                             return response_json
 
                         # Check for rate limit
-                        if "Rate limit" in response_json["error"].get(
-                            "message", ""
-                        ):
+                        if "Rate limit" in response_json["error"].get("message", ""):
                             await asyncio.sleep(5)
                             raise RateLimitError(
                                 f"Rate limit exceeded: {response_json['error']}"
@@ -477,7 +464,7 @@ class APICalling(Event):
                     raise  # re-raise so caller knows it was cancelled
 
                 except aiohttp.ClientError as e:
-                    logging.error(f"API call failed: {e}")
+                    logging.exception(f"API call failed: {e}")
                     # Return None or raise ExecutionError? Keep consistent
                     return None
 
@@ -560,9 +547,7 @@ class APICalling(Event):
                                             if content := c_dict["choices"][0][
                                                 "delta"
                                             ].get("content"):
-                                                print(
-                                                    content, end="", flush=True
-                                                )
+                                                print(content, end="", flush=True)
                                     yield c_dict
                                 except json.JSONDecodeError:
                                     yield c
@@ -629,9 +614,7 @@ class APICalling(Event):
             if not response and e1:
                 self.execution.error = str(e1)
                 self.execution.status = EventStatus.FAILED
-                logging.error(
-                    f"API call to {self.endpoint.full_url} failed: {e1}"
-                )
+                logging.error(f"API call to {self.endpoint.full_url} failed: {e1}")
             else:
                 self.execution.response = response
                 self.execution.status = EventStatus.COMPLETED
@@ -673,9 +656,7 @@ class APICalling(Event):
             if not response and e1:
                 self.execution.error = str(e1)
                 self.execution.status = EventStatus.FAILED
-                logging.error(
-                    f"API call to {self.endpoint.full_url} failed: {e1}"
-                )
+                logging.error(f"API call to {self.endpoint.full_url} failed: {e1}")
             else:
                 self.response_obj = response
                 self.execution.response = (

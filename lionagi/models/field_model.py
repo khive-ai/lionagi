@@ -87,9 +87,7 @@ class FieldModel(SchemaModel):
     )
 
     # Field configuration
-    default: Any = Field(
-        default=UNDEFINED, description="Default value for the field"
-    )
+    default: Any = Field(default=UNDEFINED, description="Default value for the field")
 
     default_factory: Callable | UndefinedType = Field(
         default=UNDEFINED, description="Function to generate default values"
@@ -164,9 +162,7 @@ class FieldModel(SchemaModel):
         Returns:
             Configured Pydantic FieldInfo object.
         """
-        annotation = (
-            self.annotation if self.annotation is not UNDEFINED else Any
-        )
+        annotation = self.annotation if self.annotation is not UNDEFINED else Any
         field_obj = Field(**self.to_dict())  # type: ignore
         field_obj.annotation = annotation
         return field_obj
@@ -204,9 +200,6 @@ class FieldModel(SchemaModel):
         Raises:
             ValueError: If both default and default_factory are set.
         """
-        if (
-            self.default is not UNDEFINED
-            and self.default_factory is not UNDEFINED
-        ):
+        if self.default is not UNDEFINED and self.default_factory is not UNDEFINED:
             raise ValueError("Cannot have both default and default_factory")
         return self

@@ -81,9 +81,7 @@ class ExcelFileAdapter(Adapter):
         kwargs["index"] = False
         if many:
             if isinstance(subj, Collective):
-                pd.DataFrame([i.to_dict() for i in subj]).to_excel(
-                    fp, **kwargs
-                )
+                pd.DataFrame([i.to_dict() for i in subj]).to_excel(fp, **kwargs)
             else:
                 pd.DataFrame([subj.to_dict()]).to_excel(fp, **kwargs)
         else:

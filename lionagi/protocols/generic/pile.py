@@ -364,9 +364,7 @@ class Pile(Element, Collective[E], Generic[E]):
         except StopIteration:
             raise StopIteration("End of pile")
 
-    def __getitem__(
-        self, key: ID.Ref | ID.RefSeq | int | slice
-    ) -> Any | list | T:
+    def __getitem__(self, key: ID.Ref | ID.RefSeq | int | slice) -> Any | list | T:
         """Get item(s) by key.
 
         Args:
@@ -630,9 +628,7 @@ class Pile(Element, Collective[E], Generic[E]):
             try:
                 result_ids = self.progression[key]
                 result_ids = (
-                    [result_ids]
-                    if not isinstance(result_ids, list)
-                    else result_ids
+                    [result_ids] if not isinstance(result_ids, list) else result_ids
                 )
                 result = []
                 for i in result_ids:
@@ -780,9 +776,7 @@ class Pile(Element, Collective[E], Generic[E]):
 
     def _remove(self, item: ID.Ref | ID.RefSeq):
         if isinstance(item, int | slice):
-            raise TypeError(
-                "Invalid item type for remove, should be ID or Item(s)"
-            )
+            raise TypeError("Invalid item type for remove, should be ID or Item(s)")
         if item in self:
             self.pop(item)
             return
@@ -828,9 +822,7 @@ class Pile(Element, Collective[E], Generic[E]):
 
         for i in value:
             if not issubclass(i, Observable):
-                raise TypeError(
-                    f"Item type must be a subclass of Observable. Got {i}"
-                )
+                raise TypeError(f"Item type must be a subclass of Observable. Got {i}")
 
         if len(value) != len(set(value)):
             raise ValueError(
@@ -855,8 +847,7 @@ class Pile(Element, Collective[E], Generic[E]):
                 if self.strict_type:
                     if type(i) not in self.item_type:
                         raise TypeError(
-                            "Invalid item type in pile."
-                            f" Expected {self.item_type}",
+                            "Invalid item type in pile." f" Expected {self.item_type}",
                         )
                 else:
                     if not any(issubclass(type(i), t) for t in self.item_type):
@@ -874,9 +865,7 @@ class Pile(Element, Collective[E], Generic[E]):
 
     def _validate_order(self, value: Any) -> Progression:
         if not value:
-            return self.progression.__class__(
-                order=list(self.collections.keys())
-            )
+            return self.progression.__class__(order=list(self.collections.keys()))
 
         if isinstance(value, Progression):
             value = list(value)
@@ -893,9 +882,7 @@ class Pile(Element, Collective[E], Generic[E]):
 
         for i in value_set:
             if ID.get_id(i) not in self.collections.keys():
-                raise ValueError(
-                    f"The order does not match the pile. {i} not found"
-                )
+                raise ValueError(f"The order does not match the pile. {i} not found")
 
         return self.progression.__class__(order=value)
 
@@ -973,9 +960,7 @@ class Pile(Element, Collective[E], Generic[E]):
     @classmethod
     def adapt_from(cls, obj: Any, obj_key: str, /, **kwargs: Any):
         """Create from another format."""
-        dict_ = cls._get_adapter_registry().adapt_from(
-            cls, obj, obj_key, **kwargs
-        )
+        dict_ = cls._get_adapter_registry().adapt_from(cls, obj, obj_key, **kwargs)
         if isinstance(dict_, list):
             dict_ = {"collections": dict_}
         return cls.from_dict(dict_)

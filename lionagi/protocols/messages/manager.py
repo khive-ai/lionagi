@@ -107,9 +107,7 @@ class MessageManager(Manager):
         Otherwise, a new instance is created.
         """
         params = {
-            k: v
-            for k, v in locals().items()
-            if k != "instruction" and v is not None
+            k: v for k, v in locals().items() if k != "instruction" and v is not None
         }
 
         if isinstance(instruction, Instruction):
@@ -143,9 +141,7 @@ class MessageManager(Manager):
             assistant_response.update(**params)
             return assistant_response
 
-        return AssistantResponse.create(
-            assistant_response=assistant_response, **params
-        )
+        return AssistantResponse.create(assistant_response=assistant_response, **params)
 
     @staticmethod
     def create_action_request(
@@ -428,9 +424,7 @@ class MessageManager(Manager):
             collections=[
                 self.messages[mid]
                 for mid in self.messages.progression
-                if isinstance(
-                    self.messages[mid], (ActionRequest, ActionResponse)
-                )
+                if isinstance(self.messages[mid], (ActionRequest, ActionResponse))
             ]
         )
 
@@ -501,8 +495,7 @@ class MessageManager(Manager):
             return []
         try:
             return [
-                self.messages[mid].chat_msg
-                for mid in (progression or self.progression)
+                self.messages[mid].chat_msg for mid in (progression or self.progression)
             ]
         except Exception as e:
             raise ValueError(

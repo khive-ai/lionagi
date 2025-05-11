@@ -51,9 +51,7 @@ class Session(Node, Communicatable, Relational):
     branches: Pile[Any] = Field(default_factory=pile)
     default_branch: Any = Field(default=None, exclude=True)
     mail_transfer: Exchange = Field(default_factory=Exchange)
-    mail_manager: MailManager = Field(
-        default_factory=MailManager, exclude=True
-    )
+    mail_manager: MailManager = Field(default_factory=MailManager, exclude=True)
     name: str = Field(default="Session")
 
     @model_validator(mode="after")
@@ -86,7 +84,6 @@ class Session(Node, Communicatable, Relational):
         tools: Tool | Callable | list = None,
         **kwargs,  # additional branch parameters
     ) -> Branch:
-
         kwargs["system"] = system
         kwargs["system_sender"] = system_sender
         kwargs["system_datetime"] = system_datetime
@@ -117,11 +114,7 @@ class Session(Node, Communicatable, Relational):
         branch = ID.get_id(branch)
 
         if branch not in self.branches:
-            _s = (
-                str(branch)
-                if len(str(branch)) < 10
-                else str(branch)[:10] + "..."
-            )
+            _s = str(branch) if len(str(branch)) < 10 else str(branch)[:10] + "..."
             raise ItemNotFoundError(f"Branch {_s}.. does not exist.")
         branch: Branch = self.branches[branch]
 
@@ -210,9 +203,7 @@ class Session(Node, Communicatable, Relational):
 
         messages = lcall(
             branches,
-            lambda x: [
-                i for i in self.branches[x].messages if i not in exclude_flag
-            ],
+            lambda x: [i for i in self.branches[x].messages if i not in exclude_flag],
             sanitize_input=True,
             flatten=True,
             unique_input=True,

@@ -41,9 +41,7 @@ def parse_to_representation(
     if isinstance(choices, list):
         if is_same_dtype(choices, BaseModel):
             choices = {i.__class__.__name__: i for i in choices}
-        if all(
-            inspect.isclass(i) and issubclass(i, BaseModel) for i in choices
-        ):
+        if all(inspect.isclass(i) and issubclass(i, BaseModel) for i in choices):
             choices = {i.__name__: i for i in choices}
     if isinstance(choices, type) and issubclass(choices, Enum):
         keys = [i.name for i in choices]
@@ -65,7 +63,6 @@ def parse_to_representation(
 
 
 def get_choice_representation(choice: Any) -> str:
-
     if isinstance(choice, str):
         return choice
 
@@ -77,7 +74,6 @@ def get_choice_representation(choice: Any) -> str:
 
 
 def parse_selection(selection_str: str, choices: Any):
-
     select_from = []
 
     if isinstance(choices, dict):
@@ -91,17 +87,13 @@ def parse_selection(selection_str: str, choices: Any):
             select_from = [i.__class__.__name__ for i in choices]
         if is_same_dtype(choices, str):
             select_from = list(choices)
-        if all(
-            inspect.isclass(i) and issubclass(i, BaseModel) for i in choices
-        ):
+        if all(inspect.isclass(i) and issubclass(i, BaseModel) for i in choices):
             select_from = [i.__name__ for i in choices]
 
     if not select_from:
         raise ValueError("The values provided for choice is not valid")
 
-    selected = string_similarity(
-        selection_str, select_from, return_most_similar=True
-    )
+    selected = string_similarity(selection_str, select_from, return_most_similar=True)
 
     if isinstance(choices, dict) and selected in choices:
         return choices[selected]

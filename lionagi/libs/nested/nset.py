@@ -44,9 +44,7 @@ def nset(
     """
 
     if not indices:
-        raise ValueError(
-            "Indices list is empty, cannot determine target container"
-        )
+        raise ValueError("Indices list is empty, cannot determine target container")
 
     _indices = to_list(indices)
     target_container = nested_structure
@@ -58,9 +56,7 @@ def nset(
             ensure_list_index(target_container, index)
             if target_container[index] is None:
                 next_index = _indices[i + 1]
-                target_container[index] = (
-                    [] if isinstance(next_index, int) else {}
-                )
+                target_container[index] = [] if isinstance(next_index, int) else {}
         elif isinstance(target_container, dict):
             if isinstance(index, int):
                 raise TypeError(
@@ -69,9 +65,7 @@ def nset(
                 )
             if index not in target_container:
                 next_index = _indices[i + 1]
-                target_container[index] = (
-                    [] if isinstance(next_index, int) else {}
-                )
+                target_container[index] = [] if isinstance(next_index, int) else {}
         else:
             raise TypeError("Target container is not a list or dictionary")
 

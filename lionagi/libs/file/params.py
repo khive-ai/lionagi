@@ -56,9 +56,7 @@ class DirToFilesParams(BaseModel):
     process directories and collect matching file paths.
     """
 
-    directory: Path | str = Field(
-        description="Directory to process recursively"
-    )
+    directory: Path | str = Field(description="Directory to process recursively")
     file_types: list[str] | None = Field(
         default=None,
         description="List of file extensions to include (e.g., ['.txt', '.pdf']). If None, includes all types",
@@ -84,9 +82,7 @@ class FileToChunksParams(BaseModel):
     and split file content into chunks with metadata.
     """
 
-    file_path: Path | str = Field(
-        description="Path to the file to be processed"
-    )
+    file_path: Path | str = Field(description="Path to the file to be processed")
     chunk_func: Callable[[str, int, float, int], list[str]] = Field(
         description="Function to use for chunking the content"
     )
@@ -139,9 +135,7 @@ class SaveToFileParams(BaseModel):
     """
 
     text: str = Field(description="The text content to save to file")
-    directory: Path | str = Field(
-        description="Directory where the file will be saved"
-    )
+    directory: Path | str = Field(description="Directory where the file will be saved")
     filename: str = Field(description="Name of the file to create")
     extension: str | None = Field(
         default=None,

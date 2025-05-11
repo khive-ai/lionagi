@@ -51,13 +51,10 @@ SEARCH_CONFIG = {
 
 
 class ExaSearchEndPoint(EndPoint):
-
     def __init__(self, config: dict = SEARCH_CONFIG):
         super().__init__(config)
 
-    def create_payload(
-        self, request_obj: "ExaSearchRequest" = None, **kwargs
-    ) -> dict:
+    def create_payload(self, request_obj: "ExaSearchRequest" = None, **kwargs) -> dict:
         if request_obj is not None:
             kwargs.update(request_obj.to_dict(exclude_none=True))
 

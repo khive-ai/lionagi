@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.utils import is_coro_func, to_dict
 
-from .endpoints.base import APICalling, EndPoint, EndpointConfig
+from .endpoints.base import APICalling, EndPoint
 from .endpoints.match_endpoint import match_endpoint
 from .endpoints.rate_limited_processor import RateLimitedAPIExecutor
 
@@ -163,9 +163,7 @@ class iModel:
             limit_tokens=limit_tokens,
             concurrency_limit=concurrency_limit,
         )
-        if not streaming_process_func and hasattr(
-            self.endpoint, "process_chunk"
-        ):
+        if not streaming_process_func and hasattr(self.endpoint, "process_chunk"):
             self.streaming_process_func = self.endpoint.process_chunk
         else:
             self.streaming_process_func = streaming_process_func
@@ -236,10 +234,7 @@ class iModel:
             )
             await self.executor.append(api_call)
 
-        if (
-            self.executor.processor is None
-            or self.executor.processor.is_stopped()
-        ):
+        if self.executor.processor is None or self.executor.processor.is_stopped():
             await self.executor.start()
 
         if self.executor.processor._concurrency_sem:
@@ -264,9 +259,7 @@ class iModel:
             finally:
                 yield self.executor.pile.pop(api_call.id)
 
-    async def invoke(
-        self, api_call: APICalling = None, **kwargs
-    ) -> APICalling | None:
+    async def invoke(self, api_call: APICalling = None, **kwargs) -> APICalling | None:
         """Invokes a rate-limited API call with the given arguments.
 
         Args:
@@ -286,10 +279,7 @@ class iModel:
             if api_call is None:
                 kwargs.pop("stream", None)
                 api_call = self.create_api_calling(**kwargs)
-            if (
-                self.executor.processor is None
-                or self.executor.processor.is_stopped()
-            ):
+            if self.executor.processor is None or self.executor.processor.is_stopped():
                 await self.executor.start()
 
             await self.executor.append(api_call)
@@ -357,9 +347,7 @@ class iModel:
             "provider": self.endpoint.config.provider,
             "endpoint": self.endpoint.config.model_dump_json(),
             "api_key": (
-                self.api_key_scheme
-                if hasattr(self, "api_key_scheme")
-                else None
+                self.api_key_scheme if hasattr(self, "api_key_scheme") else None
             ),
             "processor_config": self.executor.config,
             "invoke_with_endpoint": self.should_invoke_endpoint,
@@ -414,8 +402,6 @@ class iModel:
         """
         from lionagi.libs.token_transform.perplexity import compress_text
 
-        params = {
-            k: v for k, v in locals().items() if k not in ("self", "kwargs")
-        }
+        params = {k: v for k, v in locals().items() if k not in ("self", "kwargs")}
         params.update(kwargs)
         return await compress_text(**params)

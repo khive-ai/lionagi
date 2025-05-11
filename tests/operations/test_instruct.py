@@ -32,9 +32,7 @@ def make_mocked_branch_for_instruct():
 
     async_mock_invoke = AsyncMock(side_effect=_fake_invoke)
 
-    mock_chat_model = iModel(
-        "test_mock", model="test_chat_model", api_key="test_key"
-    )
+    mock_chat_model = iModel("test_mock", model="test_chat_model", api_key="test_key")
     mock_chat_model.invoke = async_mock_invoke
 
     branch.chat_model = mock_chat_model

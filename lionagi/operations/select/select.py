@@ -42,15 +42,13 @@ async def select(
     instruct = instruct or {}
 
     if instruct.get("instruction", None) is not None:
-        instruct["instruction"] = (
-            f"{instruct['instruction']}\n\n{prompt} \n\n "
-        )
+        instruct["instruction"] = f"{instruct['instruction']}\n\n{prompt} \n\n "
     else:
         instruct["instruction"] = prompt
 
     context = instruct.get("context", None) or []
     context = [context] if not isinstance(context, list) else context
-    context.extend([{k: v} for k, v in zip(selections, contents)])
+    context.extend([{k: v} for k, v in zip(selections, contents, strict=False)])
     instruct["context"] = context
 
     response_model: SelectionModel = await branch.operate(
@@ -62,9 +60,7 @@ async def select(
         print(f"Received selection: {response_model.selected}")
 
     selected = response_model
-    if isinstance(response_model, BaseModel) and hasattr(
-        response_model, "selected"
-    ):
+    if isinstance(response_model, BaseModel) and hasattr(response_model, "selected"):
         selected = response_model.selected
     selected = [selected] if not isinstance(selected, list) else selected
 

@@ -12,14 +12,10 @@ from .string_similarity import SIMILARITY_TYPE
 
 
 class FuzzyValidateMappingParams(Params):
-    similarity_algo: SIMILARITY_TYPE | Callable[[str, str], float] = (
-        "jaro_winkler"
-    )
+    similarity_algo: SIMILARITY_TYPE | Callable[[str, str], float] = "jaro_winkler"
     similarity_threshold: float = 0.85
     fuzzy_match: bool = True
-    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = (
-        "ignore"
-    )
+    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "ignore"
     fill_value: Any = None
     fill_mapping: dict[str, Any] | None = None
     strict: bool = False
@@ -47,14 +43,10 @@ def fuzzy_validate_mapping(
     keys: Sequence[str] | KeysDict,
     /,
     *,
-    similarity_algo: (
-        SIMILARITY_TYPE | Callable[[str, str], float]
-    ) = "jaro_winkler",
+    similarity_algo: (SIMILARITY_TYPE | Callable[[str, str], float]) = "jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,
-    handle_unmatched: Literal[
-        "ignore", "raise", "remove", "fill", "force"
-    ] = "ignore",
+    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "ignore",
     fill_value: Any = None,
     fill_mapping: dict[str, Any] | None = None,
     strict: bool = False,
@@ -102,9 +94,7 @@ def fuzzy_validate_mapping(
             try:
                 json_result = to_json(d)
                 dict_input = (
-                    json_result[0]
-                    if isinstance(json_result, list)
-                    else json_result
+                    json_result[0] if isinstance(json_result, list) else json_result
                 )
             except Exception:
                 # Fall back to to_dict for other string formats

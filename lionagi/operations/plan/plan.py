@@ -174,9 +174,7 @@ async def plan(
 
     # Prepare session/branch
     session, branch = prepare_session(session, branch, branch_kwargs)
-    execute_branch: Branch = session.split(
-        branch
-    )  # a separate branch for execution
+    execute_branch: Branch = session.split(branch)  # a separate branch for execution
 
     # -----------------------------------------------------------------
     # 1. Run the Initial Plan Prompt
@@ -231,7 +229,6 @@ async def plan(
 
         # We now handle multiple strategies:
         match execution_strategy:
-
             # ---------------------------------------------------------
             # Strategy A: SEQUENTIAL
             # ---------------------------------------------------------
@@ -253,9 +250,7 @@ async def plan(
                         plan_step, **(execution_kwargs or {})
                     )
                     seq_results.append(
-                        InstructResponse(
-                            instruct=plan_step, response=step_response
-                        )
+                        InstructResponse(instruct=plan_step, response=step_response)
                     )
 
                 out.execute = seq_results
@@ -274,7 +269,7 @@ async def plan(
                             if len(plan_step.instruction) > 100
                             else plan_step.instruction
                         )
-                        print(f"\n------ Executing step (concurrently) ------")
+                        print("\n------ Executing step (concurrently) ------")
                         print(f"Instruction: {snippet}")
                     local_branch = session.split(execute_branch)
                     resp = await local_branch.instruct(
@@ -283,9 +278,7 @@ async def plan(
                     return InstructResponse(instruct=plan_step, response=resp)
 
                 # Launch all steps in parallel
-                concurrent_res = await alcall(
-                    refined_plans, execute_step_concurrently
-                )
+                concurrent_res = await alcall(refined_plans, execute_step_concurrently)
                 out.execute = concurrent_res
                 if verbose:
                     print("\nAll steps executed successfully (concurrent)!")
@@ -312,9 +305,7 @@ async def plan(
                         resp = await local_branch.instruct(
                             plan_step, **(execution_kwargs or {})
                         )
-                        return InstructResponse(
-                            instruct=plan_step, response=resp
-                        )
+                        return InstructResponse(instruct=plan_step, response=resp)
 
                     # run each chunk in parallel
                     return await alcall(sub_steps, _execute)
@@ -378,9 +369,7 @@ async def plan(
                     )
 
             case _:
-                raise ValueError(
-                    f"Invalid execution strategy: {execution_strategy}"
-                )
+                raise ValueError(f"Invalid execution strategy: {execution_strategy}")
 
     # -----------------------------------------------------------------
     # 4. Final Return

@@ -6,7 +6,6 @@ from lionagi.protocols.messages.base import validate_sender_recipient
 from lionagi.protocols.messages.instruction import (
     format_image_content,
     format_image_item,
-    format_text_content,
     format_text_item,
     prepare_instruction_content,
     prepare_request_response_format,
@@ -18,8 +17,6 @@ from lionagi.protocols.messages.system import format_system_content
 def sample_element():
     class SampleElement(Element):
         """Sample element class for ID testing"""
-
-        pass
 
     return SampleElement()
 
@@ -120,9 +117,7 @@ def test_prepare_instruction_content():
         name: str
         age: int
 
-    result = prepare_instruction_content(
-        instruction="Test", request_model=RequestModel
-    )
+    result = prepare_instruction_content(instruction="Test", request_model=RequestModel)
 
     assert result["request_model"] == RequestModel
     assert "request_fields" in result

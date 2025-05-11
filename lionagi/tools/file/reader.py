@@ -140,9 +140,7 @@ class ReaderResponse(BaseModel):
 
     success: bool = Field(
         ...,
-        description=(
-            "Indicates if the requested action was performed successfully."
-        ),
+        description=("Indicates if the requested action was performed successfully."),
     )
     error: str | None = Field(
         None,
@@ -232,18 +230,14 @@ class ReaderTool(LionTool):
             result = self.converter.convert(source)
             text = result.document.export_to_markdown()
         except Exception as e:
-            return ReaderResponse(
-                success=False, error=f"Conversion error: {str(e)}"
-            )
+            return ReaderResponse(success=False, error=f"Conversion error: {e!s}")
 
         doc_id = f"DOC_{abs(hash(source))}"
         return self._save_to_temp(text, doc_id)
 
     def _read_doc(self, doc_id: str, start: int, end: int) -> ReaderResponse:
         if doc_id not in self.documents:
-            return ReaderResponse(
-                success=False, error="doc_id not found in memory"
-            )
+            return ReaderResponse(success=False, error="doc_id not found in memory")
 
         path, length = self.documents[doc_id]
         # clamp offsets
@@ -255,9 +249,7 @@ class ReaderTool(LionTool):
                 f.seek(s)
                 content = f.read(e - s)
         except Exception as ex:
-            return ReaderResponse(
-                success=False, error=f"Read error: {str(ex)}"
-            )
+            return ReaderResponse(success=False, error=f"Read error: {ex!s}")
 
         return ReaderResponse(
             success=True,
@@ -272,9 +264,7 @@ class ReaderTool(LionTool):
     ):
         from lionagi.libs.file.process import dir_to_files
 
-        files = dir_to_files(
-            directory, recursive=recursive, file_types=file_types
-        )
+        files = dir_to_files(directory, recursive=recursive, file_types=file_types)
         files = "\n".join([str(f) for f in files])
         doc_id = f"DIR_{abs(hash(directory))}"
         return self._save_to_temp(files, doc_id)
@@ -289,9 +279,7 @@ class ReaderTool(LionTool):
                 - read partial text from doc -> returns chunk
                 - list all files in a directory ->  returns list of files as doc format
                 """
-                return self.handle_request(
-                    ReaderRequest(**kwargs)
-                ).model_dump()
+                return self.handle_request(ReaderRequest(**kwargs)).model_dump()
 
             if self.system_tool_name != "reader_tool":
                 reader_tool.__name__ = self.system_tool_name

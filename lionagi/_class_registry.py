@@ -43,9 +43,7 @@ def get_class_file_registry(folder_path, pattern_list):
         for file in files:
             if file.endswith(".py"):
                 if any(pattern in root for pattern in pattern_list):
-                    class_file_dict = get_file_classes(
-                        os.path.join(root, file)
-                    )
+                    class_file_dict = get_file_classes(os.path.join(root, file))
                     class_file_registry.update(class_file_dict)
     return class_file_registry
 
@@ -54,9 +52,7 @@ if not LION_CLASS_FILE_REGISTRY:
     script_path = os.path.abspath(__file__)
     script_dir = os.path.dirname(script_path)
 
-    LION_CLASS_FILE_REGISTRY = get_class_file_registry(
-        script_dir, pattern_list
-    )
+    LION_CLASS_FILE_REGISTRY = get_class_file_registry(script_dir, pattern_list)
 
 
 def get_class_objects(file_path):

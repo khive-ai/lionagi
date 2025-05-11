@@ -1,5 +1,3 @@
-from typing import Any
-
 import pytest
 
 from lionagi.protocols.types import ActionRequest, MessageRole
@@ -88,9 +86,7 @@ def test_action_request_request_property():
     request_dict = request.request
     assert request_dict["function"] == function
     assert request_dict["arguments"] == arguments
-    assert (
-        "output" not in request_dict
-    )  # Should not include output in request dict
+    assert "output" not in request_dict  # Should not include output in request dict
 
 
 def test_prepare_action_request():

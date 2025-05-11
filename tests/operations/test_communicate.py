@@ -50,9 +50,7 @@ async def test_communicate_no_validation():
     """
     branch = make_mocked_branch_for_communicate()
 
-    result = await branch.communicate(
-        instruction="User says hi", skip_validation=True
-    )
+    result = await branch.communicate(instruction="User says hi", skip_validation=True)
     assert result == '{"data":"mocked_response_string"}'
 
     # If your updated code doesn't store messages, or does so differently, adjust accordingly:

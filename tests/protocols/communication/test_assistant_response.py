@@ -31,9 +31,7 @@ class MockModelResponse(BaseModel):
 
 def create_mock_response(content: str) -> MockModelResponse:
     """Create a mock model response with given content"""
-    return MockModelResponse(
-        choices=[Choice(message=Message(content=content))]
-    )
+    return MockModelResponse(choices=[Choice(message=Message(content=content))])
 
 
 def create_mock_stream_response(content: str) -> list[MockModelResponse]:

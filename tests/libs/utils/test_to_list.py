@@ -58,10 +58,7 @@ def test_list_input(input_value, expected, flatten):
     ],
 )
 def test_tuple_input(input_value, expected, flatten):
-    assert (
-        to_list(input_value, flatten=flatten, flatten_tuple_set=True)
-        == expected
-    )
+    assert to_list(input_value, flatten=flatten, flatten_tuple_set=True) == expected
 
 
 def test_set_input():
@@ -180,9 +177,7 @@ def test_flatten_with_strings(input_value, expected):
     ],
 )
 def test_flatten_with_tuple(input_value, expected):
-    assert (
-        to_list(input_value, flatten=True, flatten_tuple_set=True) == expected
-    )
+    assert to_list(input_value, flatten=True, flatten_tuple_set=True) == expected
 
 
 def test_flatten_with_set():
@@ -284,7 +279,7 @@ def test_to_list_with_generator_expression():
 
 
 def test_to_list_with_zip():
-    z = zip([1, 2, 3], ["a", "b", "c"])
+    z = zip([1, 2, 3], ["a", "b", "c"], strict=False)
     assert to_list(z) == [(1, "a"), (2, "b"), (3, "c")]
 
 

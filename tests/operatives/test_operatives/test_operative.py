@@ -133,9 +133,7 @@ class TestOperative:
         operative = Operative(request_params=params)
 
         # Test with list of valid items
-        list_text = (
-            '[{"name": "test1", "value": 1}, {"name": "test2", "value": 2}]'
-        )
+        list_text = '[{"name": "test1", "value": 1}, {"name": "test2", "value": 2}]'
         result = operative.update_response_model(text=list_text)
         assert isinstance(result, list)
         assert len(result) == 2
@@ -178,9 +176,7 @@ class TestOperative:
 
         # Create new response type with field descriptions
         field_models = [
-            FieldModel(
-                name="name", annotation=str, description="Test name field"
-            )
+            FieldModel(name="name", annotation=str, description="Test name field")
         ]
         operative.create_response_type(field_models=field_models)
 

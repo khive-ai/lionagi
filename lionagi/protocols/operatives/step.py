@@ -23,9 +23,7 @@ class StepModel(BaseModel):
     title: str
     description: str
     reason: Reason | None = Field(**REASON_FIELD.to_dict())
-    action_requests: list[ActionRequestModel] = Field(
-        **ACTION_REQUESTS_FIELD.to_dict()
-    )
+    action_requests: list[ActionRequestModel] = Field(**ACTION_REQUESTS_FIELD.to_dict())
     action_required: bool = Field(**ACTION_REQUIRED_FIELD.to_dict())
     action_responses: list[ActionResponseModel] = Field(
         **ACTION_RESPONSES_FIELD.to_dict()
@@ -92,12 +90,10 @@ class Step:
         if reason and REASON_FIELD not in field_models:
             field_models.append(REASON_FIELD)
         if actions and ACTION_REQUESTS_FIELD not in field_models:
-            field_models.extend(
-                [
-                    ACTION_REQUESTS_FIELD,
-                    ACTION_REQUIRED_FIELD,
-                ]
-            )
+            field_models.extend([
+                ACTION_REQUESTS_FIELD,
+                ACTION_REQUIRED_FIELD,
+            ])
 
         if isinstance(request_params, ModelParams):
             request_params = request_params.model_dump()
@@ -115,9 +111,9 @@ class Step:
             "base_type": base_type,
             "name": new_model_name,
         }
-        request_params.update(
-            {k: v for k, v in request_params_fields.items() if v is not None}
-        )
+        request_params.update({
+            k: v for k, v in request_params_fields.items() if v is not None
+        })
         request_params = ModelParams(**request_params)
         if max_retries:
             params["max_retries"] = max_retries
@@ -161,13 +157,11 @@ class Step:
         additional_data = additional_data or {}
         field_models = field_models or []
         if hasattr(operative.response_model, "action_required"):
-            field_models.extend(
-                [
-                    ACTION_RESPONSES_FIELD,
-                    ACTION_REQUIRED_FIELD,
-                    ACTION_REQUESTS_FIELD,
-                ]
-            )
+            field_models.extend([
+                ACTION_RESPONSES_FIELD,
+                ACTION_REQUIRED_FIELD,
+                ACTION_REQUESTS_FIELD,
+            ])
         if "reason" in operative.response_model.model_fields:
             field_models.extend([REASON_FIELD])
 
@@ -219,13 +213,11 @@ class Step:
             hasattr(operative.request_type, "action_required")
             and operative.response_model.action_required
         ):
-            field_models.extend(
-                [
-                    ACTION_RESPONSES_FIELD,
-                    ACTION_REQUIRED_FIELD,
-                    ACTION_REQUESTS_FIELD,
-                ]
-            )
+            field_models.extend([
+                ACTION_RESPONSES_FIELD,
+                ACTION_REQUIRED_FIELD,
+                ACTION_REQUESTS_FIELD,
+            ])
         if hasattr(operative.request_type, "reason"):
             field_models.extend([REASON_FIELD])
 

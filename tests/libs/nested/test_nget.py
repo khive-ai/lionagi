@@ -133,7 +133,7 @@ def test_nget_with_all_python_basic_types():
         "bytes": b"bytes",
         "bytearray": bytearray(b"bytearray"),
     }
-    for key in data.keys():
+    for key in data:
         assert nget(data, [key]) == data[key]
 
 

@@ -100,10 +100,7 @@ class TestStep:
             operative_name="test_operative", reason=True, base_type=SampleModel
         )
         assert "reason" in operative.request_type.model_fields
-        assert (
-            operative.request_type.model_fields["reason"].annotation
-            == Reason | None
-        )
+        assert operative.request_type.model_fields["reason"].annotation == Reason | None
 
     def test_request_operative_with_actions(self):
         """Test request operative with action fields."""
@@ -122,14 +119,10 @@ class TestStep:
         )
 
         # Create initial response
-        request_operative.update_response_model(
-            text='{"name": "test", "value": 42}'
-        )
+        request_operative.update_response_model(text='{"name": "test", "value": 42}')
 
         # Update with response operative
-        response_operative = Step.respond_operative(
-            operative=request_operative
-        )
+        response_operative = Step.respond_operative(operative=request_operative)
 
         assert response_operative.response_type is not None
         assert response_operative.response_model is not None
@@ -143,9 +136,7 @@ class TestStep:
         )
 
         # Create initial response
-        request_operative.update_response_model(
-            text='{"name": "test", "value": 42}'
-        )
+        request_operative.update_response_model(text='{"name": "test", "value": 42}')
 
         # Update with additional data
         additional_data = {"name": "updated"}
@@ -196,15 +187,9 @@ class TestStep:
         )
 
         # Verify action fields are present in response type
-        assert (
-            "action_responses" in response_operative.response_type.model_fields
-        )
-        assert (
-            "action_required" in response_operative.response_type.model_fields
-        )
-        assert (
-            "action_requests" in response_operative.response_type.model_fields
-        )
+        assert "action_responses" in response_operative.response_type.model_fields
+        assert "action_required" in response_operative.response_type.model_fields
+        assert "action_requests" in response_operative.response_type.model_fields
 
     def test_error_cases(self):
         """Test error handling in Step methods."""

@@ -70,9 +70,7 @@ class TestFieldModel:
                 raise ValueError("Value must be between 0 and 100")
             return value
 
-        field = FieldModel(
-            name="test_field", annotation=int, validator=validate_range
-        )
+        field = FieldModel(name="test_field", annotation=int, validator=validate_range)
 
         validator_dict = field.field_validator
         assert isinstance(validator_dict, dict)
@@ -102,9 +100,7 @@ class TestFieldModel:
 
     def test_field_with_alias(self):
         """Test field with alias configuration."""
-        field = FieldModel(
-            name="test_field", alias="test_alias", alias_priority=2
-        )
+        field = FieldModel(name="test_field", alias="test_alias", alias_priority=2)
 
         field_info = field.field_info
         assert field_info.alias == "test_alias"
@@ -172,9 +168,7 @@ class TestFieldModel:
 
     def test_field_with_examples(self):
         """Test field with examples."""
-        field = FieldModel(
-            name="test_field", examples=["example1", "example2"]
-        )
+        field = FieldModel(name="test_field", examples=["example1", "example2"])
 
         field_info = field.field_info
         assert field_info.examples == ["example1", "example2"]
@@ -223,9 +217,7 @@ def test_exclude_field_behavior():
     """
     field = FieldModel(name="excluded_field", exclude=True)
     info = field.field_info
-    assert (
-        info.exclude is True
-    ), "Expected the field's FieldInfo to have exclude=True"
+    assert info.exclude is True, "Expected the field's FieldInfo to have exclude=True"
 
 
 @pytest.mark.parametrize(
@@ -239,9 +231,7 @@ def test_exclude_field_behavior():
         ),  # The first element is a string instead of int
     ],
 )
-def test_type_mismatch_between_annotation_and_default(
-    annotation, default_value
-):
+def test_type_mismatch_between_annotation_and_default(annotation, default_value):
     """
     Test providing a default value that doesn't match the annotation type
     (e.g., str default for an int annotation).

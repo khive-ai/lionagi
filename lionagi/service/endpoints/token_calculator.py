@@ -36,9 +36,7 @@ O1_IMAGE_PRICING = {
 }
 
 
-def calculate_image_token_usage_from_base64(
-    image_base64: str, detail, image_pricing
-):
+def calculate_image_token_usage_from_base64(image_base64: str, detail, image_pricing):
     from PIL import Image
 
     # Decode the base64 string to get image data
@@ -73,9 +71,7 @@ def calculate_image_token_usage_from_base64(
     num_tiles = (width // image_pricing["tile_size"]) * (
         height // image_pricing["tile_size"]
     )
-    token_cost = (
-        image_pricing["base_cost"] + image_pricing["tile_cost"] * num_tiles
-    )
+    token_cost = image_pricing["base_cost"] + image_pricing["tile_cost"] * num_tiles
 
     return token_cost
 
@@ -104,10 +100,8 @@ def get_image_pricing(model: str) -> dict:
 
 
 class TokenCalculator:
-
     @staticmethod
     def calculate_message_tokens(messages: list[dict], /, **kwargs) -> int:
-
         model = kwargs.get("model", "gpt-4o")
         tokenizer = tiktoken.get_encoding(get_encoding_name(model)).encode
 
@@ -123,13 +117,11 @@ class TokenCalculator:
     @staticmethod
     def calcualte_embed_token(inputs: list[str], /, **kwargs) -> int:
         try:
-            if not "inputs" in kwargs:
+            if "inputs" not in kwargs:
                 raise ValueError("Missing 'inputs' field in payload")
 
             tokenizer = tiktoken.get_encoding(
-                get_encoding_name(
-                    kwargs.get("model", "text-embedding-3-small")
-                )
+                get_encoding_name(kwargs.get("model", "text-embedding-3-small"))
             ).encode
 
             return sum(
@@ -149,7 +141,6 @@ class TokenCalculator:
         return_tokens: bool = False,
         return_decoded: bool = False,
     ) -> int | list[int]:
-
         if not s_:
             return 0
 
@@ -194,9 +185,7 @@ class TokenCalculator:
 
             if isinstance(i_, list):
                 return sum(
-                    TokenCalculator._calculate_chatitem(
-                        x, tokenizer, model_name
-                    )
+                    TokenCalculator._calculate_chatitem(x, tokenizer, model_name)
                     for x in i_
                 )
         except Exception:
@@ -210,8 +199,7 @@ class TokenCalculator:
 
             if isinstance(s_, list):
                 return sum(
-                    TokenCalculator._calculate_embed_item(x, tokenizer)
-                    for x in s_
+                    TokenCalculator._calculate_embed_item(x, tokenizer) for x in s_
                 )
         except Exception:
             return 0

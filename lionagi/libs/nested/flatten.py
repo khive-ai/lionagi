@@ -85,9 +85,7 @@ def flatten(
     """
 
     if coerce_keys and coerce_sequence == "list":
-        raise ValueError(
-            "coerce_sequence cannot be 'list' when coerce_keys is True"
-        )
+        raise ValueError("coerce_sequence cannot be 'list' when coerce_keys is True")
 
     coerce_sequence_to_list = None
     coerce_sequence_to_dict = None

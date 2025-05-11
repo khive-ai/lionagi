@@ -50,9 +50,7 @@ class Note(BaseModel):
         >>> note.update(["user", "settings"], {"language": "en"})
     """
 
-    content: dict[str, Any] = Field(
-        default_factory=dict
-    )  # Nested data structure
+    content: dict[str, Any] = Field(default_factory=dict)  # Nested data structure
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,

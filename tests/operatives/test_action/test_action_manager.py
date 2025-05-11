@@ -157,9 +157,7 @@ def test_get_tool_schema(populated_manager):
     assert result["tools"]["function"]["name"] == "helper_func"
 
     # Test with list of tools
-    result = populated_manager.get_tool_schema(
-        ["helper_func", "another_helper_func"]
-    )
+    result = populated_manager.get_tool_schema(["helper_func", "another_helper_func"])
     assert "tools" in result
     assert isinstance(result["tools"], list)
     assert len(result["tools"]) == 2
@@ -213,9 +211,7 @@ def test_register_duplicate_name_different_functions():
     the first at the Python level, so effectively only one gets registered.
     """
     manager = ActionManager()
-    manager.register_tool(
-        duplicate_name_func1
-    )  # This references the second definition
+    manager.register_tool(duplicate_name_func1)  # This references the second definition
 
     # The name that ends up registered is the last one in Python scope
     assert "duplicate_name_func1" in manager.registry
@@ -268,9 +264,7 @@ async def test_invoke_with_missing_arguments(populated_manager):
     """
     # another_helper_func(x: int=0) -> int
     # 'x' has a default, so missing 'x' should be okay => x=0
-    request = ActionRequest.create(
-        function="another_helper_func", arguments={}
-    )
+    request = ActionRequest.create(function="another_helper_func", arguments={})
     result = await populated_manager.invoke(request)
     # The default x=0 -> returns 1
     assert result.response == 1
@@ -310,9 +304,7 @@ def test_get_tool_schema_with_auto_register():
         return x * 2
 
     # Attempt to retrieve schema for an unregistered tool, but auto_register=True
-    schema_result = manager.get_tool_schema(
-        unregistered_tool, auto_register=True
-    )
+    schema_result = manager.get_tool_schema(unregistered_tool, auto_register=True)
     assert "tools" in schema_result
     schema = schema_result["tools"]
     assert schema["function"]["name"] == "unregistered_tool"
@@ -351,9 +343,7 @@ def test_get_tool_schema_partial_list(populated_manager):
 
     # By default, auto_register=True, so brand_new_tool would get registered automatically.
     # Let's check that it doesn't raise an error in that case.
-    schema_result = populated_manager.get_tool_schema(
-        tools, auto_register=True
-    )
+    schema_result = populated_manager.get_tool_schema(tools, auto_register=True)
     assert isinstance(schema_result["tools"], list)
     assert len(schema_result["tools"]) == 3
     # Confirm brand_new_tool got auto-registered

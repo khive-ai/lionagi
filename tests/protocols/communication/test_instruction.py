@@ -126,9 +126,7 @@ def test_instruction_update():
 
     new_context = {"new": "context"}
     instruction.extend_context(new_context)
-    instruction.update(
-        guidance="New guidance", instruction="Updated instruction"
-    )
+    instruction.update(guidance="New guidance", instruction="Updated instruction")
 
     assert instruction.guidance == "New guidance"
     assert instruction.instruction == "Updated instruction"
