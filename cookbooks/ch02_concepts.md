@@ -99,7 +99,7 @@ Key Points
 ```python
 async def handle_inquiry(user_id: str, user_message: str) -> str:
     """
-    Takes the user's message and returns an AI response, 
+    Takes the user's message and returns an AI response,
     preserving conversation history for follow-up questions.
     """
     # Provide context if needed (e.g., user_id)

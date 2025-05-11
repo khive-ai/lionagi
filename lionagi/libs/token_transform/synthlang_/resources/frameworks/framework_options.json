@@ -5,22 +5,22 @@
       "description": "Offers a suite of math glyphs and notation rules.",
       "glyphs": [
         {
-          "symbol": "\u21b9",
+          "symbol": "↹",
           "name": "Focus/Filter",
           "description": "Used for focusing instructions"
         },
         {
-          "symbol": "\u03a3",
+          "symbol": "Σ",
           "name": "Summarize",
           "description": "Condense large sets of data"
         },
         {
-          "symbol": "\u2295",
+          "symbol": "⊕",
           "name": "Combine/Merge",
           "description": "Merge multiple data sources"
         },
         {
-          "symbol": "\u2022",
+          "symbol": "•",
           "name": "Group Operation",
           "description": "Binary operation in group theory"
         }
@@ -42,7 +42,7 @@
       "description": "Extra rules for ring, group, field expansions.",
       "glyphs": [
         {
-          "symbol": "\u221e",
+          "symbol": "∞",
           "name": "Infinite Operator",
           "description": "Represents unbounded algebraic ops"
         }

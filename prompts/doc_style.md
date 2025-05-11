@@ -83,7 +83,7 @@ Example:
 def compute_stats(data, axis=0): """Compute descriptive statistics for the input
 data.
 
-    This function calculates mean, standard deviation, and optionally 
+    This function calculates mean, standard deviation, and optionally
     other metrics across the specified axis.
 
     Args:
@@ -91,7 +91,7 @@ data.
         axis: Axis along which the statistics are computed. Defaults to 0.
 
     Returns:
-        Dictionary containing keys 'mean' and 'std', each mapped to floats 
+        Dictionary containing keys 'mean' and 'std', each mapped to floats
         or arrays of floats (depending on input shape).
 
     Raises:
