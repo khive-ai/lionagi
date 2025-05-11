@@ -164,15 +164,8 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Generated files
-lionagi/adapter_map.json
-# Exclude setup.py and pyproject.toml from version control
-setup.py
-pyproject.toml
 .idea/
 .data/
-notebooks/.lock
-notebooks/meta.json
 logs/
 temp_logs/
 dev/

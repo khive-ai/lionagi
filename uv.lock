@@ -1192,7 +1192,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.11.0"
+version = "0.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -1200,10 +1200,9 @@ dependencies = [
     { name = "jinja2" },
     { name = "pandas" },
     { name = "pillow" },
-    { name = "pydantic" },
+    { name = "pydapter" },
     { name = "python-dotenv" },
     { name = "tiktoken" },
-    { name = "toml" },
 ]
 
 [package.optional-dependencies]
@@ -1244,10 +1243,9 @@ requires-dist = [
     { name = "openai", marker = "extra == 'ollama'", specifier = ">=1.60.0" },
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "pillow", specifier = ">=10.0.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pydapter", specifier = ">=0.1.4" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "tiktoken", specifier = ">=0.8.0" },
-    { name = "toml", specifier = ">=0.9.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2494,6 +2492,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/67/1d/42628a2c33e93f8e9acbde0d5d735fa0850f3e6a2f8cb1eb6c40b9a732ac/pydantic_settings-2.9.1.tar.gz", hash = "sha256:c509bf79d27563add44e8446233359004ed85066cd096d8b510f715e6ef5d268", size = 163234 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b6/5f/d6d641b490fd3ec2c4c13b4244d68deea3a1b970a97be64f34fb5504ff72/pydantic_settings-2.9.1-py3-none-any.whl", hash = "sha256:59b4f431b1defb26fe620c71a7d3968a710d719f5f4cdbbdb7926edeb770f6ef", size = 44356 },
+]
+
+[[package]]
+name = "pydapter"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "toml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d6/5a/e9e6db0013260f10859ed9b86eb1becaa6fb41d99d04ae6fd1950e203124/pydapter-0.1.4.tar.gz", hash = "sha256:f4ac41f5fa158d1fd5a94c5c24dbbf24e73a82df7d0f6cec24e4dbd399312662", size = 202741 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/02/7c845ad60e7a0b9aeb7cd40750b8b2f93d8bf3b84c08d12280451570c0b7/pydapter-0.1.4-py3-none-any.whl", hash = "sha256:8cd741c1ba50e392fa7c88afbad20b928ddc1c3fabd6f108ae51f75ff99c1620", size = 37038 },
 ]
 
 [[package]]
