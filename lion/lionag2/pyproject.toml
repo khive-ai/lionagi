@@ -1,0 +1,82 @@
+[project]
+name = "lionag2"
+version = "0.0.0"
+description = "Lionag2"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2"}
+authors = [
+  {name = "HaiyangLi", email = "ocean@lionagi.ai"},
+]
+classifiers = [
+  "Development Status :: 1 - Planning",
+]
+dependencies = [
+    "khive>=0.2.3",
+    "pydapter>=0.1.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/khive-ai/lionagi"
+Repository = "https://github.com/khive-ai/lionagi"
+
+[tool.pytest.ini_options]
+addopts = "-ra --cov=pydapter --cov-report=term-missing"
+testpaths = ["tests"]
+
+
+
+
+
+[tool.ruff]
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "B",    # flake8-bugbear
+  "C90",  # mccabe
+  "D",    # pydocstyle
+  "E",    # pycodestyle
+  "F",    # pyflakes
+  "I",    # isort
+  "N",    # pep8-naming
+  "RUF",  # Ruff-specific rules
+  "S",    # flake8-bandit
+  "UP",   # pyupgrade
+  "W",    # pycodestyle
+]
+ignore = [
+  "COM812",
+  "COM819",
+  "D107",  # undocumented-public-init conflicts with DOC301
+  "D206",
+  "D300",
+  "E111",
+  "E114",
+  "E117",
+  "ISC001",
+  "ISC002",
+  "Q000",
+  "Q001",
+  "Q002",
+  "Q003",
+  "W191",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"*/test_*.py" = ["S101"]
+"noxfile.py" = ["S101"]
+"**/conftest.py" = ["S101"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pydoclint]
+style = 'google'
+exclude = '\.git|\.nox|noxfile.py'
+arg-type-hints-in-docstring = false
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+]
