@@ -177,3 +177,6 @@ logs/
 temp_logs/
 dev/
 *.DS_Store
+.roomodes
+.khive/
+.roo/
