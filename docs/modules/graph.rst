@@ -8,9 +8,9 @@ Node, Edge, and Graph
 
 Overview
 --------
-This documentation covers the **graph** structures in LionAGI, comprising 
-individual :class:`Node` objects, :class:`Edge` objects that link them, and 
-the overarching :class:`Graph` class that manages these relationships. Also 
+This documentation covers the **graph** structures in LionAGI, comprising
+individual :class:`Node` objects, :class:`Edge` objects that link them, and
+the overarching :class:`Graph` class that manages these relationships. Also
 included is an :class:`EdgeCondition` mechanism for conditional traversal.
 
 Contents
@@ -27,8 +27,8 @@ EdgeCondition
 
    **Inherits from**: :class:`pydantic.BaseModel`, :class:`~lionagi.protocols._concepts.Condition`
 
-   A **condition** that can be attached to an :class:`Edge` to control or 
-   constrain its traversability. This class also integrates with Pydantic for 
+   A **condition** that can be attached to an :class:`Edge` to control or
+   constrain its traversability. This class also integrates with Pydantic for
    data validation and serialization.
 
    Attributes
@@ -56,18 +56,18 @@ Edge
    **Inherits from**: :class:`~lionagi.protocols.generic.element.Element`
 
    Represents a **directed connection** from a head node to a tail node in a
-   LionAGI graph. An optional :attr:`condition` determines if traversal is 
-   allowed. Additional metadata (like :attr:`label`) or properties can be 
+   LionAGI graph. An optional :attr:`condition` determines if traversal is
+   allowed. Additional metadata (like :attr:`label`) or properties can be
    stored in :attr:`properties`.
 
    Attributes
    ----------
    head : IDType
-       The ID of the head node. 
+       The ID of the head node.
    tail : IDType
        The ID of the tail node.
    properties : dict[str, Any]
-       A dictionary holding additional properties, such as labels or 
+       A dictionary holding additional properties, such as labels or
        an :class:`EdgeCondition`.
 
    Properties
@@ -80,7 +80,7 @@ Edge
    .. attribute:: condition
       :type: EdgeCondition | None
 
-      A condition that determines if this edge is traversable. If None, 
+      A condition that determines if this edge is traversable. If None,
       traversal is unrestricted.
 
    Methods
@@ -88,7 +88,7 @@ Edge
    .. method:: check_condition(*args, **kwargs) -> bool
       :async:
 
-      Evaluates the :attr:`condition` (if any). Returns True if 
+      Evaluates the :attr:`condition` (if any). Returns True if
       no condition is assigned or if the condition passes.
 
    .. method:: update_property(key: str, value: Any) -> None
@@ -97,7 +97,7 @@ Edge
 
    .. method:: update_condition_source(source: Any) -> None
 
-      Updates the :attr:`.source` field in the assigned :attr:`condition` 
+      Updates the :attr:`.source` field in the assigned :attr:`condition`
       without replacing the entire condition object.
 
    Example
@@ -118,9 +118,9 @@ Node
 
    **Inherits from**: :class:`~lionagi.protocols.generic.element.Element`, :class:`~lionagi.protocols._concepts.Relational`
 
-   A **graph node** that can store arbitrary content, an optional numeric 
-   embedding, and metadata in :attr:`metadata`. Nodes integrate with the 
-   LionAGI adapter system, enabling easy import/export to JSON, pandas 
+   A **graph node** that can store arbitrary content, an optional numeric
+   embedding, and metadata in :attr:`metadata`. Nodes integrate with the
+   LionAGI adapter system, enabling easy import/export to JSON, pandas
    Series, etc.
 
    Attributes
@@ -166,8 +166,8 @@ Graph
 
    **Inherits from**: :class:`~lionagi.protocols.generic.element.Element`, :class:`~lionagi.protocols._concepts.Relational`
 
-   Represents an entire **directed graph** of :class:`Node` and :class:`Edge` objects. 
-   Internally, it uses two :class:`~lionagi.protocols.generic.pile.Pile` instances 
+   Represents an entire **directed graph** of :class:`Node` and :class:`Edge` objects.
+   Internally, it uses two :class:`~lionagi.protocols.generic.pile.Pile` instances
    (one for nodes, one for edges) and a `node_edge_mapping` for quick lookups.
 
    Attributes
@@ -183,13 +183,13 @@ Graph
    -------
    .. method:: add_node(node: Relational) -> None
 
-      Inserts a node into the graph. Raises :exc:`RelationError` if invalid 
+      Inserts a node into the graph. Raises :exc:`RelationError` if invalid
       or already present.
 
    .. method:: add_edge(edge: Edge) -> None
 
-      Inserts an edge into the graph, linking two existing nodes. 
-      Raises :exc:`RelationError` if invalid or if referenced nodes 
+      Inserts an edge into the graph, linking two existing nodes.
+      Raises :exc:`RelationError` if invalid or if referenced nodes
       are not found.
 
    .. method:: remove_node(node: ID[Node].Ref) -> None
@@ -218,7 +218,7 @@ Graph
 
    .. method:: to_networkx(**kwargs) -> Any
 
-      Converts this graph to a `networkx.DiGraph` object, including node 
+      Converts this graph to a `networkx.DiGraph` object, including node
       and edge properties.
 
    .. method:: display(node_label="lion_class", edge_label="label", draw_kwargs={}, **kwargs) -> None
@@ -256,14 +256,14 @@ Graph
 
 File Locations
 --------------
-- **EdgeCondition** and **Edge**:  
-  ``lionagi/protocols/graph/edge.py``  
+- **EdgeCondition** and **Edge**:
+  ``lionagi/protocols/graph/edge.py``
 
-- **Node**:  
-  ``lionagi/protocols/graph/node.py``  
+- **Node**:
+  ``lionagi/protocols/graph/node.py``
 
-- **Graph**:  
-  ``lionagi/protocols/graph/graph.py``  
+- **Graph**:
+  ``lionagi/protocols/graph/graph.py``
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``
 ``SPDX-License-Identifier: Apache-2.0``

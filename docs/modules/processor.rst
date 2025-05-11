@@ -4,16 +4,16 @@
 Event Processor and Executor
 ================================================
 .. module:: lionagi.protocols.generic.processor
-   :synopsis: Defines asynchronous event processing with capacity-limited queues 
+   :synopsis: Defines asynchronous event processing with capacity-limited queues
               and an Executor for managing events and linking them to a Processor.
 
 Overview
 --------
 This module provides:
 
-- :class:`Processor`: An **asynchronous** queue manager for :class:`~lionagi.protocols.generic.event.Event` objects, 
+- :class:`Processor`: An **asynchronous** queue manager for :class:`~lionagi.protocols.generic.event.Event` objects,
   supporting capacity-limited batching and optional permission checks.
-- :class:`Executor`: A coordinating class that **stores events** in a :class:`~lionagi.protocols.generic.pile.Pile` 
+- :class:`Executor`: A coordinating class that **stores events** in a :class:`~lionagi.protocols.generic.pile.Pile`
   and **forwards** them to an internal Processor for execution.
 
 
@@ -24,15 +24,15 @@ Processor
 
    **Inherits from**: :class:`~lionagi.protocols._concepts.Observer`
 
-   Manages a queue of events that can be processed asynchronously in **batches**, respecting a 
-   capacity limit. Subclasses can override methods for **request_permission** checks or 
-   custom handling logic. The processor can be started and stopped, and it refreshes 
+   Manages a queue of events that can be processed asynchronously in **batches**, respecting a
+   capacity limit. Subclasses can override methods for **request_permission** checks or
+   custom handling logic. The processor can be started and stopped, and it refreshes
    available capacity after each batch of events.
 
    Attributes
    ----------
    event_type : ClassVar[type[Event]]
-       Declares the type of Event this processor is meant to handle. Subclasses 
+       Declares the type of Event this processor is meant to handle. Subclasses
        should set this to a specific Event subclass if needed.
 
    queue_capacity : int
@@ -114,9 +114,9 @@ Processor
    .. method:: process() -> None
       :async:
 
-      Retrieves and processes events from the queue, up to :attr:`available_capacity`. 
+      Retrieves and processes events from the queue, up to :attr:`available_capacity`.
       Each event's ``status`` is set to :attr:`~lionagi.protocols.generic.event.EventStatus.PROCESSING`
-      if it passes a permission check (:meth:`request_permission`). After processing 
+      if it passes a permission check (:meth:`request_permission`). After processing
       these events, the capacity is reset if any were processed.
 
    .. method:: request_permission(**kwargs: Any) -> bool
@@ -128,7 +128,7 @@ Processor
    .. method:: execute() -> None
       :async:
 
-      Continuously processes events until :meth:`stop` is called, sleeping 
+      Continuously processes events until :meth:`stop` is called, sleeping
       for :attr:`capacity_refresh_time` between cycles to refresh capacity.
 
 
@@ -139,9 +139,9 @@ Executor
 
    **Inherits from**: :class:`~lionagi.protocols._concepts.Observer`
 
-   A higher-level manager that **maintains a pile of events** and forwards them 
-   to an internal :class:`Processor` for asynchronous execution. This allows 
-   classes to store events locally, possibly filter or arrange them, and then 
+   A higher-level manager that **maintains a pile of events** and forwards them
+   to an internal :class:`Processor` for asynchronous execution. This allows
+   classes to store events locally, possibly filter or arrange them, and then
    dispatch them in batches.
 
    Attributes
@@ -155,7 +155,7 @@ Executor
    processor : Processor | None
        The internal processor instance; created lazily if None.
    pile : Pile[Event]
-       A pile storing all events, enabling concurrency-safe access and 
+       A pile storing all events, enabling concurrency-safe access and
        type constraints.
 
    Initialization
@@ -167,7 +167,7 @@ Executor
       processor_config : dict[str, Any] | None
           Configuration parameters for creating the processor (e.g., capacity, refresh time).
       strict_event_type : bool
-          If True, the underlying :class:`Pile` enforces exact type matching for 
+          If True, the underlying :class:`Pile` enforces exact type matching for
           :class:`~lionagi.protocols.generic.event.Event` objects.
 
    Properties
@@ -185,7 +185,7 @@ Executor
    .. method:: forward() -> None
       :async:
 
-      Sends all pending events from the :attr:`pile` to the :attr:`processor`, 
+      Sends all pending events from the :attr:`pile` to the :attr:`processor`,
       then calls :meth:`processor.process` immediately.
 
    .. method:: start() -> None
@@ -202,8 +202,8 @@ Executor
    .. method:: append(event: Event) -> None
       :async:
 
-      Adds a new :class:`~lionagi.protocols.generic.event.Event` to the pile and 
-      queues its ID in :attr:`pending`. 
+      Adds a new :class:`~lionagi.protocols.generic.event.Event` to the pile and
+      queues its ID in :attr:`pending`.
 
    .. property:: completed_events -> Pile[Event]
       Returns a new pile containing all events marked :attr:`~lionagi.protocols.generic.event.EventStatus.COMPLETED`.
@@ -227,7 +227,7 @@ Executor
 
 File Location
 -------------
-**Source File**: 
+**Source File**:
 ``lionagi/protocols/generic/processor.py``
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``

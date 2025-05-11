@@ -2,11 +2,11 @@
 Session
 ====================================
 
-A **Session** in LionAGI manages multiple conversation “branches” and the 
-mail transfer mechanism between them. It provides a higher-level container 
-for coordinating multiple parallel or sequential Branches, handling 
-multi-agent or multi-threaded conversation flows. Each branch has its own 
-messages, tools, iModels, and logs, while the Session orchestrates how 
+A **Session** in LionAGI manages multiple conversation “branches” and the
+mail transfer mechanism between them. It provides a higher-level container
+for coordinating multiple parallel or sequential Branches, handling
+multi-agent or multi-threaded conversation flows. Each branch has its own
+messages, tools, iModels, and logs, while the Session orchestrates how
 they interact.
 
 
@@ -22,9 +22,9 @@ they interact.
 
 **Purpose**:
 - Holds a collection of :class:`Branch` objects in :attr:`branches`.
-- Maintains a :attr:`default_branch` for convenience (the main or 
+- Maintains a :attr:`default_branch` for convenience (the main or
   currently active branch).
-- Optionally organizes **mail exchange** via :class:`MailManager` 
+- Optionally organizes **mail exchange** via :class:`MailManager`
   or :class:`Exchange` for multi-agent or multi-branch communication.
 
 **Key Attributes**:
@@ -33,15 +33,15 @@ they interact.
   The collection of branches in this session.
 
 - :attr:`default_branch` (:class:`Branch`):
-  One branch designated as the “default” conversation context. 
+  One branch designated as the “default” conversation context.
   If none is specifically set, it's the first created.
 
 - :attr:`mail_transfer` (:class:`Exchange`):
-  Manages sending/receiving mail for these branches (not always 
+  Manages sending/receiving mail for these branches (not always
   strictly needed, but helpful in multi-agent use-cases).
 
 - :attr:`mail_manager` (:class:`MailManager`):
-  Alternative mail manager approach, also controlling which 
+  Alternative mail manager approach, also controlling which
   sources are recognized as senders/recipients.
 
 
@@ -71,19 +71,19 @@ When you create a **Session**, it automatically initializes:
 **Branch Lifecycle**:
 
 - :meth:`new_branch(...)`:
-  Creates a new :class:`Branch`, optionally specifying system message, 
-  user ID, initial tools, etc. The new branch is included in the 
-  session's :attr:`branches`, and if there was no default branch, 
+  Creates a new :class:`Branch`, optionally specifying system message,
+  user ID, initial tools, etc. The new branch is included in the
+  session's :attr:`branches`, and if there was no default branch,
   it sets this new one as default.
 
 - :meth:`remove_branch(branch, delete=False)`:
-  Removes a branch from the session (by ID or object). If 
-  ``delete=True``, it also tries to delete the branch object 
+  Removes a branch from the session (by ID or object). If
+  ``delete=True``, it also tries to delete the branch object
   in memory (though in Python, it just drops references).
 
 - :meth:`split(branch)` / :meth:`asplit(branch)`:
-  Clones an existing branch, preserving its messages and tools, 
-  creating a new one in the session. This is helpful if you want 
+  Clones an existing branch, preserving its messages and tools,
+  creating a new one in the session. This is helpful if you want
   to “fork” the conversation.
 
 - :meth:`change_default_branch(branch)`:
@@ -103,8 +103,8 @@ A session might manage multi-branch mail flows:
 - :meth:`collect(...)`: Collect mail from specific branches (or all).
 - :meth:`send(...)`: Send mail to specific branches (or all).
 - :meth:`collect_send_all(receive_all=False)`:
-  Combined approach to gather all outgoing mail from branches, send 
-  to recipients, and optionally have them “receive” it as well, 
+  Combined approach to gather all outgoing mail from branches, send
+  to recipients, and optionally have them “receive” it as well,
   so messages or tools are recognized in other branches.
 
 **Example**::
@@ -118,7 +118,7 @@ A session might manage multi-branch mail flows:
    # branchB can then .receive(...) or we can do
    sess.collect_send_all(receive_all=True)
 
-This centralization ensures you can run multi-agent or multi-branch 
+This centralization ensures you can run multi-agent or multi-branch
 scenarios all within the same Session context.
 
 
@@ -128,12 +128,12 @@ scenarios all within the same Session context.
 **Concatenation** of messages from multiple branches:
 
 - :meth:`concat_messages(branches=..., exclude_clone=..., exclude_load=...)`
-  returns a :class:`Pile[RoledMessage]` with the combined 
-  messages from the chosen branches, optionally excluding 
+  returns a :class:`Pile[RoledMessage]` with the combined
+  messages from the chosen branches, optionally excluding
   those flagged as clones or loads.
 
 - :meth:`to_df(...)`:
-  Returns a Pandas DataFrame of the combined messages 
+  Returns a Pandas DataFrame of the combined messages
   for easy offline analysis or logging.
 
 **Example**::
@@ -179,15 +179,15 @@ scenarios all within the same Session context.
 ------------------
 Summary
 ------------------
-**Session** is the top-level aggregator for multi-branch usage within 
+**Session** is the top-level aggregator for multi-branch usage within
 LionAGI, uniting:
 
 - A **list of branches** (each with its own conversation context),
-- A **mail manager** or **exchange** for multi-agent or multi-thread 
+- A **mail manager** or **exchange** for multi-agent or multi-thread
   communication,
-- Tools for quickly copying or merging messages between branches 
+- Tools for quickly copying or merging messages between branches
   (splitting, removing, or changing the default branch).
 
-Hence, the Session offers a robust environment for advanced 
-**multi-conversation** or **multi-agent** setups, ensuring 
+Hence, the Session offers a robust environment for advanced
+**multi-conversation** or **multi-agent** setups, ensuring
 **coordination** and **integration** at scale.

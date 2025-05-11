@@ -20,8 +20,8 @@ This subpackage provides a variety of **validation utilities**. It includes:
 
 .. function:: validate_boolean(x) -> bool
 
-   Attempt to convert an arbitrary input (None, bool, numeric, str, etc.) into a 
-   Python boolean. Recognizes many common textual representations (e.g. "yes", 
+   Attempt to convert an arbitrary input (None, bool, numeric, str, etc.) into a
+   Python boolean. Recognizes many common textual representations (e.g. "yes",
    "no", "on", "off", etc.). Raises an error if conversion is not possible.
 
    **Examples**::
@@ -42,7 +42,7 @@ This subpackage provides a variety of **validation utilities**. It includes:
 .. module:: lionagi.libs.validate.common_field_validators
    :synopsis: Often used in Pydantic model validators
 
-A collection of small helper functions typically used as class validators in Pydantic 
+A collection of small helper functions typically used as class validators in Pydantic
 models.
 
 **Highlights**:
@@ -53,12 +53,12 @@ models.
 
 .. function:: validate_same_dtype_flat_list(cls, value, dtype, default=[], dropna=True) -> list
 
-   Ensure `value` can be interpreted as a list of a single data type `dtype`.  
+   Ensure `value` can be interpreted as a list of a single data type `dtype`.
    Useful for Pydantic fields that must be homogeneous lists.
 
 .. function:: validate_nullable_string_field(cls, value, field_name, strict=True) -> str | None
 
-   Check if `value` is a string or empty, or allow `None`. 
+   Check if `value` is a string or empty, or allow `None`.
 
 .. function:: validate_nullable_jsonvalue_field(cls, value) -> JsonValue | None
 
@@ -95,11 +95,11 @@ models.
 
 .. function:: string_similarity(word, correct_words, algorithm="jaro_winkler", threshold=0.0, case_sensitive=False, return_most_similar=False) -> str | list[str] | None
 
-   Compare a single `word` to a list of `correct_words` using various similarity 
-   metrics. Return either the single best match or all matches above `threshold`.  
+   Compare a single `word` to a list of `correct_words` using various similarity
+   metrics. Return either the single best match or all matches above `threshold`.
 
    Supported built-in algorithms:
-   
+
    - "jaro_winkler" (default)
    - "levenshtein"
    - "sequence_matcher" (Python stdlib)
@@ -112,7 +112,7 @@ models.
 
 .. function:: levenshtein_similarity(s1, s2) -> float
 
-   Convert the edit distance to a similarity.  
+   Convert the edit distance to a similarity.
 
 Plus other lower-level distance measures (Hamming, Cosine, etc.).
 
@@ -127,12 +127,12 @@ Plus other lower-level distance measures (Hamming, Cosine, etc.).
 
 .. function:: fuzzy_match_keys(d_, keys, similarity_algo="jaro_winkler", similarity_threshold=0.85, fuzzy_match=True, handle_unmatched="ignore", fill_value=None, fill_mapping=None, strict=False) -> dict
 
-   Given a dictionary `d_` and an expected list of keys (or dict), attempt to 
-   align actual keys to expected keys, possibly using string similarity.  Various 
+   Given a dictionary `d_` and an expected list of keys (or dict), attempt to
+   align actual keys to expected keys, possibly using string similarity.  Various
    ways to handle unmatched or missing keys are supported.
 
    - **handle_unmatched** can be:
-     
+
      * "ignore" : keep unmatched as-is
      * "raise"  : raise ValueError on unmatched
      * "remove" : discard unmatched
@@ -154,7 +154,7 @@ Plus other lower-level distance measures (Hamming, Cosine, etc.).
 
 .. function:: fuzzy_validate_mapping(d, keys, similarity_algo="jaro_winkler", similarity_threshold=0.85, fuzzy_match=True, handle_unmatched="ignore", fill_value=None, fill_mapping=None, strict=False, suppress_conversion_errors=False) -> dict
 
-   1) Convert `d` to a dictionary if possible (string -> parse JSON, etc.).  
+   1) Convert `d` to a dictionary if possible (string -> parse JSON, etc.).
    2) Then apply fuzzy key validation using `fuzzy_match_keys`.
 
 .. class:: FuzzyValidateMappingParams
@@ -171,7 +171,7 @@ Plus other lower-level distance measures (Hamming, Cosine, etc.).
 -----------------------------
 Usage Example: Fuzzy Key Matching
 -----------------------------
-Here's a minimal snippet showing how to fix up user-provided JSON 
+Here's a minimal snippet showing how to fix up user-provided JSON
 with slight typos in keys:
 
 .. code-block:: python
@@ -193,8 +193,8 @@ with slight typos in keys:
        handle_unmatched="remove"
    )
 
-   print(corrected)  
-   # might yield: {"Name": "Alice", "Age": 30} 
+   print(corrected)
+   # might yield: {"Name": "Alice", "Age": 30}
    # "desc" was removed as unmatched, "Name" was corrected from "Namme"
 
 
@@ -234,6 +234,6 @@ The ``lionagi.libs.validate`` subpackage centralizes common validation tasks:
 - **Distance metrics** for string similarity.
 - **Pydantic**-friendly field validators.
 
-This is especially handy in user-facing contexts where partial correctness 
-(e.g. key spelling) or flexible data formatting must be accepted and 
-normalized. 
+This is especially handy in user-facing contexts where partial correctness
+(e.g. key spelling) or flexible data formatting must be accepted and
+normalized.

@@ -40,7 +40,7 @@ Branch
    Manages a conversation 'branch' with messages, tools, and iModels.
 
     The Branch class serves as a high-level interface or orchestrator that:
-    
+
     - Handles message management (MessageManager)
     - Registers and invokes tools/actions (ActionManager)
     - Manages model instances (iModelManager)
@@ -48,7 +48,7 @@ Branch
     - Communicates via mailboxes (Mailbox)
 
     Key responsibilities:
-    
+
     - Storing and organizing messages, including system instructions, user instructions, and model responses
     - Handling asynchronous or synchronous execution of LLM calls and tool invocations
     - Providing a consistent interface for "operate," "chat," "communicate," "parse," etc.
@@ -122,22 +122,22 @@ Branch
     4. If you want to parse or validate final text, use parse()
     5. Tools can be registered anytime via acts or with the arguments to the constructor
 
-    Also includes mailbox-based methods like send() and receive() for cross-branch 
+    Also includes mailbox-based methods like send() and receive() for cross-branch
     or cross-system communication in a multi-agent scenario.
 
 
 Key Differences from a Basic Session
 ------------------------------------
-Where a simpler “session” might just store messages + call an LLM, 
+Where a simpler “session” might just store messages + call an LLM,
 **Branch** expands that concept by:
 
 - Integrating advanced log management with a :class:`LogManager`.
-- Holding a mailbox (like an email or queue system) so that branches 
+- Holding a mailbox (like an email or queue system) so that branches
   can pass :class:`Package` objects to each other.
 - Tying in a :class:`ActionManager` for immediate function or tool calls.
-- Potentially linking to a “Graph” node or referencing relations 
+- Potentially linking to a “Graph” node or referencing relations
   (due to the :class:`Relational` inheritance).
-- Providing **clone** operations if you want to copy the conversation 
+- Providing **clone** operations if you want to copy the conversation
   state to a new branch.
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``

@@ -5,7 +5,7 @@ Get Started (Part 2): Using a Custom iModel
 ====================================================
 
 In this second part of our **Get Started** tutorial, we'll explore how to:
- 
+
 1. **Set up a Branch** with a custom system prompt.
 2. **Configure** an iModel from various providers (OpenAI, Anthropic, Perplexity).
 3. **Send instructions** to produce typed outputs via Pydantic models.
@@ -24,14 +24,14 @@ We'll also **show the outputs** produced in a Python session so you know what to
       pip install lionagi
 
 2. **Provider API Keys**:
-   - **OpenAI**: get your key from https://openai.com.  
+   - **OpenAI**: get your key from https://openai.com.
      Set it: ``export OPENAI_API_KEY='<YOUR_KEY>'``.
-   - **Anthropic**: get your key from https://www.anthropic.com.  
+   - **Anthropic**: get your key from https://www.anthropic.com.
      Set it: ``export ANTHROPIC_API_KEY='<YOUR_KEY>'``.
-   - **Perplexity**: read https://docs.perplexity.ai/home to obtain a key.  
+   - **Perplexity**: read https://docs.perplexity.ai/home to obtain a key.
      Set it: ``export PERPLEXITY_API_KEY='<YOUR_KEY>'``.
 
-3. A Python environment with an **async** runtime (e.g., Jupyter) or a 
+3. A Python environment with an **async** runtime (e.g., Jupyter) or a
    standard Python script using `asyncio`.
 
 If you're new to **LionAGI**, see Part 1 for how to run a simple code-generation
@@ -41,8 +41,8 @@ via Pydantic.
 --------------------------------------
 1. Create a Branch & System Prompt
 --------------------------------------
-A **Branch** manages conversation messages, tools, and iModels. 
-Below, we create a branch named “hunter,” giving it a **system** prompt 
+A **Branch** manages conversation messages, tools, and iModels.
+Below, we create a branch named “hunter,” giving it a **system** prompt
 so that any conversation with it follows certain style:
 
 .. code-block:: python
@@ -61,7 +61,7 @@ just keep using the same ``hunter`` instance.
 ------------------------------------------
 2. Using OpenAI GPT as a Custom iModel
 ------------------------------------------
-We define an **iModel** referencing OpenAI's endpoints. 
+We define an **iModel** referencing OpenAI's endpoints.
 For example, we specify a hypothetical “gpt-4o” model:
 
 .. code-block:: python

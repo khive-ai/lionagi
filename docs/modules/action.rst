@@ -47,7 +47,7 @@ Class Documentation
         Tool instance containing the function to be called
     arguments : dict[str, Any]
         Dictionary of arguments to pass to the function
-    
+
     Methods
     -------
     invoke()
@@ -566,19 +566,19 @@ A short example of how to use these classes:
 
 File Locations
 --------------
-- **function_calling.py**: 
+- **function_calling.py**:
   The :class:`FunctionCalling` event for executing tools.
 
-- **manager.py** (ActionManager): 
+- **manager.py** (ActionManager):
   The main manager for registering and invoking Tools.
 
-- **request_response_model.py**: 
+- **request_response_model.py**:
   Pydantic-based models for requests/responses.
 
-- **tool.py**: 
+- **tool.py**:
   The :class:`Tool` class that wraps a callable function with schema info.
 
-- **utils.py**: 
+- **utils.py**:
   Shared utility constants and a simple parser method for requests.
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``

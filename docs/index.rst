@@ -12,7 +12,7 @@ features, including:
 - **Operations**: powerful LLM flows (operate, instruct, parse, etc.),
 - **Action system**: function-calling, advanced multi-step flows, and more.
 
-If you're new, start with the **Tutorials**. If you're looking for deeper 
+If you're new, start with the **Tutorials**. If you're looking for deeper
 API references, check out the **Modules** sections.
 
 Contents

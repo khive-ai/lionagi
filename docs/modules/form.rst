@@ -37,7 +37,7 @@ Base Form
 
       Check if all required output fields are set and valid.
       A field is considered valid if:
-      
+
       - It exists and has a value
       - The value is not UNDEFINED
       - If none_as_valid=False, the value is not None
@@ -122,7 +122,7 @@ Flow System
 
       Return fields needed as inputs but not produced by prior steps.
       For example, in "a->b; b,c->d", returns {"a", "c"} since:
-      
+
       - "a" is needed by step 1 but not produced earlier
       - "b" is needed by step 2 but produced by step 1
       - "c" is needed by step 2 but not produced earlier
@@ -137,15 +137,15 @@ Flow System
       from lionagi.operatives.forms import FlowDefinition
 
       flow = FlowDefinition()
-      
+
       # Parse text processing pipeline
       flow.parse_flow_string(
           "text->tokens; tokens->embeddings; embeddings->clusters"
       )
-      
+
       print(flow.get_required_fields())  # {"text"}
       print(flow.get_produced_fields())  # {"tokens", "embeddings", "clusters"}
-      
+
       # Steps are named sequentially
       for step in flow.steps:
           print(f"{step.name}: {step.inputs} -> {step.outputs}")
@@ -185,7 +185,7 @@ Form
    .. method:: to_instructions() -> dict[str, Any]
 
       Return a dictionary suitable for LLM consumption, containing:
-      
+
       - assignment: The DSL string
       - flow: FlowDefinition as dict (if multi-step)
       - guidance: Optional processing guidance
@@ -199,18 +199,18 @@ Form
       # Single-step form
       form = Form(assignment="user_input->greeting")
       form.fill_fields(user_input="Alice")
-      
+
       # Multi-step form with all produced fields as outputs
       form = Form(
           assignment="name,age->profile; profile->recommendation",
           guidance="Generate personalized recommendations",
           task="User profiling"
       )
-      
+
       # The flow is automatically parsed
       assert form.flow_definition is not None
       assert len(form.flow_definition.steps) == 2
-      
+
       # All produced fields are outputs
       assert set(form.output_fields) == {"profile", "recommendation"}
 
@@ -252,24 +252,24 @@ Report
       from lionagi.operatives.forms import Report, Form
 
       report = Report()
-      
+
       # Create and complete forms for a multi-step process
       form1 = Form(assignment="query->embeddings")
       form1.fill_fields(
           query="What's the weather?",
           embeddings=[0.1, 0.2, 0.3]
       )
-      
+
       form2 = Form(assignment="embeddings->answer")
       form2.fill_fields(
           embeddings=form1.embeddings,
           answer="Sunny with a high of 75°F"
       )
-      
+
       # Add both forms, updating report fields from the final form
       report.add_completed_form(form1)
       report.add_completed_form(form2, update_report_fields=True)
-      
+
       print(report.answer)  # "Sunny with a high of 75°F"
 
 --------------------
@@ -320,7 +320,7 @@ subclassing and adding type hints::
        name: str = Field(default=UNDEFINED)
        age: int = Field(default=UNDEFINED)
        profile: str | None = Field(default=None)
-       
+
        model_config = ConfigDict(
            extra="allow",
            arbitrary_types_allowed=True

@@ -30,7 +30,7 @@ Describes the essential attributes of an API endpoint:
 - :attr:`is_invokeable` (bool): If True, supports direct invocation.
 - :attr:`is_streamable` (bool): If True, can stream partial results.
 - :attr:`requires_tokens` (bool): If True, the system calculates tokens prior to the call.
-- **Other** fields: 
+- **Other** fields:
   - :attr:`required_kwargs`, :attr:`optional_kwargs`, :attr:`deprecated_kwargs`
   - :attr:`api_version`, :attr:`allowed_roles`
   - etc.
@@ -44,7 +44,7 @@ Describes the essential attributes of an API endpoint:
 **Key Methods**:
 
 - :meth:`create_payload(...)` -> dict:
-  Accepts request parameters and merges them with the endpoint's 
+  Accepts request parameters and merges them with the endpoint's
   config (like `required_kwargs`) to create a final payload + headers.
 - :meth:`invoke(payload, headers, is_cached=False, **kwargs)`:
   Handles the actual or cached request.
@@ -53,11 +53,11 @@ Describes the essential attributes of an API endpoint:
 - :meth:`_stream(...)` (abstract):
   Streaming request logic if the endpoint is streamable.
 - :meth:`calculate_tokens(payload)`:
-  If `requires_tokens=True`, uses :class:`TokenCalculator` to estimate 
+  If `requires_tokens=True`, uses :class:`TokenCalculator` to estimate
   usage.
 
 **Concrete Implementations**:
-- :class:`ChatCompletionEndPoint` in 
+- :class:`ChatCompletionEndPoint` in
   ``lionagi.service.endpoints.chat_completion.ChatCompletionEndPoint``
 - Additional provider-specific classes (OpenAI, Anthropic, etc.).
 
@@ -114,18 +114,18 @@ Implements:
 .. class:: ChatCompletionEndPoint(EndPoint)
 
 A base class for chat-style endpoints that expects role-based messages
-(“system”, “user”, “assistant”, etc.). Subclasses override `_invoke()` 
+(“system”, “user”, “assistant”, etc.). Subclasses override `_invoke()`
 and `_stream()` for each provider's specifics.
 
 **Examples** (subclasses):
-  
+
 - :class:`OpenAIChatCompletionEndPoint`
 - :class:`AnthropicChatCompletionEndPoint`
 - :class:`GroqChatCompletionEndPoint`
 - :class:`OpenRouterChatCompletionEndPoint`
 - :class:`PerplexityChatCompletionEndPoint`
 
-Each provider sets up its own config with required/optional fields, 
+Each provider sets up its own config with required/optional fields,
 and possibly different base URLs or roles.
 
 
@@ -138,7 +138,7 @@ and possibly different base URLs or roles.
 
    **Inherits from**: :class:`Processor`
 
-   A concurrency-limiting, rate-limiting processor dedicated 
+   A concurrency-limiting, rate-limiting processor dedicated
    to handling :class:`APICalling` events. Supports:
 
    - :attr:`limit_requests` (#requests per interval).
@@ -150,10 +150,10 @@ and possibly different base URLs or roles.
 
    **Inherits from**: :class:`Executor`
 
-   Builds on the above **Processor**. For an iModel, it manages 
-   the queued or concurrent calls.  
-   **Example**:  
-   One can define a queue of max capacity 100, refreshing every 60s, 
+   Builds on the above **Processor**. For an iModel, it manages
+   the queued or concurrent calls.
+   **Example**:
+   One can define a queue of max capacity 100, refreshing every 60s,
    limiting requests or tokens as needed.
 
 
@@ -178,7 +178,7 @@ Holds:
 **Methods**:
 
 - :meth:`invoke(**kwargs) -> APICalling|None`:
-  Creates an APICalling from combined endpoint config + local kwargs, 
+  Creates an APICalling from combined endpoint config + local kwargs,
   queues it in the executor, and awaits completion.
 - :meth:`stream(**kwargs) -> APICalling|None`:
   Streams partial results if the endpoint is streamable.
@@ -229,17 +229,17 @@ Maintains a dictionary of named :class:`iModel` objects:
 -----------------
 Summary
 -----------------
-The **LionAGI Service** system integrates everything needed to **call external 
+The **LionAGI Service** system integrates everything needed to **call external
 LLM services**:
 
 - **Endpoints** for each provider (OpenAI, Anthropic, etc.).
 - **APICalling** event for tracking usage or partial streaming.
-- **Rate-limiting** structures (Processor, Executor) to handle concurrency or 
+- **Rate-limiting** structures (Processor, Executor) to handle concurrency or
   daily usage caps.
-- **iModel** as a top-level convenience object: one instance = one 
-  distinct provider + concurrency constraints. 
+- **iModel** as a top-level convenience object: one instance = one
+  distinct provider + concurrency constraints.
 - **iModelManager** for multi-model usage in the same environment.
 
-By configuring endpoints properly and using the **RateLimitedAPIExecutor**, 
-LionAGI can handle robust multi-provider or multi-model usage while avoiding 
+By configuring endpoints properly and using the **RateLimitedAPIExecutor**,
+LionAGI can handle robust multi-provider or multi-model usage while avoiding
 throttling or over-limit errors.

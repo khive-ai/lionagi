@@ -2,10 +2,10 @@
 ``libs.package`` Subpackage
 =========================================
 
-This subpackage provides utilities for **package management**—checking, installing, 
-importing, and uninstalling Python packages at runtime. It is primarily 
-used within LionAGI for dynamically ensuring dependencies are available. It also 
-contains metadata retrieval for installed packages, CPU architecture detection, 
+This subpackage provides utilities for **package management**—checking, installing,
+importing, and uninstalling Python packages at runtime. It is primarily
+used within LionAGI for dynamically ensuring dependencies are available. It also
+contains metadata retrieval for installed packages, CPU architecture detection,
 and more.
 
 
@@ -16,17 +16,17 @@ and more.
 .. module:: lionagi.libs.package.import_check
    :synopsis: Dynamic package import & installation
 
-The main functionality here is to check if a package is installed, optionally install 
+The main functionality here is to check if a package is installed, optionally install
 it if missing, then load it (similar to a dynamic “lazy import”).
 
 **Key Functions**:
 
 .. function:: check_import(package_name, module_name=None, import_name=None, pip_name=None, attempt_install=True, error_message="")
 
-   Check if a package is installed. If not found and ``attempt_install=True``, 
-   attempt to install it via pip (or `uv` if available). Once installed, the 
-   package or module can be imported.  
-   
+   Check if a package is installed. If not found and ``attempt_install=True``,
+   attempt to install it via pip (or `uv` if available). Once installed, the
+   package or module can be imported.
+
    - **package_name**: The top-level package (e.g., "numpy").
    - **module_name**: If a submodule is needed (e.g., "linalg").
    - **import_name**: A symbol from the module to import (e.g., "inv" or ["inv", "det"]).
@@ -42,7 +42,7 @@ it if missing, then load it (similar to a dynamic “lazy import”).
 
 .. function:: install_import(package_name, module_name=None, import_name=None, pip_name=None)
 
-   Attempt to import a package, installing it if not found. 
+   Attempt to import a package, installing it if not found.
    Useful if you know the package is likely missing and want to do a direct install.
 
 .. function:: is_import_installed(package_name) -> bool
@@ -62,7 +62,7 @@ Utilities for enumerating installed packages, or removing/updating them.
 
 .. function:: list_installed_packages() -> list[str]
 
-   Return a list of all installed package names, as reported by 
+   Return a list of all installed package names, as reported by
    :func:`importlib.metadata.distributions`.
 
 .. function:: uninstall_package(package_name)
@@ -84,7 +84,7 @@ Utilities for enumerating installed packages, or removing/updating them.
 
 .. class:: PackageParams
 
-   A Pydantic model that encapsulates parameters for specifying how to load 
+   A Pydantic model that encapsulates parameters for specifying how to load
    or install a Python package. This includes:
 
    - package_name (str)
@@ -92,7 +92,7 @@ Utilities for enumerating installed packages, or removing/updating them.
    - import_name (str|list[str]|None)
    - pip_name (str|None)
 
-   Typically used in function calling contexts when you want to define a 
+   Typically used in function calling contexts when you want to define a
    schema for dynamic imports.
 
 
@@ -106,15 +106,15 @@ Utilities for enumerating installed packages, or removing/updating them.
 
 .. function:: get_cpu_architecture() -> str
 
-   Check the system architecture (via `platform.machine()`). Returns `'arm64'` for 
-   ARM-based systems, `'x86_64'` for Intel/AMD 64-bit, or the raw architecture 
+   Check the system architecture (via `platform.machine()`). Returns `'arm64'` for
+   ARM-based systems, `'x86_64'` for Intel/AMD 64-bit, or the raw architecture
    string if unrecognized.
 
 
 ----------------------
 Basic Usage Example
 ----------------------
-Below is a short demonstration of how you might use these tools to ensure 
+Below is a short demonstration of how you might use these tools to ensure
 a package is available, possibly installing it, and then import a symbol:
 
 .. code-block:: python
@@ -131,7 +131,7 @@ a package is available, possibly installing it, and then import a symbol:
        error_message="Please install requests manually if you do not want auto-installation."
    )
 
-   # Now we can use 'requests_mod' or just 'requests' 
+   # Now we can use 'requests_mod' or just 'requests'
    print(requests_mod.get("https://example.com"))
 
    # Or if we only want a specific symbol:
@@ -144,10 +144,10 @@ a package is available, possibly installing it, and then import a symbol:
 Summary
 ----------------------
 - **import_check.py**: Dynamically import and optionally install missing packages.
-- **list_uninstall_update.py**: Utilities to list installed packages, uninstall, or 
+- **list_uninstall_update.py**: Utilities to list installed packages, uninstall, or
   update them at runtime.
 - **schema.py**: A Pydantic model describing parameters for package import logic.
 - **platform_info.py**: Quick detection of CPU architecture (arm64 vs x86_64, etc.).
 
-Together, these modules provide a safe and automated approach to 
+Together, these modules provide a safe and automated approach to
 dependency handling within LionAGI or other Python applications.

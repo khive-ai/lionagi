@@ -2,12 +2,12 @@
 Operative & Step
 =====================================
 
-The **Operative** and **Step** classes in LionAGI provide a **step-based** 
-framework for creating and handling **request/response** logic. These classes 
-build upon Pydantic-based “model params” to define how data should be parsed, 
-validated, and managed as part of a single “operation” or a multi-step 
-workflow. They also offer convenience methods for constructing new request 
-or response types on the fly, allowing a dynamic approach to typed 
+The **Operative** and **Step** classes in LionAGI provide a **step-based**
+framework for creating and handling **request/response** logic. These classes
+build upon Pydantic-based “model params” to define how data should be parsed,
+validated, and managed as part of a single “operation” or a multi-step
+workflow. They also offer convenience methods for constructing new request
+or response types on the fly, allowing a dynamic approach to typed
 exchanges.
 
 
@@ -22,9 +22,9 @@ exchanges.
    **Inherits from**: :class:`SchemaModel`
 
    **Purpose**:
-- Serves as a flexible container describing how a system should 
+- Serves as a flexible container describing how a system should
   handle request data (input) and produce response data (output).
-- References two sets of :class:`ModelParams`: one for the request 
+- References two sets of :class:`ModelParams`: one for the request
   (:attr:`request_params`) and one for the response (:attr:`response_params`).
 - Dynamically generates Pydantic model classes for these sets of parameters.
 
@@ -44,20 +44,20 @@ exchanges.
 
 **Key Methods**:
 
-- :meth:`update_response_model(text=None, data=None) -> BaseModel|dict|str|None`  
+- :meth:`update_response_model(text=None, data=None) -> BaseModel|dict|str|None`
   Attempt to parse the provided text or dictionary into the operative’s
   response model. The result is stored in :attr:`response_model`.
 
-- :meth:`raise_validate_pydantic(text) -> None`  
-  Strictly validates the text by fuzzy-matching fields and raising 
+- :meth:`raise_validate_pydantic(text) -> None`
+  Strictly validates the text by fuzzy-matching fields and raising
   an error on mismatch.
 
-- :meth:`force_validate_pydantic(text) -> None`  
-  More lenient approach that tries to coerce or force unmatched data 
+- :meth:`force_validate_pydantic(text) -> None`
+  More lenient approach that tries to coerce or force unmatched data
   into the response model.
 
-- :meth:`create_response_type(...) -> None`  
-  Creates a new response model type from the provided 
+- :meth:`create_response_type(...) -> None`
+  Creates a new response model type from the provided
   :class:`ModelParams`, storing it in :attr:`response_type`.
 
 **Usage Example**::
@@ -74,9 +74,9 @@ exchanges.
    print(operative.response_model)
    # => parsed Pydantic model instance (if successful)
 
-The **Operative** class is especially useful when you want to define 
-both an expected request format (input) and a response format (output) 
-in a typed manner, ensuring the system can parse or validate them 
+The **Operative** class is especially useful when you want to define
+both an expected request format (input) and a response format (output)
+in a typed manner, ensuring the system can parse or validate them
 reliably.
 
 
@@ -96,9 +96,9 @@ reliably.
    - :attr:`title`: Title or label for the step.
    - :attr:`description`: Additional details or instructions.
    - :attr:`reason`: A :class:`Reason` object capturing optional reasoning.
-   - :attr:`action_requests` / :attr:`action_responses`: Potential tool 
+   - :attr:`action_requests` / :attr:`action_responses`: Potential tool
      requests or replies associated with the step.
-   - :attr:`action_required`: Boolean indicating if the step must 
+   - :attr:`action_required`: Boolean indicating if the step must
      involve a tool call.
 
 **Example**::
@@ -121,10 +121,10 @@ reliably.
 A **utility** class with static methods to help you build or update
 :class:`Operative` objects in a single-step context. For instance:
 
-- :meth:`request_operative(...)`  
+- :meth:`request_operative(...)`
   Creates an :class:`Operative` geared towards request-handling
   (optionally adding fields like reason or actions).
-- :meth:`respond_operative(...)`  
+- :meth:`respond_operative(...)`
   Once you have an operative with a known request format, this helps
   define or add the **response** format.
 
@@ -157,15 +157,15 @@ A **utility** class with static methods to help you build or update
 -------------------
 Summary
 -------------------
-- **Operative** is a “two-phase” typed container describing how to handle 
-  requests and produce responses, each potentially with advanced fuzz-matching 
+- **Operative** is a “two-phase” typed container describing how to handle
+  requests and produce responses, each potentially with advanced fuzz-matching
   or validation.
-- **StepModel** exemplifies a single-step data structure, showing how 
+- **StepModel** exemplifies a single-step data structure, showing how
   instructions, reason, and action requests combine in a single chunk.
-- **Step** offers a convenience set of methods for creating or updating 
-  an :class:`Operative`, bridging the gap between typed Pydantic models 
+- **Step** offers a convenience set of methods for creating or updating
+  an :class:`Operative`, bridging the gap between typed Pydantic models
   and real LionAGI usage, including potential tool calls (action requests).
 
-When building multi-step flows or orchestrating larger tasks, you can 
-use these classes to ensure consistent data structures, robust 
+When building multi-step flows or orchestrating larger tasks, you can
+use these classes to ensure consistent data structures, robust
 validation, and a streamlined approach to request/response handling.

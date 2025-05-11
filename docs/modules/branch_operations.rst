@@ -3,10 +3,10 @@
 =================================================
 Branch-Level Operations
 =================================================
-These operations define how a :class:`~lionagi.session.branch.Branch` 
-actually **does** things—ranging from direct LLM calls (`chat`, `interpret`, `communicate`) 
-to advanced flows (`operate`, `instruct`, `ReAct`, etc.). Each 
-is implemented as a separate function and exposed as an **asynchronous** 
+These operations define how a :class:`~lionagi.session.branch.Branch`
+actually **does** things—ranging from direct LLM calls (`chat`, `interpret`, `communicate`)
+to advanced flows (`operate`, `instruct`, `ReAct`, etc.). Each
+is implemented as a separate function and exposed as an **asynchronous**
 method on ``Branch``.
 
 For convenience, they can be categorized as:
@@ -23,9 +23,9 @@ For convenience, they can be categorized as:
 ``_act``
 --------
 
-A **low-level** method invoked by :meth:`branch.act()`. It matches an 
-action request (function + arguments) to the :class:`ActionManager` 
-and executes it, returning an :class:`ActionResponseModel`. Typically 
+A **low-level** method invoked by :meth:`branch.act()`. It matches an
+action request (function + arguments) to the :class:`ActionManager`
+and executes it, returning an :class:`ActionResponseModel`. Typically
 you won't call ``_act`` directly; use :meth:`act` instead.
 
 .. function:: _act(branch, action_request, suppress_errors=False)
@@ -59,9 +59,9 @@ you won't call ``_act`` directly; use :meth:`act` instead.
 ``act``
 -------
 
-The *public* interface for invoking tools. Accepts a single or list 
-of action requests. Optionally retries, logs errors, or merges results. 
-This is best used for **explicit function calls** triggered from user 
+The *public* interface for invoking tools. Accepts a single or list
+of action requests. Optionally retries, logs errors, or merges results.
+This is best used for **explicit function calls** triggered from user
 instructions or system logic.
 
 .. method:: Branch.act(action_request, *, suppress_errors=True, sanitize_input=False, unique_input=False, num_retries=0, initial_delay=0, retry_delay=0, backoff_factor=1, retry_default=UNDEFINED, retry_timeout=None, retry_timing=False, max_concurrent=None, throttle_period=None, flatten=True, dropna=True, unique_output=False, flatten_tuple_set=False)
@@ -114,10 +114,10 @@ instructions or system logic.
 ``chat``
 --------
 
-The fundamental LLM-based conversation method. Combines existing 
-messages with a new instruction (and optional guidance/context) 
-into a single prompt, sends it to the chat model, and returns 
-the final :class:`AssistantResponse`. It can also produce an 
+The fundamental LLM-based conversation method. Combines existing
+messages with a new instruction (and optional guidance/context)
+into a single prompt, sends it to the chat model, and returns
+the final :class:`AssistantResponse`. It can also produce an
 :class:`Instruction` if you set certain flags.
 
 .. method:: Branch.chat(instruction=None, guidance=None, context=None, sender=None, recipient=None, request_fields=None, response_format=None, progression=None, imodel=None, tool_schemas=None, images=None, image_detail=None, plain_content=None, return_ins_res_message=False, **kwargs)
@@ -176,16 +176,16 @@ the final :class:`AssistantResponse`. It can also produce an
 ``communicate``
 ---------------
 
-Similar to :meth:`chat`, but typically used for simpler calls 
-that automatically add the user query and model response to 
-the conversation. It also supports optional validation into 
-a Pydantic model or partial "request_fields" extraction. 
-If you do not need advanced flows like action calls, 
+Similar to :meth:`chat`, but typically used for simpler calls
+that automatically add the user query and model response to
+the conversation. It also supports optional validation into
+a Pydantic model or partial "request_fields" extraction.
+If you do not need advanced flows like action calls,
 :meth:`communicate` is a good, straightforward choice.
 
 .. method:: Branch.communicate(instruction=None, *, guidance=None, context=None, plain_content=None, sender=None, recipient=None, progression=None, request_model=None, response_format=None, request_fields=None, imodel=None, chat_model=None, parse_model=None, skip_validation=False, images=None, image_detail="auto", num_parse_retries=3, fuzzy_match_kwargs=None, clear_messages=False, operative_model=None, **kwargs)
 
-    A simpler orchestration than `operate()`, typically without tool invocation. Messages are 
+    A simpler orchestration than `operate()`, typically without tool invocation. Messages are
     automatically added to the conversation.
 
     Parameters
@@ -252,11 +252,11 @@ If you do not need advanced flows like action calls,
 ``operate``
 -----------
 
-A **robust** conversation operation that merges user instructions 
-with an internal "Operative" object for structured input and output. 
-It can also automatically detect requested tool calls and run them, 
-then re-check or finalize the LLM output. Often used in more 
-advanced scenarios where you want strong parsing or multiple 
+A **robust** conversation operation that merges user instructions
+with an internal "Operative" object for structured input and output.
+It can also automatically detect requested tool calls and run them,
+then re-check or finalize the LLM output. Often used in more
+advanced scenarios where you want strong parsing or multiple
 sub-steps in the final result.
 
 .. method:: Branch.operate(*, instruct=None, instruction=None, guidance=None, context=None, sender=None, recipient=None, progression=None, imodel=None, chat_model=None, invoke_actions=True, tool_schemas=None, images=None, image_detail=None, parse_model=None, skip_validation=False, tools=None, operative=None, response_format=None, return_operative=False, actions=False, reason=False, action_kwargs=None, field_models=None, exclude_fields=None, request_params=None, request_param_kwargs=None, response_params=None, response_param_kwargs=None, handle_validation="return_value", operative_model=None, request_model=None, **kwargs)
@@ -357,9 +357,9 @@ sub-steps in the final result.
 ``parse``
 ---------
 
-A dedicated method for parsing raw text into a 
-:class:`pydantic.BaseModel` if you do not want to incorporate 
-it in the main conversation flow. Supports fuzzy matching, 
+A dedicated method for parsing raw text into a
+:class:`pydantic.BaseModel` if you do not want to incorporate
+it in the main conversation flow. Supports fuzzy matching,
 custom field handling, etc.
 
 .. method:: Branch.parse(text, handle_validation="return_value", max_retries=3, request_type=None, operative=None, similarity_algo="jaro_winkler", similarity_threshold=0.85, fuzzy_match=True, handle_unmatched="force", fill_value=None, fill_mapping=None, strict=False, suppress_conversion_errors=False, response_format=None)
@@ -421,11 +421,11 @@ custom field handling, etc.
 ``instruct``
 ------------
 
-Provides a **mid-level** approach: if your user instructions 
-(wrapped in :class:`Instruct`) indicate advanced features 
-(like actions, or a custom structured response), 
-it calls :meth:`operate` internally. Otherwise, 
-it calls :meth:`communicate`. Best for single-turn instructions 
+Provides a **mid-level** approach: if your user instructions
+(wrapped in :class:`Instruct`) indicate advanced features
+(like actions, or a custom structured response),
+it calls :meth:`operate` internally. Otherwise,
+it calls :meth:`communicate`. Best for single-turn instructions
 that may or may not trigger advanced logic.
 
 .. method:: Branch.instruct(instruct, /, **kwargs)
@@ -460,9 +460,9 @@ that may or may not trigger advanced logic.
 ``interpret``
 -------------
 
-Rewrites or refines user input into a more structured, 
-explicit prompt. Useful if the user's original text might 
-be ambiguous or suboptimal for the LLM. It does not store 
+Rewrites or refines user input into a more structured,
+explicit prompt. Useful if the user's original text might
+be ambiguous or suboptimal for the LLM. It does not store
 messages into the conversation by default.
 
 .. method:: Branch.interpret(text, domain=None, style=None, **kwargs)
@@ -510,11 +510,11 @@ messages into the conversation by default.
 ``ReAct``
 ---------
 
-Implements a multi-step "**reason + act**" approach, where 
-the LLM is asked for chain-of-thought or intermediate steps 
-that might require additional expansions. Once the chain-of-thought 
-is complete, a final answer is produced. 
-Optionally repeats expansions if "extension_needed" is signaled, 
+Implements a multi-step "**reason + act**" approach, where
+the LLM is asked for chain-of-thought or intermediate steps
+that might require additional expansions. Once the chain-of-thought
+is complete, a final answer is produced.
+Optionally repeats expansions if "extension_needed" is signaled,
 up to a specified limit. Typically used in complex tasks.
 
 .. method:: Branch.ReAct(instruct, interpret=False, tools=None, tool_schemas=None, response_format=None, extension_allowed=False, max_extensions=None, response_kwargs=None, return_analysis=False, analysis_model=None, **kwargs)
@@ -571,9 +571,9 @@ up to a specified limit. Typically used in complex tasks.
 ``select``
 ----------
 
-A convenience operation for letting the LLM choose one or more 
-items from a given list or dictionary. For instance, if you have 
-10 possible solutions and want the model to pick the best one(s). 
+A convenience operation for letting the LLM choose one or more
+items from a given list or dictionary. For instance, if you have
+10 possible solutions and want the model to pick the best one(s).
 Returns a structured "selection model" describing which was chosen.
 
 .. method:: Branch.select(instruct, choices, max_num_selections=1, branch_kwargs=None, return_branch=False, verbose=False, **kwargs)
@@ -616,9 +616,9 @@ Returns a structured "selection model" describing which was chosen.
 ``translate``
 -------------
 
-A specialized method for transforming text with a given 
-"technique" (currently "SynthLang"), optionally compressing 
-the result. This is a demonstration of hooking up 
+A specialized method for transforming text with a given
+"technique" (currently "SynthLang"), optionally compressing
+the result. This is a demonstration of hooking up
 domain-specific transformations in a single step.
 
 .. method:: Branch.translate(text, technique="SynthLang", technique_kwargs=None, compress=False, chat_model=None, compress_model=None, compression_ratio=0.2, compress_kwargs=None, verbose=True, new_branch=True, **kwargs)
@@ -671,72 +671,72 @@ domain-specific transformations in a single step.
 Differences and Usage Notes
 ---------------------------
 - **chat** vs. **communicate**:
-  - ``chat`` is more manual: you supply how the conversation 
-    is built, and it returns an :class:`AssistantResponse`. 
-    It does **not** automatically store those messages unless you do so.  
-  - ``communicate`` is simpler: it automatically adds new messages 
-    (user + response) to the conversation, optionally validates 
+  - ``chat`` is more manual: you supply how the conversation
+    is built, and it returns an :class:`AssistantResponse`.
+    It does **not** automatically store those messages unless you do so.
+  - ``communicate`` is simpler: it automatically adds new messages
+    (user + response) to the conversation, optionally validates
     the LLM output with a pydantic model or partial fields.
 
 - **operate** vs. **instruct**:
-  - ``operate`` is an advanced, multi-step approach with an 
-    internal “Operative” model. It can parse a structured response 
-    and run any requested tool calls.  
-  - ``instruct`` is a simpler convenience method that decides 
-    between “communicate” or “operate” based on the user's 
+  - ``operate`` is an advanced, multi-step approach with an
+    internal “Operative” model. It can parse a structured response
+    and run any requested tool calls.
+  - ``instruct`` is a simpler convenience method that decides
+    between “communicate” or “operate” based on the user's
     :class:`Instruct` contents.
 
 - **ReAct**:
-  - A subset of advanced usage where the model is expected to 
-    produce chain-of-thought or partial reasoning steps that 
+  - A subset of advanced usage where the model is expected to
+    produce chain-of-thought or partial reasoning steps that
     may loop if it finds it needs further expansions.
 
 - **_act** vs. **act**:
-  - ``_act`` is an internal helper that does the actual invocation 
-    of a tool, returning an :class:`ActionResponse`.  
-  - ``act`` is the user-facing method for one or multiple 
-    function calls, supporting concurrency, error suppression, 
+  - ``_act`` is an internal helper that does the actual invocation
+    of a tool, returning an :class:`ActionResponse`.
+  - ``act`` is the user-facing method for one or multiple
+    function calls, supporting concurrency, error suppression,
     or basic retry logic.
 
 - **interpret**:
-  - Focused on rewriting or “polishing” user text into a more 
+  - Focused on rewriting or “polishing” user text into a more
     formal/explicit prompt. Doesn't store new messages.
 
 - **parse**:
-  - Takes a final text and converts it to a pydantic model or 
-    dictionary. Usually used if you need structured data from 
-    a raw LLM response but don't want that to be part of the 
-    conversation.  
+  - Takes a final text and converts it to a pydantic model or
+    dictionary. Usually used if you need structured data from
+    a raw LLM response but don't want that to be part of the
+    conversation.
 
-In practice, these operations can be freely combined to build 
-complex pipelines—**for example**, you might 
-:func:`interpret` the user input, then :func:`operate`, 
+In practice, these operations can be freely combined to build
+complex pipelines—**for example**, you might
+:func:`interpret` the user input, then :func:`operate`,
 then parse final results or call custom logic.
 
 ----
 
 File References
 ---------------
-These operations are scattered in files (like `_act.py`, 
-`chat.py`, `communicate.py`, etc.), but each is also exposed 
+These operations are scattered in files (like `_act.py`,
+`chat.py`, `communicate.py`, etc.), but each is also exposed
 directly as a method on :class:`~lionagi.session.branch.Branch`.
 
-``_act`` -> ``lionagi.operations._act.act._act``  
-``chat`` -> ``lionagi.operations.chat.chat``  
-``communicate`` -> ``lionagi.operations.communicate.communicate``  
-``operate`` -> ``lionagi.operations.operate.operate``  
-``parse`` -> ``lionagi.operations.parse.parse``  
-``instruct`` -> ``lionagi.operations.instruct.instruct``  
-``interpret`` -> ``lionagi.operations.interpret.interpret``  
-``ReAct`` -> ``lionagi.operations.ReAct.ReAct``  
-``select`` -> ``lionagi.operations.select.select``  
+``_act`` -> ``lionagi.operations._act.act._act``
+``chat`` -> ``lionagi.operations.chat.chat``
+``communicate`` -> ``lionagi.operations.communicate.communicate``
+``operate`` -> ``lionagi.operations.operate.operate``
+``parse`` -> ``lionagi.operations.parse.parse``
+``instruct`` -> ``lionagi.operations.instruct.instruct``
+``interpret`` -> ``lionagi.operations.interpret.interpret``
+``ReAct`` -> ``lionagi.operations.ReAct.ReAct``
+``select`` -> ``lionagi.operations.select.select``
 ``translate`` -> ``lionagi.operations.translate.translate``
 
-``act`` is simply a method in 
-``lionagi.session.branch.Branch.act`` that calls 
+``act`` is simply a method in
+``lionagi.session.branch.Branch.act`` that calls
 ``_act`` for each request.
 
-``Branch`` itself is documented separately in 
+``Branch`` itself is documented separately in
 :ref:`lionagi-branch-class`.
 
 ----

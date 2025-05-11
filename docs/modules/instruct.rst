@@ -2,19 +2,19 @@
 Instruct System
 ================================
 
-The **Instruct System** provides a flexible way to define and manage **instruction parameters** 
-(e.g., a prompt, context, guidance, reason, or required actions) when building 
-sophisticated workflows or LLM-driven tasks. It leverages Pydantic models 
-(:class:`HashableModel`) for type safety and easy serialization, plus some 
-specialized “field” definitions to ensure consistent validation and usage 
-across LionAGI.  
+The **Instruct System** provides a flexible way to define and manage **instruction parameters**
+(e.g., a prompt, context, guidance, reason, or required actions) when building
+sophisticated workflows or LLM-driven tasks. It leverages Pydantic models
+(:class:`HashableModel`) for type safety and easy serialization, plus some
+specialized “field” definitions to ensure consistent validation and usage
+across LionAGI.
 
 Common usage patterns include:
 
-- Embedding an :class:`Instruct` model within a larger data structure or 
-  node (e.g., :class:`InstructNode`) that can be passed around to 
+- Embedding an :class:`Instruct` model within a larger data structure or
+  node (e.g., :class:`InstructNode`) that can be passed around to
   orchestrate tasks.
-- Managing collections of instructions (:class:`InstructCollection`) 
+- Managing collections of instructions (:class:`InstructCollection`)
   for multi-step or multi-instruction pipelines.
 
 
@@ -25,7 +25,7 @@ Common usage patterns include:
 .. module:: lionagi.operatives.instruct.base
    :synopsis: Defines the standard fields for instructions.
 
-These “field models” are specialized definitions for typical 
+These “field models” are specialized definitions for typical
 “instruct” data points:
 
 - **Instruction**: A primary instruction or objective (JSON-serializable).
@@ -38,27 +38,27 @@ These “field models” are specialized definitions for typical
 
 .. py:data:: INSTRUCTION_FIELD
    :annotation: FieldModel
-   The main task or objective.  
+   The main task or objective.
    Enforces that it's a JSON-like object or None.
 
 .. py:data:: GUIDANCE_FIELD
    :annotation: FieldModel
-   Extra guidance about how the instruction should be handled 
+   Extra guidance about how the instruction should be handled
    (methodology, constraints, etc.).
 
 .. py:data:: CONTEXT_FIELD
    :annotation: FieldModel
-   Information about the current environment or state relevant to 
+   Information about the current environment or state relevant to
    fulfilling the instruction.
 
 .. py:data:: REASON_FIELD
    :annotation: FieldModel
-   Boolean or specialized object controlling whether to produce 
+   Boolean or specialized object controlling whether to produce
    an explanatory “reasoning” or not.
 
 .. py:data:: ACTIONS_FIELD
    :annotation: FieldModel
-   Boolean controlling if tool usage or action invocations are 
+   Boolean controlling if tool usage or action invocations are
    strictly required.
 
 
@@ -73,13 +73,13 @@ These “field models” are specialized definitions for typical
 
 Consolidates the **instruction** pattern with standard fields:
 
-- :attr:`instruction`: The user's main objective 
+- :attr:`instruction`: The user's main objective
   (type: ``JsonValue | None``).
-- :attr:`guidance`: Extra pointers or constraints 
+- :attr:`guidance`: Extra pointers or constraints
   (type: ``JsonValue | None``).
-- :attr:`context`: Additional environment or prior state 
+- :attr:`context`: Additional environment or prior state
   (type: ``JsonValue | None``).
-- :attr:`reason`: Boolean for whether reasoning is included 
+- :attr:`reason`: Boolean for whether reasoning is included
   (or a separate struct).
 - :attr:`actions`: Boolean controlling if actions are needed.
 
@@ -103,9 +103,9 @@ InstructResponse
 .. class:: InstructResponse
    :extends: HashableModel
 
-A simple container pairing an :attr:`instruct` (the 
-:class:`Instruct` object) with a :attr:`response` (the 
-final outcome from an LLM or other system).  Typically used 
+A simple container pairing an :attr:`instruct` (the
+:class:`Instruct` object) with a :attr:`response` (the
+final outcome from an LLM or other system).  Typically used
 to store results after an instruction is processed.
 
 
@@ -118,19 +118,19 @@ to store results after an instruction is processed.
 .. class:: InstructCollection
    :extends: pydantic.BaseModel
 
-Holds multiple :class:`Instruct` objects (by default, 
-fields named ``instruct_0``, ``instruct_1``, etc.). This 
-lets you define a dynamic model that can contain an arbitrary 
+Holds multiple :class:`Instruct` objects (by default,
+fields named ``instruct_0``, ``instruct_1``, etc.). This
+lets you define a dynamic model that can contain an arbitrary
 number of instructions.
 
 **Key Methods**:
 
-- :meth:`instruct_models` -> list[Instruct]:  
+- :meth:`instruct_models` -> list[Instruct]:
   Gathers all ``instruct_*`` fields into a list.
-- :meth:`create_model_params(num_instructs=3, **kwargs) -> ModelParams`:  
-  Dynamically build a :class:`ModelParams` definition for 
+- :meth:`create_model_params(num_instructs=3, **kwargs) -> ModelParams`:
+  Dynamically build a :class:`ModelParams` definition for
   an InstructCollection with a specified count of instruct fields.
-- :meth:`to_instruct_nodes() -> list[InstructNode]`:  
+- :meth:`to_instruct_nodes() -> list[InstructNode]`:
   Convert each instruct into an :class:`InstructNode`.
 
 Usage::
@@ -154,11 +154,11 @@ Usage::
 .. class:: InstructNode
    :extends: Node
 
-A specialized :class:`Node` that includes an :attr:`instruct` 
-field of type :class:`Instruct`. This is useful when building 
-**graph** structures in LionAGI and embedding instructions 
-directly in the graph's nodes. For instance, each node in a 
-workflow graph might carry specific instructions for LLM steps 
+A specialized :class:`Node` that includes an :attr:`instruct`
+field of type :class:`Instruct`. This is useful when building
+**graph** structures in LionAGI and embedding instructions
+directly in the graph's nodes. For instance, each node in a
+workflow graph might carry specific instructions for LLM steps
 or sub-tasks.
 
 Usage::
@@ -178,8 +178,8 @@ Usage::
 ------------------------------
 5. Example: Combining Instruct
 ------------------------------
-A common pattern might be to define a custom model that includes 
-an :class:`Instruct` (or a list of them). For example, if you 
+A common pattern might be to define a custom model that includes
+an :class:`Instruct` (or a list of them). For example, if you
 have a multi-step LLM pipeline:
 
 .. code-block:: python
@@ -207,16 +207,16 @@ Summary
 ---------------------
 The **LionAGI Instruct System** provides:
 
-- **Instruct**: A minimal, typed container for the main 
-  instruction, guidance, context, and toggles like reason 
+- **Instruct**: A minimal, typed container for the main
+  instruction, guidance, context, and toggles like reason
   or actions.
-- **InstructCollection**: A dynamic approach to storing 
+- **InstructCollection**: A dynamic approach to storing
   multiple instructions.
-- **InstructNode**: When you need to embed an instruction 
+- **InstructNode**: When you need to embed an instruction
   inside a graph node.
 
-By standardizing instruction-related fields (like 
-``instruction``, ``guidance``, ``context``), this system 
-promotes consistent usage across different modules, 
-**simplifying** the integration of instructions in 
+By standardizing instruction-related fields (like
+``instruction``, ``guidance``, ``context``), this system
+promotes consistent usage across different modules,
+**simplifying** the integration of instructions in
 LLM-based tasks or advanced multi-step flows.

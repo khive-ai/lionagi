@@ -171,7 +171,7 @@ RoledMessage
 
     Notes
     -----
-    The RoledMessage class is designed to be subclassed by specific message types like System, Instruction, etc. 
+    The RoledMessage class is designed to be subclassed by specific message types like System, Instruction, etc.
     It provides template-based rendering of content and serialization support for various field types.
 
 
@@ -295,7 +295,7 @@ Instruction
 
     Notes
     -----
-    The Instruction class is designed to be flexible in how it represents user commands, supporting 
+    The Instruction class is designed to be flexible in how it represents user commands, supporting
     everything from simple text instructions to complex requests with images, schemas, and tool references.
 
 
@@ -364,8 +364,8 @@ AssistantResponse
 
     Notes
     -----
-    The AssistantResponse class is designed to handle various formats of AI model outputs, from simple 
-    strings to complex structured responses. It preserves both the human-readable response and the raw 
+    The AssistantResponse class is designed to handle various formats of AI model outputs, from simple
+    strings to complex structured responses. It preserves both the human-readable response and the raw
     model output when available.
 
 
@@ -457,7 +457,7 @@ ActionRequest
 
     Notes
     -----
-    The ActionRequest class is designed to represent function or action calls within the system. 
+    The ActionRequest class is designed to represent function or action calls within the system.
     It maintains a link to its corresponding ActionResponse once the action is completed.
 
 
@@ -536,7 +536,7 @@ ActionResponse
 
     Notes
     -----
-    The ActionResponse class is designed to pair with ActionRequest messages, providing a structured way 
+    The ActionResponse class is designed to pair with ActionRequest messages, providing a structured way
     to return function call results while maintaining the link to the original request.
 
 
@@ -623,8 +623,8 @@ MessageManager
 
     Notes
     -----
-    The MessageManager class provides a central point for managing all types of messages in a conversation, 
-    including system messages, instructions, responses, and action requests/responses. It maintains message 
+    The MessageManager class provides a central point for managing all types of messages in a conversation,
+    including system messages, instructions, responses, and action requests/responses. It maintains message
     order and provides convenient access methods.
 
 
@@ -643,7 +643,7 @@ Example Usage
    # 2) Add a user instruction
    instruct = Instruction.create(instruction="How to deploy a python app?")
    msg, _ = manager.add_message(instruction=instruct)
-   
+
    # 3) AI responds
    response = AssistantResponse.create("You can use Docker or a PaaS like Heroku.")
    msg, _ = manager.add_message(assistant_response=response)
@@ -655,13 +655,13 @@ Example Usage
 
 File Locations
 --------------
-- **base.py**: Shared role/flag definitions.  
-- **message.py**: The :class:`RoledMessage` base class + jinja environment.  
-- **system.py**: The :class:`System` specialized message.  
-- **instruction.py**: The :class:`Instruction` specialized message.  
-- **assistant_response.py**: The :class:`AssistantResponse` specialized message.  
-- **action_request.py**: The :class:`ActionRequest` specialized message.  
-- **action_response.py**: The :class:`ActionResponse` specialized message.  
+- **base.py**: Shared role/flag definitions.
+- **message.py**: The :class:`RoledMessage` base class + jinja environment.
+- **system.py**: The :class:`System` specialized message.
+- **instruction.py**: The :class:`Instruction` specialized message.
+- **assistant_response.py**: The :class:`AssistantResponse` specialized message.
+- **action_request.py**: The :class:`ActionRequest` specialized message.
+- **action_response.py**: The :class:`ActionResponse` specialized message.
 - **message_manager.py**: A manager class for storing and operating on multiple messages.
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``

@@ -9,7 +9,7 @@ Adapter System
 Overview
 --------
 This system introduces the concept of an **Adapter** that knows how to
-translate an internal object (like a Pydantic-based Element or a 
+translate an internal object (like a Pydantic-based Element or a
 ``Collective``) to an external representation (JSON, CSV, Excel, Pandas
 DataFrame, etc.), and vice versa. Adapters are registered in a global
 :class:`AdapterRegistry` under a specific **key** (like ``".csv"`` or
@@ -630,11 +630,11 @@ Below is a simple snippet using the registry:
 
 File Locations
 --------------
-- **adapter.py**: The core protocol (Adapter) and :class:`AdapterRegistry`.  
-- **json_adapter.py**: In-memory JSON and JSON-file adapters.  
-- **pandas_/csv_adapter.py**: CSV file adapter.  
-- **pandas_/excel_adapter.py**: Excel file adapter (.xlsx).  
-- **pandas_/pd_dataframe_adapter.py**: DataFrame adapter.  
+- **adapter.py**: The core protocol (Adapter) and :class:`AdapterRegistry`.
+- **json_adapter.py**: In-memory JSON and JSON-file adapters.
+- **pandas_/csv_adapter.py**: CSV file adapter.
+- **pandas_/excel_adapter.py**: Excel file adapter (.xlsx).
+- **pandas_/pd_dataframe_adapter.py**: DataFrame adapter.
 - **pandas_/pd_series_adapter.py**: Series adapter.
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``

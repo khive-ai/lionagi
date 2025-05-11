@@ -2,8 +2,8 @@
 Model System
 =======================================
 
-This module provides foundational classes and utilities for **dynamically** 
-creating and managing data models within LionAGI. These “operatives” form the 
+This module provides foundational classes and utilities for **dynamically**
+creating and managing data models within LionAGI. These “operatives” form the
 building blocks of the system, offering features like:
 
 - **Runtime field creation** (add, update, remove fields)
@@ -28,7 +28,7 @@ A configurable **field definition** that captures:
 
 - **Name** (str)
 - **Annotation** (type or Any)
-- **Default** or **default_factory**  
+- **Default** or **default_factory**
 - Optional **validator** (a function)
 - Documentation info (title, description, examples)
 - Additional Pydantic flags (e.g. ``exclude``, ``deprecated``, etc.)
@@ -58,7 +58,7 @@ A configurable **field definition** that captures:
 
 Collects **configuration** for generating a new Pydantic model class, such as:
 
-- :attr:`parameter_fields`: a dictionary mapping field names to 
+- :attr:`parameter_fields`: a dictionary mapping field names to
   :class:`FieldInfo`.
 - :attr:`field_models`: a list of :class:`FieldModel` objects.
 - :attr:`exclude_fields`: a list of fields to remove from the final model.
@@ -66,7 +66,7 @@ Collects **configuration** for generating a new Pydantic model class, such as:
 - :attr:`config_dict`: Pydantic config overrides (e.g., ``frozen=True``).
 - :attr:`doc`: Docstring for the generated model.
 
-Finally, call :meth:`create_new_model()` to get a brand-new Pydantic class 
+Finally, call :meth:`create_new_model()` to get a brand-new Pydantic class
 (with your specified fields, validators, docstring, etc.).
 
 **Example**::
@@ -105,9 +105,9 @@ including:
 - :meth:`update_field(...)`: Update an existing field or create if absent.
 - :meth:`remove_field(name)`: Remove a field.
 
-All **extra fields** are stored in :attr:`extra_fields` (mapping from 
-name to :class:`pydantic.FieldInfo`) and :attr:`extra_field_models` 
-(mapping from name to :class:`FieldModel`). The underlying dictionary 
+All **extra fields** are stored in :attr:`extra_fields` (mapping from
+name to :class:`pydantic.FieldInfo`) and :attr:`extra_field_models`
+(mapping from name to :class:`FieldModel`). The underlying dictionary
 structure remains valid with Pydantic's type checks and serialization logic.
 
 **Example**::
@@ -136,12 +136,12 @@ structure remains valid with Pydantic's type checks and serialization logic.
 
 A specialized object for **managing nested dictionary data**:
 
-- :meth:`get(indices, default)`, :meth:`set(indices, value)`, :meth:`pop(indices)`, 
+- :meth:`get(indices, default)`, :meth:`set(indices, value)`, :meth:`pop(indices)`,
   etc. for deeply nested access or updates.
 - :meth:`update(indices, value)` merges with an existing dict or appends to a list.
 - :meth:`keys(flat=True|False)`: Optionally flatten nested structures.
 
-It's a convenient alternative to constantly handling deeply nested dictionaries 
+It's a convenient alternative to constantly handling deeply nested dictionaries
 manually in your code.
 
 **Example**::
@@ -164,8 +164,8 @@ manually in your code.
 .. class:: SchemaModel
    :extends: HashableModel
 
-A lightweight extension of :class:`HashableModel` that sets Pydantic config 
-to **forbid** extra fields by default and use enum values. Provides a 
+A lightweight extension of :class:`HashableModel` that sets Pydantic config
+to **forbid** extra fields by default and use enum values. Provides a
 :method:`keys()` utility that returns the field names defined in the schema.
 
 
@@ -178,11 +178,11 @@ to **forbid** extra fields by default and use enum values. Provides a
 .. class:: HashableModel
    :extends: pydantic.BaseModel
 
-Enables your model to be **hashable**, so it can be used as keys in a 
-dictionary or placed in a set. It does this by converting all fields to 
+Enables your model to be **hashable**, so it can be used as keys in a
+dictionary or placed in a set. It does this by converting all fields to
 a dictionary (via :meth:`to_dict`) and then hashing the sorted key-value pairs.
 
-**Note**: Some fields may need to be serialized or converted to strings if 
+**Note**: Some fields may need to be serialized or converted to strings if
 they are not inherently hashable.
 
 **Example**::
@@ -205,17 +205,17 @@ Putting It All Together
 **Typical use case** for these model classes:
 
 1. **Define** a base model with core fields (like a user or config).
-2. **Add** or **update** fields at runtime if the structure is not fixed 
+2. **Add** or **update** fields at runtime if the structure is not fixed
    (e.g., an “Operable” approach for flexible schemas).
-3. **Dynamically** create entire new models with :class:`ModelParams` 
+3. **Dynamically** create entire new models with :class:`ModelParams`
    (for advanced code generation scenarios).
-4. Store nested data in :class:`Note` objects for iterative or 
+4. Store nested data in :class:`Note` objects for iterative or
    complicated updates.
-5. Output or persist model objects as needed; they can be hashed, 
-   used as dictionary keys, or automatically **serialized** with 
+5. Output or persist model objects as needed; they can be hashed,
+   used as dictionary keys, or automatically **serialized** with
    LionAGI's adapter system.
 
-This design allows building truly “operable” data structures in a 
-**dynamic** environment—where the model schema might evolve during runtime, 
-and you need robust type checking, validation, and hashing to 
+This design allows building truly “operable” data structures in a
+**dynamic** environment—where the model schema might evolve during runtime,
+and you need robust type checking, validation, and hashing to
 maintain data integrity.

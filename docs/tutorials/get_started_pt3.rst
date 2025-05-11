@@ -18,7 +18,7 @@ In this third installment of **Get Started** with LionAGI, we will:
 - See **Part 1** (basic code generation) and **Part 2** (custom iModels, typed outputs) for initial setup.
 - **Python 3.10+** is required for async usage.
 - Install or set up your environment with LionAGI:
-  
+
   .. code-block:: bash
 
      pip install lionagi
@@ -28,7 +28,7 @@ In this third installment of **Get Started** with LionAGI, we will:
 ------------------------------------
 1. Using ``operate`` for Summaries
 ------------------------------------
-``operate`` merges conversation (“chat” with an LLM) **and** potential tool invocation. 
+``operate`` merges conversation (“chat” with an LLM) **and** potential tool invocation.
 You can parse the final output into a structured Pydantic model, include a ``reason`` field for the LLM's explanation, or let it call tools to refine data.
 
 **Scenario**: Summarize some text and optionally call a named-entity tool if needed.
@@ -60,7 +60,7 @@ You can parse the final output into a structured Pydantic model, include a ``rea
        branch = Branch(tools=entity_extractor)
 
        # Call branch.operate
-       # instruction: we want the LLM to produce a summary, 
+       # instruction: we want the LLM to produce a summary,
        # optionally calling the 'entity_extractor' tool if it needs to check location names, etc.
        # reason=True => store a 'reason' field in final output if model structure allows it
        # actions=True => allow tool usage
@@ -103,11 +103,11 @@ You can parse the final output into a structured Pydantic model, include a ``rea
 
 **Explanation**:
 - We define a **SummModel** with a single field: ``summary``.
-- The LLM can optionally call the ``entity_extractor`` tool if it needs  to confirm location references in the text.  
+- The LLM can optionally call the ``entity_extractor`` tool if it needs  to confirm location references in the text.
 - We request a reasoning field (``reason=True``) so the final JSON can contain a short explanation or confidence measure.
 
 **Sample Flow**:
-- The LLM reads the instruction + text context, possibly calls the tool 
+- The LLM reads the instruction + text context, possibly calls the tool
   for location checking, then returns a structured JSON with the summarizing text in ``summary`` (and an optional ``reason`` object if the LLM provides it).
 
 -------------------------------------------------
@@ -145,7 +145,7 @@ You can parse the final output into a structured Pydantic model, include a ``rea
        response_format=IdeaModel,
        auto_run=True,
        auto_explore=True,
-       explore_strategy="concurrent", 
+       explore_strategy="concurrent",
        reason=True,  # optionally get reason
        verbose=True
    )
@@ -173,7 +173,7 @@ You can parse the final output into a structured Pydantic model, include a ``rea
 - ``auto_explore=True`` => we also do a follow-up exploration pass with the chosen strategy.
 - Each sub-instruction can produce typed results (like IdeaModel).
 
-- The final **result** is a **BrainstormOperation** with fields: 
+- The final **result** is a **BrainstormOperation** with fields:
 
   - ``initial``: The first pass typed model
   - ``brainstorm``: The auto-run sub-instruction results
@@ -184,7 +184,7 @@ Conclusion & Next Steps
 --------------------------------
 - We showcased **``operate``** with structured output, reasoning fields,  and optional tool usage (like a naive entity extractor).
 - We introduced **``brainstorm``** for multi-idea generation, auto-run,  and expansions.
-- Combine these for real agentic workflows, multi-step reasoning,  or advanced concurrency. For deeper concurrency or multi-agent setups,  explore the advanced sections in the docs. 
+- Combine these for real agentic workflows, multi-step reasoning,  or advanced concurrency. For deeper concurrency or multi-agent setups,  explore the advanced sections in the docs.
 
-**Happy experimenting** with LionAGI's flexible “operate” 
+**Happy experimenting** with LionAGI's flexible “operate”
 and “brainstorm” capabilities!

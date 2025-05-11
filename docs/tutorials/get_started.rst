@@ -15,26 +15,26 @@ tool usage and final output.
 -------------------------
 Before diving in, you'll need:
 
-1. **Install LionAGI** (and any required dependencies like `uv` or `pip`). 
+1. **Install LionAGI** (and any required dependencies like `uv` or `pip`).
     - If you're installing from PyPI, run:
-        
+
         .. code-block:: bash
 
             pip install lionagi
 
     - For advanced usage, you might want `uv` installed:
-        
+
         .. code-block:: bash
 
             uv pip install lionagi
 
-2. **Obtain an API key** for the underlying LLM (OpenAI or other provider). 
+2. **Obtain an API key** for the underlying LLM (OpenAI or other provider).
     - Set it as an environment variable, e.g.:
-        
+
         .. code-block:: bash
 
             export OPENAI_API_KEY="<your_api_key_here>"
-        
+
         or put it into a local `.env` file that you load.
 
 3. **A Python environment supporting async** (e.g., a Jupyter notebook).

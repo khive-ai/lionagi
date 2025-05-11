@@ -8,10 +8,10 @@ Event, EventStatus, and Execution
 
 Overview
 --------
-This module provides a specialized :class:`Event` class, which extends the 
-:class:`~lionagi.protocols.generic.element.Element` base with a structured 
-:class:`Execution` state. It also introduces :class:`EventStatus`, an 
-enumeration that clarifies the state (pending, processing, completed, or 
+This module provides a specialized :class:`Event` class, which extends the
+:class:`~lionagi.protocols.generic.element.Element` base with a structured
+:class:`Execution` state. It also introduces :class:`EventStatus`, an
+enumeration that clarifies the state (pending, processing, completed, or
 failed) of an ongoing or finished event.
 
 
@@ -20,19 +20,19 @@ EventStatus
 .. class:: EventStatus(str, Enum)
    :module: lionagi.protocols.generic.event
 
-   Represents the **lifecycle states** for an action or task execution. 
-   Each event can transition from PENDING to PROCESSING, and finally 
+   Represents the **lifecycle states** for an action or task execution.
+   Each event can transition from PENDING to PROCESSING, and finally
    to either COMPLETED or FAILED.
 
    Members
    -------
-   - **PENDING** : str  
+   - **PENDING** : str
      Initial state before execution starts.
-   - **PROCESSING** : str  
+   - **PROCESSING** : str
      Indicates that the event is currently in progress.
-   - **COMPLETED** : str  
+   - **COMPLETED** : str
      The event action completed successfully.
-   - **FAILED** : str  
+   - **FAILED** : str
      The event action encountered an error or otherwise failed.
 
    Example
@@ -50,8 +50,8 @@ Execution
 .. class:: Execution
    :module: lionagi.protocols.generic.event
 
-   Tracks the **runtime details** of an event, including status, duration, 
-   response, and any error messages. Designed to store partial or final results 
+   Tracks the **runtime details** of an event, including status, duration,
+   response, and any error messages. Designed to store partial or final results
    and the overall outcome of an event's execution.
 
    Attributes
@@ -85,7 +85,7 @@ Execution
 
    .. method:: __str__() -> str
 
-       Returns a string representation of the execution, indicating the current 
+       Returns a string representation of the execution, indicating the current
        ``status``, ``duration``, ``response``, and ``error`` fields.
 
    Example
@@ -111,15 +111,15 @@ Event
 
    **Inherits from**: :class:`~lionagi.protocols.generic.element.Element`
 
-   A specialized Element with an :attr:`execution` field to track the status, 
-   duration, and result of an operation. This class is designed for scenarios 
-   where an action or task is performed and we need to store the outcome or 
+   A specialized Element with an :attr:`execution` field to track the status,
+   duration, and result of an operation. This class is designed for scenarios
+   where an action or task is performed and we need to store the outcome or
    progression data.
 
    Attributes
    ----------
    execution : Execution
-       Stores the execution state of this event. Defaults to a new 
+       Stores the execution state of this event. Defaults to a new
        :class:`Execution` instance (PENDING status, no error).
 
    Properties
@@ -134,7 +134,7 @@ Event
 
    .. attribute:: request
 
-      By default returns an empty dictionary. Subclasses may override to 
+      By default returns an empty dictionary. Subclasses may override to
       provide request payload data relevant to the event.
 
    Methods
@@ -142,13 +142,13 @@ Event
    .. method:: invoke() -> None
       :async:
 
-      An **asynchronous** method intended to perform the event's main action. 
+      An **asynchronous** method intended to perform the event's main action.
       Raises :exc:`NotImplementedError` unless overridden by a subclass.
 
    .. classmethod:: from_dict(data: dict) -> Event
 
-      Always raises :exc:`NotImplementedError`. Events cannot be fully 
-      recreated once they have progressed. Override if a specialized 
+      Always raises :exc:`NotImplementedError`. Events cannot be fully
+      recreated once they have progressed. Override if a specialized
       behavior is needed.
 
    Example
@@ -166,7 +166,7 @@ Event
 
 File Location
 -------------
-**Source File**: 
+**Source File**:
 ``lionagi/protocols/generic/event.py``
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``

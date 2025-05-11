@@ -80,8 +80,8 @@ Exchange
 
     Notes
     -----
-    The Exchange class orchestrates mail flows among sources that implement Communicatable. 
-    It collects pending outgoing mail from each source and delivers them to the appropriate 
+    The Exchange class orchestrates mail flows among sources that implement Communicatable.
+    It collects pending outgoing mail from each source and delivers them to the appropriate
     recipients using an internal buffer system.
 
 
@@ -162,7 +162,7 @@ Mailbox
 
     Notes
     -----
-    The Mailbox class implements a simple mailbox system for each Communicatable entity. 
+    The Mailbox class implements a simple mailbox system for each Communicatable entity.
     It holds inbound and outbound mail, stored internally in a Pile for thread-safe access.
 
 
@@ -280,7 +280,7 @@ Package and PackageCategory
 
     Notes
     -----
-    The Package class is designed to be a self-contained unit that can be attached to Mail items. 
+    The Package class is designed to be a self-contained unit that can be attached to Mail items.
     It uses slots for memory efficiency and includes validation for the package category.
 
 

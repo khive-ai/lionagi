@@ -28,8 +28,8 @@ LogManagerConfig
 .. class:: LogManagerConfig
    :module: lionagi.protocols.generic.log
 
-   A **pydantic-based** configuration model that defines where logs should be stored, 
-   how files are named, and whether auto-saving or clearing is performed on certain 
+   A **pydantic-based** configuration model that defines where logs should be stored,
+   how files are named, and whether auto-saving or clearing is performed on certain
    conditions.
 
    Attributes
@@ -87,8 +87,8 @@ Log
 
    **Inherits from**: :class:`~lionagi.protocols.generic.element.Element`
 
-   Represents an **immutable** log entry, wrapping a dictionary of content. Once 
-   created or loaded from a dictionary, its data can no longer be modified. This 
+   Represents an **immutable** log entry, wrapping a dictionary of content. Once
+   created or loaded from a dictionary, its data can no longer be modified. This
    ensures that all logs are preserved in their original state.
 
    Attributes
@@ -117,7 +117,7 @@ Log
    .. classmethod:: create(cls, content: Element | dict) -> Log
 
       Constructs a new log from either an :class:`~lionagi.protocols.generic.element.Element`
-      (using its :meth:`to_dict` method) or a dictionary. If the resulting content 
+      (using its :meth:`to_dict` method) or a dictionary. If the resulting content
       is empty, a log entry with an error message is created.
 
    Example
@@ -145,7 +145,7 @@ LogManager
    **Inherits from**: :class:`~lionagi.protocols._concepts.Manager`
 
    A manager that stores :class:`Log` objects in a :class:`~lionagi.protocols.generic.pile.Pile`.
-   It optionally dumps them to files (CSV/JSON) automatically when certain conditions 
+   It optionally dumps them to files (CSV/JSON) automatically when certain conditions
    are met (like reaching a capacity limit or application exit).
 
    Attributes
@@ -153,14 +153,14 @@ LogManager
    logs : Pile[Log]
        The collection of logs being managed.
    _config : LogManagerConfig
-       Configuration parameters that control directory, file naming, 
+       Configuration parameters that control directory, file naming,
        capacity, and auto-save behavior.
 
    Initialization
    --------------
    .. method:: __init__(*, logs: Any = None, _config: LogManagerConfig = None, **kwargs) -> None
 
-      Initializes a LogManager. If ``_config`` is not provided, a new 
+      Initializes a LogManager. If ``_config`` is not provided, a new
       :class:`LogManagerConfig` is created from additional keyword arguments.
 
       Parameters
@@ -174,14 +174,14 @@ LogManager
 
       Notes
       -----
-      If :attr:`auto_save_on_exit` is True, a dump is automatically performed 
+      If :attr:`auto_save_on_exit` is True, a dump is automatically performed
       on interpreter shutdown.
 
    Methods
    -------
    .. method:: log(log_: Log) -> None
 
-      Adds a log synchronously. If the capacity is reached, triggers a 
+      Adds a log synchronously. If the capacity is reached, triggers a
       :meth:`dump` call automatically.
 
    .. method:: alog(log_: Log) -> None
@@ -206,7 +206,7 @@ LogManager
 
    .. classmethod:: from_config(config: LogManagerConfig, logs: Any = None) -> LogManager
 
-      Creates a new ``LogManager`` from a given config object, optionally 
+      Creates a new ``LogManager`` from a given config object, optionally
       seeded with logs.
 
    Example
@@ -228,7 +228,7 @@ LogManager
 
 File Location
 -------------
-**Source File**: 
+**Source File**:
 ``lionagi/protocols/generic/log.py``
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``

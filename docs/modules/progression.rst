@@ -8,11 +8,11 @@ Progression
 
 Overview
 --------
-The :class:`Progression` class combines a list-like structure of IDs 
+The :class:`Progression` class combines a list-like structure of IDs
 (:class:`IDType`) with the properties of an :class:`~lionagi.protocols._concepts.Ordering`.
 It allows insertion, removal, and slicing while preserving a **strict sequence**
 of items. The optional :attr:`name` field enables easy identification or labeling
-of the progression. Also included is a convenience function, :func:`prog`, 
+of the progression. Also included is a convenience function, :func:`prog`,
 for quick creation of a new :class:`Progression`.
 
 
@@ -22,7 +22,7 @@ Progression
    :module: lionagi.protocols.generic.progression
 
    **Inherits from**:
-   :class:`~lionagi.protocols.generic.element.Element`  
+   :class:`~lionagi.protocols.generic.element.Element`
    :class:`~lionagi.protocols._concepts.Ordering`
 
    Tracks an ordered sequence of item IDs, plus an optional name. This class
@@ -41,13 +41,13 @@ Progression
 .. method:: _validate_ordering(value: Any) -> list[IDType]
    :classmethod:
 
-   Private class method that ensures the given value is a valid list of IDs, flattening nested structures 
-   via :func:`~lionagi.protocols.generic.element.validate_order`. Raises 
+   Private class method that ensures the given value is a valid list of IDs, flattening nested structures
+   via :func:`~lionagi.protocols.generic.element.validate_order`. Raises
    :exc:`ValueError` if items are invalid.
 
 .. method:: _serialize_order(value: list[IDType]) -> list[str]
 
-   Private instance method that serializes each :class:`IDType` in the list into its UUID string 
+   Private instance method that serializes each :class:`IDType` in the list into its UUID string
    representation.
 
    Basic Methods
@@ -62,12 +62,12 @@ Progression
 
    .. method:: __contains__(item: Any) -> bool
 
-      Checks if *all* IDs in the given ``item`` (Element, IDType, UUID, 
+      Checks if *all* IDs in the given ``item`` (Element, IDType, UUID,
       or a collection thereof) exist in this progression.
 
    .. method:: __getitem__(key: int | slice) -> IDType | list[IDType]
 
-      Fetches either a single ID (if ``key`` is an int) or a new sub-Progression 
+      Fetches either a single ID (if ``key`` is an int) or a new sub-Progression
       (if ``key`` is a slice).
 
       Raises
@@ -79,7 +79,7 @@ Progression
 
    .. method:: __setitem__(key: int | slice, value: Any) -> None
 
-      Replaces items at the specified position(s) with new IDs validated 
+      Replaces items at the specified position(s) with new IDs validated
       via :func:`~lionagi.protocols.generic.element.validate_order`.
 
    .. method:: __delitem__(key: int | slice) -> None
@@ -112,7 +112,7 @@ Progression
 
    .. method:: exclude(item: Any) -> bool
 
-      Removes occurrences of specified IDs. Returns ``True`` if one or more 
+      Removes occurrences of specified IDs. Returns ``True`` if one or more
       items were removed, else ``False``.
 
    Additional List-Like Methods
@@ -133,7 +133,7 @@ Progression
 
    .. method:: remove(item: Any) -> None
 
-      Removes the *first* occurrence of each specified ID. Raises 
+      Removes the *first* occurrence of each specified ID. Raises
       :exc:`lionagi._errors.ItemNotFoundError` if any ID is not found.
 
    .. method:: count(item: Any) -> int
@@ -142,7 +142,7 @@ Progression
 
    .. method:: index(item: Any, start: int = 0, end: int | None = None) -> int
 
-      Finds the position of the first occurrence of an ID. Raises :exc:`ValueError` 
+      Finds the position of the first occurrence of an ID. Raises :exc:`ValueError`
       if the ID is not found within the given range.
 
    .. method:: extend(other: Progression)
@@ -175,7 +175,7 @@ Progression
 
    .. method:: __isub__(other: Any) -> Self
 
-      In-place removal of IDs found in ``other``. Uses :meth:`remove` 
+      In-place removal of IDs found in ``other``. Uses :meth:`remove`
       internally.
 
    .. method:: __reverse__() -> Progression[E]
@@ -184,7 +184,7 @@ Progression
 
    .. method:: __eq__(other: object) -> bool
 
-      Checks whether two progressions have the same :attr:`order` and 
+      Checks whether two progressions have the same :attr:`order` and
       :attr:`name`.
 
    .. method:: __gt__(other: Progression[E]) -> bool
@@ -233,14 +233,14 @@ prog
 .. function:: prog(order: Any, name: str = None) -> Progression
    :module: lionagi.protocols.generic.progression
 
-   A **convenience** function to instantiate a new :class:`Progression` without 
+   A **convenience** function to instantiate a new :class:`Progression` without
    manually creating the object.
 
    Parameters
    ----------
    order : Any
-       Any structure that can be validated by 
-       :func:`~lionagi.protocols.generic.element.validate_order`, e.g., 
+       Any structure that can be validated by
+       :func:`~lionagi.protocols.generic.element.validate_order`, e.g.,
        a list of :class:`Element`, :class:`IDType`, or string-based UUIDs.
    name : str, optional
        A label for the newly created progression.
@@ -252,7 +252,7 @@ prog
 
 File Location
 -------------
-**Source File**: 
+**Source File**:
 ``lionagi/protocols/generic/progression.py``
 
 ``Copyright (c) 2023 - 2024, HaiyangLi <quantocean.li at gmail dot com>``
