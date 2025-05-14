@@ -3,20 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import contextlib
 import copy as _copy
 import functools
-import importlib.metadata
 import importlib.util
 import json
 import logging
-import re
-import shutil
 import subprocess
-import sys
 import time as t_
-import uuid
-import xml.etree.ElementTree as ET
 from abc import ABC
 from collections.abc import (
     AsyncGenerator,
@@ -27,20 +20,10 @@ from collections.abc import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from decimal import Decimal
 from enum import Enum
-from functools import lru_cache, partial
-from inspect import isclass
+from functools import lru_cache
 from pathlib import Path
-from typing import (
-    Any,
-    Literal,
-    TypedDict,
-    TypeVar,
-    get_args,
-    get_origin,
-    overload,
-)
+from typing import Any, Literal, TypedDict, TypeVar, overload
 
 from pydantic import BaseModel, model_validator
 from pydantic_core import PydanticUndefinedType
@@ -136,7 +119,7 @@ def hash_dict(data) -> int:
 class Params(BaseModel):
 
     def keys(self):
-        return self.model_fields.keys()
+        return self.__class__.model_fields.keys()
 
     def __call__(self, *args, **kwargs):
         raise NotImplementedError(
@@ -1005,45 +988,19 @@ def create_path(
         ValueError: If filename is invalid.
         FileExistsError: If file exists and file_exist_ok=False.
     """
-    if "/" in filename:
-        sub_dir, filename = filename.split("/")[:-1], filename.split("/")[-1]
-        directory = Path(directory) / "/".join(sub_dir)
+    from lionagi.libs.file.create_path import create_path
 
-    if "\\" in filename:
-        raise ValueError("Filename cannot contain directory separators.")
-
-    directory = Path(directory)
-
-    # Extract name and extension from filename if present
-    if "." in filename:
-        name, ext = filename.rsplit(".", 1)
-    else:
-        name, ext = filename, extension
-
-    # Ensure extension has a single leading dot
-    ext = f".{ext.lstrip('.')}" if ext else ""
-
-    # Add timestamp if requested
-    if timestamp:
-        ts_str = datetime.now().strftime(timestamp_format or "%Y%m%d%H%M%S")
-        name = f"{ts_str}_{name}" if time_prefix else f"{name}_{ts_str}"
-
-    # Add random suffix if requested
-    if random_hash_digits > 0:
-        # Use UUID4 and truncate its hex for random suffix
-        random_suffix = uuid.uuid4().hex[:random_hash_digits]
-        name = f"{name}-{random_suffix}"
-
-    full_path = directory / f"{name}{ext}"
-
-    # Check if file or directory existence
-    full_path.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
-    if full_path.exists() and not file_exist_ok:
-        raise FileExistsError(
-            f"File {full_path} already exists and file_exist_ok is False."
-        )
-
-    return full_path
+    return create_path(
+        directory,
+        filename,
+        extension=extension,
+        timestamp=timestamp,
+        dir_exist_ok=dir_exist_ok,
+        file_exist_ok=file_exist_ok,
+        time_prefix=time_prefix,
+        timestamp_format=timestamp_format,
+        random_hash_digits=random_hash_digits,
+    )
 
 
 class CreatePathParams(Params):
@@ -1102,34 +1059,9 @@ def to_xml(
         >>> to_xml({"a": 1, "b": {"c": "hello", "d": [10, 20]}}, root_name="data")
         '<data><a>1</a><b><c>hello</c><d>10</d><d>20</d></b></data>'
     """
+    from lionagi.libs.parse.to_xml import to_xml
 
-    def _convert(value: Any, tag_name: str) -> str:
-        # If value is a dict, recursively convert its keys
-        if isinstance(value, dict):
-            inner = "".join(_convert(v, k) for k, v in value.items())
-            return f"<{tag_name}>{inner}</{tag_name}>"
-        # If value is a list, repeat the same tag for each element
-        elif isinstance(value, list):
-            return "".join(_convert(item, tag_name) for item in value)
-        # If value is a primitive, convert to string and place inside tag
-        else:
-            text = "" if value is None else str(value)
-            # Escape special XML characters if needed (minimal)
-            text = (
-                text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace('"', "&quot;")
-                .replace("'", "&apos;")
-            )
-            return f"<{tag_name}>{text}</{tag_name}>"
-
-    # If top-level obj is not a dict, wrap it in one
-    if not isinstance(obj, dict):
-        obj = {root_name: obj}
-
-    inner_xml = "".join(_convert(v, k) for k, v in obj.items())
-    return f"<{root_name}>{inner_xml}</{root_name}>"
+    return to_xml(obj, root_name=root_name)
 
 
 def fuzzy_parse_json(
@@ -1154,186 +1086,9 @@ def fuzzy_parse_json(
         ValueError: If the string cannot be parsed as valid JSON
         TypeError: If the input is not a string
     """
-    _check_valid_str(str_to_parse)
+    from lionagi.libs.parse.fuzzy_parse_json import fuzzy_parse_json
 
-    # 1. Direct attempt
-    with contextlib.suppress(Exception):
-        return json.loads(str_to_parse)
-
-    # 2. Try cleaning: replace single quotes with double and normalize
-    cleaned = _clean_json_string(str_to_parse.replace("'", '"'))
-    with contextlib.suppress(Exception):
-        return json.loads(cleaned)
-
-    # 3. Try fixing brackets
-    fixed = fix_json_string(cleaned)
-    with contextlib.suppress(Exception):
-        return json.loads(fixed)
-
-    # If all attempts fail
-    raise ValueError("Invalid JSON string")
-
-
-def _check_valid_str(str_to_parse: str, /):
-    if not isinstance(str_to_parse, str):
-        raise TypeError("Input must be a string")
-    if not str_to_parse.strip():
-        raise ValueError("Input string is empty")
-
-
-def _clean_json_string(s: str) -> str:
-    """Basic normalization: replace unescaped single quotes, trim spaces, ensure keys are quoted."""
-    # Replace unescaped single quotes with double quotes
-    # '(?<!\\)'" means a single quote not preceded by a backslash
-    s = re.sub(r"(?<!\\)'", '"', s)
-    # Collapse multiple whitespaces
-    s = re.sub(r"\s+", " ", s)
-    # Ensure keys are quoted
-    # This attempts to find patterns like { key: value } and turn them into {"key": value}
-    s = re.sub(r'([{,])\s*([^"\s]+)\s*:', r'\1"\2":', s)
-    return s.strip()
-
-
-def fix_json_string(str_to_parse: str, /) -> str:
-    """Try to fix JSON string by ensuring brackets are matched properly."""
-    if not str_to_parse:
-        raise ValueError("Input string is empty")
-
-    brackets = {"{": "}", "[": "]"}
-    open_brackets = []
-    pos = 0
-    length = len(str_to_parse)
-
-    while pos < length:
-        char = str_to_parse[pos]
-
-        if char == "\\":
-            pos += 2  # Skip escaped chars
-            continue
-
-        if char == '"':
-            pos += 1
-            # skip string content
-            while pos < length:
-                if str_to_parse[pos] == "\\":
-                    pos += 2
-                    continue
-                if str_to_parse[pos] == '"':
-                    pos += 1
-                    break
-                pos += 1
-            continue
-
-        if char in brackets:
-            open_brackets.append(brackets[char])
-        elif char in brackets.values():
-            if not open_brackets:
-                # Extra closing bracket
-                # Better to raise error than guess
-                raise ValueError("Extra closing bracket found.")
-            if open_brackets[-1] != char:
-                # Mismatched bracket
-                raise ValueError("Mismatched brackets.")
-            open_brackets.pop()
-
-        pos += 1
-
-    # Add missing closing brackets if any
-    if open_brackets:
-        str_to_parse += "".join(reversed(open_brackets))
-
-    return str_to_parse
-
-
-class XMLParser:
-    def __init__(self, xml_string: str):
-        self.xml_string = xml_string.strip()
-        self.index = 0
-
-    def parse(self) -> dict[str, Any]:
-        """Parse the XML string and return the root element as a dictionary."""
-        return self._parse_element()
-
-    def _parse_element(self) -> dict[str, Any]:
-        """Parse a single XML element and its children."""
-        self._skip_whitespace()
-        if self.xml_string[self.index] != "<":
-            raise ValueError(
-                f"Expected '<', found '{self.xml_string[self.index]}'"
-            )
-
-        tag, attributes = self._parse_opening_tag()
-        children: dict[str, str | list | dict] = {}
-        text = ""
-
-        while self.index < len(self.xml_string):
-            self._skip_whitespace()
-            if self.xml_string.startswith("</", self.index):
-                closing_tag = self._parse_closing_tag()
-                if closing_tag != tag:
-                    raise ValueError(
-                        f"Mismatched tags: '{tag}' and '{closing_tag}'"
-                    )
-                break
-            elif self.xml_string.startswith("<", self.index):
-                child = self._parse_element()
-                child_tag, child_data = next(iter(child.items()))
-                if child_tag in children:
-                    if not isinstance(children[child_tag], list):
-                        children[child_tag] = [children[child_tag]]
-                    children[child_tag].append(child_data)
-                else:
-                    children[child_tag] = child_data
-            else:
-                text += self._parse_text()
-
-        result: dict[str, Any] = {}
-        if attributes:
-            result["@attributes"] = attributes
-        if children:
-            result.update(children)
-        elif text.strip():
-            result = text.strip()
-
-        return {tag: result}
-
-    def _parse_opening_tag(self) -> tuple[str, dict[str, str]]:
-        """Parse an opening XML tag and its attributes."""
-        match = re.match(
-            r'<(\w+)((?:\s+\w+="[^"]*")*)\s*/?>',
-            self.xml_string[self.index :],  # noqa
-        )
-        if not match:
-            raise ValueError("Invalid opening tag")
-        self.index += match.end()
-        tag = match.group(1)
-        attributes = dict(re.findall(r'(\w+)="([^"]*)"', match.group(2)))
-        return tag, attributes
-
-    def _parse_closing_tag(self) -> str:
-        """Parse a closing XML tag."""
-        match = re.match(r"</(\w+)>", self.xml_string[self.index :])  # noqa
-        if not match:
-            raise ValueError("Invalid closing tag")
-        self.index += match.end()
-        return match.group(1)
-
-    def _parse_text(self) -> str:
-        """Parse text content between XML tags."""
-        start = self.index
-        while (
-            self.index < len(self.xml_string)
-            and self.xml_string[self.index] != "<"
-        ):
-            self.index += 1
-        return self.xml_string[start : self.index]  # noqa
-
-    def _skip_whitespace(self) -> None:
-        """Skip any whitespace characters at the current parsing position."""
-        p_ = len(self.xml_string[self.index :])  # noqa
-        m_ = len(self.xml_string[self.index :].lstrip())  # noqa
-
-        self.index += p_ - m_
+    return fuzzy_parse_json(str_to_parse)
 
 
 def xml_to_dict(
@@ -1361,31 +1116,20 @@ def xml_to_dict(
     Raises:
         ValueError: If the XML is malformed or parsing fails.
     """
-    try:
-        a = XMLParser(xml_string).parse()
-        if remove_root and (root_tag or "root") in a:
-            a = a[root_tag or "root"]
-        return a
-    except ValueError as e:
-        if not suppress:
-            raise e
+    from lionagi.libs.parse.xml_parser import xml_to_dict
+
+    return xml_to_dict(
+        xml_string,
+        suppress=suppress,
+        remove_root=remove_root,
+        root_tag=root_tag,
+    )
 
 
 def dict_to_xml(data: dict, /, root_tag: str = "root") -> str:
+    from lionagi.libs.parse.xml_parser import dict_to_xml
 
-    root = ET.Element(root_tag)
-
-    def convert(dict_obj: dict, parent: Any) -> None:
-        for key, val in dict_obj.items():
-            if isinstance(val, dict):
-                element = ET.SubElement(parent, key)
-                convert(dict_obj=val, parent=element)
-            else:
-                element = ET.SubElement(parent, key)
-                element.text = str(object=val)
-
-    convert(dict_obj=data, parent=root)
-    return ET.tostring(root, encoding="unicode")
+    return dict_to_xml(data, root_tag=root_tag)
 
 
 def to_dict(
@@ -1433,283 +1177,21 @@ def to_dict(
         >>> to_dict({"a": {"b": {"c": 1}}}, recursive=True, max_recursive_depth=2)
         {'a': {'b': {'c': 1}}}
     """
+    from lionagi.libs.parse.to_dict import to_dict
 
-    try:
-        if recursive:
-            input_ = recursive_to_dict(
-                input_,
-                use_model_dump=use_model_dump,
-                fuzzy_parse=fuzzy_parse,
-                str_type=str_type,
-                parser=parser,
-                max_recursive_depth=max_recursive_depth,
-                recursive_custom_types=not recursive_python_only,
-                use_enum_values=use_enum_values,
-                **kwargs,
-            )
-
-        return _to_dict(
-            input_,
-            fuzzy_parse=fuzzy_parse,
-            parser=parser,
-            str_type=str_type,
-            use_model_dump=use_model_dump,
-            use_enum_values=use_enum_values,
-            **kwargs,
-        )
-    except Exception as e:
-        if suppress or input_ == "":
-            return {}
-        raise e
-
-
-def recursive_to_dict(
-    input_: Any,
-    /,
-    *,
-    max_recursive_depth: int = None,
-    recursive_custom_types: bool = False,
-    **kwargs: Any,
-) -> Any:
-
-    if not isinstance(max_recursive_depth, int):
-        max_recursive_depth = 5
-    else:
-        if max_recursive_depth < 0:
-            raise ValueError(
-                "max_recursive_depth must be a non-negative integer"
-            )
-        if max_recursive_depth == 0:
-            return input_
-        if max_recursive_depth > 10:
-            raise ValueError(
-                "max_recursive_depth must be less than or equal to 10"
-            )
-
-    return _recur_to_dict(
+    return to_dict(
         input_,
+        use_model_dump=use_model_dump,
+        fuzzy_parse=fuzzy_parse,
+        suppress=suppress,
+        str_type=str_type,
+        parser=parser,
+        recursive=recursive,
         max_recursive_depth=max_recursive_depth,
-        current_depth=0,
-        recursive_custom_types=recursive_custom_types,
+        recursive_python_only=recursive_python_only,
+        use_enum_values=use_enum_values,
         **kwargs,
     )
-
-
-def _recur_to_dict(
-    input_: Any,
-    /,
-    *,
-    max_recursive_depth: int,
-    current_depth: int = 0,
-    recursive_custom_types: bool = False,
-    **kwargs: Any,
-) -> Any:
-
-    if current_depth >= max_recursive_depth:
-        return input_
-
-    if isinstance(input_, str):
-        try:
-            # Attempt to parse the string
-            parsed = _to_dict(input_, **kwargs)
-            # Recursively process the parsed result
-            return _recur_to_dict(
-                parsed,
-                max_recursive_depth=max_recursive_depth,
-                current_depth=current_depth + 1,
-                recursive_custom_types=recursive_custom_types,
-                **kwargs,
-            )
-        except Exception:
-            # Return the original string if parsing fails
-            return input_
-
-    elif isinstance(input_, dict):
-        # Recursively process dictionary values
-        return {
-            key: _recur_to_dict(
-                value,
-                max_recursive_depth=max_recursive_depth,
-                current_depth=current_depth + 1,
-                recursive_custom_types=recursive_custom_types,
-                **kwargs,
-            )
-            for key, value in input_.items()
-        }
-
-    elif isinstance(input_, (list, tuple, set)):
-        # Recursively process list or tuple elements
-        processed = [
-            _recur_to_dict(
-                element,
-                max_recursive_depth=max_recursive_depth,
-                current_depth=current_depth + 1,
-                recursive_custom_types=recursive_custom_types,
-                **kwargs,
-            )
-            for element in input_
-        ]
-        return type(input_)(processed)
-
-    elif isinstance(input_, type) and issubclass(input_, Enum):
-        try:
-            obj_dict = _to_dict(input_, **kwargs)
-            return _recur_to_dict(
-                obj_dict,
-                max_recursive_depth=max_recursive_depth,
-                current_depth=current_depth + 1,
-                **kwargs,
-            )
-        except Exception:
-            return input_
-
-    elif recursive_custom_types:
-        # Process custom classes if enabled
-        try:
-            obj_dict = _to_dict(input_, **kwargs)
-            return _recur_to_dict(
-                obj_dict,
-                max_recursive_depth=max_recursive_depth,
-                current_depth=current_depth + 1,
-                recursive_custom_types=recursive_custom_types,
-                **kwargs,
-            )
-        except Exception:
-            return input_
-
-    else:
-        # Return the input as is for other data types
-        return input_
-
-
-def _enum_to_dict(input_, /, use_enum_values: bool = True):
-    dict_ = dict(input_.__members__).copy()
-    if use_enum_values:
-        return {key: value.value for key, value in dict_.items()}
-    return dict_
-
-
-def _str_to_dict(
-    input_: str,
-    /,
-    fuzzy_parse: bool = False,
-    str_type: Literal["json", "xml"] | None = "json",
-    parser: Callable[[str], Any] | None = None,
-    remove_root: bool = False,
-    root_tag: str = "root",
-    **kwargs: Any,
-):
-    """
-    kwargs for parser
-    """
-    if not parser:
-        if str_type == "xml" and not parser:
-            parser = partial(
-                xml_to_dict, remove_root=remove_root, root_tag=root_tag
-            )
-
-        elif fuzzy_parse:
-            parser = fuzzy_parse_json
-        else:
-            parser = json.loads
-
-    return parser(input_, **kwargs)
-
-
-def _na_to_dict(input_: type[None] | UndefinedType | PydanticUndefinedType, /):
-    return {}
-
-
-def _model_to_dict(input_: Any, /, use_model_dump=True, **kwargs):
-    """
-    kwargs: built-in serialization methods kwargs
-    accepted built-in serialization methods:
-        - mdoel_dump
-        - to_dict
-        - to_json
-        - dict
-        - json
-    """
-
-    if use_model_dump and hasattr(input_, "model_dump"):
-        return input_.model_dump(**kwargs)
-
-    methods = (
-        "to_dict",
-        "to_json",
-        "json",
-        "dict",
-    )
-    for method in methods:
-        if hasattr(input_, method):
-            result = getattr(input_, method)(**kwargs)
-            return json.loads(result) if isinstance(result, str) else result
-
-    if hasattr(input_, "__dict__"):
-        return input_.__dict__
-
-    try:
-        return dict(input_)
-    except Exception as e:
-        raise ValueError(f"Unable to convert input to dictionary: {e}")
-
-
-def _set_to_dict(input_: set, /) -> dict:
-    return {v: v for v in input_}
-
-
-def _iterable_to_dict(input_: Iterable, /) -> dict:
-    return {idx: v for idx, v in enumerate(input_)}
-
-
-def _to_dict(
-    input_: Any,
-    /,
-    *,
-    fuzzy_parse: bool = False,
-    str_type: Literal["json", "xml"] | None = "json",
-    parser: Callable[[str], Any] | None = None,
-    remove_root: bool = False,
-    root_tag: str = "root",
-    use_model_dump: bool = True,
-    use_enum_values: bool = True,
-    **kwargs: Any,
-) -> dict[str, Any]:
-
-    if isinstance(input_, set):
-        return _set_to_dict(input_)
-
-    if isinstance(input_, type) and issubclass(input_, Enum):
-        return _enum_to_dict(input_, use_enum_values=use_enum_values)
-
-    if isinstance(input_, Mapping):
-        return dict(input_)
-
-    if isinstance(input_, type(None) | UndefinedType | PydanticUndefinedType):
-        return _na_to_dict(input_)
-
-    if isinstance(input_, str):
-        return _str_to_dict(
-            input_,
-            fuzzy_parse=fuzzy_parse,
-            str_type=str_type,
-            parser=parser,
-            remove_root=remove_root,
-            root_tag=root_tag,
-            **kwargs,
-        )
-
-    if isinstance(input_, BaseModel) or not isinstance(input_, Sequence):
-        return _model_to_dict(input_, use_model_dump=use_model_dump, **kwargs)
-
-    if isinstance(input_, Iterable):
-        return _iterable_to_dict(input_)
-
-    return dict(input_)
-
-
-# Precompile the regex for extracting JSON code blocks
-_JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
 
 
 def to_json(
@@ -1731,38 +1213,12 @@ def to_json(
             - If multiple JSON objects are found: returns a list of dicts.
             - If no valid JSON found: returns an empty list.
     """
+    from lionagi.libs.parse.to_json import to_json
 
-    # If input_data is a list, join into a single string
-    if isinstance(input_data, list):
-        input_str = "\n".join(input_data)
-    else:
-        input_str = input_data
-
-    # 1. Try direct parsing
-    try:
-        if fuzzy_parse:
-            return fuzzy_parse_json(input_str)
-        return json.loads(input_str)
-    except Exception:
-        pass
-
-    # 2. Attempt extracting JSON blocks from markdown
-    matches = _JSON_BLOCK_PATTERN.findall(input_str)
-    if not matches:
-        return []
-
-    # If only one match, return single dict; if multiple, return list of dicts
-    if len(matches) == 1:
-        data_str = matches[0]
-        return (
-            fuzzy_parse_json(data_str) if fuzzy_parse else json.loads(data_str)
-        )
-
-    # Multiple matches
-    if fuzzy_parse:
-        return [fuzzy_parse_json(m) for m in matches]
-    else:
-        return [json.loads(m) for m in matches]
+    return to_json(
+        input_data,
+        fuzzy_parse=fuzzy_parse,
+    )
 
 
 def get_bins(input_: list[str], upper: int) -> list[list[int]]:
@@ -1978,70 +1434,16 @@ def to_num(
         ValueError: For invalid input or out of bounds values.
         TypeError: For invalid input types or invalid type conversions.
     """
-    # Validate input
-    if isinstance(input_, (list, tuple)):
-        raise TypeError("Input cannot be a sequence")
+    from lionagi.libs.parse.to_num import to_num
 
-    # Handle boolean input
-    if isinstance(input_, bool):
-        return validate_num_type(num_type)(input_)
-
-    # Handle direct numeric input
-    if isinstance(input_, (int, float, complex, Decimal)):
-        inferred_type = type(input_)
-        if isinstance(input_, Decimal):
-            inferred_type = float
-        value = float(input_) if not isinstance(input_, complex) else input_
-        value = apply_bounds(value, upper_bound, lower_bound)
-        value = apply_precision(value, precision)
-        return convert_type(value, validate_num_type(num_type), inferred_type)
-
-    # Convert input to string and extract numbers
-    input_str = str(input_)
-    number_matches = extract_numbers(input_str)
-
-    if not number_matches:
-        raise ValueError(f"No valid numbers found in: {input_str}")
-
-    # Process numbers
-    results = []
-    target_type = validate_num_type(num_type)
-
-    number_matches = (
-        number_matches[:num_count]
-        if num_count < len(number_matches)
-        else number_matches
+    return to_num(
+        input_,
+        upper_bound=upper_bound,
+        lower_bound=lower_bound,
+        num_type=num_type,
+        precision=precision,
+        num_count=num_count,
     )
-
-    for type_and_value in number_matches:
-        try:
-            # Infer appropriate type
-            inferred_type = infer_type(type_and_value)
-
-            # Parse to numeric value
-            value = parse_number(type_and_value)
-
-            # Apply bounds if not complex
-            value = apply_bounds(value, upper_bound, lower_bound)
-
-            # Apply precision
-            value = apply_precision(value, precision)
-
-            # Convert to target type if different from inferred
-            value = convert_type(value, target_type, inferred_type)
-
-            results.append(value)
-
-        except Exception as e:
-            if len(type_and_value) == 2:
-                raise type(e)(
-                    f"Error processing {type_and_value[1]}: {str(e)}"
-                )
-            raise type(e)(f"Error processing {type_and_value}: {str(e)}")
-
-    if results and num_count == 1:
-        return results[0]
-    return results
 
 
 def extract_numbers(text: str) -> list[tuple[str, str]]:
@@ -2053,19 +1455,9 @@ def extract_numbers(text: str) -> list[tuple[str, str]]:
     Returns:
         List of tuples containing (pattern_type, matched_value).
     """
-    combined_pattern = "|".join(PATTERNS.values())
-    matches = re.finditer(combined_pattern, text, re.IGNORECASE)
-    numbers = []
+    from lionagi.libs.parse.to_num import extract_numbers
 
-    for match in matches:
-        value = match.group()
-        # Check which pattern matched
-        for pattern_name, pattern in PATTERNS.items():
-            if re.fullmatch(pattern, value, re.IGNORECASE):
-                numbers.append((pattern_name, value))
-                break
-
-    return numbers
+    return extract_numbers(text=text)
 
 
 def validate_num_type(num_type: NUM_TYPES) -> type:
@@ -2080,14 +1472,9 @@ def validate_num_type(num_type: NUM_TYPES) -> type:
     Raises:
         ValueError: If the type specification is invalid.
     """
-    if isinstance(num_type, str):
-        if num_type not in TYPE_MAP:
-            raise ValueError(f"Invalid number type: {num_type}")
-        return TYPE_MAP[num_type]
+    from lionagi.libs.parse.to_num import validate_num_type
 
-    if num_type not in (int, float, complex):
-        raise ValueError(f"Invalid number type: {num_type}")
-    return num_type
+    return validate_num_type(num_type=num_type)
 
 
 def infer_type(value: tuple[str, str]) -> type:
@@ -2099,10 +1486,9 @@ def infer_type(value: tuple[str, str]) -> type:
     Returns:
         The inferred Python type.
     """
-    pattern_type, _ = value
-    if pattern_type in ("complex", "complex_sci", "pure_imaginary"):
-        return complex
-    return float
+    from lionagi.libs.parse.to_num import infer_type
+
+    return infer_type(value=value)
 
 
 def convert_special(value: str) -> float:
@@ -2114,10 +1500,9 @@ def convert_special(value: str) -> float:
     Returns:
         The converted float value.
     """
-    value = value.lower()
-    if "infinity" in value or "inf" in value:
-        return float("-inf") if value.startswith("-") else float("inf")
-    return float("nan")
+    from lionagi.libs.parse.to_num import convert_special
+
+    return convert_special(value=value)
 
 
 def convert_percentage(value: str) -> float:
@@ -2132,10 +1517,9 @@ def convert_percentage(value: str) -> float:
     Raises:
         ValueError: If the percentage value is invalid.
     """
-    try:
-        return float(value.rstrip("%")) / 100
-    except ValueError as e:
-        raise ValueError(f"Invalid percentage value: {value}") from e
+    from lionagi.libs.parse.to_num import convert_percentage
+
+    return convert_percentage(value=value)
 
 
 def convert_complex(value: str) -> complex:
@@ -2150,23 +1534,9 @@ def convert_complex(value: str) -> complex:
     Raises:
         ValueError: If the complex number is invalid.
     """
-    try:
-        # Handle pure imaginary numbers
-        if value.endswith("j") or value.endswith("J"):
-            if value in ("j", "J"):
-                return complex(0, 1)
-            if value in ("+j", "+J"):
-                return complex(0, 1)
-            if value in ("-j", "-J"):
-                return complex(0, -1)
-            if "+" not in value and "-" not in value[1:]:
-                # Pure imaginary number
-                imag = float(value[:-1] or "1")
-                return complex(0, imag)
+    from lionagi.libs.parse.to_num import convert_complex
 
-        return complex(value.replace(" ", ""))
-    except ValueError as e:
-        raise ValueError(f"Invalid complex number: {value}") from e
+    return convert_complex(value=value)
 
 
 def convert_type(
@@ -2187,19 +1557,13 @@ def convert_type(
     Raises:
         TypeError: If the conversion is not possible.
     """
-    try:
-        # If no specific type requested, use inferred type
-        if target_type is float and inferred_type is complex:
-            return value
+    from lionagi.libs.parse.to_num import convert_type
 
-        # Handle explicit type conversions
-        if target_type is int and isinstance(value, complex):
-            raise TypeError("Cannot convert complex number to int")
-        return target_type(value)
-    except (ValueError, TypeError) as e:
-        raise TypeError(
-            f"Cannot convert {value} to {target_type.__name__}"
-        ) from e
+    return convert_type(
+        value=value,
+        target_type=target_type,
+        inferred_type=inferred_type,
+    )
 
 
 def apply_bounds(
@@ -2220,14 +1584,13 @@ def apply_bounds(
     Raises:
         ValueError: If the value is outside bounds.
     """
-    if isinstance(value, complex):
-        return value
+    from lionagi.libs.parse.to_num import apply_bounds
 
-    if upper_bound is not None and value > upper_bound:
-        raise ValueError(f"Value {value} exceeds upper bound {upper_bound}")
-    if lower_bound is not None and value < lower_bound:
-        raise ValueError(f"Value {value} below lower bound {lower_bound}")
-    return value
+    return apply_bounds(
+        value=value,
+        upper_bound=upper_bound,
+        lower_bound=lower_bound,
+    )
 
 
 def apply_precision(
@@ -2243,11 +1606,9 @@ def apply_precision(
     Returns:
         The rounded value.
     """
-    if precision is None or isinstance(value, complex):
-        return value
-    if isinstance(value, float):
-        return round(value, precision)
-    return value
+    from lionagi.libs.parse.to_num import apply_precision
+
+    return apply_precision(value=value, precision=precision)
 
 
 def parse_number(type_and_value: tuple[str, str]) -> float | complex:
@@ -2262,113 +1623,32 @@ def parse_number(type_and_value: tuple[str, str]) -> float | complex:
     Raises:
         ValueError: If parsing fails.
     """
-    num_type, value = type_and_value
-    value = value.strip()
+    from lionagi.libs.parse.to_num import parse_number
 
-    try:
-        if num_type == "special":
-            return convert_special(value)
-
-        if num_type == "percentage":
-            return convert_percentage(value)
-
-        if num_type == "fraction":
-            if "/" not in value:
-                raise ValueError(f"Invalid fraction: {value}")
-            if value.count("/") > 1:
-                raise ValueError(f"Invalid fraction: {value}")
-            num, denom = value.split("/")
-            if not (num.strip("-").isdigit() and denom.isdigit()):
-                raise ValueError(f"Invalid fraction: {value}")
-            denom_val = float(denom)
-            if denom_val == 0:
-                raise ValueError("Division by zero")
-            return float(num) / denom_val
-        if num_type in ("complex", "complex_sci", "pure_imaginary"):
-            return convert_complex(value)
-        if num_type == "scientific":
-            if "e" not in value.lower():
-                raise ValueError(f"Invalid scientific notation: {value}")
-            parts = value.lower().split("e")
-            if len(parts) != 2:
-                raise ValueError(f"Invalid scientific notation: {value}")
-            if not (parts[1].lstrip("+-").isdigit()):
-                raise ValueError(f"Invalid scientific notation: {value}")
-            return float(value)
-        if num_type == "decimal":
-            return float(value)
-
-        raise ValueError(f"Unknown number type: {num_type}")
-    except Exception as e:
-        # Preserve the specific error type but wrap with more context
-        raise type(e)(f"Failed to parse {value} as {num_type}: {str(e)}")
+    return parse_number(type_and_value=type_and_value)
 
 
 def breakdown_pydantic_annotation(
     model: type[B], max_depth: int | None = None, current_depth: int = 0
 ) -> dict[str, Any]:
+    from lionagi.libs.schema.breakdown_pydantic_annotation import (
+        breakdown_pydantic_annotation,
+    )
 
-    if not _is_pydantic_model(model):
-        raise TypeError("Input must be a Pydantic model")
-
-    if max_depth is not None and current_depth >= max_depth:
-        raise RecursionError("Maximum recursion depth reached")
-
-    out: dict[str, Any] = {}
-    for k, v in model.__annotations__.items():
-        origin = get_origin(v)
-        if _is_pydantic_model(v):
-            out[k] = breakdown_pydantic_annotation(
-                v, max_depth, current_depth + 1
-            )
-        elif origin is list:
-            args = get_args(v)
-            if args and _is_pydantic_model(args[0]):
-                out[k] = [
-                    breakdown_pydantic_annotation(
-                        args[0], max_depth, current_depth + 1
-                    )
-                ]
-            else:
-                out[k] = [args[0] if args else Any]
-        else:
-            out[k] = v
-
-    return out
-
-
-def _is_pydantic_model(x: Any) -> bool:
-    try:
-        return isclass(x) and issubclass(x, BaseModel)
-    except TypeError:
-        return False
+    return breakdown_pydantic_annotation(
+        model=model,
+        max_depth=max_depth,
+        current_depth=current_depth,
+    )
 
 
 def run_package_manager_command(
     args: Sequence[str],
 ) -> subprocess.CompletedProcess[bytes]:
     """Run a package manager command, using uv if available, otherwise falling back to pip."""
-    # Check if uv is available in PATH
-    uv_path = shutil.which("uv")
+    from lionagi.libs.package.imports import run_package_manager_command
 
-    if uv_path:
-        # Use uv if available
-        try:
-            return subprocess.run(
-                [uv_path] + list(args),
-                check=True,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError:
-            # If uv fails, fall back to pip
-            print("uv command failed, falling back to pip...")
-
-    # Fall back to pip
-    return subprocess.run(
-        [sys.executable, "-m", "pip"] + list(args),
-        check=True,
-        capture_output=True,
-    )
+    return run_package_manager_command(args=args)
 
 
 def check_import(
@@ -2394,34 +1674,15 @@ def check_import(
         ImportError: If the package is not found and not installed.
         ValueError: If the import fails after installation attempt.
     """
-    if not is_import_installed(package_name):
-        if attempt_install:
-            logging.info(
-                f"Package {package_name} not found. Attempting " "to install.",
-            )
-            try:
-                return install_import(
-                    package_name=package_name,
-                    module_name=module_name,
-                    import_name=import_name,
-                    pip_name=pip_name,
-                )
-            except ImportError as e:
-                raise ValueError(
-                    f"Failed to install {package_name}: {e}"
-                ) from e
-        else:
-            logging.info(
-                f"Package {package_name} not found. {error_message}",
-            )
-            raise ImportError(
-                f"Package {package_name} not found. {error_message}",
-            )
+    from lionagi.libs.package.imports import check_import
 
-    return import_module(
+    return check_import(
         package_name=package_name,
         module_name=module_name,
         import_name=import_name,
+        pip_name=pip_name,
+        attempt_install=attempt_install,
+        error_message=error_message,
     )
 
 
@@ -2442,31 +1703,13 @@ def import_module(
     Raises:
         ImportError: If the module cannot be imported.
     """
-    try:
-        full_import_path = (
-            f"{package_name}.{module_name}" if module_name else package_name
-        )
+    from lionagi.libs.package.imports import import_module
 
-        if import_name:
-            import_name = (
-                [import_name]
-                if not isinstance(import_name, list)
-                else import_name
-            )
-            a = __import__(
-                full_import_path,
-                fromlist=import_name,
-            )
-            if len(import_name) == 1:
-                return getattr(a, import_name[0])
-            return [getattr(a, name) for name in import_name]
-        else:
-            return __import__(full_import_path)
-
-    except ImportError as e:
-        raise ImportError(
-            f"Failed to import module {full_import_path}: {e}"
-        ) from e
+    return import_module(
+        package_name=package_name,
+        module_name=module_name,
+        import_name=import_name,
+    )
 
 
 def install_import(
@@ -2488,29 +1731,14 @@ def install_import(
         ImportError: If the package cannot be imported or installed.
         subprocess.CalledProcessError: If pip installation fails.
     """
-    pip_name = pip_name or package_name
+    from lionagi.libs.package.imports import install_import
 
-    try:
-        return import_module(
-            package_name=package_name,
-            module_name=module_name,
-            import_name=import_name,
-        )
-    except ImportError:
-        logging.info(f"Installing {pip_name}...")
-        try:
-            run_package_manager_command(["install", pip_name])
-            return import_module(
-                package_name=package_name,
-                module_name=module_name,
-                import_name=import_name,
-            )
-        except subprocess.CalledProcessError as e:
-            raise ImportError(f"Failed to install {pip_name}: {e}") from e
-        except ImportError as e:
-            raise ImportError(
-                f"Failed to import {pip_name} after installation: {e}"
-            ) from e
+    install_import(
+        package_name=package_name,
+        module_name=module_name,
+        import_name=import_name,
+        pip_name=pip_name,
+    )
 
 
 def is_import_installed(package_name: str) -> bool:
@@ -2527,23 +1755,9 @@ def is_import_installed(package_name: str) -> bool:
 
 
 def read_image_to_base64(image_path: str | Path) -> str:
-    import base64
+    from lionagi.libs.file.file_util import FileUtil
 
-    import cv2
-
-    image_path = str(image_path)
-    image = cv2.imread(image_path, cv2.COLOR_BGR2RGB)
-
-    if image is None:
-        raise ValueError(f"Could not read image from path: {image_path}")
-
-    file_extension = "." + image_path.split(".")[-1]
-
-    success, buffer = cv2.imencode(file_extension, image)
-    if not success:
-        raise ValueError(f"Could not encode image to {file_extension} format.")
-    encoded_image = base64.b64encode(buffer).decode("utf-8")
-    return encoded_image
+    return FileUtil.read_image_to_base64(image_path=image_path)
 
 
 def pdf_to_images(
@@ -2561,23 +1775,11 @@ def pdf_to_images(
     Returns:
         list: A list of file paths for the saved images.
     """
-    import os
+    from lionagi.libs.file.file_util import FileUtil
 
-    convert_from_path = check_import(
-        "pdf2image", import_name="convert_from_path"
+    return FileUtil.pdf_to_images(
+        pdf_path=pdf_path,
+        output_folder=output_folder,
+        dpi=dpi,
+        fmt=fmt,
     )
-
-    # Ensure the output folder exists
-    os.makedirs(output_folder, exist_ok=True)
-
-    # Convert PDF to a list of PIL Image objects
-    images = convert_from_path(pdf_path, dpi=dpi)
-
-    saved_paths = []
-    for i, image in enumerate(images):
-        # Construct the output file name
-        image_file = os.path.join(output_folder, f"page_{i+1}.{fmt}")
-        image.save(image_file, fmt.upper())
-        saved_paths.append(image_file)
-
-    return saved_paths
