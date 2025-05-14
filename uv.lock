@@ -1318,6 +1318,7 @@ source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
     { name = "khive" },
+    { name = "pandas" },
     { name = "tiktoken" },
 ]
 
@@ -1362,6 +1363,7 @@ requires-dist = [
     { name = "khive", extras = ["reader", "ollama"], marker = "extra == 'all'" },
     { name = "litellm", marker = "extra == 'all'" },
     { name = "litellm", marker = "extra == 'llms'" },
+    { name = "pandas", specifier = ">=2.0.0" },
     { name = "tiktoken", specifier = ">=0.8.0" },
 ]
 provides-extras = ["tools", "llms", "ollama", "all"]
