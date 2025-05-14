@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from lionagi.utils import create_path
+from .create_path import create_path
 
 
 def save_to_file(
