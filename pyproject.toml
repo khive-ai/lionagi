@@ -1,15 +1,16 @@
 [project]
 name = "lionagi"
-version = "0.12.1"
+version = "0.12.2"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
+    { name = "Liangbingyan Luo", email = "llby_luo@outlook.com" }   
 ]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "jinja2>=3.0.0",
-    "khive>=0.2.6",
+    "khive>=0.2.7",
     "pandas>=2.0.0",
     "tiktoken>=0.8.0",
 ]
