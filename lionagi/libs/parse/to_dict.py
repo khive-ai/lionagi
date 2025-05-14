@@ -1,11 +1,14 @@
 from __future__ import annotations
+
+import json
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import Enum
 from functools import partial
-import json
-from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
+from typing import Any, Literal
 
 from pydantic import BaseModel
-from lionagi.utils import UndefinedType, PydanticUndefinedType
+
+from lionagi.utils import PydanticUndefinedType, UndefinedType
 
 
 def to_dict(
@@ -225,6 +228,7 @@ def _str_to_dict(
     if not parser:
         if str_type == "xml" and not parser:
             from lionagi.libs.parse.xml_parser import xml_to_dict
+
             parser = partial(
                 xml_to_dict, remove_root=remove_root, root_tag=root_tag
             )
@@ -232,6 +236,7 @@ def _str_to_dict(
         elif fuzzy_parse:
 
             from lionagi.libs.parse.fuzzy_parse_json import fuzzy_parse_json
+
             parser = fuzzy_parse_json
         else:
             parser = json.loads

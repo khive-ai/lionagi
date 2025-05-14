@@ -2,8 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 
 class FileUtil:
@@ -155,6 +156,7 @@ class FileUtil:
     @staticmethod
     def read_image_to_base64(image_path: str | Path) -> str:
         import base64
+
         import cv2  # type: ignore[import]
 
         image_path = str(image_path)

@@ -1,12 +1,8 @@
 from __future__ import annotations
-from typing import Any
+
 import re
 from decimal import Decimal
-from typing import Literal, TypeVar
-
-
-
-
+from typing import Any, Literal, TypeVar
 
 # Type definitions
 NUM_TYPE_LITERAL = Literal["int", "float", "complex"]

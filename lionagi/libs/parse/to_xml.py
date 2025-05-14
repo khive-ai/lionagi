@@ -1,5 +1,6 @@
 from typing import Any
 
+
 def to_xml(
     obj: dict | list | str | int | float | bool | None,
     root_name: str = "root",

@@ -1,11 +1,15 @@
 from __future__ import annotations
-from typing import Any
-from typing_extensions import get_args, get_origin
-from pydantic import BaseModel
+
 from inspect import isclass
+from typing import Any, get_args, get_origin
+
+from pydantic import BaseModel
+
 
 def breakdown_pydantic_annotation(
-    model: type[BaseModel], max_depth: int | None = None, current_depth: int = 0
+    model: type[BaseModel],
+    max_depth: int | None = None,
+    current_depth: int = 0,
 ) -> dict[str, Any]:
 
     if not _is_pydantic_model(model):

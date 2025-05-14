@@ -1,8 +1,8 @@
-from .fuzzy_parse_json import fuzzy_parse_json
-import re
 import json
+import re
 from typing import Any
 
+from .fuzzy_parse_json import fuzzy_parse_json
 
 # Precompile the regex for extracting JSON code blocks
 _JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)

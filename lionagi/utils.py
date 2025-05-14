@@ -1454,7 +1454,7 @@ def to_num(
     from lionagi.libs.parse.to_num import to_num
 
     return to_num(
-        input_=input_,
+        input_,
         upper_bound=upper_bound,
         lower_bound=lower_bound,
         num_type=num_type,

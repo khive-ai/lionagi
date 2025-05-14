@@ -1,7 +1,8 @@
-from typing import Any
 import contextlib
 import json
 import re
+from typing import Any
+
 
 def fuzzy_parse_json(
     str_to_parse: str, /
