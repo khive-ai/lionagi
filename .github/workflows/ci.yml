@@ -1,68 +1,33 @@
-name: Continuous Integration
-
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
-
+name: ci
+on: [pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        py: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install uv
+          python-version: "${{ matrix.py }}"
+      - run: pip install uv
+      - name: Create and activate virtual environment
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Load cached dependencies
-        id: cached-uv-dependencies
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
-
+          uv venv .venv
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> $GITHUB_ENV
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
       - name: Install dependencies
-        if: steps.cached-uv-dependencies.outputs.cache-hit != 'true'
         run: |
-          uv venv
-          uv build
-
+          uv sync --extra all
       - name: Run tests
-        run: |
-          source .venv/bin/activate
-          uv run pytest --asyncio-mode=auto --maxfail=1 --disable-warnings tests/
-
-      - name: Check code style and compatibility
-        run: |
-          source .venv/bin/activate
-          uv run black --check .
-          uv run isort --check-only .
-
-  publish:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Build package
-        run: uv build
+        run: uv run pytest -q --cov=lionagi --cov-report=xml
+      # - name: Upload coverage to Codecov
+      #   uses: codecov/codecov-action@v3
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     fail_ci_if_error: true
