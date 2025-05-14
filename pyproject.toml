@@ -42,6 +42,7 @@ dev = [
     "ipython>=8.36.0",
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.7",
+    "pytest-cov>=6.1.1",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +84,7 @@ markers = [
     "performance: marks tests as performance",
     "slow: marks tests as slow",
 ]
+addopts = "-ra --cov=lionagi --cov-report=term-missing"
 
 [build-system]
 requires = ["hatchling"]
