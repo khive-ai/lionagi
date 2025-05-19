@@ -1,204 +1,94 @@
-"""
-Implements two adapters:
-- `TomlAdapter` for in-memory TOML strings
-- `TomlFileAdapter` for reading/writing TOML files
-"""
+from __future__ import annotations
 
-import logging
 from pathlib import Path
+from typing import TypeVar
 
 import toml
+from pydantic import BaseModel, ValidationError
 
-from lionagi.protocols._concepts import Collective
+from ..core import Adapter
+from ..exceptions import ParseError
+from ..exceptions import ValidationError as AdapterValidationError
 
-from .adapter import Adapter, T
+T = TypeVar("T", bound=BaseModel)
 
 
-class TomlAdapter(Adapter):
-    """
-    Adapter that converts to/from TOML **strings** in memory.
-    Example usage: taking a Python dictionary and making TOML,
-    or parsing TOML string to a dict.
-    """
+def _ensure_list(d):
+    if isinstance(d, list):
+        return d
+    if isinstance(d, dict) and len(d) == 1 and isinstance(next(iter(d.values())), list):
+        return next(iter(d.values()))
+    return [d]
 
+
+class TomlAdapter(Adapter[T]):
     obj_key = "toml"
 
     @classmethod
-    def from_obj(
-        cls,
-        subj_cls: type[T],
-        obj: str,
-        /,
-        *,
-        many: bool = False,
-        **kwargs,
-    ) -> dict | list[dict]:
-        """
-        Convert a TOML string into a dict or list of dicts.
-
-        Parameters
-        ----------
-        subj_cls : type[T]
-            The target class for context (not always used).
-        obj : str
-            The TOML string.
-        many : bool, optional
-            If True, expects a TOML array of tables (returns list[dict]).
-            Otherwise returns a single dict.
-        **kwargs
-            Extra arguments for toml.loads().
-
-        Returns
-        -------
-        dict | list[dict]
-            The loaded TOML data.
-        """
-        result = toml.loads(obj, **kwargs)
-
-        # Handle array of tables in TOML for "many" case
-        if many:
-            # Check if there's a top-level array key that might hold multiple items
-            for key, value in result.items():
-                if isinstance(value, list) and all(
-                    isinstance(item, dict) for item in value
-                ):
-                    return value
-            # If no array of tables found, wrap the result in a list
-            return [result]
-
-        return result
-
-    @classmethod
-    def to_obj(
-        cls,
-        subj: T,
-        *,
-        many: bool = False,
-        **kwargs,
-    ) -> str:
-        """
-        Convert an object (or collection) to a TOML string.
-
-        Parameters
-        ----------
-        subj : T
-            The object to serialize.
-        many : bool, optional
-            If True, convert multiple items to a TOML array of tables.
-        **kwargs
-            Extra arguments for toml.dumps().
-
-        Returns
-        -------
-        str
-            The resulting TOML string.
-        """
-        if many:
-            if isinstance(subj, Collective):
-                # For multiple items, create a wrapper dict with an array of items
-                data = {"items": [i.to_dict() for i in subj]}
+    def from_obj(cls, subj_cls: type[T], obj: str | Path, /, *, many=False, **kw):
+        try:
+            # Handle file path
+            if isinstance(obj, Path):
+                try:
+                    text = Path(obj).read_text()
+                except Exception as e:
+                    raise ParseError(f"Failed to read TOML file: {e}", source=str(obj))
             else:
-                data = {"items": [subj.to_dict()]}
-            return toml.dumps(data, **kwargs)
+                text = obj
 
-        return toml.dumps(subj.to_dict(), **kwargs)
+            # Check for empty input
+            if not text or (isinstance(text, str) and not text.strip()):
+                raise ParseError(
+                    "Empty TOML content",
+                    source=str(obj)[:100] if isinstance(obj, str) else str(obj),
+                )
 
+            # Parse TOML
+            try:
+                parsed = toml.loads(text, **kw)
+            except toml.TomlDecodeError as e:
+                raise ParseError(
+                    f"Invalid TOML: {e}",
+                    source=str(text)[:100] if isinstance(text, str) else str(text),
+                )
 
-class TomlFileAdapter(Adapter):
-    """
-    Adapter that reads/writes TOML data to/from a file on disk.
-    The file extension key is ".toml".
-    """
+            # Validate against model
+            try:
+                if many:
+                    return [subj_cls.model_validate(x) for x in _ensure_list(parsed)]
+                return subj_cls.model_validate(parsed)
+            except ValidationError as e:
+                raise AdapterValidationError(
+                    f"Validation error: {e}",
+                    data=parsed,
+                    errors=e.errors(),
+                )
 
-    obj_key = ".toml"
-
-    @classmethod
-    def from_obj(
-        cls,
-        subj_cls: type[T],
-        obj: str | Path,
-        /,
-        *,
-        many: bool = False,
-        **kwargs,
-    ) -> dict | list[dict]:
-        """
-        Read a TOML file from disk and return a dict or list of dicts.
-
-        Parameters
-        ----------
-        subj_cls : type[T]
-            The target class for context.
-        obj : str | Path
-            The TOML file path.
-        many : bool
-            If True, expects an array of tables. Otherwise single dict.
-        **kwargs
-            Extra arguments for toml.load().
-
-        Returns
-        -------
-        dict | list[dict]
-            The loaded data from file.
-        """
-        with open(obj, encoding="utf-8") as f:
-            result = toml.load(f, **kwargs)
-
-        # Handle array of tables in TOML for "many" case
-        if many:
-            # Check if there's a top-level array key that might hold multiple items
-            for key, value in result.items():
-                if isinstance(value, list) and all(
-                    isinstance(item, dict) for item in value
-                ):
-                    return value
-            # If no array of tables found, wrap the result in a list
-            return [result]
-
-        return result
+        except (ParseError, AdapterValidationError):
+            # Re-raise our custom exceptions
+            raise
+        except Exception as e:
+            # Wrap other exceptions
+            raise ParseError(
+                f"Unexpected error parsing TOML: {e}",
+                source=str(obj)[:100] if isinstance(obj, str) else str(obj),
+            )
 
     @classmethod
-    def to_obj(
-        cls,
-        subj: T,
-        /,
-        *,
-        fp: str | Path,
-        many: bool = False,
-        mode: str = "w",
-        **kwargs,
-    ) -> None:
-        """
-        Write a dict (or list) to a TOML file.
+    def to_obj(cls, subj: T | list[T], /, *, many=False, **kw) -> str:
+        try:
+            items = subj if isinstance(subj, list) else [subj]
 
-        Parameters
-        ----------
-        subj : T
-            The object/collection to serialize.
-        fp : str | Path
-            The file path to write.
-        many : bool
-            If True, write as a TOML array of tables of multiple items.
-        mode : str
-            File open mode, defaults to write ("w").
-        **kwargs
-            Extra arguments for toml.dump().
+            if not items:
+                return ""
 
-        Returns
-        -------
-        None
-        """
-        with open(fp, mode, encoding="utf-8") as f:
-            if many:
-                if isinstance(subj, Collective):
-                    # TOML requires arrays of tables to be in a table
-                    data = {"items": [i.to_dict() for i in subj]}
-                else:
-                    data = {"items": [subj.to_dict()]}
-                toml.dump(data, f, **kwargs)
-            else:
-                toml.dump(subj.to_dict(), f, **kwargs)
-        logging.info(f"TOML data saved to {fp}")
+            payload = (
+                {"items": [i.model_dump() for i in items]}
+                if many
+                else items[0].model_dump()
+            )
+            return toml.dumps(payload, **kw)
 
-
-# File: lionagi/protocols/adapters/toml_adapter.py
+        except Exception as e:
+            # Wrap exceptions
+            raise ParseError(f"Error generating TOML: {e}")

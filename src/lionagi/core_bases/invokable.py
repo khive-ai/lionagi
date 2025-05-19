@@ -1,13 +1,13 @@
 import asyncio
-from asyncio.log import logger
+from asyncio.log import logger # Consider replacing with standard logging if appropriate
 from collections.abc import Callable
 from typing import Any
 
 from pydantic import Field, PrivateAttr
 
-from .temporal import Temporal
-from .types import Execution, ExecutionStatus
-from .utils import as_async_fn, validate_model_to_dict
+from .temporal import Temporal # Assumes temporal.py is in the same core_bases directory
+from lionagi.core_defs import Execution, ExecutionStatus
+from lionagi.core_utils import as_async_fn, validate_model_to_dict
 
 
 class Invokable(Temporal):
@@ -44,7 +44,7 @@ class Invokable(Temporal):
 
         except asyncio.CancelledError as ce:
             e1 = ce
-            logger.warning("invoke() canceled by external request.")
+            logger.warning("invoke() canceled by external request.") # Standardize logging?
             raise
         except Exception as ex:
             e1 = ex  # type: ignore
@@ -54,7 +54,7 @@ class Invokable(Temporal):
             if response is None and e1 is not None:
                 self.execution.error = str(e1)
                 self.execution.status = ExecutionStatus.FAILED
-                logger.error(f"invoke() failed for event {str(self.id)[:6]}...")
+                logger.error(f"invoke() failed for event {str(self.id)[:6]}...") # Standardize logging?
             else:
                 self.response_obj = response
                 self.execution.response = validate_model_to_dict(response)

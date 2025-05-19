@@ -2,81 +2,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import Enum
 from typing import Any
 
 from pydantic import Field, field_serializer
 
+from lionagi.core_defs import Execution, ExecutionStatus # Import new Pydantic versions
 from .element import Element
 
 __all__ = (
-    "EventStatus",
-    "Execution",
     "Event",
+    "Execution",       # Exporting the Pydantic version
+    "ExecutionStatus", # Exporting the Pydantic version
 )
 
-
-class EventStatus(str, Enum):
-    """Status states for tracking action execution progress.
-
-    Attributes:
-        PENDING: Initial state before execution starts.
-        PROCESSING: Action is currently being executed.
-        COMPLETED: Action completed successfully.
-        FAILED: Action failed during execution.
-    """
-
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-class Execution:
-    """Represents the execution state of an event.
-
-    Attributes:
-        status (`EventStatus`): The current status of the event execution.
-        duration (float | None): Time (in seconds) the execution took,
-            if known.
-        response (Any): The result or output of the execution, if any.
-        error (str | None): An error message if the execution failed.
-    """
-
-    __slots__ = ("status", "duration", "response", "error")
-
-    def __init__(
-        self,
-        duration: float | None = None,
-        response: Any = None,
-        status: EventStatus = EventStatus.PENDING,
-        error: str | None = None,
-    ) -> None:
-        """Initializes an execution instance.
-
-        Args:
-            duration (float | None): The duration of the execution.
-            response (Any): The result or output of the execution.
-            status (EventStatus): The current status (default is PENDING).
-            error (str | None): An optional error message.
-        """
-        self.status = status
-        self.duration = duration
-        self.response = response
-        self.error = error
-
-    def __str__(self) -> str:
-        """Returns a string representation of the execution state.
-
-        Returns:
-            str: A descriptive string indicating status, duration, response,
-            and error.
-        """
-        return (
-            f"Execution(status={self.status.value}, duration={self.duration}, "
-            f"response={self.response}, error={self.error})"
-        )
-
+# Old EventStatus and Execution class definitions are removed.
 
 class Event(Element):
     """Extends Element with an execution state.
@@ -85,29 +24,18 @@ class Event(Element):
         execution (Execution): The execution state of this event.
     """
 
-    execution: Execution = Field(default_factory=Execution)
+    execution: Execution = Field(default_factory=Execution) # Now defaults to Pydantic Execution model
     streaming: bool = False
 
     @field_serializer("execution")
     def _serialize_execution(self, val: Execution) -> dict:
-        """Serializes the Execution object into a dictionary.
-
-        Args:
-            val (Execution): The Execution object to serialize.
-
-        Returns:
-            dict: The serialized data containing status, duration, response,
-            and error fields.
-        """
-        return {
-            "status": val.status.value,
-            "duration": val.duration,
-            "response": val.response,
-            "error": val.error,
-        }
+        """Serializes the Pydantic Execution object into a dictionary."""
+        # Pydantic Execution model already serializes status enum to its value.
+        # model_dump() is a standard way to get dict from Pydantic model.
+        return val.model_dump(exclude_none=True) # exclude_none=True is often useful
 
     @property
-    def response(self) -> Any:
+    def response(self) -> Any: # response in Pydantic Execution is Optional[Dict]
         """Gets or sets the execution response.
 
         Returns:
@@ -125,20 +53,20 @@ class Event(Element):
         self.execution.response = val
 
     @property
-    def status(self) -> EventStatus:
+    def status(self) -> ExecutionStatus: # Changed to ExecutionStatus
         """Gets or sets the event status.
 
         Returns:
-            EventStatus: The current status of this event.
+            ExecutionStatus: The current status of this event.
         """
         return self.execution.status
 
     @status.setter
-    def status(self, val: EventStatus) -> None:
+    def status(self, val: ExecutionStatus) -> None: # Changed to ExecutionStatus
         """Sets the event status.
 
         Args:
-            val (EventStatus): The new status for the event.
+            val (ExecutionStatus): The new status for the event.
         """
         self.execution.status = val
 

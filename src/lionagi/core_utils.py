@@ -5,7 +5,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import cache
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ __all__ = (
     "is_package_installed",
     "is_coroutine_function",
     "as_async_fn",
+    "merge_configs", # Added merge_configs
 )
 
 
@@ -169,3 +170,29 @@ def as_async_fn(fn, /):
     if is_coroutine_function(fn):
         return fn
     return force_async(fn)
+
+
+
+def merge_configs(
+    base: dict[str, Any], override: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Merge configuration dictionaries.
+
+    Args:
+        base: The base configuration
+        override: The override configuration
+
+    Returns:
+        The merged configuration
+    """
+    if override is None:
+        return base.copy()
+
+    result = base.copy()
+    for key, value in override.items():
+        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+            result[key] = merge_configs(result[key], value) # Recursive call
+        else:
+            result[key] = value
+
+    return result
