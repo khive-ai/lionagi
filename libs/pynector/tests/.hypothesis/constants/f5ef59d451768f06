@@ -1,0 +1,4 @@
+# file: /Users/lion/untitled folder/pynector/src/pynector/transport/http/__init__.py
+# hypothesis_version: 6.131.9
+
+['HTTPClientError', 'HTTPForbiddenError', 'HTTPNotFoundError', 'HTTPServerError', 'HTTPStatusError', 'HTTPTimeoutError', 'HTTPTransport', 'HTTPTransportError', 'HTTPTransportFactory', 'HttpMessage']
