@@ -1,4 +1,4 @@
-.khive/
+.khive/dev
 .roo/
 .roomodes
 data/logs/
@@ -7,3 +7,4 @@ data/logs/
 .ruff_cache/
 *__pycache__/
 .env
+.khive/prompts

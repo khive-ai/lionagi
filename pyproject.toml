@@ -1,10 +1,11 @@
 [project]
-name = "lionagi_dev"
+name = "lionagi"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "pandas>=2.2.3",
     "tomli>=2.2.1",
 ]
 
