@@ -1,0 +1,84 @@
+[project]
+name = "khive"
+version = "0.3.2"
+description = "Autonomous software engineering department"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "aiocache>=0.12.0",
+    "aiofiles>=24.1.0",
+    "aiohttp>=3.11.0",
+    "backoff>=2.0.0",
+    "orjson>=3.10.18",
+    "pydantic-settings>=2.0.0",
+    "pydapter>=0.1.7",
+    "pyyaml>=6.0.0",
+    "tiktoken>=0.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "fastmcp>=2.3.3",
+    "freezegun>=1.5.1",
+    "ipykernel>=6.29.5",
+    "isort>=6.0.1",
+    "pre-commit>=4.2.0",
+    "pytest-asyncio>=0.23.0", # Added pytest-asyncio
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.10.0",
+    "ruff>=0.11.8",
+]
+
+
+[project.optional-dependencies]
+reader = [
+    "docling>=2.31.0",
+]
+mcp = [
+    "fastmcp>=2.3.3",
+]
+schema = [
+    "datamodel-code-generator>=0.30.1",
+]
+ollama = [
+    "ollama>=0.4.8",
+    "openai>=1.70.0",
+]
+openai = [
+    "openai>=1.70.0",
+]
+
+all = [
+    "docling>=2.31.0",
+    "ollama>=0.4.8",
+    "datamodel-code-generator>=0.30.1",
+    "openai>=1.70.0",
+    "fastmcp>=2.3.3",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --cov=khive --cov-report=term-missing"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/khive"]
+
+[tool.hatch.build]
+exclude = [
+    "dev/*",
+    "data/*",
+    "notebooks/*",
+    "tests/*",
+    "*.pyc",
+    "__pycache__",
+    "temp_logs/*",
+    "logs/*",
+]
+
+[project.scripts]                # PEP 621 console-scripts table
+khive         = "khive.cli.khive_cli:main"
