@@ -11,7 +11,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, PydanticUserError
 
-from khive.utils import is_package_installed
+from lionagi.utils import is_package_installed
 
 _HAS_DATAMODEL_CODE_GENERATOR = is_package_installed("datamodel-code-generator")
 

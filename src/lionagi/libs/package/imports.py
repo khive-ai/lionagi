@@ -9,7 +9,13 @@ import sys
 from collections.abc import Sequence
 from typing import Any
 
-from lionagi.utils import is_import_installed
+# is_import_installed will be defined in this file directly.
+
+
+def is_package_installed(package_name: str):
+    from importlib.util import find_spec
+
+    return find_spec(package_name) is not None
 
 
 def run_package_manager_command(

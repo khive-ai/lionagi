@@ -28,7 +28,7 @@ from typing import Any, Literal, TypedDict, TypeVar, overload
 from pydantic import BaseModel, model_validator
 from pydantic_core import PydanticUndefinedType
 
-from .settings import Settings
+from lionagi.configs.settings import Settings
 
 R = TypeVar("R")
 T = TypeVar("T")
@@ -38,17 +38,17 @@ logger = logging.getLogger(__name__)
 
 
 __all__ = (
-    "UndefinedType",
-    "KeysDict",
-    "Params",
-    "DataClass",
-    "UNDEFINED",
+    # "UndefinedType" - moved to lionagi.libs.base_types
+    # "KeysDict" - moved to lionagi.libs.base_types
+    # "Params" - base class moved to lionagi.libs.base_types
+    # "DataClass" - moved to lionagi.libs.base_types
+    # "UNDEFINED" - moved to lionagi.libs.base_types
     "copy",
     "is_same_dtype",
     "get_file_classes",
     "get_class_file_registry",
     "get_class_objects",
-    "is_coro_func",
+    # "is_coro_func" - moved to lionagi.libs.concurrency.util
     "custom_error_handler",
     "to_list",
     "lcall",
@@ -63,76 +63,30 @@ __all__ = (
     "ALCallParams",
     "BCallParams",
     "CreatePathParams",
-    "get_bins",
+    # "get_bins" - moved to lionagi.libs.collections.bins
     "EventStatus",
     "logger",
-    "throttle",
-    "max_concurrent",
-    "force_async",
+    # "throttle" - moved to lionagi.libs.concurrency.decorators
+    # "max_concurrent" - moved to lionagi.libs.concurrency.decorators
+    # "force_async" - moved to lionagi.libs.concurrency.util
     "to_num",
     "breakdown_pydantic_annotation",
     "run_package_manager_command",
+    # import_module and is_import_installed are now canonical in lionagi.libs.package.imports
 )
 
 
 # --- General Global Utilities Types ---
 
 
-class UndefinedType:
-    def __init__(self) -> None:
-        self.undefined = True
+# UndefinedType class moved to lionagi.libs.base_types
+# KeysDict class moved to lionagi.libs.base_types
 
-    def __bool__(self) -> Literal[False]:
-        return False
+# hash_dict function moved to lionagi.libs.crypto.hashing
 
-    def __deepcopy__(self, memo):
-        # Ensure UNDEFINED is universal
-        return self
-
-    def __repr__(self) -> Literal["UNDEFINED"]:
-        return "UNDEFINED"
-
-    __slots__ = ["undefined"]
-
-
-class KeysDict(TypedDict, total=False):
-    """TypedDict for keys dictionary."""
-
-    key: Any  # Represents any key-type pair
-
-
-def hash_dict(data) -> int:
-    hashable_items = []
-    if isinstance(data, BaseModel):
-        data = data.model_dump()
-    for k, v in data.items():
-        if isinstance(v, (list, dict)):
-            # Convert unhashable types to JSON string for hashing
-            v = json.dumps(v, sort_keys=True)
-        elif not isinstance(v, (str, int, float, bool, type(None))):
-            # Convert other unhashable types to string representation
-            v = str(v)
-        hashable_items.append((k, v))
-    return hash(frozenset(hashable_items))
-
-
-class Params(BaseModel):
-
-    def keys(self):
-        return self.__class__.model_fields.keys()
-
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "This method should be implemented in a subclass"
-        )
-
-
-class DataClass(ABC):
-    pass
-
-
-# --- Create a global UNDEFINED object ---
-UNDEFINED = UndefinedType()
+# Params base class moved to lionagi.libs.base_types
+# DataClass ABC moved to lionagi.libs.base_types
+# UNDEFINED instance moved to lionagi.libs.base_types
 
 
 # --- General Global Utilities Functions ---
@@ -231,9 +185,7 @@ def is_same_dtype(
     return (result, dtype) if return_dtype else result
 
 
-@lru_cache(maxsize=None)
-def is_coro_func(func: Callable[..., Any]) -> bool:
-    return asyncio.iscoroutinefunction(func)
+# is_coro_func was moved to lionagi.libs.concurrency.util
 
 
 async def custom_error_handler(
@@ -1221,169 +1173,11 @@ def to_json(
     )
 
 
-def get_bins(input_: list[str], upper: int) -> list[list[int]]:
-    """Organizes indices of strings into bins based on a cumulative upper limit.
-
-    Args:
-        input_ (List[str]): The list of strings to be binned.
-        upper (int): The cumulative length upper limit for each bin.
-
-    Returns:
-        List[List[int]]: A list of bins, each bin is a list of indices from the input list.
-    """
-    current = 0
-    bins = []
-    current_bin = []
-    for idx, item in enumerate(input_):
-        if current + len(item) < upper:
-            current_bin.append(idx)
-            current += len(item)
-        else:
-            bins.append(current_bin)
-            current_bin = [idx]
-            current = len(item)
-    if current_bin:
-        bins.append(current_bin)
-    return bins
+# get_bins (string specific version) removed, use generic version from lionagi.libs.collections.bins
 
 
-class Throttle:
-    """
-    Provide a throttling mechanism for function calls.
-
-    When used as a decorator, it ensures that the decorated function can only
-    be called once per specified period. Subsequent calls within this period
-    are delayed to enforce this constraint.
-
-    Attributes:
-        period: The minimum time period (in seconds) between successive calls.
-    """
-
-    def __init__(self, period: float) -> None:
-        """
-        Initialize a new instance of Throttle.
-
-        Args:
-            period: The minimum time period (in seconds) between
-                successive calls.
-        """
-        self.period = period
-        self.last_called = 0
-
-    def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
-        """
-        Decorate a synchronous function with the throttling mechanism.
-
-        Args:
-            func: The synchronous function to be throttled.
-
-        Returns:
-            The throttled synchronous function.
-        """
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            elapsed = time() - self.last_called
-            if elapsed < self.period:
-                t_.sleep(self.period - elapsed)
-            self.last_called = time()
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    def __call_async__(
-        self, func: Callable[..., Callable[..., T]]
-    ) -> Callable[..., Callable[..., T]]:
-        """
-        Decorate an asynchronous function with the throttling mechanism.
-
-        Args:
-            func: The asynchronous function to be throttled.
-
-        Returns:
-            The throttled asynchronous function.
-        """
-
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs) -> Any:
-            elapsed = time() - self.last_called
-            if elapsed < self.period:
-                await asyncio.sleep(self.period - elapsed)
-            self.last_called = time()
-            return await func(*args, **kwargs)
-
-        return wrapper
-
-
-def force_async(fn: Callable[..., T]) -> Callable[..., Callable[..., T]]:
-    """
-    Convert a synchronous function to an asynchronous function
-    using a thread pool.
-
-    Args:
-        fn: The synchronous function to convert.
-
-    Returns:
-        The asynchronous version of the function.
-    """
-    pool = ThreadPoolExecutor()
-
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        future = pool.submit(fn, *args, **kwargs)
-        return asyncio.wrap_future(future)  # Make it awaitable
-
-    return wrapper
-
-
-def throttle(
-    func: Callable[..., T], period: float
-) -> Callable[..., Callable[..., T]]:
-    """
-    Throttle function execution to limit the rate of calls.
-
-    Args:
-        func: The function to throttle.
-        period: The minimum time interval between consecutive calls.
-
-    Returns:
-        The throttled function.
-    """
-    if not is_coro_func(func):
-        func = force_async(func)
-    throttle_instance = Throttle(period)
-
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        await throttle_instance(func)(*args, **kwargs)
-        return await func(*args, **kwargs)
-
-    return wrapper
-
-
-def max_concurrent(
-    func: Callable[..., T], limit: int
-) -> Callable[..., Callable[..., T]]:
-    """
-    Limit the concurrency of function execution using a semaphore.
-
-    Args:
-        func: The function to limit concurrency for.
-        limit: The maximum number of concurrent executions.
-
-    Returns:
-        The function wrapped with concurrency control.
-    """
-    if not is_coro_func(func):
-        func = force_async(func)
-    semaphore = asyncio.Semaphore(limit)
-
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        async with semaphore:
-            return await func(*args, **kwargs)
-
-    return wrapper
+# Throttle class, force_async, throttle, and max_concurrent decorators moved to lionagi.libs.concurrency.decorators
+# and lionagi.libs.concurrency.util
 
 
 # Type definitions
@@ -1686,30 +1480,7 @@ def check_import(
     )
 
 
-def import_module(
-    package_name: str,
-    module_name: str = None,
-    import_name: str | list = None,
-) -> Any:
-    """
-    Import a module by its path.
-
-    Args:
-        module_path: The path of the module to import.
-
-    Returns:
-        The imported module.
-
-    Raises:
-        ImportError: If the module cannot be imported.
-    """
-    from lionagi.libs.package.imports import import_module
-
-    return import_module(
-        package_name=package_name,
-        module_name=module_name,
-        import_name=import_name,
-    )
+# import_module wrapper removed, use directly from lionagi.libs.package.imports
 
 
 def install_import(
@@ -1741,17 +1512,7 @@ def install_import(
     )
 
 
-def is_import_installed(package_name: str) -> bool:
-    """
-    Check if a package is installed.
-
-    Args:
-        package_name: The name of the package to check.
-
-    Returns:
-        bool: True if the package is installed, False otherwise.
-    """
-    return importlib.util.find_spec(package_name) is not None
+# is_import_installed wrapper removed, use directly from lionagi.libs.package.imports
 
 
 def read_image_to_base64(image_path: str | Path) -> str:

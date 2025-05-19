@@ -6,16 +6,16 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from khive.clients.executor import AsyncExecutor
-from khive.connections.match_endpoint import match_endpoint
-from khive.services.info.parts import (
+from lionagi.clients.api_client import AsyncExecutor
+from lionagi.connections.match_endpoint import match_endpoint
+from lionagi.services.info.parts import (
     InfoAction,
     InfoConsultParams,
     InfoRequest,
     InfoResponse,
     SearchProvider,
 )
-from khive.types import Service
+from lionagi.types.service import Service
 
 
 class InfoServiceGroup(Service):
@@ -74,7 +74,7 @@ class InfoServiceGroup(Service):
 
         try:
             # Import here to avoid circular imports
-            from khive.connections.providers.perplexity_ import PerplexityChatRequest
+            from lionagi.connections.providers.perplexity_ import PerplexityChatRequest
 
             # Always create a new PerplexityChatRequest from the params
             if hasattr(params, "get") and callable(params.get):
@@ -127,7 +127,7 @@ class InfoServiceGroup(Service):
 
         try:
             # Import here to avoid circular imports
-            from khive.connections.providers.exa_ import ExaSearchRequest
+            from lionagi.connections.providers.exa_ import ExaSearchRequest
 
             # Always create a new ExaSearchRequest from the params
             if hasattr(params, "get") and callable(params.get):

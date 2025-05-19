@@ -29,7 +29,7 @@ from lionagi.protocols.types import (
     pile,
 )
 
-from .._errors import ItemNotFoundError
+from lionagi.exceptions import ItemNotFoundError
 from ..service.imodel import iModel
 from ..utils import lcall
 from .branch import Branch
