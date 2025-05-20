@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import (
-    Any,
-    AsyncIterator,
-    Generic,
-    TypeVar,
-)
+from collections.abc import AsyncIterator
+from typing import Any, Generic, TypeVar
 
 from lionfuncs.concurrency import Lock
 from pydantic import Field, field_serializer, field_validator, model_validator
@@ -14,7 +10,7 @@ from pydantic.fields import FieldInfo
 from pydapter.protocols import Identifiable
 from typing_extensions import Self
 
-from lionagi.core.errors import ItemNotFoundError
+from lionagi.core.errors import ItemExistsError, ItemNotFoundError
 from lionagi.core.progression import Progression, validate_order
 
 T = TypeVar("T", bound=Identifiable)
@@ -170,6 +166,25 @@ class Pile(Identifiable, Generic[T]):
             )
             self.progression.include(item)
             return True
+
+    async def update(self, item: list[T] | T, /):
+        async with self._async_lock:
+            item = [item] if not isinstance(item, list) else item
+            for i in item:
+                self._validate_item_type(i)
+            self.collections.update({i.id: i for i in item})
+            self.progression.include(item)
+            return True
+
+    async def insert(self, index: int, item: T, /) -> None:
+        async with self._async_lock:
+            self._validate_item_type(item)
+            if item in self:
+                raise ItemExistsError(
+                    f"Item already exists in the collection.", items=item.id
+                )
+            self.collections.update({i.id: i for i in item})
+            self.progression.insert(index, item)
 
     async def exclude(self, item: list[T] | T | T.id | list[T.id], /):
         async with self._async_lock:

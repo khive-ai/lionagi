@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Mapping, TypeVar
+from collections.abc import Mapping
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 from pydantic import Field, field_serializer, field_validator
