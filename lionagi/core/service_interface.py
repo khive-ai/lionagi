@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # from ..models.message import Message # Forward reference or direct import later
 # from ..models.tool import Tool # Forward reference or direct import later
