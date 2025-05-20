@@ -1,3 +1,12 @@
+import warnings
+
+warnings.warn(
+    "The module 'lionagi.libs.token_transform.symbolic_compress_context' is deprecated and will be removed in a future version. "
+    "Use 'lionagi.core.text_processing.symbolic_compress_context' instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal

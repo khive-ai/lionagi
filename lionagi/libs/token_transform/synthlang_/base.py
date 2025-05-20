@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import warnings
+
+warnings.warn(
+    "The module 'lionagi.libs.token_transform.synthlang_' is deprecated and will be removed in a future version. "
+    "Use 'lionagi.core.text_processing.synthlang_' instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from enum import Enum
 from pathlib import Path
 from typing import Literal

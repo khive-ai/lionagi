@@ -1,5 +1,13 @@
+import warnings
 from timeit import default_timer as timer
 from typing import Literal
+
+warnings.warn(
+    "The module 'lionagi.libs.token_transform.synthlang_' is deprecated and will be removed in a future version. "
+    "Use 'lionagi.core.text_processing.synthlang_' instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch

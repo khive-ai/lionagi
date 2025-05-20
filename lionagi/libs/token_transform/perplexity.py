@@ -1,3 +1,12 @@
+import warnings
+
+warnings.warn(
+    "The module 'lionagi.libs.token_transform.perplexity' is deprecated and will be removed in a future version. "
+    "Use 'lionagi.core.text_processing.perplexity' instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import asyncio
 from dataclasses import dataclass
 from timeit import default_timer as timer
