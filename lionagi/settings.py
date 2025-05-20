@@ -4,44 +4,21 @@
 
 from datetime import timezone
 
-CACHED_CONFIG = {
-    "ttl": 300,
-    "key": None,
-    "namespace": None,
-    "key_builder": None,
-    "skip_cache_func": lambda x: False,
-    "serializer": None,
-    "plugins": None,
-    "alias": None,
-    "noself": lambda x: False,
-}
-
-CHAT_IMODEL_CONFIG = {
+# Default service configuration for OpenAI
+DEFAULT_OPENAI_CONFIG = {
     "provider": "openai",
     "model": "gpt-4o",
-    "base_url": "https://api.openai.com/v1",
-    "endpoint": "chat/completions",
-    "api_key": "OPENAI_API_KEY",
-    "queue_capacity": 100,
-    "capacity_refresh_time": 60,
-    "interval": None,
-    "limit_requests": None,
-    "limit_tokens": None,
+    "api_key": "OPENAI_API_KEY",  # Will be loaded from environment variable
 }
 
-PARSE_IMODEL_CONFIG = {
-    "provider": "openai",
-    "model": "gpt-4o-mini",
-    "base_url": "https://api.openai.com/v1",
-    "endpoint": "chat/completions",
-    "api_key": "OPENAI_API_KEY",
-    "queue_capacity": 100,
-    "capacity_refresh_time": 60,
-    "interval": None,
-    "limit_requests": None,
-    "limit_tokens": None,
+# Default service configuration for Anthropic
+DEFAULT_ANTHROPIC_CONFIG = {
+    "provider": "anthropic",
+    "model": "claude-3-opus-20240229",
+    "api_key": "ANTHROPIC_API_KEY",  # Will be loaded from environment variable
 }
 
+# Logging configuration
 LOG_CONFIG = {
     "persist_dir": "./data/logs",
     "subfolder": None,
@@ -54,19 +31,37 @@ LOG_CONFIG = {
     "clear_after_dump": True,
 }
 
+# Session persistence configuration
+SESSION_CONFIG = {
+    "persist_dir": "./data/sessions",
+    "extension": ".json",
+    "use_timestamp": True,
+}
+
+# Tool configuration
+TOOL_CONFIG = {
+    "schema_generation": True,  # Automatically generate schemas for tools
+}
+
 
 class Settings:
+    """Global settings for the lionagi package."""
 
     class Config:
+        """General configuration settings."""
         TIMEZONE: timezone = timezone.utc
         LOG: dict = LOG_CONFIG
 
-    class Action:
-        CACHED_CONFIG: dict = CACHED_CONFIG
+    class Service:
+        """Service configuration settings."""
+        OPENAI: dict = DEFAULT_OPENAI_CONFIG
+        ANTHROPIC: dict = DEFAULT_ANTHROPIC_CONFIG
+        DEFAULT_PROVIDER: str = "openai"
 
-    class API:
-        CACHED_CONFIG: dict = CACHED_CONFIG
+    class Session:
+        """Session configuration settings."""
+        PERSISTENCE: dict = SESSION_CONFIG
 
-    class iModel:
-        CHAT: dict = CHAT_IMODEL_CONFIG
-        PARSE: dict = PARSE_IMODEL_CONFIG
+    class Tool:
+        """Tool configuration settings."""
+        CONFIG: dict = TOOL_CONFIG
