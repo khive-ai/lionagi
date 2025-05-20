@@ -13,30 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from pydapter.core import Adaptable
 from pydapter.protocols import Temporal
-
-# from .message import Message # Forward reference or direct import later
-# from .tool import Tool # Forward reference or direct import later
-
-
-# To avoid circular imports with Message and Tool, define placeholders for now
-# These would typically be: from .message import Message; from .tool import Tool
-class Message(BaseModel):  # Placeholder
-    id: str
-    # ... other fields
+from .tool import Tool
+from .message import Message
 
 
-class Tool(BaseModel):  # Placeholder
-    id: str
-    name: str
-    # ... other fields
-
-
-class BranchModel(Temporal, Adaptable):
+class Branch(Temporal, Adaptable):
     """
     Pydantic model representing the data state of a Branch.
     The behavioral aspects will be in lionagi.core.branch.Branch.
@@ -44,16 +30,16 @@ class BranchModel(Temporal, Adaptable):
 
     name: str | None = None
     user: str | None = None  # User/owner of the branch
-    system_message: Message | None = (
-        None  # Stores the initial system message object
+    system_message: Message | None = Field(
+        None,
+        description="System message for the branch, typically a prompt or instruction"
     )
-
-    # messages: List[Message] = Field(default_factory=list) # This will be managed by a Pile-like structure
-    # Instead of storing messages directly, we might store IDs or have MessageManager handle persistence
-    # For now, aligning with TDS, which lists `messages: List[Message]`.
-    # This implies the MessageManager (Pile-like) would serialize its content here.
-    # Or, this list is what the MessageManager populates from its internal store upon BranchModel creation.
-    # Let's assume this list represents the current snapshot of messages for serialization.
+    messages: list[Message] = Field(
+        default_factory=list,
+        description="List of messages in the branch, managed by MessageManager"
+    ) # This will be managed by a Pile-like structure, Instead of storing messages directly, we might store IDs or have MessageManager handle persistence
+    
+    # This implies the MessageManager (Pile-like) would serialize its content here. Or, this list is what the MessageManager populates from its internal store upon BranchModel creation.
     message_ids: list[str] = Field(
         default_factory=list
     )  # IDs of messages in order, actual Message objects managed by MessageManager
@@ -73,8 +59,5 @@ class BranchModel(Temporal, Adaptable):
     # Progression/order of messages will be handled by the MessageManager (Pile-like)
     # and reflected in message_ids for serialization.
 
-    class Config:
-        arbitrary_types_allowed = True
 
-
-__all__ = ["BranchModel"]
+__all__ = ["Branch"]
