@@ -16,7 +16,6 @@ __all__ = ("InstructionContent",)
 
 
 class InstructionContent(MessageContent):
-
     role: MessageRole = MessageRole.USER
     image_detail: Literal["low", "high", "auto"] | None = None
     images: list | None = None
