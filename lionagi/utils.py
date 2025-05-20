@@ -117,7 +117,6 @@ def hash_dict(data) -> int:
 
 
 class Params(BaseModel):
-
     def keys(self):
         return self.__class__.model_fields.keys()
 
@@ -883,7 +882,6 @@ async def bcall(
     flatten_tuple_set: bool = False,
     **kwargs: Any,
 ) -> AsyncGenerator[list[T | tuple[T, float]], None]:
-
     input_ = to_list(input_, flatten=True, dropna=True)
 
     for i in range(0, len(input_), batch_size):

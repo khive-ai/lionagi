@@ -72,7 +72,6 @@ ADAPTER_MEMBERS = get_protocol_members(Adapter)  # duck typing
 
 
 class AdapterRegistry:
-
     _adapters: dict[str, Adapter] = {}
 
     @classmethod

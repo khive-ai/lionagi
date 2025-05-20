@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import field_serializer, field_validator
 from pydapter.protocols.utils import validate_uuid
 
-from .types import MessageContent, MessageRole, ToolRequest, ToolResponse
+from ..types import MessageContent, MessageRole, ToolRequest, ToolResponse
 
 
 class ActionRequestContent(MessageContent):

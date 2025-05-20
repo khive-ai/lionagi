@@ -25,7 +25,6 @@ CHAT_COMPLETION_CONFIG = {
 
 
 class ChatCompletionEndPoint(EndPoint):
-
     def __init__(self, config: dict = CHAT_COMPLETION_CONFIG):
         super().__init__(config)
 

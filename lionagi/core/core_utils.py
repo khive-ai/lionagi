@@ -1,9 +1,25 @@
 from __future__ import annotations
 
+import copy as _copy
 from inspect import isclass
-from typing import Any, get_args, get_origin
+from typing import Any, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
+
+T = TypeVar("T")
+
+__all__ = (
+    "copy",
+    "breakdown_pydantic_annotation",
+)
+
+
+def copy(obj: T, /, *, deep: bool = True, num: int = 1) -> T | list[T]:
+    if num < 1:
+        raise ValueError("Number of copies must be at least 1")
+
+    copy_func = _copy.deepcopy if deep else _copy.copy
+    return [copy_func(obj) for _ in range(num)] if num > 1 else copy_func(obj)
 
 
 def breakdown_pydantic_annotation(

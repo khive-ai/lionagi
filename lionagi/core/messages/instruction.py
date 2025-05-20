@@ -11,7 +11,7 @@ from pydantic import (
 
 from lionagi.core.core_utils import copy
 
-from .types import MessageContent, MessageRole
+from ..types import MessageContent, MessageRole
 
 __all__ = ("InstructionContent",)
 

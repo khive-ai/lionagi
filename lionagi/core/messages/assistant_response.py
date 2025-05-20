@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from .types import MessageContent
+from ..types import MessageContent
 
 __all__ = ("AssistantResponseContent",)
 

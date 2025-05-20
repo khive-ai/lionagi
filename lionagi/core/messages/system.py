@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import JsonValue, field_validator
 
-from .types import MessageContent
+from ..types import MessageContent
 
 
 class SystemMessageContent(MessageContent):

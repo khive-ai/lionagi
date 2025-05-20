@@ -149,7 +149,6 @@ class Processor(Observer):
                 next_event = await self.dequeue()
 
             if await self.request_permission(**next_event.request):
-
                 if next_event.streaming:
                     task = asyncio.create_task(next_event.stream())
                 else:

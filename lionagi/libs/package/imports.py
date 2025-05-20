@@ -65,7 +65,7 @@ def check_import(
     if not is_import_installed(package_name):
         if attempt_install:
             logging.info(
-                f"Package {package_name} not found. Attempting " "to install.",
+                f"Package {package_name} not found. Attempting to install.",
             )
             try:
                 return install_import(

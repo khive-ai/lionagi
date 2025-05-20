@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 
 class FileUtil:
-
     @staticmethod
     def chunk_by_chars(
         text: str,

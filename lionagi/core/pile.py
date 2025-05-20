@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, Generic, TypeVar
+from uuid import UUID
 
 from lionfuncs.concurrency import Lock
 from pydantic import Field, field_serializer, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydapter.protocols import Identifiable
+from pydapter.protocols.utils import validate_uuid
 from typing_extensions import Self
 
 from lionagi.core.errors import ItemExistsError, ItemNotFoundError
@@ -257,3 +259,27 @@ class Pile(Identifiable, Generic[T]):
         for item_id in current_order_snapshot:
             yield item_id
             await asyncio.sleep(0)
+
+    def __len__(self) -> int:
+        """Returns the number of items in the collection."""
+        return len(self.progression.order)
+
+    def __getitem__(self, item, /) -> T | list[T]:
+        if isinstance(item, int | slice):
+            item = self.progression.order[item]
+            item = [item] if not isinstance(item, list) else item
+
+        else:
+            item = validate_order(item)
+
+        for i in item:
+            if i not in self.collections:
+                raise ItemNotFoundError(
+                    "Item not found in collections.", items=i
+                )
+
+        return (
+            self.collections[item]
+            if len(item) == 1
+            else [self.collections[i] for i in item]
+        )

@@ -15,7 +15,10 @@ from pydapter.protocols import Embedable, Temporal
 from pydapter.protocols.utils import validate_uuid
 from typing_extensions import Self
 
-from .action import ActionRequestContent, ActionResponseContent
+from .action_request_response import (
+    ActionRequestContent,
+    ActionResponseContent,
+)
 from .assistant_response import AssistantResponseContent
 from .instruction import InstructionContent
 from .system import SystemMessageContent

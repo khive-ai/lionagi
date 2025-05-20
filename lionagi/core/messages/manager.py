@@ -9,6 +9,7 @@ from pydantic import BaseModel, JsonValue
 
 from lionagi.core.pile import Pile, Progression
 
+from ..types import MessageRole, ToolRequest, ToolResponse
 from .message import (
     ActionRequestContent,
     ActionResponseContent,
@@ -17,7 +18,6 @@ from .message import (
     Message,
     SystemMessageContent,
 )
-from .types import MessageRole, ToolRequest, ToolResponse
 
 DEFAULT_SYSTEM = "You are a helpful AI assistant. Let's think step by step."
 

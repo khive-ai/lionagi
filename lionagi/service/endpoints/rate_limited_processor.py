@@ -18,7 +18,6 @@ __all__ = (
 
 
 class RateLimitedAPIProcessor(Processor):
-
     event_type = APICalling
 
     def __init__(
@@ -125,7 +124,6 @@ class RateLimitedAPIProcessor(Processor):
 
 
 class RateLimitedAPIExecutor(Executor):
-
     processor_type = RateLimitedAPIProcessor
 
     def __init__(

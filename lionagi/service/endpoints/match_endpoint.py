@@ -11,7 +11,6 @@ def match_endpoint(
     endpoint: str,
     endpoint_params: list[str] | None = None,
 ) -> EndPoint:
-
     if endpoint in ["chat/completions", "chat", "messages"]:
         from ..providers.openai_.chat_completions import (
             OpenAIChatCompletionEndPoint,

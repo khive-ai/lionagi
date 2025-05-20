@@ -94,7 +94,6 @@ def recursive_to_dict(
     recursive_custom_types: bool = False,
     **kwargs: Any,
 ) -> Any:
-
     if not isinstance(max_recursive_depth, int):
         max_recursive_depth = 5
     else:
@@ -127,7 +126,6 @@ def _recur_to_dict(
     recursive_custom_types: bool = False,
     **kwargs: Any,
 ) -> Any:
-
     if current_depth >= max_recursive_depth:
         return input_
 
@@ -234,7 +232,6 @@ def _str_to_dict(
             )
 
         elif fuzzy_parse:
-
             from lionagi.libs.parse.fuzzy_parse_json import fuzzy_parse_json
 
             parser = fuzzy_parse_json
@@ -303,7 +300,6 @@ def _to_dict(
     use_enum_values: bool = True,
     **kwargs: Any,
 ) -> dict[str, Any]:
-
     if isinstance(input_, set):
         return _set_to_dict(input_)
 

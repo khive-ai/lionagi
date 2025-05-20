@@ -5,7 +5,6 @@ from lionagi.utils import UNDEFINED, hash_dict
 
 
 class HashableModel(BaseModel):
-
     def to_dict(self, **kwargs) -> dict:
         """provides interface, specific methods need to be implemented in subclass kwargs for pydantic model_dump"""
         return {

@@ -82,7 +82,7 @@ def save_chunks(
     for i, chunk in enumerate(chunks):
         file_path = create_path(
             directory=output_path,
-            filename=f"chunk_{i+1}",
+            filename=f"chunk_{i + 1}",
             extension="json",
             timestamp=timestamp,
             random_hash_digits=random_hash_digits,

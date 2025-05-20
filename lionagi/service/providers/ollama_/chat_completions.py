@@ -86,7 +86,6 @@ class OllamaChatCompletionEndPoint(ChatCompletionEndPoint):
         headers: dict,
         **kwargs,
     ) -> AsyncGenerator:
-
         self._check_model(payload["model"])
         params = {**payload, **kwargs}
         headers.pop("Authorization", None)
