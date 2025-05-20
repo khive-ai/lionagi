@@ -2,23 +2,19 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import abstractmethod
+from collections.abc import Callable
 from enum import Enum
-from pathlib import Path
+from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, Template
-from pydantic import BaseModel, ConfigDict, Field
+from lionfuncs.parsers import fuzzy_parse_json
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
-template_path = Path(__file__).parent / "templates"
-jinja_env = Environment(loader=FileSystemLoader(template_path))
+from lionagi.core.core_utils import copy
 
 __all__ = (
     "MessageContent",
     "MessageRole",
     "Message",
-    "template_path",
-    "jinja_env",
-    "Template",
 )
 
 
@@ -54,3 +50,36 @@ class MessageContent(BaseModel):
             "role": self.role.value,
             "content": self.rendered,
         }
+
+
+class ToolRequest(BaseModel):
+    function: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("arguments", mode="before")
+    def _validate_arguments(cls, v: dict | str | BaseModel) -> dict:
+        if isinstance(v, dict):
+            return copy(v)
+        if isinstance(v, BaseModel):
+            return v.model_dump()
+        if isinstance(v, str):
+            try:
+                return fuzzy_parse_json(v.strip(), strict=True)
+            except Exception as e:
+                raise ValueError("Arguments must be a dictionary.") from e
+
+    @field_validator("function", mode="before")
+    def _validate_function(cls, v: Any) -> str:
+        if isinstance(v, Callable):
+            v = v.__name__
+        if hasattr(v, "function"):
+            v = v.function
+        if not isinstance(v, str):
+            raise ValueError("Function must be a string or callable.")
+        return v
+
+
+class ToolResponse(BaseModel):
+    function: str
+    arguments: dict[str, Any]
+    output: BaseModel | JsonValue | None

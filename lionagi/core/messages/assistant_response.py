@@ -15,18 +15,17 @@ __all__ = ("AssistantResponseContent",)
 class AssistantResponseContent(MessageContent):
     created_at: str | None = Field(None, exclude=True)
     name: str | None = None
-    time: str | None = None
     text_response: str | None = None
     model_response: dict | list[dict] | None = None
 
     def __init__(
         self,
-        assistant_response: BaseModel | list[BaseModel] | dict | str | Any,
+        model_response: BaseModel | list[BaseModel] | dict | str | Any,
         name: str | None = None,
         created_at: str | None = None,
     ):
         text_response, model_response = _prepare_assistant_response(
-            assistant_response
+            model_response
         )
         super().__init__(
             text_response=text_response,
@@ -54,11 +53,11 @@ class AssistantResponseContent(MessageContent):
                 )
 
     def update(
-        self, assistant_response: Any = None, name=None, created_at: Any = None
+        self, model_response: Any = None, name=None, created_at: Any = None
     ) -> None:
-        if assistant_response is not None:
+        if model_response is not None:
             text_response, model_response = _prepare_assistant_response(
-                assistant_response
+                model_response
             )
             self.text_response = text_response
             self.model_response = model_response
@@ -80,18 +79,18 @@ class AssistantResponseContent(MessageContent):
 
 
 def _prepare_assistant_response(
-    assistant_response: BaseModel | list[BaseModel] | dict | str | Any, /
+    model_response: BaseModel | list[BaseModel] | dict | str | Any, /
 ) -> dict:
-    assistant_response = (
-        [assistant_response]
-        if not isinstance(assistant_response, list)
-        else assistant_response
+    model_response = (
+        [model_response]
+        if not isinstance(model_response, list)
+        else model_response
     )
 
     text_contents = []
     model_responses = []
 
-    for i in assistant_response:
+    for i in model_response:
         if isinstance(i, BaseModel):
             i = i.model_dump(exclude_none=True, exclude_unset=True)
 

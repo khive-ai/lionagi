@@ -1,3 +1,4 @@
+import json
 from typing import Any, Literal
 
 from pydantic import (
@@ -10,24 +11,24 @@ from pydantic import (
 
 from lionagi.core.core_utils import copy
 
-from .message import MessageContent, MessageRole
+from .types import MessageContent, MessageRole
 
 __all__ = ("InstructionContent",)
 
 
 class InstructionContent(MessageContent):
     role: MessageRole = MessageRole.USER
-    image_detail: Literal["low", "high", "auto"] | None = None
-    images: list | None = None
-    guidance: str | None = None
     instruction: JsonValue | None = None
     context: list | None = None
-    plain_content: JsonValue = None
-    response_format: type[BaseModel] | None = Field(None, exclude=True)
-    respond_schema_info: dict | None = None
-    tool_schemas: list[dict[str, Any]] = None
-    request_response_format: str | None = None
+    guidance: str | None = None
+    images: list | None = None
     request_fields: dict | list | None = None
+    plain_content: JsonValue = None
+    image_detail: Literal["low", "high", "auto"] | None = None
+    response_format: type[BaseModel] | None = Field(None, exclude=True)
+    tool_schemas: list[dict[str, Any]] = None
+    respond_schema_info: dict | None = None
+    request_response_format: str | None = None
 
     @model_validator(mode="before")
     def _validate_content(cls, values: dict) -> dict:
@@ -42,13 +43,37 @@ class InstructionContent(MessageContent):
                 values.pop(i)
         return prepare_instruction_content(**values)
 
-    @field_validator("context", "images", "tool_schemas", mode="before")
+    @field_validator("context", "images", mode="before")
     def _validate_list_content(cls, v: Any) -> list:
         if v is None:
             return []
         if not isinstance(v, list):
             return [v]
         return v[:]
+
+    @field_validator("tool_schemas", mode="before")
+    def _validate_tool_schemas(cls, v: Any) -> list:
+        v = [v] if not isinstance(v, list) else v
+        out = []
+        for i in v:
+            if isinstance(i, dict):
+                out.append(i)
+            elif isinstance(i, str):
+                try:
+                    out.append(json.loads(i))
+                except json.JSONDecodeError:
+                    raise ValueError("Invalid tool schema format.")
+            elif isinstance(i, BaseModel):
+                from lionfuncs.schema_utils import (
+                    pydantic_model_to_openai_schema,
+                )
+
+                out.append(pydantic_model_to_openai_schema(i))
+            else:
+                raise TypeError(
+                    f"Invalid tool schema format, tool schema needs to be a valid dict, Json str or pydantic model, got {type(i)}"
+                )
+        return out
 
     def update(self, **kwargs) -> None:
         dict_ = self.model_dump(exclude_none=True)
