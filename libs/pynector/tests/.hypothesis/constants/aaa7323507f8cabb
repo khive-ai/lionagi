@@ -1,4 +1,0 @@
-# file: /Users/lion/untitled folder/pynector/src/pynector/transport/http/transport.py
-# hypothesis_version: 6.131.9
-
-[0.5, 10.0, 400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 600, 'Content-Type', 'GET', 'HTTPTransport[T]', 'POST', 'T', 'content', 'content-type', 'content_type', 'data', 'files', 'headers', 'json', 'method', 'params', 'payload', 'url', 'utf-8']

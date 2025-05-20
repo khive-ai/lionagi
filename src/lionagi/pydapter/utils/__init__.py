@@ -1,1 +1,0 @@
-# pydapter.utils package
