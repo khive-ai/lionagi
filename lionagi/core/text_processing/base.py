@@ -20,10 +20,15 @@ from pathlib import Path
 
 from pydantic import Field
 
-from lionagi.tools.base import Resource, ResourceCategory # TODO: Update import path after tools refactor
+from lionagi.tools.base import (  # TODO: Update import path after tools refactor
+    Resource,
+    ResourceCategory,
+)
 
 here = Path(__file__).parent.resolve()
-MAPPING_PATH = "synthlang_/resources/mapping" # This relative path might need adjustment
+MAPPING_PATH = (
+    "synthlang_/resources/mapping"  # This relative path might need adjustment
+)
 
 
 class TokenMappingTemplate(str, Enum):
@@ -71,19 +76,22 @@ class TokenMapping(Resource):
             # Assuming Resource.adapt_from can handle Path objects and .toml
             # This part depends on pydapter's capabilities for Resource model
             if not template_file_path.exists():
-                 raise FileNotFoundError(f"Token mapping template file not found: {template_file_path}")
+                raise FileNotFoundError(
+                    f"Token mapping template file not found: {template_file_path}"
+                )
             # The adapt_from method needs to be available on Resource or its parent.
             # This is a placeholder for how it might work with pydapter.
             # return cls.adapt_from(template_file_path, format_key=".toml", many=False) # Hypothetical
             # Actual implementation will depend on how Resource/Adaptable handles file loading.
             # For now, let's assume a direct load if adapt_from isn't suitable here.
             import toml
+
             data = toml.load(template_file_path)
             return cls(content=data.get("content", {}), name=template.value)
-
 
         raise ValueError(
             f"Invalid template: {template}. Must be a TokenMappingTemplate or a valid path."
         )
+
 
 __all__ = ["TokenMappingTemplate", "TokenMapping"]

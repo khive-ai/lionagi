@@ -20,9 +20,9 @@ the Lionagi Vibe. Internal utilities leverage `lionfuncs` where appropriate.
 """
 
 from .synthlang import (
-    translate_to_synthlang,
     SynthlangFramework,
     SynthlangTemplate,
+    translate_to_synthlang,
 )
 
 __all__ = [

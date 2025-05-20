@@ -18,40 +18,58 @@
 try:
     from lionfuncs.errors import LionError
 except ImportError:
-    class LionError(Exception): # type: ignore
+
+    class LionError(Exception):  # type: ignore
         """Base class for lionfuncs errors."""
+
         pass
+
 
 class LionagiError(LionError):
     """Base class for lionagi specific errors."""
+
     pass
+
 
 class LionagiConfigurationError(LionagiError):
     """Errors related to lionagi configuration."""
+
     pass
+
 
 class LionagiExecutionError(LionagiError):
     """Errors related to the execution flow within lionagi."""
+
     pass
+
 
 class LionagiSessionError(LionagiExecutionError):
     """Errors specific to Session operations."""
+
     pass
+
 
 class LionagiBranchError(LionagiExecutionError):
     """Errors specific to Branch operations."""
+
     pass
+
 
 class LionagiToolError(LionagiExecutionError):
     """Errors related to tool definition or execution."""
+
     pass
+
 
 class LionagiMessageError(LionagiError):
     """Errors related to message validation or processing."""
+
     pass
+
 
 class LionagiMailError(LionagiError):
     """Errors related to the mail system."""
+
     pass
 
 

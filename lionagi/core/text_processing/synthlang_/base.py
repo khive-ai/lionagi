@@ -33,6 +33,7 @@ __all__ = (
     "SynthlangTemplate",
 )
 
+
 class SynthlangFramework(Resource):
     category: ResourceCategory = Field(
         default=ResourceCategory.FRAMEWORK, frozen=True
@@ -41,6 +42,7 @@ class SynthlangFramework(Resource):
     @classmethod
     def load_framework_options(cls) -> dict:
         import json
+
         fp = here / FRAMEWORK_PATH / "framework_options.json"
         with open(fp, encoding="utf-8") as f:
             return json.load(f)
@@ -104,6 +106,7 @@ class SynthlangFramework(Resource):
             prompt += f"\n[Additional]\n{additional_text.strip()}\n"
 
         return prompt.strip()
+
 
 class SynthlangTemplate(str, Enum):
     ABSTRACT_ALGEBRA = "abstract_algebra"

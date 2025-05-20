@@ -25,6 +25,7 @@ from .base import SynthlangFramework, SynthlangTemplate
 FRAMEWORK_OPTIONS = SynthlangFramework.load_framework_options()
 FRAMEWORK_CHOICES = Literal["math", "optim", "custom_algebra"]
 
+
 async def translate_to_synthlang(
     text: str,
     /,

@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
-from pydapter.protocols import Temporal
-from pydapter.core import Adaptable
+from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+from pydapter.core import Adaptable
+from pydapter.protocols import Temporal
 
 # from .message import Message # Forward reference or direct import later
 # from .tool import Tool # Forward reference or direct import later
@@ -25,11 +25,12 @@ from pydapter.core import Adaptable
 
 # To avoid circular imports with Message and Tool, define placeholders for now
 # These would typically be: from .message import Message; from .tool import Tool
-class Message(BaseModel): # Placeholder
-    id: str 
+class Message(BaseModel):  # Placeholder
+    id: str
     # ... other fields
 
-class Tool(BaseModel): # Placeholder
+
+class Tool(BaseModel):  # Placeholder
     id: str
     name: str
     # ... other fields
@@ -40,32 +41,40 @@ class BranchModel(Temporal, Adaptable):
     Pydantic model representing the data state of a Branch.
     The behavioral aspects will be in lionagi.core.branch.Branch.
     """
-    name: Optional[str] = None
-    user: Optional[str] = None  # User/owner of the branch
-    system_message: Optional[Message] = None # Stores the initial system message object
-    
+
+    name: str | None = None
+    user: str | None = None  # User/owner of the branch
+    system_message: Message | None = (
+        None  # Stores the initial system message object
+    )
+
     # messages: List[Message] = Field(default_factory=list) # This will be managed by a Pile-like structure
     # Instead of storing messages directly, we might store IDs or have MessageManager handle persistence
     # For now, aligning with TDS, which lists `messages: List[Message]`.
     # This implies the MessageManager (Pile-like) would serialize its content here.
     # Or, this list is what the MessageManager populates from its internal store upon BranchModel creation.
     # Let's assume this list represents the current snapshot of messages for serialization.
-    message_ids: List[str] = Field(default_factory=list) # IDs of messages in order, actual Message objects managed by MessageManager
+    message_ids: list[str] = Field(
+        default_factory=list
+    )  # IDs of messages in order, actual Message objects managed by MessageManager
 
-    tool_configs: List[Tool] = Field(default_factory=list)  # Registered tool configurations (serializable part of Tool)
-    
+    tool_configs: list[Tool] = Field(
+        default_factory=list
+    )  # Registered tool configurations (serializable part of Tool)
+
     # LLM service configuration for this branch.
     # This could be a direct dict or a model like ServiceInterface if that's made adaptable.
     # TDS Sec 4 Branch model shows: service_config: Optional[Dict[str, Any]] = None
-    service_config: Optional[Dict[str, Any]] = None
-    
-    mailbox_id: Optional[str] = None  # ID of its associated mailbox
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    service_config: dict[str, Any] | None = None
+
+    mailbox_id: str | None = None  # ID of its associated mailbox
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Progression/order of messages will be handled by the MessageManager (Pile-like)
     # and reflected in message_ids for serialization.
 
     class Config:
         arbitrary_types_allowed = True
+
 
 __all__ = ["BranchModel"]

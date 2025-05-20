@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel
-from typing import Any, Dict, Optional, List
 
 # from ..models.message import Message # Forward reference or direct import later
 # from ..models.tool import Tool # Forward reference or direct import later
@@ -28,17 +29,20 @@ class ServiceInterface(BaseModel):
     It is not intended to be directly serialized as a whole state object,
     but its parameters are part of Branch/Session state.
     """
+
     provider: str
     default_model: str
-    
+
     # Common configurations that might be passed to lionfuncs adapters
     # These are examples; actual parameters will depend on lionfuncs adapter capabilities
-    api_key: Optional[str] = Field(None, exclude=True) # API keys should not be serialized
-    max_tokens: Optional[int] = None
-    temperature: Optional[float] = None
+    api_key: str | None = Field(
+        None, exclude=True
+    )  # API keys should not be serialized
+    max_tokens: int | None = None
+    temperature: float | None = None
     # ... other potential common parameters like top_p, presence_penalty etc.
-    
-    extra_kwargs: Dict[str, Any] = Field(default_factory=dict)
+
+    extra_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     # Placeholder for the method that would interact with lionfuncs adapter
     # async def call_llm(self, messages: List[Message], tools: Optional[List[Tool]] = None, **kwargs) -> Any:
@@ -50,5 +54,6 @@ class ServiceInterface(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
 
 __all__ = ["ServiceInterface"]

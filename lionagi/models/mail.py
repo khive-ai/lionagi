@@ -14,8 +14,9 @@
 # limitations under the License.
 
 from typing import Any, Optional
-from pydapter.protocols import Temporal
+
 from pydapter.core import Adaptable
+from pydapter.protocols import Temporal
 
 
 class Package(Temporal, Adaptable):
@@ -23,9 +24,10 @@ class Package(Temporal, Adaptable):
     Represents a package of information to be sent via the mail system.
     Inherits id, created_at, updated_at from Temporal.
     """
+
     category: str  # e.g., "message", "tool_config", "branch_state"
-    item: Any      # The actual content being sent
-    request_source: Optional[str] = None # ID of the original requester, if any
+    item: Any  # The actual content being sent
+    request_source: str | None = None  # ID of the original requester, if any
 
     class Config:
         arbitrary_types_allowed = True
@@ -36,11 +38,13 @@ class Mail(Temporal, Adaptable):
     Represents a piece of mail in the mail system.
     Inherits id, created_at, updated_at from Temporal.
     """
-    sender: str      # ID of sending component (e.g., Branch ID)
-    recipient: str   # ID of receiving component (e.g., Branch ID)
-    package: Package # The package being sent
+
+    sender: str  # ID of sending component (e.g., Branch ID)
+    recipient: str  # ID of receiving component (e.g., Branch ID)
+    package: Package  # The package being sent
 
     class Config:
         arbitrary_types_allowed = True
+
 
 __all__ = ["Package", "Mail"]

@@ -30,6 +30,7 @@ DEFAULT_INVOKATION_PROMPT = (
     "The light-speed brown fox jumps over the lazy dog with great agility."
 )
 
+
 async def symbolic_compress_context(
     *,
     text: str = None,
@@ -163,5 +164,6 @@ async def symbolic_compress_context(
 
         return fp
     return text
+
 
 __all__ = ["symbolic_compress_context"]

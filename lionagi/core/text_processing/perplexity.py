@@ -23,9 +23,14 @@ from pydantic import BaseModel
 # TODO: Update these imports after refactoring
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.generic.log import Log
-from lionagi.service.endpoints.base import APICalling # This path will change
-from lionagi.service.imodel import iModel # This path will change
-from lionagi.utils import alcall, lcall, to_dict, to_list # These will come from lionfuncs or lionagi.core.utils
+from lionagi.service.endpoints.base import APICalling  # This path will change
+from lionagi.service.imodel import iModel  # This path will change
+from lionagi.utils import (  # These will come from lionfuncs or lionagi.core.utils
+    alcall,
+    lcall,
+    to_dict,
+    to_list,
+)
 
 
 @dataclass
@@ -97,7 +102,7 @@ class PerplexityScores:
             usage = self.completion_response.get("usage", {})
         else:
             # TODO: Replace to_dict with pydapter or direct model_dump if applicable
-            usage = to_dict(self.completion_response.usage) 
+            usage = to_dict(self.completion_response.usage)
 
         return {
             "perplexity": self.perplexity,
@@ -107,7 +112,9 @@ class PerplexityScores:
             "total_tokens": usage.get("total_tokens", 0),
         }
 
-    def to_log(self) -> Log: # TODO: Log model will be from lionagi.models or similar
+    def to_log(
+        self,
+    ) -> Log:  # TODO: Log model will be from lionagi.models or similar
         """
         Return a Log object for convenience.
         """
@@ -115,7 +122,7 @@ class PerplexityScores:
 
 
 async def compute_perplexity(
-    chat_model: iModel, # TODO: iModel path will change
+    chat_model: iModel,  # TODO: iModel path will change
     initial_context: str = None,
     tokens: list[str] = None,
     system: str = None,
@@ -144,11 +151,17 @@ async def compute_perplexity(
     sampless = [context + " " + " ".join(s) for s in samples]
     kwargs["logprobs"] = True
 
-    async def _inner(api_call: APICalling): # TODO: APICalling path will change
+    async def _inner(
+        api_call: APICalling,
+    ):  # TODO: APICalling path will change
         await api_call.invoke()
         elapsed = 0
         while (
-            api_call.status not in [EventStatus.COMPLETED, EventStatus.FAILED] # TODO: EventStatus path
+            api_call.status
+            not in [
+                EventStatus.COMPLETED,
+                EventStatus.FAILED,
+            ]  # TODO: EventStatus path
             and elapsed < 5
         ):
             await asyncio.sleep(0.1)
@@ -160,23 +173,27 @@ async def compute_perplexity(
     for sample_txt in sampless:
         messages = []
         if system:
-            if not chat_model.sequential_exchange: # TODO: This attribute might change
+            if (
+                not chat_model.sequential_exchange
+            ):  # TODO: This attribute might change
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": sample_txt})
         else:
             messages.append({"role": "user", "content": sample_txt})
 
         api_calls.append(
-            chat_model.create_api_calling(messages=messages, **kwargs) # TODO: create_api_calling might change
+            chat_model.create_api_calling(
+                messages=messages, **kwargs
+            )  # TODO: create_api_calling might change
         )
-    
+
     # TODO: Replace alcall with lionfuncs.async_utils.alcall or similar
     results = await alcall(api_calls, _inner, max_concurrent=50)
 
     def _pplx_score(input_):
         idx, resp = input_
         return PerplexityScores(resp, samples[idx], n_samples)
-    
+
     # TODO: Replace lcall with lionfuncs.utils.lcall or similar
     return lcall(enumerate(results), _pplx_score)
 
@@ -189,7 +206,7 @@ class LLMCompressor:
 
     def __init__(
         self,
-        chat_model: iModel, # TODO: iModel path will change
+        chat_model: iModel,  # TODO: iModel path will change
         system=None,
         tokenizer=None,
         splitter=None,
@@ -204,7 +221,7 @@ class LLMCompressor:
     ):
         # Must have "logprobs" support
         # TODO: Update how acceptable_kwargs is checked after service refactor
-        if "logprobs" not in chat_model.endpoint.acceptable_kwargs: 
+        if "logprobs" not in chat_model.endpoint.acceptable_kwargs:
             raise ValueError(
                 f"Model {chat_model.model_name} does not support logprobs. "
                 "Please use a model that supports logprobs."
@@ -229,13 +246,13 @@ class LLMCompressor:
         """
         if not self.tokenizer:
             # TODO: Replace with lionfuncs tokenizer or new lionagi.core tokenizer
-            from lionagi.service.endpoints.token_calculator import ( 
+            from lionagi.service.endpoints.token_calculator import (
                 TokenCalculator,
             )
 
             return TokenCalculator.tokenize(
                 text,
-                encoding_name=self.chat_model.model_name, # TODO: model_name access might change
+                encoding_name=self.chat_model.model_name,  # TODO: model_name access might change
                 return_tokens=True,
             )
         if hasattr(self.tokenizer, "tokenize"):
@@ -257,7 +274,7 @@ class LLMCompressor:
         """
         if not self.splitter:
             # TODO: Replace with lionfuncs.text_utils.chunk_content or similar
-            from lionagi.libs.file.chunk import chunk_content 
+            from lionagi.libs.file.chunk import chunk_content
 
             contents = chunk_content(
                 content=text,
@@ -395,13 +412,15 @@ class LLMCompressor:
 
         if self.verbose:
             compressed_chars = len(out_str)
-            ratio = compressed_chars / ttl_chars if original_len else 1 # original_len could be 0
+            ratio = (
+                compressed_chars / ttl_chars if original_len else 1
+            )  # original_len could be 0
             msg = "------------------------------------------\n"
             msg += f"Compression Method: Perplexity\n"
             msg += f"Compressed Characters number: {compressed_chars}\n"
             msg += f"Character Compression Ratio: {ratio:.1%}\n"
             msg += f"Compression Time: {timer() - start:.3f}s\n"
-            msg += f"Compression Model: {self.chat_model.model_name}\n" # TODO: model_name access
+            msg += f"Compression Model: {self.chat_model.model_name}\n"  # TODO: model_name access
             print(msg)
 
         return out_str.strip()
@@ -425,7 +444,7 @@ class LLMCompressor:
             if info.perplexity > min_pplx:
                 if isinstance(item, list):
                     # TODO: Replace to_list with lionfuncs.utils.to_list or similar
-                    item_toks = to_list(item, dropna=True, flatten=True) 
+                    item_toks = to_list(item, dropna=True, flatten=True)
                 else:
                     item_toks = self.tokenize(item)
                 if current_len + len(item_toks) > desired_len:
@@ -440,7 +459,7 @@ class LLMCompressor:
 # (If you don't want to manually create LLMCompressor instance everywhere)
 async def compress_text(
     text: str,
-    chat_model: iModel, # TODO: iModel path will change
+    chat_model: iModel,  # TODO: iModel path will change
     system: str = None,
     compression_ratio: float = 0.2,
     n_samples: int = 5,
@@ -473,4 +492,10 @@ async def compress_text(
         **kwargs,
     )
 
-__all__ = ["PerplexityScores", "compute_perplexity", "LLMCompressor", "compress_text"]
+
+__all__ = [
+    "PerplexityScores",
+    "compute_perplexity",
+    "LLMCompressor",
+    "compress_text",
+]

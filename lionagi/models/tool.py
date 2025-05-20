@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Any, Optional, Type, Callable
+from collections.abc import Callable
+from typing import Any, Dict, Optional, Type
+
 from pydantic import BaseModel, Field
 
 # Assuming Temporal and Adaptable are available or placeholder defined
@@ -23,18 +25,23 @@ from pydantic import BaseModel, Field
 try:
     from pydapter.protocols import Temporal
 except ImportError:
-    class Temporal(BaseModel): # type: ignore
+
+    class Temporal(BaseModel):  # type: ignore
         id: str = Field(default_factory=lambda: "temp_id")
         created_at: Any = Field(default_factory=lambda: "timestamp")
         updated_at: Any = Field(default_factory=lambda: "timestamp")
+
         class Config:
             arbitrary_types_allowed = True
+
 
 try:
     from pydapter.core import Adaptable
 except ImportError:
-    class Adaptable: # type: ignore
+
+    class Adaptable:  # type: ignore
         pass
+
 
 class Tool(Temporal, Adaptable):
     """
@@ -43,18 +50,19 @@ class Tool(Temporal, Adaptable):
     The actual callable function (`func_ref`) is a runtime attribute
     and not part of the core serialization.
     """
+
     name: str
-    description: Optional[str] = None
-    
+    description: str | None = None
+
     # Pydantic model for runtime validation of arguments passed by LLM
     # This is not directly serialized but used to generate schema_
     # and for runtime validation by ActionManager.
-    argument_model: Optional[Type[BaseModel]] = Field(None, exclude=True)
-    
+    argument_model: type[BaseModel] | None = Field(None, exclude=True)
+
     # JSON schema for the LLM, derived from argument_model or func.
     # Stored with alias "schema" for LLM compatibility.
-    schema_: Dict[str, Any] = Field(alias="schema")
-    
+    schema_: dict[str, Any] = Field(alias="schema")
+
     # Runtime attribute for the actual callable function.
     # Not serialized as it's a code reference.
     # ActionManager will hold the actual callable.
@@ -64,6 +72,7 @@ class Tool(Temporal, Adaptable):
         arbitrary_types_allowed = True
         # Allows 'schema_' to be aliased as 'schema' during serialization/deserialization
         # and also allows fields like `argument_model` which are Types.
-        protected_namespaces = () 
+        protected_namespaces = ()
+
 
 __all__ = ["Tool"]
