@@ -1,26 +1,40 @@
-# Copyright (c) 2023 - 2025, HaiyangLi <quantocean.li at gmail dot com>
+# lionagi - An Intelligence Operating System
+# Copyright (c) 2023-present, HaiyangLi
 #
-# SPDX-License-Identifier: Apache-2.0
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import logging
+"""
+lionagi is a high-level abstraction layer for building AI/LLM applications,
+focusing on intuitive, elegant, and powerful orchestration.
+"""
 
-from pydantic import BaseModel, Field
+# Public API Exports (to be populated based on TDS Section 3.1 and 5.5)
+# from .core.session import Session
+# from .core.branch import Branch
+# from .models.message import Message
+# from .models.tool import Tool
+# from .services.factory import Service
 
-from . import _types as types
-from .service.imodel import iModel
-from .session.session import Branch, Session
 from .version import __version__
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-__all__ = (
-    "Session",
-    "Branch",
-    "iModel",
-    "types",
+# Placeholder for actual exports once core components are defined
+__all__ = [
     "__version__",
-    "BaseModel",
-    "Field",
-    "logger",
-)
+    # "Session",
+    # "Branch",
+    # "Message",
+    # "Tool",
+    # "Service",
+]
+
+# TODO: Add logging configuration if needed, or rely on lionfuncs/user config

@@ -412,7 +412,7 @@ class iModel:
         """
         Convenience function that instantiates LLMCompressor and compresses text.
         """
-        from lionagi.libs.token_transform.perplexity import compress_text
+        from lionagi.core.text_processing.perplexity import compress_text
 
         params = {
             k: v for k, v in locals().items() if k not in ("self", "kwargs")

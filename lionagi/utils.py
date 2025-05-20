@@ -2,6 +2,39 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+# lionagi.utils - Deprecated Utilities
+# Copyright (c) 2023-present, HaiyangLi
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+DEPRECATED: This module is deprecated as of lionagi v0.2.0.
+Most functionalities have been moved to the `lionfuncs` library or
+to `lionagi.core.utils` for lionagi-specific, high-level utilities.
+
+Please update your imports to use `lionfuncs` or `lionagi.core.utils` accordingly.
+"""
+
+import warnings
+
+warnings.warn(
+    "The `lionagi.utils` module is deprecated and will be removed in a future version. "
+    "Please migrate to `lionfuncs` or `lionagi.core.utils`.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+
 import asyncio
 import copy as _copy
 import functools
