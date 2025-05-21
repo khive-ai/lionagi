@@ -1382,7 +1382,7 @@ version = "0.12.2"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
-    { name = "khive" },
+    { name = "lionfuncs" },
     { name = "pandas" },
     { name = "tiktoken" },
 ]
@@ -1423,10 +1423,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "jinja2", specifier = ">=3.0.0" },
-    { name = "khive", specifier = ">=0.2.6" },
     { name = "khive", extras = ["ollama"], marker = "extra == 'ollama'" },
     { name = "khive", extras = ["reader"], marker = "extra == 'tools'" },
     { name = "khive", extras = ["reader", "ollama"], marker = "extra == 'all'" },
+    { name = "lionfuncs", specifier = ">=3.1.2" },
     { name = "litellm", marker = "extra == 'all'" },
     { name = "litellm", marker = "extra == 'llms'" },
     { name = "pandas", specifier = ">=2.0.0" },
@@ -1448,6 +1448,21 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.1.1" },
     { name = "sphinx", specifier = ">=8.1.3" },
     { name = "sphinx-autobuild", specifier = ">=2024.10.3" },
+]
+
+[[package]]
+name = "lionfuncs"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiofiles" },
+    { name = "anyio" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/09/a9/b8da817b8b83101806c30a57625245cca5cb519bc3a184b9d6aa253a0810/lionfuncs-3.1.2.tar.gz", hash = "sha256:938d097ca10a6766315af34bafbd47e341bea520eec7d425d0395bfa87666403", size = 364711, upload-time = "2025-05-20T23:28:26.066Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/a2/659573e71be17bf70c9deeba40a284b392043989cc1f861ca83568d7ed2a/lionfuncs-3.1.2-py3-none-any.whl", hash = "sha256:f2c2f653344cd1b56018d3a5dd2b7da64d1080a67420702b5dad51575a6e54ae", size = 60377, upload-time = "2025-05-20T23:28:24.345Z" },
 ]
 
 [[package]]
