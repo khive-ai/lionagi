@@ -26,7 +26,8 @@ from pathlib import Path
 from typing import Any, Literal, TypedDict, TypeVar, overload
 
 from pydantic import BaseModel, model_validator
-from pydantic_core import PydanticUndefinedType
+from pydantic_core import PydanticUndefined as UNDEFINED
+from pydantic_core import PydanticUndefinedType as UndefinedType
 
 from .settings import Settings
 
@@ -78,23 +79,6 @@ __all__ = (
 # --- General Global Utilities Types ---
 
 
-class UndefinedType:
-    def __init__(self) -> None:
-        self.undefined = True
-
-    def __bool__(self) -> Literal[False]:
-        return False
-
-    def __deepcopy__(self, memo):
-        # Ensure UNDEFINED is universal
-        return self
-
-    def __repr__(self) -> Literal["UNDEFINED"]:
-        return "UNDEFINED"
-
-    __slots__ = ["undefined"]
-
-
 class KeysDict(TypedDict, total=False):
     """TypedDict for keys dictionary."""
 
@@ -129,10 +113,6 @@ class Params(BaseModel):
 
 class DataClass(ABC):
     pass
-
-
-# --- Create a global UNDEFINED object ---
-UNDEFINED = UndefinedType()
 
 
 # --- General Global Utilities Functions ---
@@ -249,7 +229,7 @@ async def custom_error_handler(
 
 @overload
 def to_list(
-    input_: None | UndefinedType | PydanticUndefinedType,
+    input_: None | UndefinedType,
     /,
 ) -> list: ...
 
@@ -342,10 +322,7 @@ def to_list(
             skip_types += (tuple, set, frozenset)
 
         for item in lst:
-            if dropna and (
-                item is None
-                or isinstance(item, (UndefinedType, PydanticUndefinedType))
-            ):
+            if dropna and (item is None or isinstance(item, UndefinedType)):
                 continue
 
             is_iterable = isinstance(item, Iterable)
@@ -380,9 +357,7 @@ def to_list(
         Returns:
             list: Initial list conversion of input.
         """
-        if input_ is None or isinstance(
-            input_, (UndefinedType, PydanticUndefinedType)
-        ):
+        if input_ is None or isinstance(input_, UndefinedType):
             return []
 
         if isinstance(input_, list):

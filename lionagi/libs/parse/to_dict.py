@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from lionagi.utils import PydanticUndefinedType, UndefinedType
+from lionagi.utils import UndefinedType
 
 
 def to_dict(
@@ -244,7 +244,7 @@ def _str_to_dict(
     return parser(input_, **kwargs)
 
 
-def _na_to_dict(input_: type[None] | UndefinedType | PydanticUndefinedType, /):
+def _na_to_dict(input_: type[None] | UndefinedType, /):
     return {}
 
 
@@ -313,7 +313,7 @@ def _to_dict(
     if isinstance(input_, Mapping):
         return dict(input_)
 
-    if isinstance(input_, type(None) | UndefinedType | PydanticUndefinedType):
+    if isinstance(input_, type(None) | UndefinedType):
         return _na_to_dict(input_)
 
     if isinstance(input_, str):
