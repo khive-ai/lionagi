@@ -2,7 +2,6 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Type
 
-from lionfuncs.utils import is_coro_func
 from pydantic import (
     BaseModel,
     Field,
@@ -12,7 +11,8 @@ from pydantic import (
     model_validator,
 )
 from pydapter.protocols import Temporal
-from lionfuncs.schema_utils import (
+from lionfuncs import (
+    is_coro_func,
     pydantic_model_to_openai_schema,
     function_to_openai_schema,
 )
@@ -121,8 +121,7 @@ class Tool(Temporal):
                     function_name=self.name,
                     function_description=self.description
                 )
-                
-
+        return self
 
 FuncTool = Callable | Tool
 FuncToolRef = FuncTool | str

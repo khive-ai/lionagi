@@ -1,6 +1,6 @@
 from typing import Any, Callable
 
-from lionfuncs.utils import to_list
+from lionfuncs import to_list
 from pydapter.protocols import Event
 
 from ..types import ToolRequest, GenericParams
