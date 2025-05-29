@@ -71,7 +71,7 @@ class File(HashableModel):
         header: str | None = None,
         footer: str | None = None,
     ) -> Path:
-        from lionagi.libs.file.create_path import create_path
+        from lionagi.utils import create_path
 
         fp = create_path(
             directory=directory,

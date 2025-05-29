@@ -1,10 +1,6 @@
-# Copyright (c) 2023 - 2025, HaiyangLi <quantocean.li at gmail dot com>
-#
-# SPDX-License-Identifier: Apache-2.0
-
 from pathlib import Path
 
-from lionagi.libs.file.create_path import create_path
+from lionagi.utils import create_path
 
 from .process import dir_to_files
 

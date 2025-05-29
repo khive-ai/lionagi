@@ -3,9 +3,8 @@
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 
 [Documentation](https://lion-agi.github.io/lionagi/) |
-[Discord](https://discord.gg/aqSJ2v46vu) |
+[Discord](https://discord.gg/JDj9ENhUE8) |
 [PyPI](https://pypi.org/project/lionagi/) |
-[Roadmap](https://trello.com/b/3seomsrI/lionagi)
 
 # LION - Language InterOperable Network
 

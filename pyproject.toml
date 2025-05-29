@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.12.2"
+version = "0.12.3"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -9,10 +9,15 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "aiocache>=0.12.0",
+    "aiohttp>=3.10.0",
     "jinja2>=3.0.0",
-    "khive>=0.2.7",
     "pandas>=2.0.0",
+    "pillow>=10.0.0",
+    "pydantic>2.0.0",
+    "python-dotenv>=1.1.0",
     "tiktoken>=0.8.0",
+    "toml>=0.9.0",
 ]
 license = {file = "LICENSE"}
 classifiers=[
@@ -32,36 +37,49 @@ classifiers=[
 
 [dependency-groups]
 dev = [
-    "black[jupyter]>=24.10.0",
-    "isort>=5.13.2",
-    "pre-commit>=4.0.1",
-    "pytest>=8.3.4",
-    "pytest-asyncio>=0.25.0",
-    "sphinx-autobuild>=2024.10.3",
-    "sphinx>=8.1.3",
-    "furo>=2024.8.6",
-    "ipython>=8.36.0",
+    "lionagi[lint, test, docs]",
+    "ipython>=8.31.0",
     "ipykernel>=6.29.5",
-    "ipywidgets>=8.1.7",
-    "pytest-cov>=6.1.1",
+    "ipywidgets>=8.1.5",
 ]
 
 [project.optional-dependencies]
 
+lint = [
+    "black[jupyter]>=24.10.0",
+    "isort>=5.13.2",
+    "pre-commit>=4.0.1",
+]
+
+test = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.0",
+]
+
+docs = [
+    "sphinx-autobuild>=2024.10.3",
+    "sphinx>=8.1.3",
+    "furo>=2024.8.6",
+]
+
 tools = [
-    "khive[reader]",
+    "docling>=2.15.1",
 ]
 llms = [
-    "litellm",
+    "litellm>=1.59.5",
 ]
 ollama = [
-    "khive[ollama]",
+    "openai>=1.60.0",
+    "ollama>=0.4.7",
 ]
 
 all = [
-    "khive[reader, ollama]",
-    "litellm",
+    "lionagi[tools]",
+    "lionagi[llms]",
+    "lionagi[ollama]",
 ]
+
+
 
 [tool.black]
 line-length = 79
@@ -85,7 +103,6 @@ markers = [
     "performance: marks tests as performance",
     "slow: marks tests as slow",
 ]
-addopts = "-ra --cov=lionagi --cov-report=term-missing"
 
 [build-system]
 requires = ["hatchling"]
