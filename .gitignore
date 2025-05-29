@@ -168,6 +168,9 @@ cython_debug/
 # Exclude setup.py and pyproject.toml from version control
 *.DS_Store
 .roomodes
-.khive/
+.khive/dev/
+.khive/prompts/
+.khive/resources/
+.khive/progress/
 .roo/
 data/logs/
