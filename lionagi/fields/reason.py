@@ -4,8 +4,8 @@
 
 from pydantic import Field, field_validator
 
-from lionagi.libs.parse.to_num import to_num
 from lionagi.models import FieldModel, HashableModel
+from lionagi.utils import to_num
 
 __all__ = ("Reason",)
 
