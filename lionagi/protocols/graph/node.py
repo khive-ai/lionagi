@@ -6,26 +6,19 @@ import json
 from typing import Any, ClassVar
 
 from pydantic import field_validator
+from pydapter import AdapterRegistry
+from pydapter.adapters import JsonAdapter, TomlAdapter
+from pydapter.extras.pandas_ import SeriesAdapter
 
 from lionagi._class_registry import LION_CLASS_REGISTRY
-from lionagi.adapters.types import (
-    AdapterRegistry,
-    JsonAdapter,
-    JsonFileAdapter,
-    PandasSeriesAdapter,
-    TomlAdapter,
-    TomlFileAdapter,
-)
 
 from .._concepts import Relational
 from ..generic.element import Element
 
 NODE_DEFAULT_ADAPTERS = (
     JsonAdapter,
-    JsonFileAdapter,
-    PandasSeriesAdapter,
+    SeriesAdapter,
     TomlAdapter,
-    TomlFileAdapter,
 )
 
 
@@ -33,8 +26,9 @@ class NodeAdapterRegistry(AdapterRegistry):
     pass
 
 
+node_adapter_registry = NodeAdapterRegistry()
 for i in NODE_DEFAULT_ADAPTERS:
-    NodeAdapterRegistry.register(i)
+    node_adapter_registry.register(i)
 
 __all__ = ("Node",)
 
@@ -48,7 +42,7 @@ class Node(Element, Relational):
       - Automatic subclass registration
     """
 
-    _adapter_registry: ClassVar[AdapterRegistry] = NodeAdapterRegistry
+    _adapter_registry: ClassVar[AdapterRegistry] = node_adapter_registry
 
     content: Any = None
     embedding: list[float] | None = None
@@ -88,8 +82,24 @@ class Node(Element, Relational):
         """
         Convert this Node to another format using a registered adapter.
         """
+        # For JSON/TOML adapters, we need to pass the dict representation
+        if obj_key in ["json", "toml"]:
+            data = self.to_dict()
+
+            # Create a simple object that has model_dump method
+            class _Wrapper:
+                def __init__(self, data):
+                    self._data = data
+
+                def model_dump(self):
+                    return self._data
+
+            wrapper = _Wrapper(data)
+            return self._get_adapter_registry().adapt_to(
+                wrapper, obj_key=obj_key, many=many, **kwargs
+            )
         return self._get_adapter_registry().adapt_to(
-            self, obj_key, many=many, **kwargs
+            self, obj_key=obj_key, many=many, **kwargs
         )
 
     @classmethod
@@ -107,7 +117,7 @@ class Node(Element, Relational):
         auto-delegate to the correct subclass via from_dict.
         """
         result = cls._get_adapter_registry().adapt_from(
-            cls, obj, obj_key, many=many, **kwargs
+            cls, obj, obj_key=obj_key, many=many, **kwargs
         )
         # If adapter returned multiple items, choose the first or handle as needed.
         if isinstance(result, list):
@@ -123,10 +133,6 @@ class Node(Element, Relational):
     @classmethod
     def register_adapter(cls, adapter: Any) -> None:
         cls._get_adapter_registry().register(adapter)
-
-    @classmethod
-    def list_adapters(cls) -> list[str]:
-        return cls._get_adapter_registry().list_adapters()
 
 
 # File: lionagi/protocols/graph/node.py

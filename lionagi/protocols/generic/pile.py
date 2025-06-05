@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from collections import deque
 from collections.abc import (
@@ -21,18 +22,13 @@ from typing import Any, ClassVar, Generic, TypeVar
 import pandas as pd
 from pydantic import Field
 from pydantic.fields import FieldInfo
+from pydapter import Adapter, AdapterRegistry
+from pydapter.adapters import CsvAdapter, JsonAdapter
+from pydapter.extras.excel_ import ExcelAdapter
+from pydapter.extras.pandas_ import DataFrameAdapter
 from typing_extensions import Self, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError
-from lionagi.adapters.types import (
-    Adapter,
-    AdapterRegistry,
-    CSVFileAdapter,
-    ExcelFileAdapter,
-    JsonAdapter,
-    JsonFileAdapter,
-    PandasDataFrameAdapter,
-)
 from lionagi.utils import UNDEFINED, is_same_dtype, to_list
 
 from .._concepts import Observable
@@ -45,10 +41,9 @@ T = TypeVar("T", bound=E)
 
 PILE_DEFAULT_ADAPTERS = (
     JsonAdapter,
-    JsonFileAdapter,
-    CSVFileAdapter,
-    ExcelFileAdapter,
-    PandasDataFrameAdapter,
+    CsvAdapter,
+    ExcelAdapter,
+    DataFrameAdapter,
 )
 
 
@@ -56,8 +51,9 @@ class PileAdapterRegistry(AdapterRegistry):
     pass
 
 
+pile_adapter_registry = PileAdapterRegistry()
 for i in PILE_DEFAULT_ADAPTERS:
-    PileAdapterRegistry.register(i)
+    pile_adapter_registry.register(i)
 
 
 __all__ = (
@@ -117,7 +113,7 @@ class Pile(Element, Collective[E], Generic[E]):
         frozen=True,
     )
 
-    _adapter_registry: ClassVar[AdapterRegistry] = PileAdapterRegistry
+    _adapter_registry: ClassVar[AdapterRegistry] = pile_adapter_registry
 
     def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
@@ -966,12 +962,25 @@ class Pile(Element, Collective[E], Generic[E]):
 
     def adapt_to(self, obj_key: str, /, **kwargs: Any) -> Any:
         """Convert to another format."""
-        return self._get_adapter_registry().adapt_to(self, obj_key, **kwargs)
+        # For JSON adapter, we need to pass the dict representation
+        if obj_key in ["json", "csv", "toml"]:
+            data = self.to_dict()
 
-    @classmethod
-    def list_adapters(cls):
-        """List available adapters."""
-        return cls._get_adapter_registry().list_adapters()
+            # Create a simple object that has model_dump method
+            class _Wrapper:
+                def __init__(self, data):
+                    self._data = data
+
+                def model_dump(self):
+                    return self._data
+
+            wrapper = _Wrapper(data)
+            return self._get_adapter_registry().adapt_to(
+                wrapper, obj_key=obj_key, **kwargs
+            )
+        return self._get_adapter_registry().adapt_to(
+            self, obj_key=obj_key, **kwargs
+        )
 
     @classmethod
     def register_adapter(cls, adapter: type[Adapter]):
@@ -988,7 +997,7 @@ class Pile(Element, Collective[E], Generic[E]):
     def adapt_from(cls, obj: Any, obj_key: str, /, **kwargs: Any):
         """Create from another format."""
         dict_ = cls._get_adapter_registry().adapt_from(
-            cls, obj, obj_key, **kwargs
+            cls, obj, obj_key=obj_key, **kwargs
         )
         if isinstance(dict_, list):
             dict_ = {"collections": dict_}
@@ -1000,11 +1009,31 @@ class Pile(Element, Collective[E], Generic[E]):
         **kwargs: Any,
     ) -> pd.DataFrame:
         """Convert to DataFrame."""
-        return self.adapt_to("pd_dataframe", columns=columns, **kwargs)
+        # For DataFrame, we need to pass a list of dicts
+        data = [item.to_dict() for item in self.collections.values()]
+
+        # Create wrapper objects for each item
+        class _ItemWrapper:
+            def __init__(self, data):
+                self._data = data
+
+            def model_dump(self):
+                return self._data
+
+        wrappers = [_ItemWrapper(d) for d in data]
+        df = self._get_adapter_registry().adapt_to(
+            wrappers, obj_key="pd.DataFrame", many=True, **kwargs
+        )
+
+        if columns:
+            return df[columns]
+        return df
 
     def to_csv_file(self, fp: str | Path, **kwargs: Any) -> None:
         """Save to CSV file."""
-        self.adapt_to(".csv", fp=fp, **kwargs)
+        # Convert to DataFrame first, then save as CSV
+        df = self.to_df()
+        df.to_csv(fp, index=False, **kwargs)
 
     def to_json_file(
         self,
@@ -1025,8 +1054,14 @@ class Pile(Element, Collective[E], Generic[E]):
             **kwargs: Additional arguments for json.dump() or DataFrame.to_json().
         """
         if use_pd:
-            return self.to_df().to_json(mode=mode, **kwargs)
-        return self.adapt_to(".json", fp=path_or_buf, mode=mode, many=many)
+            return self.to_df().to_json(path_or_buf, mode=mode, **kwargs)
+
+        # Get JSON string from adapter
+        json_str = self.adapt_to("json", many=many, **kwargs)
+
+        # Write to file
+        with open(path_or_buf, mode, encoding="utf-8") as f:
+            f.write(json_str)
 
 
 def pile(
@@ -1052,16 +1087,28 @@ def pile(
     """
 
     if df:
-        return Pile.adapt_from(df, "pd_dataframe", **kwargs)
+        return Pile.adapt_from(df, "pd.DataFrame", **kwargs)
 
     if fp:
         fp = Path(fp)
         if fp.suffix == ".csv":
-            return Pile.adapt_from(fp, ".csv", **kwargs)
+            # Read CSV to DataFrame first
+            df = pd.read_csv(fp, **kwargs)
+            return Pile.adapt_from(df, "pd.DataFrame")
         if fp.suffix == ".xlsx":
-            return Pile.adapt_from(fp, ".xlsx", **kwargs)
+            # Read Excel to DataFrame first
+            df = pd.read_excel(fp, **kwargs)
+            return Pile.adapt_from(df, "pd.DataFrame")
         if fp.suffix in [".json", ".jsonl"]:
-            return Pile.adapt_from(fp, ".json", **kwargs)
+            # Read JSON file
+            with open(fp, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return Pile.from_dict(data)
+            elif isinstance(data, list):
+                return Pile.from_dict({"collections": data})
+            else:
+                raise ValueError(f"Invalid JSON data structure in {fp}")
 
     return Pile(
         collections,
