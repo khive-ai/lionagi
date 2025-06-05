@@ -30,9 +30,6 @@ integrations, and custom validations in a single coherent pipeline.
 pip install lionagi
 ```
 
-Dependencies: •	aiocahce •	aiohttp •	jinja2 •	pandas •	pillow •	pydantic
-•	python-dotenv •	tiktoken
-
 ## Quick Start
 
 ```python
@@ -83,6 +80,10 @@ With fiery claws, dragons hide their laughter flaws!
 
 LionAGI supports advanced multi-step reasoning with ReAct. Tools let the LLM
 invoke external actions:
+
+```
+pip install "lionagi[reader]"
+```
 
 ```python
 from lionagi.tools.types import ReaderTool
@@ -138,8 +139,7 @@ Seamlessly route to different models in the same workflow.
 ### optional dependencies
 
 ```
-pip install "lionagi[tools]"
-pip install "lionagi[llms]"
+pip install "lionagi[reader]"
 pip install "lionagi[ollama]"
 ```
 
