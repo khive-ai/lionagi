@@ -3,6 +3,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Generated third-party models
+lionagi/service/third_party/*.py
+!lionagi/service/third_party/__init__.py
+
+# Development notes
+CLAUDE.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -170,4 +177,4 @@ cython_debug/
 .roomodes
 .khive/
 .roo/
-data/logs/
+*logs/
