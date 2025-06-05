@@ -24,7 +24,7 @@ float_aliased = Annotated[float, Field(alias="float")]
 
 class AddUploadPartRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     data: bytes_aliased
@@ -38,19 +38,19 @@ class Owner(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: str | None = Field(None, examples=['user'])
+    type: str | None = Field(None, examples=["user"])
     """
     Always `user`
     """
-    object: str | None = Field(None, examples=['organization.user'])
+    object: str | None = Field(None, examples=["organization.user"])
     """
     The object type, which is always organization.user
     """
-    id: str | None = Field(None, examples=['sa_456'])
+    id: str | None = Field(None, examples=["sa_456"])
     """
     The identifier, which can be referenced in API endpoints
     """
-    name: str | None = Field(None, examples=['My Service Account'])
+    name: str | None = Field(None, examples=["My Service Account"])
     """
     The name of the user
     """
@@ -58,7 +58,7 @@ class Owner(BaseModel):
     """
     The Unix timestamp (in seconds) of when the user was created
     """
-    role: str | None = Field(None, examples=['owner'])
+    role: str | None = Field(None, examples=["owner"])
     """
     Always `owner`
     """
@@ -72,23 +72,23 @@ class AdminApiKey(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['organization.admin_api_key'])
+    object: str = Field(..., examples=["organization.admin_api_key"])
     """
     The object type, which is always `organization.admin_api_key`
     """
-    id: str = Field(..., examples=['key_abc'])
+    id: str = Field(..., examples=["key_abc"])
     """
     The identifier, which can be referenced in API endpoints
     """
-    name: str = Field(..., examples=['Administration Key'])
+    name: str = Field(..., examples=["Administration Key"])
     """
     The name of the API key
     """
-    redacted_value: str = Field(..., examples=['sk-admin...def'])
+    redacted_value: str = Field(..., examples=["sk-admin...def"])
     """
     The redacted value of the API key
     """
-    value: str | None = Field(None, examples=['sk-admin-1234abcd'])
+    value: str | None = Field(None, examples=["sk-admin-1234abcd"])
     """
     The value of the API key. Only shown on create.
     """
@@ -107,18 +107,18 @@ class ApiKeyList(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str | None = Field(None, examples=['list'])
-    data: List[AdminApiKey] | None = None
+    object: str | None = Field(None, examples=["list"])
+    data: list[AdminApiKey] | None = None
     has_more: bool | None = Field(None, examples=[False])
-    first_id: str | None = Field(None, examples=['key_abc'])
-    last_id: str | None = Field(None, examples=['key_xyz'])
+    first_id: str | None = Field(None, examples=["key_abc"])
+    last_id: str | None = Field(None, examples=["key_xyz"])
 
 
 class CodeInterpreter(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field([], max_length=20)
+    file_ids: list[str] | None = Field([], max_length=20)
     """
     A list of [file](/docs/api-reference/files) IDs made available to the `code_interpreter`` tool. There can be a maximum of 20 files associated with the tool.
 
@@ -129,7 +129,7 @@ class FileSearch(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    vector_store_ids: List[str] | None = Field(None, max_length=1)
+    vector_store_ids: list[str] | None = Field(None, max_length=1)
     """
     The ID of the [vector store](/docs/api-reference/vector-stores/object) attached to this assistant. There can be a maximum of 1 vector store attached to the assistant.
 
@@ -152,42 +152,42 @@ class ToolResources(BaseModel):
 class AssistantSupportedModels(
     RootModel[
         Literal[
-            'gpt-4.1',
-            'gpt-4.1-mini',
-            'gpt-4.1-nano',
-            'gpt-4.1-2025-04-14',
-            'gpt-4.1-mini-2025-04-14',
-            'gpt-4.1-nano-2025-04-14',
-            'o3-mini',
-            'o3-mini-2025-01-31',
-            'o1',
-            'o1-2024-12-17',
-            'gpt-4o',
-            'gpt-4o-2024-11-20',
-            'gpt-4o-2024-08-06',
-            'gpt-4o-2024-05-13',
-            'gpt-4o-mini',
-            'gpt-4o-mini-2024-07-18',
-            'gpt-4.5-preview',
-            'gpt-4.5-preview-2025-02-27',
-            'gpt-4-turbo',
-            'gpt-4-turbo-2024-04-09',
-            'gpt-4-0125-preview',
-            'gpt-4-turbo-preview',
-            'gpt-4-1106-preview',
-            'gpt-4-vision-preview',
-            'gpt-4',
-            'gpt-4-0314',
-            'gpt-4-0613',
-            'gpt-4-32k',
-            'gpt-4-32k-0314',
-            'gpt-4-32k-0613',
-            'gpt-3.5-turbo',
-            'gpt-3.5-turbo-16k',
-            'gpt-3.5-turbo-0613',
-            'gpt-3.5-turbo-1106',
-            'gpt-3.5-turbo-0125',
-            'gpt-3.5-turbo-16k-0613',
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4.1-2025-04-14",
+            "gpt-4.1-mini-2025-04-14",
+            "gpt-4.1-nano-2025-04-14",
+            "o3-mini",
+            "o3-mini-2025-01-31",
+            "o1",
+            "o1-2024-12-17",
+            "gpt-4o",
+            "gpt-4o-2024-11-20",
+            "gpt-4o-2024-08-06",
+            "gpt-4o-2024-05-13",
+            "gpt-4o-mini",
+            "gpt-4o-mini-2024-07-18",
+            "gpt-4.5-preview",
+            "gpt-4.5-preview-2025-02-27",
+            "gpt-4-turbo",
+            "gpt-4-turbo-2024-04-09",
+            "gpt-4-0125-preview",
+            "gpt-4-turbo-preview",
+            "gpt-4-1106-preview",
+            "gpt-4-vision-preview",
+            "gpt-4",
+            "gpt-4-0314",
+            "gpt-4-0613",
+            "gpt-4-32k",
+            "gpt-4-32k-0314",
+            "gpt-4-32k-0613",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-0613",
+            "gpt-3.5-turbo-1106",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo-16k-0613",
         ]
     ]
 ):
@@ -195,42 +195,42 @@ class AssistantSupportedModels(
         populate_by_name=True,
     )
     root: Literal[
-        'gpt-4.1',
-        'gpt-4.1-mini',
-        'gpt-4.1-nano',
-        'gpt-4.1-2025-04-14',
-        'gpt-4.1-mini-2025-04-14',
-        'gpt-4.1-nano-2025-04-14',
-        'o3-mini',
-        'o3-mini-2025-01-31',
-        'o1',
-        'o1-2024-12-17',
-        'gpt-4o',
-        'gpt-4o-2024-11-20',
-        'gpt-4o-2024-08-06',
-        'gpt-4o-2024-05-13',
-        'gpt-4o-mini',
-        'gpt-4o-mini-2024-07-18',
-        'gpt-4.5-preview',
-        'gpt-4.5-preview-2025-02-27',
-        'gpt-4-turbo',
-        'gpt-4-turbo-2024-04-09',
-        'gpt-4-0125-preview',
-        'gpt-4-turbo-preview',
-        'gpt-4-1106-preview',
-        'gpt-4-vision-preview',
-        'gpt-4',
-        'gpt-4-0314',
-        'gpt-4-0613',
-        'gpt-4-32k',
-        'gpt-4-32k-0314',
-        'gpt-4-32k-0613',
-        'gpt-3.5-turbo',
-        'gpt-3.5-turbo-16k',
-        'gpt-3.5-turbo-0613',
-        'gpt-3.5-turbo-1106',
-        'gpt-3.5-turbo-0125',
-        'gpt-3.5-turbo-16k-0613',
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "gpt-4.1-2025-04-14",
+        "gpt-4.1-mini-2025-04-14",
+        "gpt-4.1-nano-2025-04-14",
+        "o3-mini",
+        "o3-mini-2025-01-31",
+        "o1",
+        "o1-2024-12-17",
+        "gpt-4o",
+        "gpt-4o-2024-11-20",
+        "gpt-4o-2024-08-06",
+        "gpt-4o-2024-05-13",
+        "gpt-4o-mini",
+        "gpt-4o-mini-2024-07-18",
+        "gpt-4.5-preview",
+        "gpt-4.5-preview-2025-02-27",
+        "gpt-4-turbo",
+        "gpt-4-turbo-2024-04-09",
+        "gpt-4-0125-preview",
+        "gpt-4-turbo-preview",
+        "gpt-4-1106-preview",
+        "gpt-4-vision-preview",
+        "gpt-4",
+        "gpt-4-0314",
+        "gpt-4-0613",
+        "gpt-4-32k",
+        "gpt-4-32k-0314",
+        "gpt-4-32k-0613",
+        "gpt-3.5-turbo",
+        "gpt-3.5-turbo-16k",
+        "gpt-3.5-turbo-0613",
+        "gpt-3.5-turbo-1106",
+        "gpt-3.5-turbo-0125",
+        "gpt-3.5-turbo-16k-0613",
     ]
 
 
@@ -238,7 +238,7 @@ class AssistantToolsCode(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['code_interpreter'] = 'code_interpreter'
+    type: Literal["code_interpreter"] = "code_interpreter"
     """
     The type of tool being defined: `code_interpreter`
     """
@@ -248,7 +248,7 @@ class AssistantToolsFileSearchTypeOnly(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['file_search'] = 'file_search'
+    type: Literal["file_search"] = "file_search"
     """
     The type of tool being defined: `file_search`
     """
@@ -272,7 +272,7 @@ class AssistantsNamedToolChoice(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['function', 'code_interpreter', 'file_search']
+    type: Literal["function", "code_interpreter", "file_search"]
     """
     The type of the tool. If type is `function`, the function name must be set
     """
@@ -280,12 +280,12 @@ class AssistantsNamedToolChoice(BaseModel):
 
 
 class AudioResponseFormat(
-    RootModel[Literal['json', 'text', 'srt', 'verbose_json', 'vtt']]
+    RootModel[Literal["json", "text", "srt", "verbose_json", "vtt"]]
 ):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['json', 'text', 'srt', 'verbose_json', 'vtt']
+    root: Literal["json", "text", "srt", "verbose_json", "vtt"]
     """
     The format of the output, in one of these options: `json`, `text`, `srt`, `verbose_json`, or `vtt`. For `gpt-4o-transcribe` and `gpt-4o-mini-transcribe`, the only supported format is `json`.
 
@@ -318,7 +318,7 @@ class Data(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    scopes: List[str] | None = None
+    scopes: list[str] | None = None
     """
     A list of scopes allowed for the API key, e.g. `["api.model.request"]`
     """
@@ -350,7 +350,7 @@ class ChangesRequested(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    scopes: List[str] | None = None
+    scopes: list[str] | None = None
     """
     A list of scopes allowed for the API key, e.g. `["api.model.request"]`
     """
@@ -977,7 +977,7 @@ class CertificatesActivated(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    certificates: List[Certificate] | None = None
+    certificates: list[Certificate] | None = None
 
 
 class CertificatesDeactivated(BaseModel):
@@ -988,7 +988,7 @@ class CertificatesDeactivated(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    certificates: List[Certificate] | None = None
+    certificates: list[Certificate] | None = None
 
 
 class AuditLogActorServiceAccount(BaseModel):
@@ -1026,30 +1026,30 @@ class AuditLogActorUser(BaseModel):
 class AuditLogEventType(
     RootModel[
         Literal[
-            'api_key.created',
-            'api_key.updated',
-            'api_key.deleted',
-            'checkpoint_permission.created',
-            'checkpoint_permission.deleted',
-            'invite.sent',
-            'invite.accepted',
-            'invite.deleted',
-            'login.succeeded',
-            'login.failed',
-            'logout.succeeded',
-            'logout.failed',
-            'organization.updated',
-            'project.created',
-            'project.updated',
-            'project.archived',
-            'service_account.created',
-            'service_account.updated',
-            'service_account.deleted',
-            'rate_limit.updated',
-            'rate_limit.deleted',
-            'user.added',
-            'user.updated',
-            'user.deleted',
+            "api_key.created",
+            "api_key.updated",
+            "api_key.deleted",
+            "checkpoint_permission.created",
+            "checkpoint_permission.deleted",
+            "invite.sent",
+            "invite.accepted",
+            "invite.deleted",
+            "login.succeeded",
+            "login.failed",
+            "logout.succeeded",
+            "logout.failed",
+            "organization.updated",
+            "project.created",
+            "project.updated",
+            "project.archived",
+            "service_account.created",
+            "service_account.updated",
+            "service_account.deleted",
+            "rate_limit.updated",
+            "rate_limit.deleted",
+            "user.added",
+            "user.updated",
+            "user.deleted",
         ]
     ]
 ):
@@ -1057,30 +1057,30 @@ class AuditLogEventType(
         populate_by_name=True,
     )
     root: Literal[
-        'api_key.created',
-        'api_key.updated',
-        'api_key.deleted',
-        'checkpoint_permission.created',
-        'checkpoint_permission.deleted',
-        'invite.sent',
-        'invite.accepted',
-        'invite.deleted',
-        'login.succeeded',
-        'login.failed',
-        'logout.succeeded',
-        'logout.failed',
-        'organization.updated',
-        'project.created',
-        'project.updated',
-        'project.archived',
-        'service_account.created',
-        'service_account.updated',
-        'service_account.deleted',
-        'rate_limit.updated',
-        'rate_limit.deleted',
-        'user.added',
-        'user.updated',
-        'user.deleted',
+        "api_key.created",
+        "api_key.updated",
+        "api_key.deleted",
+        "checkpoint_permission.created",
+        "checkpoint_permission.deleted",
+        "invite.sent",
+        "invite.accepted",
+        "invite.deleted",
+        "login.succeeded",
+        "login.failed",
+        "logout.succeeded",
+        "logout.failed",
+        "organization.updated",
+        "project.created",
+        "project.updated",
+        "project.archived",
+        "service_account.created",
+        "service_account.updated",
+        "service_account.deleted",
+        "rate_limit.updated",
+        "rate_limit.deleted",
+        "user.added",
+        "user.updated",
+        "user.deleted",
     ]
     """
     The event type.
@@ -1093,10 +1093,10 @@ class AutoChunkingStrategyRequestParam(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['auto'] = 'auto'
+    type: Literal["auto"] = "auto"
     """
     Always `auto`.
     """
@@ -1132,7 +1132,7 @@ class Errors(BaseModel):
     """
     The object type, which is always `list`.
     """
-    data: List[Datum] | None = None
+    data: list[Datum] | None = None
 
 
 class RequestCounts(BaseModel):
@@ -1169,7 +1169,7 @@ class BatchRequestInput(BaseModel):
     """
     A developer-provided per-request id that will be used to match outputs to inputs. Must be unique for each request in a batch.
     """
-    method: Literal['POST'] | None = None
+    method: Literal["POST"] | None = None
     """
     The HTTP method to be used for the request. Currently only `POST` is supported.
     """
@@ -1191,7 +1191,7 @@ class Response(BaseModel):
     """
     An unique identifier for the OpenAI API request. Please include this request ID when contacting support.
     """
-    body: Dict[str, Any] | None = None
+    body: dict[str, Any] | None = None
     """
     The JSON body of the response
     """
@@ -1262,9 +1262,9 @@ class Certificate2(BaseModel):
         populate_by_name=True,
     )
     object: Literal[
-        'certificate',
-        'organization.certificate',
-        'organization.project.certificate',
+        "certificate",
+        "organization.certificate",
+        "organization.project.certificate",
     ]
     """
     The object type.
@@ -1297,7 +1297,7 @@ class ChatCompletionDeleted(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['chat.completion.deleted'] = 'chat.completion.deleted'
+    object: Literal["chat.completion.deleted"] = "chat.completion.deleted"
     """
     The type of object being deleted.
     """
@@ -1352,7 +1352,7 @@ class ChatCompletionMessageToolCall(BaseModel):
     """
     The ID of the tool call.
     """
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     The type of the tool. Currently, only `function` is supported.
     """
@@ -1385,7 +1385,7 @@ class ChatCompletionMessageToolCallChunk(BaseModel):
     """
     The ID of the tool call.
     """
-    type: Literal['function'] | None = None
+    type: Literal["function"] | None = None
     """
     The type of the tool. Currently, only `function` is supported.
     """
@@ -1393,7 +1393,7 @@ class ChatCompletionMessageToolCallChunk(BaseModel):
 
 
 class ChatCompletionMessageToolCalls(
-    RootModel[List[ChatCompletionMessageToolCall]]
+    RootModel[list[ChatCompletionMessageToolCall]]
 ):
     """
     The tool calls generated by the model, such as function calls.
@@ -1402,14 +1402,14 @@ class ChatCompletionMessageToolCalls(
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[ChatCompletionMessageToolCall]
+    root: list[ChatCompletionMessageToolCall]
     """
     The tool calls generated by the model, such as function calls.
     """
 
 
 class ChatCompletionModalities(
-    RootModel[List[Literal['text', 'audio']] | None]
+    RootModel[list[Literal["text", "audio"]] | None]
 ):
     """
     Output types that you would like the model to generate for this request.
@@ -1428,7 +1428,7 @@ class ChatCompletionModalities(
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[Literal['text', 'audio']] | None = None
+    root: list[Literal["text", "audio"]] | None = None
     """
     Output types that you would like the model to generate for this request.
     Most models are capable of generating text, which is the default:
@@ -1462,7 +1462,7 @@ class ChatCompletionNamedToolChoice(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     The type of the tool. Currently, only `function` is supported.
     """
@@ -1508,7 +1508,7 @@ class ChatCompletionRequestFunctionMessage(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    role: Literal['function'] = 'function'
+    role: Literal["function"] = "function"
     """
     The role of the messages author, in this case `function`.
     """
@@ -1530,7 +1530,7 @@ class InputAudio(BaseModel):
     """
     Base64 encoded audio data.
     """
-    format: Literal['wav', 'mp3']
+    format: Literal["wav", "mp3"]
     """
     The format of the encoded audio data. Currently supports "wav" and "mp3".
 
@@ -1546,7 +1546,7 @@ class ChatCompletionRequestMessageContentPartAudio(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['input_audio'] = 'input_audio'
+    type: Literal["input_audio"] = "input_audio"
     """
     The type of the content part. Always `input_audio`.
     """
@@ -1585,7 +1585,7 @@ class ChatCompletionRequestMessageContentPartFile(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['file'] = 'file'
+    type: Literal["file"] = "file"
     """
     The type of the content part. Always `file`.
     """
@@ -1600,7 +1600,7 @@ class ImageUrl(BaseModel):
     """
     Either a URL of the image or the base64 encoded image data.
     """
-    detail: Literal['auto', 'low', 'high'] | None = 'auto'
+    detail: Literal["auto", "low", "high"] | None = "auto"
     """
     Specifies the detail level of the image. Learn more in the [Vision guide](/docs/guides/vision#low-or-high-fidelity-image-understanding).
     """
@@ -1615,7 +1615,7 @@ class ChatCompletionRequestMessageContentPartImage(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['image_url'] = 'image_url'
+    type: Literal["image_url"] = "image_url"
     """
     The type of the content part.
     """
@@ -1626,7 +1626,7 @@ class ChatCompletionRequestMessageContentPartRefusal(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['refusal'] = 'refusal'
+    type: Literal["refusal"] = "refusal"
     """
     The type of the content part.
     """
@@ -1645,7 +1645,7 @@ class ChatCompletionRequestMessageContentPartText(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['text'] = 'text'
+    type: Literal["text"] = "text"
     """
     The type of the content part.
     """
@@ -1727,7 +1727,7 @@ class Annotation(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['url_citation'] = 'url_citation'
+    type: Literal["url_citation"] = "url_citation"
     """
     The type of the URL citation. Always `url_citation`.
     """
@@ -1787,13 +1787,13 @@ class ChatCompletionResponseMessage(BaseModel):
     The refusal message generated by the model.
     """
     tool_calls: ChatCompletionMessageToolCalls | None = None
-    annotations: List[Annotation] | None = None
+    annotations: list[Annotation] | None = None
     """
     Annotations for the message, when applicable, as when using the
     [web search tool](/docs/guides/tools-web-search?api-mode=chat).
 
     """
-    role: Literal['assistant'] = 'assistant'
+    role: Literal["assistant"] = "assistant"
     """
     The role of the author of this message.
     """
@@ -1811,14 +1811,14 @@ class ChatCompletionResponseMessage(BaseModel):
 
 class ChatCompletionRole(
     RootModel[
-        Literal['developer', 'system', 'user', 'assistant', 'tool', 'function']
+        Literal["developer", "system", "user", "assistant", "tool", "function"]
     ]
 ):
     model_config = ConfigDict(
         populate_by_name=True,
     )
     root: Literal[
-        'developer', 'system', 'user', 'assistant', 'tool', 'function'
+        "developer", "system", "user", "assistant", "tool", "function"
     ]
     """
     The role of the author of a message
@@ -1882,9 +1882,9 @@ class ChatCompletionStreamResponseDelta(BaseModel):
     """
     Deprecated and replaced by `tool_calls`. The name and arguments of a function that should be called, as generated by the model.
     """
-    tool_calls: List[ChatCompletionMessageToolCallChunk] | None = None
+    tool_calls: list[ChatCompletionMessageToolCallChunk] | None = None
     role: (
-        Literal['developer', 'system', 'user', 'assistant', 'tool'] | None
+        Literal["developer", "system", "user", "assistant", "tool"] | None
     ) = None
     """
     The role of the author of this message.
@@ -1907,7 +1907,7 @@ class TopLogprob(BaseModel):
     """
     The log probability of this token, if it is within the top 20 most likely tokens. Otherwise, the value `-9999.0` is used to signify that the token is very unlikely.
     """
-    bytes: List[int]
+    bytes: list[int]
     """
     A list of integers representing the UTF-8 bytes representation of the token. Useful in instances where characters are represented by multiple tokens and their byte representations must be combined to generate the correct text representation. Can be `null` if there is no bytes representation for the token.
     """
@@ -1925,11 +1925,11 @@ class ChatCompletionTokenLogprob(BaseModel):
     """
     The log probability of this token, if it is within the top 20 most likely tokens. Otherwise, the value `-9999.0` is used to signify that the token is very unlikely.
     """
-    bytes: List[int]
+    bytes: list[int]
     """
     A list of integers representing the UTF-8 bytes representation of the token. Useful in instances where characters are represented by multiple tokens and their byte representations must be combined to generate the correct text representation. Can be `null` if there is no bytes representation for the token.
     """
-    top_logprobs: List[TopLogprob]
+    top_logprobs: list[TopLogprob]
     """
     List of the most likely tokens and their log probability, at this token position. In rare cases, there may be fewer than the number of requested `top_logprobs` returned.
     """
@@ -1937,13 +1937,13 @@ class ChatCompletionTokenLogprob(BaseModel):
 
 class ChatCompletionToolChoiceOption(
     RootModel[
-        Literal['none', 'auto', 'required'] | ChatCompletionNamedToolChoice
+        Literal["none", "auto", "required"] | ChatCompletionNamedToolChoice
     ]
 ):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['none', 'auto', 'required'] | ChatCompletionNamedToolChoice
+    root: Literal["none", "auto", "required"] | ChatCompletionNamedToolChoice
     """
     Controls which (if any) tool is called by the model.
     `none` means the model will not call any tool and instead generates a message.
@@ -1965,13 +1965,13 @@ class Click(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['click'] = 'click'
+    type: Literal["click"] = "click"
     """
     Specifies the event type. For a click action, this property is 
     always set to `click`.
 
     """
-    button: Literal['left', 'right', 'wheel', 'back', 'forward']
+    button: Literal["left", "right", "wheel", "back", "forward"]
     """
     Indicates which mouse button was pressed during the click. One of `left`, `right`, `wheel`, `back`, or `forward`.
 
@@ -2013,12 +2013,12 @@ class CodeInterpreterFileOutput(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['files'] = 'files'
+    type: Literal["files"] = "files"
     """
     The type of the code interpreter file output. Always `files`.
 
     """
-    files: List[File1]
+    files: list[File1]
 
 
 class CodeInterpreterTextOutput(BaseModel):
@@ -2030,7 +2030,7 @@ class CodeInterpreterTextOutput(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['logs'] = 'logs'
+    type: Literal["logs"] = "logs"
     """
     The type of the code interpreter text output. Always `logs`.
 
@@ -2058,10 +2058,10 @@ class ComparisonFilter(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['eq', 'ne', 'gt', 'gte', 'lt', 'lte']
+    type: Literal["eq", "ne", "gt", "gte", "lt", "lte"]
     """
     Specifies the comparison operator: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`.
     - `eq`: equals
@@ -2084,10 +2084,10 @@ class ComparisonFilter(BaseModel):
 
 class CompleteUploadRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    part_ids: List[str]
+    part_ids: list[str]
     """
     The ordered list of Part IDs.
 
@@ -2186,14 +2186,14 @@ class CompoundFilter(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['and', 'or']
+    type: Literal["and", "or"]
     """
     Type of operation: `and` or `or`.
     """
-    filters: List[ComparisonFilter | Any]
+    filters: list[ComparisonFilter | Any]
     """
     Array of filters to combine. Items can be `ComparisonFilter` or `CompoundFilter`.
     """
@@ -2208,7 +2208,7 @@ class ComputerScreenshotImage(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['computer_screenshot'] = 'computer_screenshot'
+    type: Literal["computer_screenshot"] = "computer_screenshot"
     """
     Specifies the event type. For a computer screenshot, this property is 
     always set to `computer_screenshot`.
@@ -2294,7 +2294,7 @@ class CostsResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.costs.result'] = 'organization.costs.result'
+    object: Literal["organization.costs.result"] = "organization.costs.result"
     amount: Amount | None = None
     """
     The monetary value in its associated currency.
@@ -2313,7 +2313,7 @@ class CodeInterpreter1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field([], max_length=20)
+    file_ids: list[str] | None = Field([], max_length=20)
     """
     A list of [file](/docs/api-reference/files) IDs made available to the `code_interpreter` tool. There can be a maximum of 20 files associated with the tool.
 
@@ -2326,10 +2326,10 @@ class ChunkingStrategy(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['auto'] = 'auto'
+    type: Literal["auto"] = "auto"
     """
     Always `auto`.
     """
@@ -2337,7 +2337,7 @@ class ChunkingStrategy(BaseModel):
 
 class Static(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     max_chunk_size_tokens: int = Field(..., ge=100, le=4096)
@@ -2359,10 +2359,10 @@ class ChunkingStrategy1(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['static'] = 'static'
+    type: Literal["static"] = "static"
     """
     Always `static`.
     """
@@ -2375,10 +2375,10 @@ class ChunkingStrategy2(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['auto'] = 'auto'
+    type: Literal["auto"] = "auto"
     """
     Always `auto`.
     """
@@ -2390,10 +2390,10 @@ class ChunkingStrategy3(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['static'] = 'static'
+    type: Literal["static"] = "static"
     """
     Always `static`.
     """
@@ -2408,11 +2408,11 @@ class Logprobs(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    content: List[ChatCompletionTokenLogprob]
+    content: list[ChatCompletionTokenLogprob]
     """
     A list of message content tokens with log probability information.
     """
-    refusal: List[ChatCompletionTokenLogprob]
+    refusal: list[ChatCompletionTokenLogprob]
     """
     A list of message refusal tokens with log probability information.
     """
@@ -2423,7 +2423,7 @@ class Choice(BaseModel):
         populate_by_name=True,
     )
     finish_reason: Literal[
-        'stop', 'length', 'tool_calls', 'content_filter', 'function_call'
+        "stop", "length", "tool_calls", "content_filter", "function_call"
     ]
     """
     The reason the model stopped generating tokens. This will be `stop` if the model hit a natural stop point or a provided stop sequence,
@@ -2453,7 +2453,7 @@ class Choice1(BaseModel):
     Log probability information for the choice.
     """
     finish_reason: Literal[
-        'stop', 'length', 'tool_calls', 'content_filter', 'function_call'
+        "stop", "length", "tool_calls", "content_filter", "function_call"
     ]
     """
     The reason the model stopped generating tokens. This will be `stop` if the model hit a natural stop point or a provided stop sequence,
@@ -2468,12 +2468,12 @@ class Choice1(BaseModel):
     """
 
 
-class Prompt(RootModel[List[int] | None]):
+class Prompt(RootModel[list[int] | None]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[int] | None = Field(
-        '<|endoftext|>', examples=['[1212, 318, 257, 1332, 13]'], min_length=1
+    root: list[int] | None = Field(
+        "<|endoftext|>", examples=["[1212, 318, 257, 1332, 13]"], min_length=1
     )
     """
     The prompt(s) to generate completions for, encoded as a string, array of strings, array of tokens, or array of token arrays.
@@ -2483,20 +2483,20 @@ class Prompt(RootModel[List[int] | None]):
     """
 
 
-class Prompt1Item(RootModel[List[int]]):
+class Prompt1Item(RootModel[list[int]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[int] = Field(..., min_length=1)
+    root: list[int] = Field(..., min_length=1)
 
 
-class Prompt1(RootModel[List[Prompt1Item] | None]):
+class Prompt1(RootModel[list[Prompt1Item] | None]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[Prompt1Item] | None = Field(
-        '<|endoftext|>',
-        examples=['[[1212, 318, 257, 1332, 13]]'],
+    root: list[Prompt1Item] | None = Field(
+        "<|endoftext|>",
+        examples=["[[1212, 318, 257, 1332, 13]]"],
         min_length=1,
     )
     """
@@ -2511,17 +2511,17 @@ class Logprobs2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    text_offset: List[int] | None = None
-    token_logprobs: List[float] | None = None
-    tokens: List[str] | None = None
-    top_logprobs: List[Dict[str, float]] | None = None
+    text_offset: list[int] | None = None
+    token_logprobs: list[float] | None = None
+    tokens: list[str] | None = None
+    top_logprobs: list[dict[str, float]] | None = None
 
 
 class Choice2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    finish_reason: Literal['stop', 'length', 'content_filter']
+    finish_reason: Literal["stop", "length", "content_filter"]
     """
     The reason the model stopped generating tokens. This will be `stop` if the model hit a natural stop point or a provided stop sequence,
     `length` if the maximum number of tokens specified in the request was reached,
@@ -2546,7 +2546,7 @@ class CreateCompletionResponse(BaseModel):
     """
     A unique identifier for the completion.
     """
-    choices: List[Choice2]
+    choices: list[Choice2]
     """
     The list of completion choices the model generated for the input prompt.
     """
@@ -2565,62 +2565,62 @@ class CreateCompletionResponse(BaseModel):
     Can be used in conjunction with the `seed` request parameter to understand when backend changes have been made that might impact determinism.
 
     """
-    object: Literal['text_completion'] = 'text_completion'
+    object: Literal["text_completion"] = "text_completion"
     """
     The object type, which is always "text_completion"
     """
     usage: CompletionUsage | None = None
 
 
-class Input(RootModel[List[str]]):
+class Input(RootModel[list[str]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[str] = Field(
+    root: list[str] = Field(
         ...,
-        examples=['The quick brown fox jumped over the lazy dog'],
+        examples=["The quick brown fox jumped over the lazy dog"],
         max_length=2048,
         min_length=1,
-        title='array',
+        title="array",
     )
     """
     The array of strings that will be turned into an embedding.
     """
 
 
-class Input1(RootModel[List[int]]):
+class Input1(RootModel[list[int]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[int] = Field(
+    root: list[int] = Field(
         ...,
-        examples=['[1212, 318, 257, 1332, 13]'],
+        examples=["[1212, 318, 257, 1332, 13]"],
         max_length=2048,
         min_length=1,
-        title='array',
+        title="array",
     )
     """
     The array of integers that will be turned into an embedding.
     """
 
 
-class Input2Item(RootModel[List[int]]):
+class Input2Item(RootModel[list[int]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[int] = Field(..., min_length=1)
+    root: list[int] = Field(..., min_length=1)
 
 
-class Input2(RootModel[List[Input2Item]]):
+class Input2(RootModel[list[Input2Item]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[Input2Item] = Field(
+    root: list[Input2Item] = Field(
         ...,
-        examples=['[[1212, 318, 257, 1332, 13]]'],
+        examples=["[[1212, 318, 257, 1332, 13]]"],
         max_length=2048,
         min_length=1,
-        title='array',
+        title="array",
     )
     """
     The array of arrays containing integers that will be turned into an embedding.
@@ -2629,11 +2629,11 @@ class Input2(RootModel[List[Input2Item]]):
 
 class CreateEmbeddingRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     input: str | Input | Input1 | Input2 = Field(
-        ..., examples=['The quick brown fox jumped over the lazy dog']
+        ..., examples=["The quick brown fox jumped over the lazy dog"]
     )
     """
     Input text to embed, encoded as a string or array of tokens. To embed multiple inputs in a single request, pass an array of strings or array of token arrays. The input must not exceed the max input tokens for the model (8192 tokens for `text-embedding-ada-002`), cannot be an empty string, and any array must be 2048 dimensions or less. [Example Python code](https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken) for counting tokens. Some models may also impose a limit on total number of tokens summed across inputs.
@@ -2642,17 +2642,17 @@ class CreateEmbeddingRequest(BaseModel):
     model: (
         str
         | Literal[
-            'text-embedding-ada-002',
-            'text-embedding-3-small',
-            'text-embedding-3-large',
+            "text-embedding-ada-002",
+            "text-embedding-3-small",
+            "text-embedding-3-large",
         ]
-    ) = Field(..., examples=['text-embedding-3-small'])
+    ) = Field(..., examples=["text-embedding-3-small"])
     """
     ID of the model to use. You can use the [List models](/docs/api-reference/models/list) API to see all of your available models, or see our [Model overview](/docs/models) for descriptions of them.
 
     """
-    encoding_format: Literal['float', 'base64'] | None = Field(
-        'float', examples=['float']
+    encoding_format: Literal["float", "base64"] | None = Field(
+        "float", examples=["float"]
     )
     """
     The format to return the embeddings in. Can be either `float` or [`base64`](https://pypi.org/project/pybase64/).
@@ -2662,7 +2662,7 @@ class CreateEmbeddingRequest(BaseModel):
     The number of dimensions the resulting output embeddings should have. Only supported in `text-embedding-3` and later models.
 
     """
-    user: str | None = Field(None, examples=['user-1234'])
+    user: str | None = Field(None, examples=["user-1234"])
     """
     A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices#end-user-ids).
 
@@ -2691,7 +2691,7 @@ class InputMessages1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['item_reference'] = 'item_reference'
+    type: Literal["item_reference"] = "item_reference"
     """
     The type of input messages. Always `item_reference`.
     """
@@ -2735,11 +2735,11 @@ class CreateEvalCustomDataSourceConfig(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['custom'] = 'custom'
+    type: Literal["custom"] = "custom"
     """
     The type of data source. Always `custom`.
     """
-    item_schema: Dict[str, Any] = Field(
+    item_schema: dict[str, Any] = Field(
         ...,
         examples=[
             '{\n  "type": "object",\n  "properties": {\n    "name": {"type": "string"},\n    "age": {"type": "integer"}\n  },\n  "required": ["name", "age"]\n}\n'
@@ -2782,11 +2782,11 @@ class CreateEvalLogsDataSourceConfig(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['logs'] = 'logs'
+    type: Literal["logs"] = "logs"
     """
     The type of data source. Always `logs`.
     """
-    metadata: Dict[str, Any] | None = Field(
+    metadata: dict[str, Any] | None = Field(
         None, examples=['{\n  "use_case": "customer_support_agent"\n}\n']
     )
     """
@@ -2810,7 +2810,7 @@ class Template(BaseModel):
 
 class CreateFileRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     file: bytes_aliased
@@ -2819,7 +2819,7 @@ class CreateFileRequest(BaseModel):
 
     """
     purpose: Literal[
-        'assistants', 'batch', 'fine-tune', 'vision', 'user_data', 'evals'
+        "assistants", "batch", "fine-tune", "vision", "user_data", "evals"
     ]
     """
     The intended purpose of the uploaded file. One of: - `assistants`: Used in the Assistants API - `batch`: Used in the Batch API - `fine-tune`: Used for fine-tuning - `vision`: Images used for vision fine-tuning - `user_data`: Flexible file type for any purpose - `evals`: Used for eval data sets
@@ -2829,10 +2829,10 @@ class CreateFileRequest(BaseModel):
 
 class CreateFineTuningCheckpointPermissionRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    project_ids: List[str]
+    project_ids: list[str]
     """
     The project identifiers to grant access to.
     """
@@ -2884,21 +2884,21 @@ class Hyperparameters(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    batch_size: Literal['auto'] | BatchSize | None = 'auto'
+    batch_size: Literal["auto"] | BatchSize | None = "auto"
     """
     Number of examples in each batch. A larger batch size means that model parameters
     are updated less frequently, but with lower variance.
 
     """
     learning_rate_multiplier: (
-        Literal['auto'] | LearningRateMultiplier | None
-    ) = 'auto'
+        Literal["auto"] | LearningRateMultiplier | None
+    ) = "auto"
     """
     Scaling factor for the learning rate. A smaller learning rate may be useful to avoid
     overfitting.
 
     """
-    n_epochs: Literal['auto'] | NEpochs | None = 'auto'
+    n_epochs: Literal["auto"] | NEpochs | None = "auto"
     """
     The number of epochs to train the model for. An epoch refers to one full cycle
     through the training dataset.
@@ -2917,7 +2917,7 @@ class Wandb(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    project: str = Field(..., examples=['my-wandb-project'])
+    project: str = Field(..., examples=["my-wandb-project"])
     """
     The name of the project that the new run will be created under.
 
@@ -2933,7 +2933,7 @@ class Wandb(BaseModel):
     like associated with the run. If not set, the default entity for the registered WandB API key is used.
 
     """
-    tags: List[str] | None = None
+    tags: list[str] | None = None
     """
     A list of tags to be attached to the newly created run. These tags are passed through directly to WandB. Some
     default tags are generated by OpenAI: "openai/finetune", "openai/{base-model}", "openai/{ftjob-abcdef}".
@@ -2945,7 +2945,7 @@ class Integration(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['wandb']
+    type: Literal["wandb"]
     """
     The type of integration to enable. Currently, only "wandb" (Weights and Biases) is supported.
 
@@ -2959,11 +2959,11 @@ class Integration(BaseModel):
     """
 
 
-class Image(RootModel[List[bytes_aliased]]):
+class Image(RootModel[list[bytes_aliased]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[bytes_aliased] = Field(..., max_length=16)
+    root: list[bytes_aliased] = Field(..., max_length=16)
     """
     The image(s) to edit. Must be a supported image file or an array of images.
 
@@ -2992,7 +2992,7 @@ class CreateImageEditRequest(BaseModel):
 
     """
     prompt: str = Field(
-        ..., examples=['A cute baby sea otter wearing a beret']
+        ..., examples=["A cute baby sea otter wearing a beret"]
     )
     """
     A text description of the desired image(s). The maximum length is 1000 characters for `dall-e-2`, and 32000 characters for `gpt-image-1`.
@@ -3001,8 +3001,8 @@ class CreateImageEditRequest(BaseModel):
     """
     An additional image whose fully transparent areas (e.g. where alpha is zero) indicate where `image` should be edited. If there are multiple images provided, the mask will be applied on the first image. Must be a valid PNG file, less than 4MB, and have the same dimensions as `image`.
     """
-    model: str | Literal['dall-e-2', 'gpt-image-1'] | None = Field(
-        'dall-e-2', examples=['gpt-image-1']
+    model: str | Literal["dall-e-2", "gpt-image-1"] | None = Field(
+        "dall-e-2", examples=["gpt-image-1"]
     )
     """
     The model to use for image generation. Only `dall-e-2` and `gpt-image-1` are supported. Defaults to `dall-e-2` unless a parameter specific to `gpt-image-1` is used.
@@ -3013,26 +3013,26 @@ class CreateImageEditRequest(BaseModel):
     """
     size: (
         Literal[
-            '256x256', '512x512', '1024x1024', '1536x1024', '1024x1536', 'auto'
+            "256x256", "512x512", "1024x1024", "1536x1024", "1024x1536", "auto"
         ]
         | None
-    ) = Field('1024x1024', examples=['1024x1024'])
+    ) = Field("1024x1024", examples=["1024x1024"])
     """
     The size of the generated images. Must be one of `1024x1024`, `1536x1024` (landscape), `1024x1536` (portrait), or `auto` (default value) for `gpt-image-1`, and one of `256x256`, `512x512`, or `1024x1024` for `dall-e-2`.
     """
-    response_format: Literal['url', 'b64_json'] | None = Field(
-        'url', examples=['url']
+    response_format: Literal["url", "b64_json"] | None = Field(
+        "url", examples=["url"]
     )
     """
     The format in which the generated images are returned. Must be one of `url` or `b64_json`. URLs are only valid for 60 minutes after the image has been generated. This parameter is only supported for `dall-e-2`, as `gpt-image-1` will always return base64-encoded images.
     """
-    user: str | None = Field(None, examples=['user-1234'])
+    user: str | None = Field(None, examples=["user-1234"])
     """
     A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices#end-user-ids).
 
     """
-    quality: Literal['standard', 'low', 'medium', 'high', 'auto'] | None = (
-        Field('auto', examples=['high'])
+    quality: Literal["standard", "low", "medium", "high", "auto"] | None = (
+        Field("auto", examples=["high"])
     )
     """
     The quality of the image that will be generated. `high`, `medium` and `low` are only supported for `gpt-image-1`. `dall-e-2` only supports `standard` quality. Defaults to `auto`.
@@ -3044,12 +3044,12 @@ class CreateImageRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    prompt: str = Field(..., examples=['A cute baby sea otter'])
+    prompt: str = Field(..., examples=["A cute baby sea otter"])
     """
     A text description of the desired image(s). The maximum length is 32000 characters for `gpt-image-1`, 1000 characters for `dall-e-2` and 4000 characters for `dall-e-3`.
     """
-    model: str | Literal['dall-e-2', 'dall-e-3', 'gpt-image-1'] | None = Field(
-        'dall-e-2', examples=['gpt-image-1']
+    model: str | Literal["dall-e-2", "dall-e-3", "gpt-image-1"] | None = Field(
+        "dall-e-2", examples=["gpt-image-1"]
     )
     """
     The model to use for image generation. One of `dall-e-2`, `dall-e-3`, or `gpt-image-1`. Defaults to `dall-e-2` unless a parameter specific to `gpt-image-1` is used.
@@ -3059,8 +3059,8 @@ class CreateImageRequest(BaseModel):
     The number of images to generate. Must be between 1 and 10. For `dall-e-3`, only `n=1` is supported.
     """
     quality: (
-        Literal['standard', 'hd', 'low', 'medium', 'high', 'auto'] | None
-    ) = Field('auto', examples=['medium'])
+        Literal["standard", "hd", "low", "medium", "high", "auto"] | None
+    ) = Field("auto", examples=["medium"])
     """
     The quality of the image that will be generated. 
 
@@ -3070,14 +3070,14 @@ class CreateImageRequest(BaseModel):
     - `standard` is the only option for `dall-e-2`.
 
     """
-    response_format: Literal['url', 'b64_json'] | None = Field(
-        'url', examples=['url']
+    response_format: Literal["url", "b64_json"] | None = Field(
+        "url", examples=["url"]
     )
     """
     The format in which generated images with `dall-e-2` and `dall-e-3` are returned. Must be one of `url` or `b64_json`. URLs are only valid for 60 minutes after the image has been generated. This parameter isn't supported for `gpt-image-1` which will always return base64-encoded images.
     """
-    output_format: Literal['png', 'jpeg', 'webp'] | None = Field(
-        'png', examples=['png']
+    output_format: Literal["png", "jpeg", "webp"] | None = Field(
+        "png", examples=["png"]
     )
     """
     The format in which the generated images are returned. This parameter is only supported for `gpt-image-1`. Must be one of `png`, `jpeg`, or `webp`.
@@ -3088,26 +3088,26 @@ class CreateImageRequest(BaseModel):
     """
     size: (
         Literal[
-            'auto',
-            '1024x1024',
-            '1536x1024',
-            '1024x1536',
-            '256x256',
-            '512x512',
-            '1792x1024',
-            '1024x1792',
+            "auto",
+            "1024x1024",
+            "1536x1024",
+            "1024x1536",
+            "256x256",
+            "512x512",
+            "1792x1024",
+            "1024x1792",
         ]
         | None
-    ) = Field('auto', examples=['1024x1024'])
+    ) = Field("auto", examples=["1024x1024"])
     """
     The size of the generated images. Must be one of `1024x1024`, `1536x1024` (landscape), `1024x1536` (portrait), or `auto` (default value) for `gpt-image-1`, one of `256x256`, `512x512`, or `1024x1024` for `dall-e-2`, and one of `1024x1024`, `1792x1024`, or `1024x1792` for `dall-e-3`.
     """
-    moderation: Literal['low', 'auto'] | None = Field('auto', examples=['low'])
+    moderation: Literal["low", "auto"] | None = Field("auto", examples=["low"])
     """
     Control the content-moderation level for images generated by `gpt-image-1`. Must be either `low` for less restrictive filtering or `auto` (default value).
     """
-    background: Literal['transparent', 'opaque', 'auto'] | None = Field(
-        'auto', examples=['transparent']
+    background: Literal["transparent", "opaque", "auto"] | None = Field(
+        "auto", examples=["transparent"]
     )
     """
     Allows to set transparency for the background of the generated image(s). 
@@ -3119,13 +3119,13 @@ class CreateImageRequest(BaseModel):
     should be set to either `png` (default value) or `webp`.
 
     """
-    style: Literal['vivid', 'natural'] | None = Field(
-        'vivid', examples=['vivid']
+    style: Literal["vivid", "natural"] | None = Field(
+        "vivid", examples=["vivid"]
     )
     """
     The style of the generated images. This parameter is only supported for `dall-e-3`. Must be one of `vivid` or `natural`. Vivid causes the model to lean towards generating hyper-real and dramatic images. Natural causes the model to produce more natural, less hyper-real looking images.
     """
-    user: str | None = Field(None, examples=['user-1234'])
+    user: str | None = Field(None, examples=["user-1234"])
     """
     A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices#end-user-ids).
 
@@ -3140,8 +3140,8 @@ class CreateImageVariationRequest(BaseModel):
     """
     The image to use as the basis for the variation(s). Must be a valid PNG file, less than 4MB, and square.
     """
-    model: str | Literal['dall-e-2'] | None = Field(
-        'dall-e-2', examples=['dall-e-2']
+    model: str | Literal["dall-e-2"] | None = Field(
+        "dall-e-2", examples=["dall-e-2"]
     )
     """
     The model to use for image generation. Only `dall-e-2` is supported at this time.
@@ -3150,19 +3150,19 @@ class CreateImageVariationRequest(BaseModel):
     """
     The number of images to generate. Must be between 1 and 10.
     """
-    response_format: Literal['url', 'b64_json'] | None = Field(
-        'url', examples=['url']
+    response_format: Literal["url", "b64_json"] | None = Field(
+        "url", examples=["url"]
     )
     """
     The format in which the generated images are returned. Must be one of `url` or `b64_json`. URLs are only valid for 60 minutes after the image has been generated.
     """
-    size: Literal['256x256', '512x512', '1024x1024'] | None = Field(
-        '1024x1024', examples=['1024x1024']
+    size: Literal["256x256", "512x512", "1024x1024"] | None = Field(
+        "1024x1024", examples=["1024x1024"]
     )
     """
     The size of the generated images. Must be one of `256x256`, `512x512`, or `1024x1024`.
     """
-    user: str | None = Field(None, examples=['user-1234'])
+    user: str | None = Field(None, examples=["user-1234"])
     """
     A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices#end-user-ids).
 
@@ -3178,7 +3178,7 @@ class Attachment(BaseModel):
     The ID of the file to attach to the message.
     """
     tools: (
-        List[AssistantToolsCode | AssistantToolsFileSearchTypeOnly] | None
+        list[AssistantToolsCode | AssistantToolsFileSearchTypeOnly] | None
     ) = None
     """
     The tools to add this file to.
@@ -3193,7 +3193,7 @@ class ImageUrl1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    url: AnyUrl = Field(..., examples=['https://example.com/image.jpg'])
+    url: AnyUrl = Field(..., examples=["https://example.com/image.jpg"])
     """
     Either a URL of the image or the base64 encoded image data.
     """
@@ -3207,7 +3207,7 @@ class Input3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['image_url'] = 'image_url'
+    type: Literal["image_url"] = "image_url"
     """
     Always `image_url`.
     """
@@ -3225,11 +3225,11 @@ class Input4(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['text'] = 'text'
+    type: Literal["text"] = "text"
     """
     Always `text`.
     """
-    text: str = Field(..., examples=['I want to kill them'])
+    text: str = Field(..., examples=["I want to kill them"])
     """
     A string of text to classify.
     """
@@ -3239,7 +3239,7 @@ class CreateModerationRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    input: str | List[str] | List[Input3 | Input4]
+    input: str | list[str] | list[Input3 | Input4]
     """
     Input (or inputs) to classify. Can be a single string, an array of strings, or
     an array of multi-modal input objects similar to other models.
@@ -3248,14 +3248,14 @@ class CreateModerationRequest(BaseModel):
     model: (
         str
         | Literal[
-            'omni-moderation-latest',
-            'omni-moderation-2024-09-26',
-            'text-moderation-latest',
-            'text-moderation-stable',
+            "omni-moderation-latest",
+            "omni-moderation-2024-09-26",
+            "text-moderation-latest",
+            "text-moderation-stable",
         ]
         | None
     ) = Field(
-        'omni-moderation-latest', examples=['omni-moderation-2024-09-26']
+        "omni-moderation-latest", examples=["omni-moderation-2024-09-26"]
     )
     """
     The content moderation model you would like to use. Learn more in
@@ -3397,55 +3397,55 @@ class CategoryAppliedInputTypes(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    hate: List[Literal['text']]
+    hate: list[Literal["text"]]
     """
     The applied input type(s) for the category 'hate'.
     """
-    hate_threatening: List[Literal['text']]
+    hate_threatening: list[Literal["text"]]
     """
     The applied input type(s) for the category 'hate/threatening'.
     """
-    harassment: List[Literal['text']]
+    harassment: list[Literal["text"]]
     """
     The applied input type(s) for the category 'harassment'.
     """
-    harassment_threatening: List[Literal['text']]
+    harassment_threatening: list[Literal["text"]]
     """
     The applied input type(s) for the category 'harassment/threatening'.
     """
-    illicit: List[Literal['text']]
+    illicit: list[Literal["text"]]
     """
     The applied input type(s) for the category 'illicit'.
     """
-    illicit_violent: List[Literal['text']]
+    illicit_violent: list[Literal["text"]]
     """
     The applied input type(s) for the category 'illicit/violent'.
     """
-    self_harm: List[Literal['text', 'image']]
+    self_harm: list[Literal["text", "image"]]
     """
     The applied input type(s) for the category 'self-harm'.
     """
-    self_harm_intent: List[Literal['text', 'image']]
+    self_harm_intent: list[Literal["text", "image"]]
     """
     The applied input type(s) for the category 'self-harm/intent'.
     """
-    self_harm_instructions: List[Literal['text', 'image']]
+    self_harm_instructions: list[Literal["text", "image"]]
     """
     The applied input type(s) for the category 'self-harm/instructions'.
     """
-    sexual: List[Literal['text', 'image']]
+    sexual: list[Literal["text", "image"]]
     """
     The applied input type(s) for the category 'sexual'.
     """
-    sexual_minors: List[Literal['text']]
+    sexual_minors: list[Literal["text"]]
     """
     The applied input type(s) for the category 'sexual/minors'.
     """
-    violence: List[Literal['text', 'image']]
+    violence: list[Literal["text", "image"]]
     """
     The applied input type(s) for the category 'violence'.
     """
-    violence_graphic: List[Literal['text', 'image']]
+    violence_graphic: list[Literal["text", "image"]]
     """
     The applied input type(s) for the category 'violence/graphic'.
     """
@@ -3489,7 +3489,7 @@ class CreateModerationResponse(BaseModel):
     """
     The model used to generate the moderation results.
     """
-    results: List[Result]
+    results: list[Result]
     """
     A list of moderation objects.
     """
@@ -3514,10 +3514,10 @@ class ChunkingStrategy4(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['auto'] = 'auto'
+    type: Literal["auto"] = "auto"
     """
     Always `auto`.
     """
@@ -3529,10 +3529,10 @@ class ChunkingStrategy5(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['static'] = 'static'
+    type: Literal["static"] = "static"
     """
     Always `static`.
     """
@@ -3545,10 +3545,10 @@ class ChunkingStrategy6(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['auto'] = 'auto'
+    type: Literal["auto"] = "auto"
     """
     Always `auto`.
     """
@@ -3560,10 +3560,10 @@ class ChunkingStrategy7(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['static'] = 'static'
+    type: Literal["static"] = "static"
     """
     Always `static`.
     """
@@ -3582,7 +3582,7 @@ class Logprob(BaseModel):
     """
     The log probability of the token.
     """
-    bytes: List[float] | None = None
+    bytes: list[float] | None = None
     """
     The bytes of the token.
     """
@@ -3600,7 +3600,7 @@ class CreateTranscriptionResponseJson(BaseModel):
     """
     The transcribed text.
     """
-    logprobs: List[Logprob] | None = None
+    logprobs: list[Logprob] | None = None
     """
     The log probabilities of the tokens in the transcription. Only returned with the models `gpt-4o-transcribe` and `gpt-4o-mini-transcribe` if `logprobs` is added to the `include` array.
 
@@ -3609,7 +3609,7 @@ class CreateTranscriptionResponseJson(BaseModel):
 
 class CreateTranslationRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     file: bytes_aliased
@@ -3617,7 +3617,7 @@ class CreateTranslationRequest(BaseModel):
     The audio file object (not file name) translate, in one of these formats: flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, or webm.
 
     """
-    model: str | Literal['whisper-1'] = Field(..., examples=['whisper-1'])
+    model: str | Literal["whisper-1"] = Field(..., examples=["whisper-1"])
     """
     ID of the model to use. Only `whisper-1` (which is powered by our open source Whisper V2 model) is currently available.
 
@@ -3628,8 +3628,8 @@ class CreateTranslationRequest(BaseModel):
 
     """
     response_format: (
-        Literal['json', 'text', 'srt', 'verbose_json', 'vtt'] | None
-    ) = 'json'
+        Literal["json", "text", "srt", "verbose_json", "vtt"] | None
+    ) = "json"
     """
     The format of the output, in one of these options: `json`, `text`, `srt`, `verbose_json`, or `vtt`.
 
@@ -3650,7 +3650,7 @@ class CreateTranslationResponseJson(BaseModel):
 
 class CreateUploadRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     filename: str
@@ -3658,7 +3658,7 @@ class CreateUploadRequest(BaseModel):
     The name of the file to upload.
 
     """
-    purpose: Literal['assistants', 'batch', 'fine-tune', 'vision']
+    purpose: Literal["assistants", "batch", "fine-tune", "vision"]
     """
     The intended purpose of the uploaded file.
 
@@ -3685,14 +3685,14 @@ class DeleteAssistantResponse(BaseModel):
     )
     id: str
     deleted: bool
-    object: Literal['assistant.deleted'] = 'assistant.deleted'
+    object: Literal["assistant.deleted"] = "assistant.deleted"
 
 
 class DeleteCertificateResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['certificate.deleted'] = 'certificate.deleted'
+    object: Literal["certificate.deleted"] = "certificate.deleted"
     """
     The object type, must be `certificate.deleted`.
     """
@@ -3707,7 +3707,7 @@ class DeleteFileResponse(BaseModel):
         populate_by_name=True,
     )
     id: str
-    object: Literal['file'] = 'file'
+    object: Literal["file"] = "file"
     deleted: bool
 
 
@@ -3719,7 +3719,7 @@ class DeleteFineTuningCheckpointPermissionResponse(BaseModel):
     """
     The ID of the fine-tuned model checkpoint permission that was deleted.
     """
-    object: Literal['checkpoint.permission'] = 'checkpoint.permission'
+    object: Literal["checkpoint.permission"] = "checkpoint.permission"
     """
     The object type, which is always "checkpoint.permission".
     """
@@ -3735,7 +3735,7 @@ class DeleteMessageResponse(BaseModel):
     )
     id: str
     deleted: bool
-    object: Literal['thread.message.deleted'] = 'thread.message.deleted'
+    object: Literal["thread.message.deleted"] = "thread.message.deleted"
 
 
 class DeleteModelResponse(BaseModel):
@@ -3753,7 +3753,7 @@ class DeleteThreadResponse(BaseModel):
     )
     id: str
     deleted: bool
-    object: Literal['thread.deleted'] = 'thread.deleted'
+    object: Literal["thread.deleted"] = "thread.deleted"
 
 
 class DeleteVectorStoreFileResponse(BaseModel):
@@ -3762,7 +3762,7 @@ class DeleteVectorStoreFileResponse(BaseModel):
     )
     id: str
     deleted: bool
-    object: Literal['vector_store.file.deleted'] = 'vector_store.file.deleted'
+    object: Literal["vector_store.file.deleted"] = "vector_store.file.deleted"
 
 
 class DeleteVectorStoreResponse(BaseModel):
@@ -3771,7 +3771,7 @@ class DeleteVectorStoreResponse(BaseModel):
     )
     id: str
     deleted: bool
-    object: Literal['vector_store.deleted'] = 'vector_store.deleted'
+    object: Literal["vector_store.deleted"] = "vector_store.deleted"
 
 
 class DoneEvent(BaseModel):
@@ -3782,8 +3782,8 @@ class DoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['done'] = 'done'
-    data: Literal['[DONE]'] = '[DONE]'
+    event: Literal["done"] = "done"
+    data: Literal["[DONE]"] = "[DONE]"
 
 
 class DoubleClick(BaseModel):
@@ -3795,7 +3795,7 @@ class DoubleClick(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['double_click'] = 'double_click'
+    type: Literal["double_click"] = "double_click"
     """
     Specifies the event type. For a double click action, this property is 
     always set to `double_click`.
@@ -3822,13 +3822,13 @@ class Drag(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['drag'] = 'drag'
+    type: Literal["drag"] = "drag"
     """
     Specifies the event type. For a drag action, this property is 
     always set to `drag`.
 
     """
-    path: List[Coordinate]
+    path: list[Coordinate]
     """
     An array of coordinates representing the path of the drag action. Coordinates will appear as an array
     of objects, eg
@@ -3855,12 +3855,12 @@ class Embedding(BaseModel):
     """
     The index of the embedding in the list of embeddings.
     """
-    embedding: List[float]
+    embedding: list[float]
     """
     The embedding vector, which is a list of floats. The length of vector depends on the model as listed in the [embedding guide](/docs/guides/embeddings).
 
     """
-    object: Literal['embedding'] = 'embedding'
+    object: Literal["embedding"] = "embedding"
     """
     The object type, which is always "embedding".
     """
@@ -3884,7 +3884,7 @@ class ErrorEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['error'] = 'error'
+    event: Literal["error"] = "error"
     data: Error1
 
 
@@ -3926,11 +3926,11 @@ class EvalCustomDataSourceConfig(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['custom'] = 'custom'
+    type: Literal["custom"] = "custom"
     """
     The type of data source. Always `custom`.
     """
-    schema_: Dict[str, Any] = Field(
+    schema_: dict[str, Any] = Field(
         ...,
         examples=[
             '{\n  "type": "object",\n  "properties": {\n    "item": {\n      "type": "object",\n      "properties": {\n        "label": {"type": "string"},\n      },\n      "required": ["label"]\n    }\n  },\n  "required": ["item"]\n}\n'
@@ -3952,7 +3952,7 @@ class Content7(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['output_text'] = 'output_text'
+    type: Literal["output_text"] = "output_text"
     """
     The type of the output text. Always `output_text`.
 
@@ -3968,19 +3968,19 @@ class ContentItem(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    item: Dict[str, Any]
-    sample: Dict[str, Any] | None = None
+    item: dict[str, Any]
+    sample: dict[str, Any] | None = None
 
 
 class EvalJsonlFileContentSource(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['file_content'] = 'file_content'
+    type: Literal["file_content"] = "file_content"
     """
     The type of jsonl source. Always `file_content`.
     """
-    content: List[ContentItem]
+    content: list[ContentItem]
     """
     The content of the jsonl file.
     """
@@ -3990,7 +3990,7 @@ class EvalJsonlFileIdSource(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['file_id'] = 'file_id'
+    type: Literal["file_id"] = "file_id"
     """
     The type of jsonl source. Always `file_id`.
     """
@@ -4009,7 +4009,7 @@ class EvalPythonGrader(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['python'] = 'python'
+    type: Literal["python"] = "python"
     """
     The object type, which is always `python`.
     """
@@ -4171,11 +4171,11 @@ class Sample(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    input: List[InputItem1]
+    input: list[InputItem1]
     """
     An array of input messages.
     """
-    output: List[OutputItem]
+    output: list[OutputItem]
     """
     An array of output messages.
     """
@@ -4219,7 +4219,7 @@ class EvalRunOutputItem(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['eval.run.output_item'] = 'eval.run.output_item'
+    object: Literal["eval.run.output_item"] = "eval.run.output_item"
     """
     The type of the object. Always "eval.run.output_item".
     """
@@ -4247,11 +4247,11 @@ class EvalRunOutputItem(BaseModel):
     """
     The identifier for the data source item.
     """
-    datasource_item: Dict[str, Any]
+    datasource_item: dict[str, Any]
     """
     Details of the input data source item.
     """
-    results: List[Dict[str, Any]]
+    results: list[dict[str, Any]]
     """
     A list of results from the evaluation run.
     """
@@ -4270,12 +4270,12 @@ class EvalRunOutputItemList(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The type of this object. It is always set to "list".
 
     """
-    data: List[EvalRunOutputItem]
+    data: list[EvalRunOutputItem]
     """
     An array of eval run output item objects.
 
@@ -4303,7 +4303,7 @@ class EvalStringCheckGrader(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['string_check'] = 'string_check'
+    type: Literal["string_check"] = "string_check"
     """
     The object type, which is always `string_check`.
     """
@@ -4319,7 +4319,7 @@ class EvalStringCheckGrader(BaseModel):
     """
     The reference text. This may include template strings.
     """
-    operation: Literal['eq', 'ne', 'like', 'ilike']
+    operation: Literal["eq", "ne", "like", "ilike"]
     """
     The string check operation to perform. One of `eq`, `ne`, `like`, or `ilike`.
     """
@@ -4334,7 +4334,7 @@ class EvalTextSimilarityGrader(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['text_similarity'] = 'text_similarity'
+    type: Literal["text_similarity"] = "text_similarity"
     """
     The type of grader.
     """
@@ -4355,16 +4355,16 @@ class EvalTextSimilarityGrader(BaseModel):
     A float score where a value greater than or equal indicates a passing grade.
     """
     evaluation_metric: Literal[
-        'fuzzy_match',
-        'bleu',
-        'gleu',
-        'meteor',
-        'rouge_1',
-        'rouge_2',
-        'rouge_3',
-        'rouge_4',
-        'rouge_5',
-        'rouge_l',
+        "fuzzy_match",
+        "bleu",
+        "gleu",
+        "meteor",
+        "rouge_1",
+        "rouge_2",
+        "rouge_3",
+        "rouge_4",
+        "rouge_5",
+        "rouge_l",
     ]
     """
     The evaluation metric to use. One of `fuzzy_match`, `bleu`, `gleu`, `meteor`, `rouge_1`, `rouge_2`, `rouge_3`, `rouge_4`, `rouge_5`, or `rouge_l`.
@@ -4380,7 +4380,7 @@ class FilePath(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['FilePath'] = 'FilePath'
+    type: Literal["FilePath"] = "FilePath"
     """
     The type of the file path. Always `file_path`.
 
@@ -4397,11 +4397,11 @@ class FilePath(BaseModel):
     """
 
 
-class FileSearchRanker(RootModel[Literal['auto', 'default_2024_08_21']]):
+class FileSearchRanker(RootModel[Literal["auto", "default_2024_08_21"]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['auto', 'default_2024_08_21']
+    root: Literal["auto", "default_2024_08_21"]
     """
     The ranker to use for the file search. If not specified will use the `auto` ranker.
     """
@@ -4495,24 +4495,24 @@ class Hyperparameters1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    beta: Literal['auto'] | Beta | None = 'auto'
+    beta: Literal["auto"] | Beta | None = "auto"
     """
     The beta value for the DPO method. A higher beta value will increase the weight of the penalty between the policy and reference model.
 
     """
-    batch_size: Literal['auto'] | BatchSize1 | None = 'auto'
+    batch_size: Literal["auto"] | BatchSize1 | None = "auto"
     """
     Number of examples in each batch. A larger batch size means that model parameters are updated less frequently, but with lower variance.
 
     """
     learning_rate_multiplier: (
-        Literal['auto'] | LearningRateMultiplier1 | None
-    ) = 'auto'
+        Literal["auto"] | LearningRateMultiplier1 | None
+    ) = "auto"
     """
     Scaling factor for the learning rate. A smaller learning rate may be useful to avoid overfitting.
 
     """
-    n_epochs: Literal['auto'] | NEpochs1 | None = 'auto'
+    n_epochs: Literal["auto"] | NEpochs1 | None = "auto"
     """
     The number of epochs to train the model for. An epoch refers to one full cycle through the training dataset.
 
@@ -4541,19 +4541,19 @@ class Hyperparameters2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    batch_size: Literal['auto'] | BatchSize1 | None = 'auto'
+    batch_size: Literal["auto"] | BatchSize1 | None = "auto"
     """
     Number of examples in each batch. A larger batch size means that model parameters are updated less frequently, but with lower variance.
 
     """
     learning_rate_multiplier: (
-        Literal['auto'] | LearningRateMultiplier1 | None
-    ) = 'auto'
+        Literal["auto"] | LearningRateMultiplier1 | None
+    ) = "auto"
     """
     Scaling factor for the learning rate. A smaller learning rate may be useful to avoid overfitting.
 
     """
-    n_epochs: Literal['auto'] | NEpochs1 | None = 'auto'
+    n_epochs: Literal["auto"] | NEpochs1 | None = "auto"
     """
     The number of epochs to train the model for. An epoch refers to one full cycle through the training dataset.
 
@@ -4595,7 +4595,7 @@ class FineTuningCheckpointPermission(BaseModel):
     """
     The project identifier that the permission is for.
     """
-    object: Literal['checkpoint.permission'] = 'checkpoint.permission'
+    object: Literal["checkpoint.permission"] = "checkpoint.permission"
     """
     The object type, which is always "checkpoint.permission".
     """
@@ -4605,7 +4605,7 @@ class FineTuningIntegration(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['wandb'] = 'wandb'
+    type: Literal["wandb"] = "wandb"
     """
     The type of the integration being enabled for the fine-tuning job
     """
@@ -4684,21 +4684,21 @@ class Hyperparameters3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    batch_size: Literal['auto'] | BatchSize3 | None = 'auto'
+    batch_size: Literal["auto"] | BatchSize3 | None = "auto"
     """
     Number of examples in each batch. A larger batch size means that model parameters
     are updated less frequently, but with lower variance.
 
     """
     learning_rate_multiplier: (
-        Literal['auto'] | LearningRateMultiplier3 | None
-    ) = 'auto'
+        Literal["auto"] | LearningRateMultiplier3 | None
+    ) = "auto"
     """
     Scaling factor for the learning rate. A smaller learning rate may be useful to avoid
     overfitting.
 
     """
-    n_epochs: Literal['auto'] | NEpochs3 | None = 'auto'
+    n_epochs: Literal["auto"] | NEpochs3 | None = "auto"
     """
     The number of epochs to train the model for. An epoch refers to one full cycle
     through the training dataset.
@@ -4756,8 +4756,8 @@ class FineTuningJobCheckpoint(BaseModel):
     """
     The name of the fine-tuning job that this checkpoint was created from.
     """
-    object: Literal['fine_tuning.job.checkpoint'] = (
-        'fine_tuning.job.checkpoint'
+    object: Literal["fine_tuning.job.checkpoint"] = (
+        "fine_tuning.job.checkpoint"
     )
     """
     The object type, which is always "fine_tuning.job.checkpoint".
@@ -4772,7 +4772,7 @@ class FineTuningJobEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['fine_tuning.job.event'] = 'fine_tuning.job.event'
+    object: Literal["fine_tuning.job.event"] = "fine_tuning.job.event"
     """
     The object type, which is always "fine_tuning.job.event".
     """
@@ -4784,7 +4784,7 @@ class FineTuningJobEvent(BaseModel):
     """
     The Unix timestamp (in seconds) for when the fine-tuning job was created.
     """
-    level: Literal['info', 'warn', 'error']
+    level: Literal["info", "warn", "error"]
     """
     The log level of the event.
     """
@@ -4792,11 +4792,11 @@ class FineTuningJobEvent(BaseModel):
     """
     The message of the event.
     """
-    type: Literal['message', 'metrics'] | None = None
+    type: Literal["message", "metrics"] | None = None
     """
     The type of event.
     """
-    data: Dict[str, Any] | None = None
+    data: dict[str, Any] | None = None
     """
     The data associated with the event.
     """
@@ -4810,7 +4810,7 @@ class FunctionParameters(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='allow',
+        extra="allow",
         populate_by_name=True,
     )
 
@@ -4830,7 +4830,7 @@ class FunctionToolCall(BaseModel):
     The unique ID of the function tool call.
 
     """
-    type: Literal['FunctionToolCall'] = 'FunctionToolCall'
+    type: Literal["FunctionToolCall"] = "FunctionToolCall"
     """
     The type of the function tool call. Always `function_call`.
 
@@ -4850,7 +4850,7 @@ class FunctionToolCall(BaseModel):
     A JSON string of the arguments to pass to the function.
 
     """
-    status: Literal['in_progress', 'completed', 'incomplete'] | None = None
+    status: Literal["in_progress", "completed", "incomplete"] | None = None
     """
     The status of the item. One of `in_progress`, `completed`, or
     `incomplete`. Populated when items are returned via API.
@@ -4873,7 +4873,7 @@ class FunctionToolCallOutput(BaseModel):
     is returned via API.
 
     """
-    type: Literal['function_call_output'] = 'function_call_output'
+    type: Literal["function_call_output"] = "function_call_output"
     """
     The type of the function tool call output. Always `function_call_output`.
 
@@ -4888,7 +4888,7 @@ class FunctionToolCallOutput(BaseModel):
     A JSON string of the output of the function tool call.
 
     """
-    status: Literal['in_progress', 'completed', 'incomplete'] | None = None
+    status: Literal["in_progress", "completed", "incomplete"] | None = None
     """
     The status of the item. One of `in_progress`, `completed`, or
     `incomplete`. Populated when items are returned via API.
@@ -4905,8 +4905,8 @@ class FunctionToolCallOutputResource(FunctionToolCallOutput):
     The unique ID of the function call tool output.
 
     """
-    type: Literal['FunctionToolCallOutputResource'] = (
-        'FunctionToolCallOutputResource'
+    type: Literal["FunctionToolCallOutputResource"] = (
+        "FunctionToolCallOutputResource"
     )
 
 
@@ -4919,7 +4919,7 @@ class FunctionToolCallResource(FunctionToolCall):
     The unique ID of the function tool call.
 
     """
-    type: Literal['FunctionToolCallResource'] = 'FunctionToolCallResource'
+    type: Literal["FunctionToolCallResource"] = "FunctionToolCallResource"
 
 
 class Image1(BaseModel):
@@ -5001,7 +5001,7 @@ class ImagesResponse(BaseModel):
     """
     The Unix timestamp (in seconds) of when the image was created.
     """
-    data: List[Image1] | None = None
+    data: list[Image1] | None = None
     """
     The list of generated images.
     """
@@ -5015,9 +5015,9 @@ class ImagesResponse(BaseModel):
 class Includable(
     RootModel[
         Literal[
-            'file_search_call.results',
-            'message.input_image.image_url',
-            'computer_call_output.output.image_url',
+            "file_search_call.results",
+            "message.input_image.image_url",
+            "computer_call_output.output.image_url",
         ]
     ]
 ):
@@ -5025,9 +5025,9 @@ class Includable(
         populate_by_name=True,
     )
     root: Literal[
-        'file_search_call.results',
-        'message.input_image.image_url',
-        'computer_call_output.output.image_url',
+        "file_search_call.results",
+        "message.input_image.image_url",
+        "computer_call_output.output.image_url",
     ]
     """
     Specify additional output data to include in the model response. Currently
@@ -5049,7 +5049,7 @@ class InputAudio1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['input_audio'] = 'input_audio'
+    type: Literal["input_audio"] = "input_audio"
     """
     The type of the input item. Always `input_audio`.
 
@@ -5059,7 +5059,7 @@ class InputAudio1(BaseModel):
     Base64-encoded audio data.
 
     """
-    format: Literal['mp3', 'wav']
+    format: Literal["mp3", "wav"]
     """
     The format of the audio data. Currently supported formats are `mp3` and
     `wav`.
@@ -5075,7 +5075,7 @@ class Project1(BaseModel):
     """
     Project's public ID
     """
-    role: Literal['member', 'owner'] | None = None
+    role: Literal["member", "owner"] | None = None
     """
     Project membership role
     """
@@ -5089,7 +5089,7 @@ class Invite(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.invite'] = 'organization.invite'
+    object: Literal["organization.invite"] = "organization.invite"
     """
     The object type, which is always `organization.invite`
     """
@@ -5101,11 +5101,11 @@ class Invite(BaseModel):
     """
     The email address of the individual to whom the invite was sent
     """
-    role: Literal['owner', 'reader']
+    role: Literal["owner", "reader"]
     """
     `owner` or `reader`
     """
-    status: Literal['accepted', 'expired', 'pending']
+    status: Literal["accepted", "expired", "pending"]
     """
     `accepted`,`expired`, or `pending`
     """
@@ -5121,7 +5121,7 @@ class Invite(BaseModel):
     """
     The Unix timestamp (in seconds) of when the invite was accepted.
     """
-    projects: List[Project1] | None = None
+    projects: list[Project1] | None = None
     """
     The projects that were granted membership upon acceptance of the invite.
     """
@@ -5131,8 +5131,8 @@ class InviteDeleteResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.invite.deleted'] = (
-        'organization.invite.deleted'
+    object: Literal["organization.invite.deleted"] = (
+        "organization.invite.deleted"
     )
     """
     The object type, which is always `organization.invite.deleted`
@@ -5145,11 +5145,11 @@ class InviteListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The object type, which is always `list`
     """
-    data: List[Invite]
+    data: list[Invite]
     first_id: str | None = None
     """
     The first `invite_id` in the retrieved `list`
@@ -5172,7 +5172,7 @@ class Project2(BaseModel):
     """
     Project's public ID
     """
-    role: Literal['member', 'owner']
+    role: Literal["member", "owner"]
     """
     Project membership role
     """
@@ -5186,11 +5186,11 @@ class InviteRequest(BaseModel):
     """
     Send an email to this address
     """
-    role: Literal['reader', 'owner']
+    role: Literal["reader", "owner"]
     """
     `owner` or `reader`
     """
-    projects: List[Project2] | None = None
+    projects: list[Project2] | None = None
     """
     An array of projects to which membership is granted at the same time the org invite is accepted. If omitted, the user will be invited to the default project for compatibility with legacy behavior.
     """
@@ -5205,13 +5205,13 @@ class KeyPress(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['keypress'] = 'keypress'
+    type: Literal["keypress"] = "keypress"
     """
     Specifies the event type. For a keypress action, this property is 
     always set to `keypress`.
 
     """
-    keys: List[str]
+    keys: list[str]
     """
     The combination of keys the model is requesting to be pressed. This is an
     array of strings, each representing a key.
@@ -5223,19 +5223,19 @@ class ListCertificatesResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    data: List[Certificate2]
-    first_id: str | None = Field(None, examples=['cert_abc'])
-    last_id: str | None = Field(None, examples=['cert_abc'])
+    data: list[Certificate2]
+    first_id: str | None = Field(None, examples=["cert_abc"])
+    last_id: str | None = Field(None, examples=["cert_abc"])
     has_more: bool
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
 
 
 class ListFineTuningCheckpointPermissionResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    data: List[FineTuningCheckpointPermission]
-    object: Literal['list'] = 'list'
+    data: list[FineTuningCheckpointPermission]
+    object: Literal["list"] = "list"
     first_id: str | None = None
     last_id: str | None = None
     has_more: bool
@@ -5245,8 +5245,8 @@ class ListFineTuningJobCheckpointsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    data: List[FineTuningJobCheckpoint]
-    object: Literal['list'] = 'list'
+    data: list[FineTuningJobCheckpoint]
+    object: Literal["list"] = "list"
     first_id: str | None = None
     last_id: str | None = None
     has_more: bool
@@ -5256,8 +5256,8 @@ class ListFineTuningJobEventsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    data: List[FineTuningJobEvent]
-    object: Literal['list'] = 'list'
+    data: list[FineTuningJobEvent]
+    object: Literal["list"] = "list"
     has_more: bool
 
 
@@ -5280,7 +5280,7 @@ class LogProbProperties(BaseModel):
     The log probability of the token.
 
     """
-    bytes: List[int]
+    bytes: list[int]
     """
     The bytes that were used to generate the log probability.
 
@@ -5295,7 +5295,7 @@ class ImageFile(BaseModel):
     """
     The [File](/docs/api-reference/files) ID of the image in the message content. Set `purpose="vision"` when uploading the File if you need to later display the file content.
     """
-    detail: Literal['auto', 'low', 'high'] | None = 'auto'
+    detail: Literal["auto", "low", "high"] | None = "auto"
     """
     Specifies the detail level of the image if specified by the user. `low` uses fewer tokens, you can opt in to high resolution using `high`.
     """
@@ -5309,7 +5309,7 @@ class MessageContentImageFileObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['image_file'] = 'image_file'
+    type: Literal["image_file"] = "image_file"
     """
     Always `image_file`.
     """
@@ -5324,7 +5324,7 @@ class ImageUrl2(BaseModel):
     """
     The external URL of the image, must be a supported image types: jpeg, jpg, png, gif, webp.
     """
-    detail: Literal['auto', 'low', 'high'] | None = 'auto'
+    detail: Literal["auto", "low", "high"] | None = "auto"
     """
     Specifies the detail level of the image. `low` uses fewer tokens, you can opt in to high resolution using `high`. Default value is `auto`
     """
@@ -5338,7 +5338,7 @@ class MessageContentImageUrlObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['image_url'] = 'image_url'
+    type: Literal["image_url"] = "image_url"
     """
     The type of the content part.
     """
@@ -5353,7 +5353,7 @@ class MessageContentRefusalObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['refusal'] = 'refusal'
+    type: Literal["refusal"] = "refusal"
     """
     Always `refusal`.
     """
@@ -5378,7 +5378,7 @@ class MessageContentTextAnnotationsFileCitationObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['file_citation'] = 'file_citation'
+    type: Literal["file_citation"] = "file_citation"
     """
     Always `file_citation`.
     """
@@ -5409,7 +5409,7 @@ class MessageContentTextAnnotationsFilePathObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['file_path'] = 'file_path'
+    type: Literal["file_path"] = "file_path"
     """
     Always `file_path`.
     """
@@ -5430,7 +5430,7 @@ class Text(BaseModel):
     """
     The data that makes up the text.
     """
-    annotations: List[
+    annotations: list[
         MessageContentTextAnnotationsFileCitationObject
         | MessageContentTextAnnotationsFilePathObject
     ]
@@ -5444,7 +5444,7 @@ class MessageContentTextObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['text'] = 'text'
+    type: Literal["text"] = "text"
     """
     Always `text`.
     """
@@ -5459,7 +5459,7 @@ class ImageFile1(BaseModel):
     """
     The [File](/docs/api-reference/files) ID of the image in the message content. Set `purpose="vision"` when uploading the File if you need to later display the file content.
     """
-    detail: Literal['auto', 'low', 'high'] | None = 'auto'
+    detail: Literal["auto", "low", "high"] | None = "auto"
     """
     Specifies the detail level of the image if specified by the user. `low` uses fewer tokens, you can opt in to high resolution using `high`.
     """
@@ -5477,7 +5477,7 @@ class MessageDeltaContentImageFileObject(BaseModel):
     """
     The index of the content part in the message.
     """
-    type: Literal['image_file'] = 'image_file'
+    type: Literal["image_file"] = "image_file"
     """
     Always `image_file`.
     """
@@ -5492,7 +5492,7 @@ class ImageUrl3(BaseModel):
     """
     The URL of the image, must be a supported image types: jpeg, jpg, png, gif, webp.
     """
-    detail: Literal['auto', 'low', 'high'] | None = 'auto'
+    detail: Literal["auto", "low", "high"] | None = "auto"
     """
     Specifies the detail level of the image. `low` uses fewer tokens, you can opt in to high resolution using `high`.
     """
@@ -5510,7 +5510,7 @@ class MessageDeltaContentImageUrlObject(BaseModel):
     """
     The index of the content part in the message.
     """
-    type: Literal['image_url'] = 'image_url'
+    type: Literal["image_url"] = "image_url"
     """
     Always `image_url`.
     """
@@ -5529,7 +5529,7 @@ class MessageDeltaContentRefusalObject(BaseModel):
     """
     The index of the refusal part in the message.
     """
-    type: Literal['refusal'] = 'refusal'
+    type: Literal["refusal"] = "refusal"
     """
     Always `refusal`.
     """
@@ -5562,7 +5562,7 @@ class MessageDeltaContentTextAnnotationsFileCitationObject(BaseModel):
     """
     The index of the annotation in the text content part.
     """
-    type: Literal['file_citation'] = 'file_citation'
+    type: Literal["file_citation"] = "file_citation"
     """
     Always `file_citation`.
     """
@@ -5597,7 +5597,7 @@ class MessageDeltaContentTextAnnotationsFilePathObject(BaseModel):
     """
     The index of the annotation in the text content part.
     """
-    type: Literal['file_path'] = 'file_path'
+    type: Literal["file_path"] = "file_path"
     """
     Always `file_path`.
     """
@@ -5619,7 +5619,7 @@ class Text1(BaseModel):
     The data that makes up the text.
     """
     annotations: (
-        List[
+        list[
             MessageDeltaContentTextAnnotationsFileCitationObject
             | MessageDeltaContentTextAnnotationsFilePathObject
         ]
@@ -5639,7 +5639,7 @@ class MessageDeltaContentTextObject(BaseModel):
     """
     The index of the content part in the message.
     """
-    type: Literal['text'] = 'text'
+    type: Literal["text"] = "text"
     """
     Always `text`.
     """
@@ -5654,12 +5654,12 @@ class Delta(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    role: Literal['user', 'assistant'] | None = None
+    role: Literal["user", "assistant"] | None = None
     """
     The entity that produced the message. One of `user` or `assistant`.
     """
     content: (
-        List[
+        list[
             MessageDeltaContentImageFileObject
             | MessageDeltaContentTextObject
             | MessageDeltaContentRefusalObject
@@ -5685,7 +5685,7 @@ class MessageDeltaObject(BaseModel):
     """
     The identifier of the message, which can be referenced in API endpoints.
     """
-    object: Literal['thread.message.delta'] = 'thread.message.delta'
+    object: Literal["thread.message.delta"] = "thread.message.delta"
     """
     The object type, which is always `thread.message.delta`.
     """
@@ -5704,11 +5704,11 @@ class IncompleteDetails(BaseModel):
         populate_by_name=True,
     )
     reason: Literal[
-        'content_filter',
-        'max_tokens',
-        'run_cancelled',
-        'run_expired',
-        'run_failed',
+        "content_filter",
+        "max_tokens",
+        "run_cancelled",
+        "run_expired",
+        "run_failed",
     ]
     """
     The reason the message is incomplete.
@@ -5723,7 +5723,7 @@ class MessageRequestContentTextObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['text'] = 'text'
+    type: Literal["text"] = "text"
     """
     Always `text`.
     """
@@ -5741,11 +5741,11 @@ class MessageStreamEvent3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.message.delta'] = 'thread.message.delta'
+    event: Literal["thread.message.delta"] = "thread.message.delta"
     data: MessageDeltaObject
 
 
-class Metadata(RootModel[Dict[str, str] | None]):
+class Metadata(RootModel[dict[str, str] | None]):
     """
     Set of 16 key-value pairs that can be attached to an object. This can be
     useful for storing additional information about the object in a structured
@@ -5759,7 +5759,7 @@ class Metadata(RootModel[Dict[str, str] | None]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Dict[str, str] | None = None
+    root: dict[str, str] | None = None
 
 
 class Model(BaseModel):
@@ -5778,7 +5778,7 @@ class Model(BaseModel):
     """
     The Unix timestamp (in seconds) when the model was created.
     """
-    object: Literal['model'] = 'model'
+    object: Literal["model"] = "model"
     """
     The object type, which is always "model".
     """
@@ -5792,59 +5792,59 @@ class ModelIdsShared(
     RootModel[
         str
         | Literal[
-            'gpt-4.1',
-            'gpt-4.1-mini',
-            'gpt-4.1-nano',
-            'gpt-4.1-2025-04-14',
-            'gpt-4.1-mini-2025-04-14',
-            'gpt-4.1-nano-2025-04-14',
-            'o4-mini',
-            'o4-mini-2025-04-16',
-            'o3',
-            'o3-2025-04-16',
-            'o3-mini',
-            'o3-mini-2025-01-31',
-            'o1',
-            'o1-2024-12-17',
-            'o1-preview',
-            'o1-preview-2024-09-12',
-            'o1-mini',
-            'o1-mini-2024-09-12',
-            'gpt-4o',
-            'gpt-4o-2024-11-20',
-            'gpt-4o-2024-08-06',
-            'gpt-4o-2024-05-13',
-            'gpt-4o-audio-preview',
-            'gpt-4o-audio-preview-2024-10-01',
-            'gpt-4o-audio-preview-2024-12-17',
-            'gpt-4o-mini-audio-preview',
-            'gpt-4o-mini-audio-preview-2024-12-17',
-            'gpt-4o-search-preview',
-            'gpt-4o-mini-search-preview',
-            'gpt-4o-search-preview-2025-03-11',
-            'gpt-4o-mini-search-preview-2025-03-11',
-            'chatgpt-4o-latest',
-            'gpt-4o-mini',
-            'gpt-4o-mini-2024-07-18',
-            'gpt-4-turbo',
-            'gpt-4-turbo-2024-04-09',
-            'gpt-4-0125-preview',
-            'gpt-4-turbo-preview',
-            'gpt-4-1106-preview',
-            'gpt-4-vision-preview',
-            'gpt-4',
-            'gpt-4-0314',
-            'gpt-4-0613',
-            'gpt-4-32k',
-            'gpt-4-32k-0314',
-            'gpt-4-32k-0613',
-            'gpt-3.5-turbo',
-            'gpt-3.5-turbo-16k',
-            'gpt-3.5-turbo-0301',
-            'gpt-3.5-turbo-0613',
-            'gpt-3.5-turbo-1106',
-            'gpt-3.5-turbo-0125',
-            'gpt-3.5-turbo-16k-0613',
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4.1-2025-04-14",
+            "gpt-4.1-mini-2025-04-14",
+            "gpt-4.1-nano-2025-04-14",
+            "o4-mini",
+            "o4-mini-2025-04-16",
+            "o3",
+            "o3-2025-04-16",
+            "o3-mini",
+            "o3-mini-2025-01-31",
+            "o1",
+            "o1-2024-12-17",
+            "o1-preview",
+            "o1-preview-2024-09-12",
+            "o1-mini",
+            "o1-mini-2024-09-12",
+            "gpt-4o",
+            "gpt-4o-2024-11-20",
+            "gpt-4o-2024-08-06",
+            "gpt-4o-2024-05-13",
+            "gpt-4o-audio-preview",
+            "gpt-4o-audio-preview-2024-10-01",
+            "gpt-4o-audio-preview-2024-12-17",
+            "gpt-4o-mini-audio-preview",
+            "gpt-4o-mini-audio-preview-2024-12-17",
+            "gpt-4o-search-preview",
+            "gpt-4o-mini-search-preview",
+            "gpt-4o-search-preview-2025-03-11",
+            "gpt-4o-mini-search-preview-2025-03-11",
+            "chatgpt-4o-latest",
+            "gpt-4o-mini",
+            "gpt-4o-mini-2024-07-18",
+            "gpt-4-turbo",
+            "gpt-4-turbo-2024-04-09",
+            "gpt-4-0125-preview",
+            "gpt-4-turbo-preview",
+            "gpt-4-1106-preview",
+            "gpt-4-vision-preview",
+            "gpt-4",
+            "gpt-4-0314",
+            "gpt-4-0613",
+            "gpt-4-32k",
+            "gpt-4-32k-0314",
+            "gpt-4-32k-0613",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-0301",
+            "gpt-3.5-turbo-0613",
+            "gpt-3.5-turbo-1106",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo-16k-0613",
         ]
     ]
 ):
@@ -5854,68 +5854,68 @@ class ModelIdsShared(
     root: (
         str
         | Literal[
-            'gpt-4.1',
-            'gpt-4.1-mini',
-            'gpt-4.1-nano',
-            'gpt-4.1-2025-04-14',
-            'gpt-4.1-mini-2025-04-14',
-            'gpt-4.1-nano-2025-04-14',
-            'o4-mini',
-            'o4-mini-2025-04-16',
-            'o3',
-            'o3-2025-04-16',
-            'o3-mini',
-            'o3-mini-2025-01-31',
-            'o1',
-            'o1-2024-12-17',
-            'o1-preview',
-            'o1-preview-2024-09-12',
-            'o1-mini',
-            'o1-mini-2024-09-12',
-            'gpt-4o',
-            'gpt-4o-2024-11-20',
-            'gpt-4o-2024-08-06',
-            'gpt-4o-2024-05-13',
-            'gpt-4o-audio-preview',
-            'gpt-4o-audio-preview-2024-10-01',
-            'gpt-4o-audio-preview-2024-12-17',
-            'gpt-4o-mini-audio-preview',
-            'gpt-4o-mini-audio-preview-2024-12-17',
-            'gpt-4o-search-preview',
-            'gpt-4o-mini-search-preview',
-            'gpt-4o-search-preview-2025-03-11',
-            'gpt-4o-mini-search-preview-2025-03-11',
-            'chatgpt-4o-latest',
-            'gpt-4o-mini',
-            'gpt-4o-mini-2024-07-18',
-            'gpt-4-turbo',
-            'gpt-4-turbo-2024-04-09',
-            'gpt-4-0125-preview',
-            'gpt-4-turbo-preview',
-            'gpt-4-1106-preview',
-            'gpt-4-vision-preview',
-            'gpt-4',
-            'gpt-4-0314',
-            'gpt-4-0613',
-            'gpt-4-32k',
-            'gpt-4-32k-0314',
-            'gpt-4-32k-0613',
-            'gpt-3.5-turbo',
-            'gpt-3.5-turbo-16k',
-            'gpt-3.5-turbo-0301',
-            'gpt-3.5-turbo-0613',
-            'gpt-3.5-turbo-1106',
-            'gpt-3.5-turbo-0125',
-            'gpt-3.5-turbo-16k-0613',
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4.1-2025-04-14",
+            "gpt-4.1-mini-2025-04-14",
+            "gpt-4.1-nano-2025-04-14",
+            "o4-mini",
+            "o4-mini-2025-04-16",
+            "o3",
+            "o3-2025-04-16",
+            "o3-mini",
+            "o3-mini-2025-01-31",
+            "o1",
+            "o1-2024-12-17",
+            "o1-preview",
+            "o1-preview-2024-09-12",
+            "o1-mini",
+            "o1-mini-2024-09-12",
+            "gpt-4o",
+            "gpt-4o-2024-11-20",
+            "gpt-4o-2024-08-06",
+            "gpt-4o-2024-05-13",
+            "gpt-4o-audio-preview",
+            "gpt-4o-audio-preview-2024-10-01",
+            "gpt-4o-audio-preview-2024-12-17",
+            "gpt-4o-mini-audio-preview",
+            "gpt-4o-mini-audio-preview-2024-12-17",
+            "gpt-4o-search-preview",
+            "gpt-4o-mini-search-preview",
+            "gpt-4o-search-preview-2025-03-11",
+            "gpt-4o-mini-search-preview-2025-03-11",
+            "chatgpt-4o-latest",
+            "gpt-4o-mini",
+            "gpt-4o-mini-2024-07-18",
+            "gpt-4-turbo",
+            "gpt-4-turbo-2024-04-09",
+            "gpt-4-0125-preview",
+            "gpt-4-turbo-preview",
+            "gpt-4-1106-preview",
+            "gpt-4-vision-preview",
+            "gpt-4",
+            "gpt-4-0314",
+            "gpt-4-0613",
+            "gpt-4-32k",
+            "gpt-4-32k-0314",
+            "gpt-4-32k-0613",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-0301",
+            "gpt-3.5-turbo-0613",
+            "gpt-3.5-turbo-1106",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo-16k-0613",
         ]
-    ) = Field(..., examples=['gpt-4o'])
+    ) = Field(..., examples=["gpt-4o"])
 
 
 class CodeInterpreter4(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field([], max_length=20)
+    file_ids: list[str] | None = Field([], max_length=20)
     """
     Overrides the list of [file](/docs/api-reference/files) IDs made available to the `code_interpreter` tool. There can be a maximum of 20 files associated with the tool.
 
@@ -5926,7 +5926,7 @@ class FileSearch7(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    vector_store_ids: List[str] | None = Field(None, max_length=1)
+    vector_store_ids: list[str] | None = Field(None, max_length=1)
     """
     Overrides the [vector store](/docs/api-reference/vector-stores/object) attached to this assistant. There can be a maximum of 1 vector store attached to the assistant.
 
@@ -5958,7 +5958,7 @@ class ModifyCertificateRequest(BaseModel):
 
 class ModifyMessageRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     metadata: Metadata | None = None
@@ -5966,7 +5966,7 @@ class ModifyMessageRequest(BaseModel):
 
 class ModifyRunRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     metadata: Metadata | None = None
@@ -5976,7 +5976,7 @@ class CodeInterpreter5(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field([], max_length=20)
+    file_ids: list[str] | None = Field([], max_length=20)
     """
     A list of [file](/docs/api-reference/files) IDs made available to the `code_interpreter` tool. There can be a maximum of 20 files associated with the tool.
 
@@ -5987,7 +5987,7 @@ class FileSearch8(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    vector_store_ids: List[str] | None = Field(None, max_length=1)
+    vector_store_ids: list[str] | None = Field(None, max_length=1)
     """
     The [vector store](/docs/api-reference/vector-stores/object) attached to this thread. There can be a maximum of 1 vector store attached to the thread.
 
@@ -6009,7 +6009,7 @@ class ToolResources5(BaseModel):
 
 class ModifyThreadRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     tool_resources: ToolResources5 | None = None
@@ -6029,7 +6029,7 @@ class Move(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['move'] = 'move'
+    type: Literal["move"] = "move"
     """
     Specifies the event type. For a move action, this property is 
     always set to `move`.
@@ -6075,23 +6075,23 @@ class OpenAIFile(BaseModel):
     """
     The name of the file.
     """
-    object: Literal['file'] = 'file'
+    object: Literal["file"] = "file"
     """
     The object type, which is always `file`.
     """
     purpose: Literal[
-        'assistants',
-        'assistants_output',
-        'batch',
-        'batch_output',
-        'fine-tune',
-        'fine-tune-results',
-        'vision',
+        "assistants",
+        "assistants_output",
+        "batch",
+        "batch_output",
+        "fine-tune",
+        "fine-tune-results",
+        "vision",
     ]
     """
     The intended purpose of the file. Supported values are `assistants`, `assistants_output`, `batch`, `batch_output`, `fine-tune`, `fine-tune-results` and `vision`.
     """
-    status: Literal['uploaded', 'processed', 'error']
+    status: Literal["uploaded", "processed", "error"]
     """
     Deprecated. The current status of the file, which can be either `uploaded`, `processed`, or `error`.
     """
@@ -6107,10 +6107,10 @@ class OtherChunkingStrategyResponseParam(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['other'] = 'other'
+    type: Literal["other"] = "other"
     """
     Always `other`.
     """
@@ -6125,7 +6125,7 @@ class OutputAudio(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['output_audio'] = 'output_audio'
+    type: Literal["output_audio"] = "output_audio"
     """
     The type of the output audio. Always `output_audio`.
 
@@ -6152,12 +6152,12 @@ class ParallelToolCalls(RootModel[bool]):
     """
 
 
-class Content8(RootModel[List[ChatCompletionRequestMessageContentPartText]]):
+class Content8(RootModel[list[ChatCompletionRequestMessageContentPartText]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[ChatCompletionRequestMessageContentPartText] = Field(
-        ..., min_length=1, title='Array of content parts'
+    root: list[ChatCompletionRequestMessageContentPartText] = Field(
+        ..., min_length=1, title="Array of content parts"
     )
     """
     An array of content parts with a defined type. Supported options differ based on the [model](/docs/models) being used to generate the response. Can contain text inputs.
@@ -6174,7 +6174,7 @@ class PredictionContent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['content'] = 'content'
+    type: Literal["content"] = "content"
     """
     The type of the predicted content you want to provide. This type is
     currently always `content`.
@@ -6201,7 +6201,7 @@ class Project3(BaseModel):
     """
     The identifier, which can be referenced in API endpoints
     """
-    object: Literal['organization.project'] = 'organization.project'
+    object: Literal["organization.project"] = "organization.project"
     """
     The object type, which is always `organization.project`
     """
@@ -6217,7 +6217,7 @@ class Project3(BaseModel):
     """
     The Unix timestamp (in seconds) of when the project was archived or `null`.
     """
-    status: Literal['active', 'archived']
+    status: Literal["active", "archived"]
     """
     `active` or `archived`
     """
@@ -6227,8 +6227,8 @@ class ProjectApiKeyDeleteResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.api_key.deleted'] = (
-        'organization.project.api_key.deleted'
+    object: Literal["organization.project.api_key.deleted"] = (
+        "organization.project.api_key.deleted"
     )
     id: str
     deleted: bool
@@ -6248,8 +6248,8 @@ class ProjectListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
-    data: List[Project3]
+    object: Literal["list"] = "list"
+    data: list[Project3]
     first_id: str
     last_id: str
     has_more: bool
@@ -6263,7 +6263,7 @@ class ProjectRateLimit(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['project.rate_limit'] = 'project.rate_limit'
+    object: Literal["project.rate_limit"] = "project.rate_limit"
     """
     The object type, which is always `project.rate_limit`
     """
@@ -6305,8 +6305,8 @@ class ProjectRateLimitListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
-    data: List[ProjectRateLimit]
+    object: Literal["list"] = "list"
+    data: list[ProjectRateLimit]
     first_id: str
     last_id: str
     has_more: bool
@@ -6350,8 +6350,8 @@ class ProjectServiceAccount(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.service_account'] = (
-        'organization.project.service_account'
+    object: Literal["organization.project.service_account"] = (
+        "organization.project.service_account"
     )
     """
     The object type, which is always `organization.project.service_account`
@@ -6364,7 +6364,7 @@ class ProjectServiceAccount(BaseModel):
     """
     The name of the service account
     """
-    role: Literal['owner', 'member']
+    role: Literal["owner", "member"]
     """
     `owner` or `member`
     """
@@ -6378,8 +6378,8 @@ class ProjectServiceAccountApiKey(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.service_account.api_key'] = (
-        'organization.project.service_account.api_key'
+    object: Literal["organization.project.service_account.api_key"] = (
+        "organization.project.service_account.api_key"
     )
     """
     The object type, which is always `organization.project.service_account.api_key`
@@ -6404,12 +6404,12 @@ class ProjectServiceAccountCreateResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.service_account'] = (
-        'organization.project.service_account'
+    object: Literal["organization.project.service_account"] = (
+        "organization.project.service_account"
     )
     id: str
     name: str
-    role: Literal['member'] = 'member'
+    role: Literal["member"] = "member"
     """
     Service accounts can only have one role of type `member`
     """
@@ -6421,8 +6421,8 @@ class ProjectServiceAccountDeleteResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.service_account.deleted'] = (
-        'organization.project.service_account.deleted'
+    object: Literal["organization.project.service_account.deleted"] = (
+        "organization.project.service_account.deleted"
     )
     id: str
     deleted: bool
@@ -6432,8 +6432,8 @@ class ProjectServiceAccountListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
-    data: List[ProjectServiceAccount]
+    object: Literal["list"] = "list"
+    data: list[ProjectServiceAccount]
     first_id: str
     last_id: str
     has_more: bool
@@ -6457,7 +6457,7 @@ class ProjectUser(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.user'] = 'organization.project.user'
+    object: Literal["organization.project.user"] = "organization.project.user"
     """
     The object type, which is always `organization.project.user`
     """
@@ -6473,7 +6473,7 @@ class ProjectUser(BaseModel):
     """
     The email address of the user
     """
-    role: Literal['owner', 'member']
+    role: Literal["owner", "member"]
     """
     `owner` or `member`
     """
@@ -6491,7 +6491,7 @@ class ProjectUserCreateRequest(BaseModel):
     """
     The ID of the user.
     """
-    role: Literal['owner', 'member']
+    role: Literal["owner", "member"]
     """
     `owner` or `member`
     """
@@ -6501,8 +6501,8 @@ class ProjectUserDeleteResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.user.deleted'] = (
-        'organization.project.user.deleted'
+    object: Literal["organization.project.user.deleted"] = (
+        "organization.project.user.deleted"
     )
     id: str
     deleted: bool
@@ -6513,7 +6513,7 @@ class ProjectUserListResponse(BaseModel):
         populate_by_name=True,
     )
     object: str
-    data: List[ProjectUser]
+    data: list[ProjectUser]
     first_id: str
     last_id: str
     has_more: bool
@@ -6523,7 +6523,7 @@ class ProjectUserUpdateRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    role: Literal['owner', 'member']
+    role: Literal["owner", "member"]
     """
     `owner` or `member`
     """
@@ -6545,8 +6545,8 @@ class RealtimeClientEventConversationItemDelete(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventConversationItemDelete'] = (
-        'RealtimeClientEventConversationItemDelete'
+    type: Literal["RealtimeClientEventConversationItemDelete"] = (
+        "RealtimeClientEventConversationItemDelete"
     )
     """
     The event type, must be `conversation.item.delete`.
@@ -6573,8 +6573,8 @@ class RealtimeClientEventConversationItemRetrieve(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventConversationItemRetrieve'] = (
-        'RealtimeClientEventConversationItemRetrieve'
+    type: Literal["RealtimeClientEventConversationItemRetrieve"] = (
+        "RealtimeClientEventConversationItemRetrieve"
     )
     """
     The event type, must be `conversation.item.retrieve`.
@@ -6608,8 +6608,8 @@ class RealtimeClientEventConversationItemTruncate(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventConversationItemTruncate'] = (
-        'RealtimeClientEventConversationItemTruncate'
+    type: Literal["RealtimeClientEventConversationItemTruncate"] = (
+        "RealtimeClientEventConversationItemTruncate"
     )
     """
     The event type, must be `conversation.item.truncate`.
@@ -6655,8 +6655,8 @@ class RealtimeClientEventInputAudioBufferAppend(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventInputAudioBufferAppend'] = (
-        'RealtimeClientEventInputAudioBufferAppend'
+    type: Literal["RealtimeClientEventInputAudioBufferAppend"] = (
+        "RealtimeClientEventInputAudioBufferAppend"
     )
     """
     The event type, must be `input_audio_buffer.append`.
@@ -6683,8 +6683,8 @@ class RealtimeClientEventInputAudioBufferClear(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventInputAudioBufferClear'] = (
-        'RealtimeClientEventInputAudioBufferClear'
+    type: Literal["RealtimeClientEventInputAudioBufferClear"] = (
+        "RealtimeClientEventInputAudioBufferClear"
     )
     """
     The event type, must be `input_audio_buffer.clear`.
@@ -6713,8 +6713,8 @@ class RealtimeClientEventInputAudioBufferCommit(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventInputAudioBufferCommit'] = (
-        'RealtimeClientEventInputAudioBufferCommit'
+    type: Literal["RealtimeClientEventInputAudioBufferCommit"] = (
+        "RealtimeClientEventInputAudioBufferCommit"
     )
     """
     The event type, must be `input_audio_buffer.commit`.
@@ -6738,8 +6738,8 @@ class RealtimeClientEventOutputAudioBufferClear(BaseModel):
     """
     The unique ID of the client event used for error handling.
     """
-    type: Literal['RealtimeClientEventOutputAudioBufferClear'] = (
-        'RealtimeClientEventOutputAudioBufferClear'
+    type: Literal["RealtimeClientEventOutputAudioBufferClear"] = (
+        "RealtimeClientEventOutputAudioBufferClear"
     )
     """
     The event type, must be `output_audio_buffer.clear`.
@@ -6761,8 +6761,8 @@ class RealtimeClientEventResponseCancel(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventResponseCancel'] = (
-        'RealtimeClientEventResponseCancel'
+    type: Literal["RealtimeClientEventResponseCancel"] = (
+        "RealtimeClientEventResponseCancel"
     )
     """
     The event type, must be `response.cancel`.
@@ -6780,7 +6780,7 @@ class ContentItem1(BaseModel):
         populate_by_name=True,
     )
     type: (
-        Literal['input_audio', 'input_text', 'item_reference', 'text'] | None
+        Literal["input_audio", "input_text", "item_reference", "text"] | None
     ) = None
     """
     The content type (`input_text`, `input_audio`, `item_reference`, `text`).
@@ -6826,31 +6826,31 @@ class RealtimeConversationItem(BaseModel):
 
     """
     type: (
-        Literal['message', 'function_call', 'function_call_output'] | None
+        Literal["message", "function_call", "function_call_output"] | None
     ) = None
     """
     The type of the item (`message`, `function_call`, `function_call_output`).
 
     """
-    object: Literal['realtime.item'] | None = None
+    object: Literal["realtime.item"] | None = None
     """
     Identifier for the API object being returned - always `realtime.item`.
 
     """
-    status: Literal['completed', 'incomplete'] | None = None
+    status: Literal["completed", "incomplete"] | None = None
     """
     The status of the item (`completed`, `incomplete`). These have no effect 
     on the conversation, but are accepted for consistency with the 
     `conversation.item.created` event.
 
     """
-    role: Literal['user', 'assistant', 'system'] | None = None
+    role: Literal["user", "assistant", "system"] | None = None
     """
     The role of the message sender (`user`, `assistant`, `system`), only 
     applicable for `message` items.
 
     """
-    content: List[ContentItem1] | None = None
+    content: list[ContentItem1] | None = None
     """
     The content of the message, applicable for `message` items. 
     - Message items of role `system` support only `input_text` content
@@ -6903,31 +6903,31 @@ class RealtimeConversationItemWithReference(BaseModel):
 
     """
     type: (
-        Literal['message', 'function_call', 'function_call_output'] | None
+        Literal["message", "function_call", "function_call_output"] | None
     ) = None
     """
     The type of the item (`message`, `function_call`, `function_call_output`, `item_reference`).
 
     """
-    object: Literal['realtime.item'] | None = None
+    object: Literal["realtime.item"] | None = None
     """
     Identifier for the API object being returned - always `realtime.item`.
 
     """
-    status: Literal['completed', 'incomplete'] | None = None
+    status: Literal["completed", "incomplete"] | None = None
     """
     The status of the item (`completed`, `incomplete`). These have no effect 
     on the conversation, but are accepted for consistency with the 
     `conversation.item.created` event.
 
     """
-    role: Literal['user', 'assistant', 'system'] | None = None
+    role: Literal["user", "assistant", "system"] | None = None
     """
     The role of the message sender (`user`, `assistant`, `system`), only 
     applicable for `message` items.
 
     """
-    content: List[ContentItem1] | None = None
+    content: list[ContentItem1] | None = None
     """
     The content of the message, applicable for `message` items. 
     - Message items of role `system` support only `input_text` content
@@ -6989,7 +6989,7 @@ class StatusDetails(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['completed', 'cancelled', 'failed', 'incomplete'] | None = (
+    type: Literal["completed", "cancelled", "failed", "incomplete"] | None = (
         None
     )
     """
@@ -7000,10 +7000,10 @@ class StatusDetails(BaseModel):
     """
     reason: (
         Literal[
-            'turn_detected',
-            'client_cancelled',
-            'max_output_tokens',
-            'content_filter',
+            "turn_detected",
+            "client_cancelled",
+            "max_output_tokens",
+            "content_filter",
         ]
         | None
     ) = None
@@ -7107,7 +7107,7 @@ class Tool(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['function'] | None = None
+    type: Literal["function"] | None = None
     """
     The type of the tool, i.e. `function`.
     """
@@ -7122,7 +7122,7 @@ class Tool(BaseModel):
     (if anything).
 
     """
-    parameters: Dict[str, Any] | None = None
+    parameters: dict[str, Any] | None = None
     """
     Parameters of the function in JSON Schema.
     """
@@ -7159,8 +7159,8 @@ class RealtimeServerEventConversationCreated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventConversationCreated'] = (
-        'RealtimeServerEventConversationCreated'
+    type: Literal["RealtimeServerEventConversationCreated"] = (
+        "RealtimeServerEventConversationCreated"
     )
     """
     The event type, must be `conversation.created`.
@@ -7192,8 +7192,8 @@ class RealtimeServerEventConversationItemCreated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventConversationItemCreated'] = (
-        'RealtimeServerEventConversationItemCreated'
+    type: Literal["RealtimeServerEventConversationItemCreated"] = (
+        "RealtimeServerEventConversationItemCreated"
     )
     """
     The event type, must be `conversation.item.created`.
@@ -7222,8 +7222,8 @@ class RealtimeServerEventConversationItemDeleted(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventConversationItemDeleted'] = (
-        'RealtimeServerEventConversationItemDeleted'
+    type: Literal["RealtimeServerEventConversationItemDeleted"] = (
+        "RealtimeServerEventConversationItemDeleted"
     )
     """
     The event type, must be `conversation.item.deleted`.
@@ -7259,8 +7259,8 @@ class RealtimeServerEventConversationItemInputAudioTranscriptionCompleted(
     The unique ID of the server event.
     """
     type: Literal[
-        'RealtimeServerEventConversationItemInputAudioTranscriptionCompleted'
-    ] = 'RealtimeServerEventConversationItemInputAudioTranscriptionCompleted'
+        "RealtimeServerEventConversationItemInputAudioTranscriptionCompleted"
+    ] = "RealtimeServerEventConversationItemInputAudioTranscriptionCompleted"
     """
     The event type, must be
     `conversation.item.input_audio_transcription.completed`.
@@ -7278,7 +7278,7 @@ class RealtimeServerEventConversationItemInputAudioTranscriptionCompleted(
     """
     The transcribed text.
     """
-    logprobs: List[LogProbProperties] | None = None
+    logprobs: list[LogProbProperties] | None = None
     """
     The log probabilities of the transcription.
     """
@@ -7300,8 +7300,8 @@ class RealtimeServerEventConversationItemInputAudioTranscriptionDelta(
     The unique ID of the server event.
     """
     type: Literal[
-        'RealtimeServerEventConversationItemInputAudioTranscriptionDelta'
-    ] = 'RealtimeServerEventConversationItemInputAudioTranscriptionDelta'
+        "RealtimeServerEventConversationItemInputAudioTranscriptionDelta"
+    ] = "RealtimeServerEventConversationItemInputAudioTranscriptionDelta"
     """
     The event type, must be `conversation.item.input_audio_transcription.delta`.
     """
@@ -7317,7 +7317,7 @@ class RealtimeServerEventConversationItemInputAudioTranscriptionDelta(
     """
     The text delta.
     """
-    logprobs: List[LogProbProperties] | None = None
+    logprobs: list[LogProbProperties] | None = None
     """
     The log probabilities of the transcription.
     """
@@ -7367,8 +7367,8 @@ class RealtimeServerEventConversationItemInputAudioTranscriptionFailed(
     The unique ID of the server event.
     """
     type: Literal[
-        'RealtimeServerEventConversationItemInputAudioTranscriptionFailed'
-    ] = 'RealtimeServerEventConversationItemInputAudioTranscriptionFailed'
+        "RealtimeServerEventConversationItemInputAudioTranscriptionFailed"
+    ] = "RealtimeServerEventConversationItemInputAudioTranscriptionFailed"
     """
     The event type, must be
     `conversation.item.input_audio_transcription.failed`.
@@ -7401,8 +7401,8 @@ class RealtimeServerEventConversationItemRetrieved(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventConversationItemRetrieved'] = (
-        'RealtimeServerEventConversationItemRetrieved'
+    type: Literal["RealtimeServerEventConversationItemRetrieved"] = (
+        "RealtimeServerEventConversationItemRetrieved"
     )
     """
     The event type, must be `conversation.item.retrieved`.
@@ -7428,8 +7428,8 @@ class RealtimeServerEventConversationItemTruncated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventConversationItemTruncated'] = (
-        'RealtimeServerEventConversationItemTruncated'
+    type: Literal["RealtimeServerEventConversationItemTruncated"] = (
+        "RealtimeServerEventConversationItemTruncated"
     )
     """
     The event type, must be `conversation.item.truncated`.
@@ -7496,7 +7496,7 @@ class RealtimeServerEventError(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventError'] = 'RealtimeServerEventError'
+    type: Literal["RealtimeServerEventError"] = "RealtimeServerEventError"
     """
     The event type, must be `error`.
     """
@@ -7520,8 +7520,8 @@ class RealtimeServerEventInputAudioBufferCleared(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventInputAudioBufferCleared'] = (
-        'RealtimeServerEventInputAudioBufferCleared'
+    type: Literal["RealtimeServerEventInputAudioBufferCleared"] = (
+        "RealtimeServerEventInputAudioBufferCleared"
     )
     """
     The event type, must be `input_audio_buffer.cleared`.
@@ -7544,8 +7544,8 @@ class RealtimeServerEventInputAudioBufferCommitted(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventInputAudioBufferCommitted'] = (
-        'RealtimeServerEventInputAudioBufferCommitted'
+    type: Literal["RealtimeServerEventInputAudioBufferCommitted"] = (
+        "RealtimeServerEventInputAudioBufferCommitted"
     )
     """
     The event type, must be `input_audio_buffer.committed`.
@@ -7583,8 +7583,8 @@ class RealtimeServerEventInputAudioBufferSpeechStarted(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventInputAudioBufferSpeechStarted'] = (
-        'RealtimeServerEventInputAudioBufferSpeechStarted'
+    type: Literal["RealtimeServerEventInputAudioBufferSpeechStarted"] = (
+        "RealtimeServerEventInputAudioBufferSpeechStarted"
     )
     """
     The event type, must be `input_audio_buffer.speech_started`.
@@ -7619,8 +7619,8 @@ class RealtimeServerEventInputAudioBufferSpeechStopped(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventInputAudioBufferSpeechStopped'] = (
-        'RealtimeServerEventInputAudioBufferSpeechStopped'
+    type: Literal["RealtimeServerEventInputAudioBufferSpeechStopped"] = (
+        "RealtimeServerEventInputAudioBufferSpeechStopped"
     )
     """
     The event type, must be `input_audio_buffer.speech_stopped`.
@@ -7655,8 +7655,8 @@ class RealtimeServerEventOutputAudioBufferCleared(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventOutputAudioBufferCleared'] = (
-        'RealtimeServerEventOutputAudioBufferCleared'
+    type: Literal["RealtimeServerEventOutputAudioBufferCleared"] = (
+        "RealtimeServerEventOutputAudioBufferCleared"
     )
     """
     The event type, must be `output_audio_buffer.cleared`.
@@ -7683,8 +7683,8 @@ class RealtimeServerEventOutputAudioBufferStarted(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventOutputAudioBufferStarted'] = (
-        'RealtimeServerEventOutputAudioBufferStarted'
+    type: Literal["RealtimeServerEventOutputAudioBufferStarted"] = (
+        "RealtimeServerEventOutputAudioBufferStarted"
     )
     """
     The event type, must be `output_audio_buffer.started`.
@@ -7711,8 +7711,8 @@ class RealtimeServerEventOutputAudioBufferStopped(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventOutputAudioBufferStopped'] = (
-        'RealtimeServerEventOutputAudioBufferStopped'
+    type: Literal["RealtimeServerEventOutputAudioBufferStopped"] = (
+        "RealtimeServerEventOutputAudioBufferStopped"
     )
     """
     The event type, must be `output_audio_buffer.stopped`.
@@ -7727,7 +7727,7 @@ class RateLimit(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    name: Literal['requests', 'tokens'] | None = None
+    name: Literal["requests", "tokens"] | None = None
     """
     The name of the rate limit (`requests`, `tokens`).
 
@@ -7762,13 +7762,13 @@ class RealtimeServerEventRateLimitsUpdated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventRateLimitsUpdated'] = (
-        'RealtimeServerEventRateLimitsUpdated'
+    type: Literal["RealtimeServerEventRateLimitsUpdated"] = (
+        "RealtimeServerEventRateLimitsUpdated"
     )
     """
     The event type, must be `rate_limits.updated`.
     """
-    rate_limits: List[RateLimit]
+    rate_limits: list[RateLimit]
     """
     List of rate limit information.
     """
@@ -7786,8 +7786,8 @@ class RealtimeServerEventResponseAudioDelta(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseAudioDelta'] = (
-        'RealtimeServerEventResponseAudioDelta'
+    type: Literal["RealtimeServerEventResponseAudioDelta"] = (
+        "RealtimeServerEventResponseAudioDelta"
     )
     """
     The event type, must be `response.audio.delta`.
@@ -7828,8 +7828,8 @@ class RealtimeServerEventResponseAudioDone(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseAudioDone'] = (
-        'RealtimeServerEventResponseAudioDone'
+    type: Literal["RealtimeServerEventResponseAudioDone"] = (
+        "RealtimeServerEventResponseAudioDone"
     )
     """
     The event type, must be `response.audio.done`.
@@ -7865,8 +7865,8 @@ class RealtimeServerEventResponseAudioTranscriptDelta(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseAudioTranscriptDelta'] = (
-        'RealtimeServerEventResponseAudioTranscriptDelta'
+    type: Literal["RealtimeServerEventResponseAudioTranscriptDelta"] = (
+        "RealtimeServerEventResponseAudioTranscriptDelta"
     )
     """
     The event type, must be `response.audio_transcript.delta`.
@@ -7908,8 +7908,8 @@ class RealtimeServerEventResponseAudioTranscriptDone(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseAudioTranscriptDone'] = (
-        'RealtimeServerEventResponseAudioTranscriptDone'
+    type: Literal["RealtimeServerEventResponseAudioTranscriptDone"] = (
+        "RealtimeServerEventResponseAudioTranscriptDone"
     )
     """
     The event type, must be `response.audio_transcript.done`.
@@ -7944,7 +7944,7 @@ class Part(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['audio', 'text'] | None = None
+    type: Literal["audio", "text"] | None = None
     """
     The content type ("text", "audio").
     """
@@ -7976,8 +7976,8 @@ class RealtimeServerEventResponseContentPartAdded(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseContentPartAdded'] = (
-        'RealtimeServerEventResponseContentPartAdded'
+    type: Literal["RealtimeServerEventResponseContentPartAdded"] = (
+        "RealtimeServerEventResponseContentPartAdded"
     )
     """
     The event type, must be `response.content_part.added`.
@@ -8012,7 +8012,7 @@ class Part1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['audio', 'text'] | None = None
+    type: Literal["audio", "text"] | None = None
     """
     The content type ("text", "audio").
     """
@@ -8044,8 +8044,8 @@ class RealtimeServerEventResponseContentPartDone(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseContentPartDone'] = (
-        'RealtimeServerEventResponseContentPartDone'
+    type: Literal["RealtimeServerEventResponseContentPartDone"] = (
+        "RealtimeServerEventResponseContentPartDone"
     )
     """
     The event type, must be `response.content_part.done`.
@@ -8085,8 +8085,8 @@ class RealtimeServerEventResponseFunctionCallArgumentsDelta(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseFunctionCallArgumentsDelta'] = (
-        'RealtimeServerEventResponseFunctionCallArgumentsDelta'
+    type: Literal["RealtimeServerEventResponseFunctionCallArgumentsDelta"] = (
+        "RealtimeServerEventResponseFunctionCallArgumentsDelta"
     )
     """
     The event type, must be `response.function_call_arguments.delta`.
@@ -8128,8 +8128,8 @@ class RealtimeServerEventResponseFunctionCallArgumentsDone(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseFunctionCallArgumentsDone'] = (
-        'RealtimeServerEventResponseFunctionCallArgumentsDone'
+    type: Literal["RealtimeServerEventResponseFunctionCallArgumentsDone"] = (
+        "RealtimeServerEventResponseFunctionCallArgumentsDone"
     )
     """
     The event type, must be `response.function_call_arguments.done`.
@@ -8169,8 +8169,8 @@ class RealtimeServerEventResponseOutputItemAdded(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseOutputItemAdded'] = (
-        'RealtimeServerEventResponseOutputItemAdded'
+    type: Literal["RealtimeServerEventResponseOutputItemAdded"] = (
+        "RealtimeServerEventResponseOutputItemAdded"
     )
     """
     The event type, must be `response.output_item.added`.
@@ -8200,8 +8200,8 @@ class RealtimeServerEventResponseOutputItemDone(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseOutputItemDone'] = (
-        'RealtimeServerEventResponseOutputItemDone'
+    type: Literal["RealtimeServerEventResponseOutputItemDone"] = (
+        "RealtimeServerEventResponseOutputItemDone"
     )
     """
     The event type, must be `response.output_item.done`.
@@ -8229,8 +8229,8 @@ class RealtimeServerEventResponseTextDelta(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseTextDelta'] = (
-        'RealtimeServerEventResponseTextDelta'
+    type: Literal["RealtimeServerEventResponseTextDelta"] = (
+        "RealtimeServerEventResponseTextDelta"
     )
     """
     The event type, must be `response.text.delta`.
@@ -8271,8 +8271,8 @@ class RealtimeServerEventResponseTextDone(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseTextDone'] = (
-        'RealtimeServerEventResponseTextDone'
+    type: Literal["RealtimeServerEventResponseTextDone"] = (
+        "RealtimeServerEventResponseTextDone"
     )
     """
     The event type, must be `response.text.done`.
@@ -8341,12 +8341,12 @@ class TurnDetection(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['server_vad', 'semantic_vad'] | None = 'server_vad'
+    type: Literal["server_vad", "semantic_vad"] | None = "server_vad"
     """
     Type of turn detection.
 
     """
-    eagerness: Literal['low', 'medium', 'high', 'auto'] | None = 'auto'
+    eagerness: Literal["low", "medium", "high", "auto"] | None = "auto"
     """
     Used only for `semantic_vad` mode. The eagerness of the model to respond. `low` will wait longer for the user to continue speaking, `high` will respond more quickly. `auto` is the default and is equivalent to `medium`.
 
@@ -8395,7 +8395,7 @@ class InputAudioNoiseReduction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['near_field', 'far_field'] | None = None
+    type: Literal["near_field", "far_field"] | None = None
     """
     Type of noise reduction. `near_field` is for close-talking microphones such as headphones, `far_field` is for far-field microphones such as laptop or conference room microphones.
 
@@ -8494,7 +8494,7 @@ class InputAudioTranscription3(BaseModel):
         populate_by_name=True,
     )
     model: (
-        Literal['gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'whisper-1']
+        Literal["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"]
         | None
     ) = None
     """
@@ -8529,12 +8529,12 @@ class TurnDetection3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['server_vad', 'semantic_vad'] | None = 'server_vad'
+    type: Literal["server_vad", "semantic_vad"] | None = "server_vad"
     """
     Type of turn detection.
 
     """
-    eagerness: Literal['low', 'medium', 'high', 'auto'] | None = 'auto'
+    eagerness: Literal["low", "medium", "high", "auto"] | None = "auto"
     """
     Used only for `semantic_vad` mode. The eagerness of the model to respond. `low` will wait longer for the user to continue speaking, `high` will respond more quickly. `auto` is the default and is equivalent to `medium`.
 
@@ -8580,14 +8580,14 @@ class RealtimeTranscriptionSessionCreateRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    modalities: List[Literal['text', 'audio']] | None = None
+    modalities: list[Literal["text", "audio"]] | None = None
     """
     The set of modalities the model can respond with. To disable audio,
     set this to ["text"].
 
     """
-    input_audio_format: Literal['pcm16', 'g711_ulaw', 'g711_alaw'] | None = (
-        'pcm16'
+    input_audio_format: Literal["pcm16", "g711_ulaw", "g711_alaw"] | None = (
+        "pcm16"
     )
     """
     The format of input audio. Options are `pcm16`, `g711_ulaw`, or `g711_alaw`.
@@ -8614,7 +8614,7 @@ class RealtimeTranscriptionSessionCreateRequest(BaseModel):
     Filtering the audio can improve VAD and turn detection accuracy (reducing false positives) and model performance by improving perception of the input audio.
 
     """
-    include: List[str] | None = None
+    include: list[str] | None = None
     """
     The set of items to include in the transcription. Current available items are:
     - `item.input_audio_transcription.logprobs`
@@ -8657,7 +8657,7 @@ class InputAudioTranscription4(BaseModel):
         populate_by_name=True,
     )
     model: (
-        Literal['gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'whisper-1']
+        Literal["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"]
         | None
     ) = None
     """
@@ -8737,7 +8737,7 @@ class RealtimeTranscriptionSessionCreateResponse(BaseModel):
     created on the server via REST API.
 
     """
-    modalities: List[Literal['text', 'audio']] | None = None
+    modalities: list[Literal["text", "audio"]] | None = None
     """
     The set of modalities the model can respond with. To disable audio,
     set this to ["text"].
@@ -8762,11 +8762,11 @@ class RealtimeTranscriptionSessionCreateResponse(BaseModel):
     """
 
 
-class ReasoningEffort(RootModel[Literal['low', 'medium', 'high'] | None]):
+class ReasoningEffort(RootModel[Literal["low", "medium", "high"] | None]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['low', 'medium', 'high'] | None = 'medium'
+    root: Literal["low", "medium", "high"] | None = "medium"
     """
     **o-series models only** 
 
@@ -8783,7 +8783,7 @@ class SummaryItem(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['summary_text'] = 'summary_text'
+    type: Literal["summary_text"] = "summary_text"
     """
     The type of the object. Always `summary_text`.
 
@@ -8806,7 +8806,7 @@ class ReasoningItem(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ReasoningItem'] = 'ReasoningItem'
+    type: Literal["ReasoningItem"] = "ReasoningItem"
     """
     The type of the object. Always `reasoning`.
 
@@ -8816,12 +8816,12 @@ class ReasoningItem(BaseModel):
     The unique identifier of the reasoning content.
 
     """
-    summary: List[SummaryItem]
+    summary: list[SummaryItem]
     """
     Reasoning text contents.
 
     """
-    status: Literal['in_progress', 'completed', 'incomplete'] | None = None
+    status: Literal["in_progress", "completed", "incomplete"] | None = None
     """
     The status of the item. One of `in_progress`, `completed`, or
     `incomplete`. Populated when items are returned via API.
@@ -8838,7 +8838,7 @@ class IncompleteDetails1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    reason: Literal['max_output_tokens', 'content_filter'] | None = None
+    reason: Literal["max_output_tokens", "content_filter"] | None = None
     """
     The reason why the response is incomplete.
     """
@@ -8852,7 +8852,7 @@ class ResponseAudioDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseAudioDeltaEvent'] = 'ResponseAudioDeltaEvent'
+    type: Literal["ResponseAudioDeltaEvent"] = "ResponseAudioDeltaEvent"
     """
     The type of the event. Always `response.audio.delta`.
 
@@ -8872,7 +8872,7 @@ class ResponseAudioDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseAudioDoneEvent'] = 'ResponseAudioDoneEvent'
+    type: Literal["ResponseAudioDoneEvent"] = "ResponseAudioDoneEvent"
     """
     The type of the event. Always `response.audio.done`.
 
@@ -8887,8 +8887,8 @@ class ResponseAudioTranscriptDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseAudioTranscriptDeltaEvent'] = (
-        'ResponseAudioTranscriptDeltaEvent'
+    type: Literal["ResponseAudioTranscriptDeltaEvent"] = (
+        "ResponseAudioTranscriptDeltaEvent"
     )
     """
     The type of the event. Always `response.audio.transcript.delta`.
@@ -8909,8 +8909,8 @@ class ResponseAudioTranscriptDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseAudioTranscriptDoneEvent'] = (
-        'ResponseAudioTranscriptDoneEvent'
+    type: Literal["ResponseAudioTranscriptDoneEvent"] = (
+        "ResponseAudioTranscriptDoneEvent"
     )
     """
     The type of the event. Always `response.audio.transcript.done`.
@@ -8926,8 +8926,8 @@ class ResponseCodeInterpreterCallCodeDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseCodeInterpreterCallCodeDeltaEvent'] = (
-        'ResponseCodeInterpreterCallCodeDeltaEvent'
+    type: Literal["ResponseCodeInterpreterCallCodeDeltaEvent"] = (
+        "ResponseCodeInterpreterCallCodeDeltaEvent"
     )
     """
     The type of the event. Always `response.code_interpreter_call.code.delta`.
@@ -8953,8 +8953,8 @@ class ResponseCodeInterpreterCallCodeDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseCodeInterpreterCallCodeDoneEvent'] = (
-        'ResponseCodeInterpreterCallCodeDoneEvent'
+    type: Literal["ResponseCodeInterpreterCallCodeDoneEvent"] = (
+        "ResponseCodeInterpreterCallCodeDoneEvent"
     )
     """
     The type of the event. Always `response.code_interpreter_call.code.done`.
@@ -8975,24 +8975,24 @@ class ResponseCodeInterpreterCallCodeDoneEvent(BaseModel):
 class ResponseErrorCode(
     RootModel[
         Literal[
-            'server_error',
-            'rate_limit_exceeded',
-            'invalid_prompt',
-            'vector_store_timeout',
-            'invalid_image',
-            'invalid_image_format',
-            'invalid_base64_image',
-            'invalid_image_url',
-            'image_too_large',
-            'image_too_small',
-            'image_parse_error',
-            'image_content_policy_violation',
-            'invalid_image_mode',
-            'image_file_too_large',
-            'unsupported_image_media_type',
-            'empty_image_file',
-            'failed_to_download_image',
-            'image_file_not_found',
+            "server_error",
+            "rate_limit_exceeded",
+            "invalid_prompt",
+            "vector_store_timeout",
+            "invalid_image",
+            "invalid_image_format",
+            "invalid_base64_image",
+            "invalid_image_url",
+            "image_too_large",
+            "image_too_small",
+            "image_parse_error",
+            "image_content_policy_violation",
+            "invalid_image_mode",
+            "image_file_too_large",
+            "unsupported_image_media_type",
+            "empty_image_file",
+            "failed_to_download_image",
+            "image_file_not_found",
         ]
     ]
 ):
@@ -9000,24 +9000,24 @@ class ResponseErrorCode(
         populate_by_name=True,
     )
     root: Literal[
-        'server_error',
-        'rate_limit_exceeded',
-        'invalid_prompt',
-        'vector_store_timeout',
-        'invalid_image',
-        'invalid_image_format',
-        'invalid_base64_image',
-        'invalid_image_url',
-        'image_too_large',
-        'image_too_small',
-        'image_parse_error',
-        'image_content_policy_violation',
-        'invalid_image_mode',
-        'image_file_too_large',
-        'unsupported_image_media_type',
-        'empty_image_file',
-        'failed_to_download_image',
-        'image_file_not_found',
+        "server_error",
+        "rate_limit_exceeded",
+        "invalid_prompt",
+        "vector_store_timeout",
+        "invalid_image",
+        "invalid_image_format",
+        "invalid_base64_image",
+        "invalid_image_url",
+        "image_too_large",
+        "image_too_small",
+        "image_parse_error",
+        "image_content_policy_violation",
+        "invalid_image_mode",
+        "image_file_too_large",
+        "unsupported_image_media_type",
+        "empty_image_file",
+        "failed_to_download_image",
+        "image_file_not_found",
     ]
     """
     The error code for the response.
@@ -9033,7 +9033,7 @@ class ResponseErrorEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseErrorEvent'] = 'ResponseErrorEvent'
+    type: Literal["ResponseErrorEvent"] = "ResponseErrorEvent"
     """
     The type of the event. Always `error`.
 
@@ -9063,8 +9063,8 @@ class ResponseFileSearchCallCompletedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseFileSearchCallCompletedEvent'] = (
-        'ResponseFileSearchCallCompletedEvent'
+    type: Literal["ResponseFileSearchCallCompletedEvent"] = (
+        "ResponseFileSearchCallCompletedEvent"
     )
     """
     The type of the event. Always `response.file_search_call.completed`.
@@ -9090,8 +9090,8 @@ class ResponseFileSearchCallInProgressEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseFileSearchCallInProgressEvent'] = (
-        'ResponseFileSearchCallInProgressEvent'
+    type: Literal["ResponseFileSearchCallInProgressEvent"] = (
+        "ResponseFileSearchCallInProgressEvent"
     )
     """
     The type of the event. Always `response.file_search_call.in_progress`.
@@ -9117,8 +9117,8 @@ class ResponseFileSearchCallSearchingEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseFileSearchCallSearchingEvent'] = (
-        'ResponseFileSearchCallSearchingEvent'
+    type: Literal["ResponseFileSearchCallSearchingEvent"] = (
+        "ResponseFileSearchCallSearchingEvent"
     )
     """
     The type of the event. Always `response.file_search_call.searching`.
@@ -9148,7 +9148,7 @@ class ResponseFormatJsonObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['json_object'] = 'json_object'
+    type: Literal["json_object"] = "json_object"
     """
     The type of response format being defined. Always `json_object`.
     """
@@ -9162,7 +9162,7 @@ class ResponseFormatJsonSchemaSchema(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='allow',
+        extra="allow",
         populate_by_name=True,
     )
 
@@ -9176,7 +9176,7 @@ class ResponseFormatText(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['text'] = 'text'
+    type: Literal["text"] = "text"
     """
     The type of response format being defined. Always `text`.
     """
@@ -9190,8 +9190,8 @@ class ResponseFunctionCallArgumentsDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseFunctionCallArgumentsDeltaEvent'] = (
-        'ResponseFunctionCallArgumentsDeltaEvent'
+    type: Literal["ResponseFunctionCallArgumentsDeltaEvent"] = (
+        "ResponseFunctionCallArgumentsDeltaEvent"
     )
     """
     The type of the event. Always `response.function_call_arguments.delta`.
@@ -9222,8 +9222,8 @@ class ResponseFunctionCallArgumentsDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseFunctionCallArgumentsDoneEvent'] = (
-        'ResponseFunctionCallArgumentsDoneEvent'
+    type: Literal["ResponseFunctionCallArgumentsDoneEvent"] = (
+        "ResponseFunctionCallArgumentsDoneEvent"
     )
     item_id: str
     """
@@ -9239,7 +9239,7 @@ class ResponseFunctionCallArgumentsDoneEvent(BaseModel):
     """
 
 
-class ResponseModalities(RootModel[List[Literal['text', 'audio']] | None]):
+class ResponseModalities(RootModel[list[Literal["text", "audio"]] | None]):
     """
     Output types that you would like the model to generate.
     Most models are capable of generating text, which is the default:
@@ -9257,7 +9257,7 @@ class ResponseModalities(RootModel[List[Literal['text', 'audio']] | None]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[Literal['text', 'audio']] | None = None
+    root: list[Literal["text", "audio"]] | None = None
     """
     Output types that you would like the model to generate.
     Most models are capable of generating text, which is the default:
@@ -9282,7 +9282,7 @@ class Part2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['summary_text'] = 'summary_text'
+    type: Literal["summary_text"] = "summary_text"
     """
     The type of the summary part. Always `summary_text`.
     """
@@ -9300,8 +9300,8 @@ class ResponseReasoningSummaryPartAddedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseReasoningSummaryPartAddedEvent'] = (
-        'ResponseReasoningSummaryPartAddedEvent'
+    type: Literal["ResponseReasoningSummaryPartAddedEvent"] = (
+        "ResponseReasoningSummaryPartAddedEvent"
     )
     """
     The type of the event. Always `response.reasoning_summary_part.added`.
@@ -9338,7 +9338,7 @@ class Part3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['summary_text'] = 'summary_text'
+    type: Literal["summary_text"] = "summary_text"
     """
     The type of the summary part. Always `summary_text`.
     """
@@ -9356,8 +9356,8 @@ class ResponseReasoningSummaryPartDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseReasoningSummaryPartDoneEvent'] = (
-        'ResponseReasoningSummaryPartDoneEvent'
+    type: Literal["ResponseReasoningSummaryPartDoneEvent"] = (
+        "ResponseReasoningSummaryPartDoneEvent"
     )
     """
     The type of the event. Always `response.reasoning_summary_part.done`.
@@ -9393,8 +9393,8 @@ class ResponseReasoningSummaryTextDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseReasoningSummaryTextDeltaEvent'] = (
-        'ResponseReasoningSummaryTextDeltaEvent'
+    type: Literal["ResponseReasoningSummaryTextDeltaEvent"] = (
+        "ResponseReasoningSummaryTextDeltaEvent"
     )
     """
     The type of the event. Always `response.reasoning_summary_text.delta`.
@@ -9430,8 +9430,8 @@ class ResponseReasoningSummaryTextDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseReasoningSummaryTextDoneEvent'] = (
-        'ResponseReasoningSummaryTextDoneEvent'
+    type: Literal["ResponseReasoningSummaryTextDoneEvent"] = (
+        "ResponseReasoningSummaryTextDoneEvent"
     )
     """
     The type of the event. Always `response.reasoning_summary_text.done`.
@@ -9467,7 +9467,7 @@ class ResponseRefusalDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseRefusalDeltaEvent'] = 'ResponseRefusalDeltaEvent'
+    type: Literal["ResponseRefusalDeltaEvent"] = "ResponseRefusalDeltaEvent"
     """
     The type of the event. Always `response.refusal.delta`.
 
@@ -9502,7 +9502,7 @@ class ResponseRefusalDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseRefusalDoneEvent'] = 'ResponseRefusalDoneEvent'
+    type: Literal["ResponseRefusalDoneEvent"] = "ResponseRefusalDoneEvent"
     """
     The type of the event. Always `response.refusal.done`.
 
@@ -9537,7 +9537,7 @@ class ResponseTextDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseTextDeltaEvent'] = 'ResponseTextDeltaEvent'
+    type: Literal["ResponseTextDeltaEvent"] = "ResponseTextDeltaEvent"
     """
     The type of the event. Always `response.output_text.delta`.
 
@@ -9572,7 +9572,7 @@ class ResponseTextDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseTextDoneEvent'] = 'ResponseTextDoneEvent'
+    type: Literal["ResponseTextDoneEvent"] = "ResponseTextDoneEvent"
     """
     The type of the event. Always `response.output_text.done`.
 
@@ -9669,8 +9669,8 @@ class ResponseWebSearchCallCompletedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseWebSearchCallCompletedEvent'] = (
-        'ResponseWebSearchCallCompletedEvent'
+    type: Literal["ResponseWebSearchCallCompletedEvent"] = (
+        "ResponseWebSearchCallCompletedEvent"
     )
     """
     The type of the event. Always `response.web_search_call.completed`.
@@ -9696,8 +9696,8 @@ class ResponseWebSearchCallInProgressEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseWebSearchCallInProgressEvent'] = (
-        'ResponseWebSearchCallInProgressEvent'
+    type: Literal["ResponseWebSearchCallInProgressEvent"] = (
+        "ResponseWebSearchCallInProgressEvent"
     )
     """
     The type of the event. Always `response.web_search_call.in_progress`.
@@ -9723,8 +9723,8 @@ class ResponseWebSearchCallSearchingEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseWebSearchCallSearchingEvent'] = (
-        'ResponseWebSearchCallSearchingEvent'
+    type: Literal["ResponseWebSearchCallSearchingEvent"] = (
+        "ResponseWebSearchCallSearchingEvent"
     )
     """
     The type of the event. Always `response.web_search_call.searching`.
@@ -9772,7 +9772,7 @@ class LastError(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    code: Literal['server_error', 'rate_limit_exceeded', 'invalid_prompt']
+    code: Literal["server_error", "rate_limit_exceeded", "invalid_prompt"]
     """
     One of `server_error`, `rate_limit_exceeded`, or `invalid_prompt`.
     """
@@ -9790,7 +9790,7 @@ class IncompleteDetails2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    reason: Literal['max_completion_tokens', 'max_prompt_tokens'] | None = None
+    reason: Literal["max_completion_tokens", "max_prompt_tokens"] | None = None
     """
     The reason why the run is incomplete. This will point to which specific token limit was reached over the course of the run.
     """
@@ -9836,7 +9836,7 @@ class RunStepDeltaStepDetailsMessageCreationObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['message_creation'] = 'message_creation'
+    type: Literal["message_creation"] = "message_creation"
     """
     Always `message_creation`.
     """
@@ -9861,7 +9861,7 @@ class RunStepDeltaStepDetailsToolCallsCodeOutputImageObject(BaseModel):
     """
     The index of the output in the outputs array.
     """
-    type: Literal['image'] = 'image'
+    type: Literal["image"] = "image"
     """
     Always `image`.
     """
@@ -9880,7 +9880,7 @@ class RunStepDeltaStepDetailsToolCallsCodeOutputLogsObject(BaseModel):
     """
     The index of the output in the outputs array.
     """
-    type: Literal['logs'] = 'logs'
+    type: Literal["logs"] = "logs"
     """
     Always `logs`.
     """
@@ -9902,11 +9902,11 @@ class RunStepDeltaStepDetailsToolCallsFileSearchObject(BaseModel):
     """
     The ID of the tool call object.
     """
-    type: Literal['file_search'] = 'file_search'
+    type: Literal["file_search"] = "file_search"
     """
     The type of tool call. This is always going to be `file_search` for this type of tool call.
     """
-    file_search: Dict[str, Any]
+    file_search: dict[str, Any]
     """
     For now, this is always going to be an empty object.
     """
@@ -9946,7 +9946,7 @@ class RunStepDeltaStepDetailsToolCallsFunctionObject(BaseModel):
     """
     The ID of the tool call object.
     """
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     The type of tool call. This is always going to be `function` for this type of tool call.
     """
@@ -9974,7 +9974,7 @@ class RunStepDetailsMessageCreationObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['message_creation'] = 'message_creation'
+    type: Literal["message_creation"] = "message_creation"
     """
     Always `message_creation`.
     """
@@ -9995,7 +9995,7 @@ class RunStepDetailsToolCallsCodeOutputImageObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['image'] = 'image'
+    type: Literal["image"] = "image"
     """
     Always `image`.
     """
@@ -10010,7 +10010,7 @@ class RunStepDetailsToolCallsCodeOutputLogsObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['logs'] = 'logs'
+    type: Literal["logs"] = "logs"
     """
     Always `logs`.
     """
@@ -10039,7 +10039,7 @@ class ContentItem3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['text'] | None = None
+    type: Literal["text"] | None = None
     """
     The type of the content.
     """
@@ -10069,7 +10069,7 @@ class RunStepDetailsToolCallsFileSearchResultObject(BaseModel):
     """
     The score of the result. All values must be a floating point number between 0 and 1.
     """
-    content: List[ContentItem3] | None = None
+    content: list[ContentItem3] | None = None
     """
     The content of the result that was found. The content is only included if requested via the include query parameter.
     """
@@ -10105,7 +10105,7 @@ class RunStepDetailsToolCallsFunctionObject(BaseModel):
     """
     The ID of the tool call object.
     """
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     The type of tool call. This is always going to be `function` for this type of tool call.
     """
@@ -10123,7 +10123,7 @@ class LastError1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    code: Literal['server_error', 'rate_limit_exceeded']
+    code: Literal["server_error", "rate_limit_exceeded"]
     """
     One of `server_error` or `rate_limit_exceeded`.
     """
@@ -10163,7 +10163,7 @@ class RunToolCallObject(BaseModel):
     """
     The ID of the tool call. This ID must be referenced when you submit the tool outputs in using the [Submit tool outputs to run](/docs/api-reference/runs/submitToolOutputs) endpoint.
     """
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     The type of tool call the output is required for. For now, this is always `function`.
     """
@@ -10182,7 +10182,7 @@ class Screenshot(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['screenshot'] = 'screenshot'
+    type: Literal["screenshot"] = "screenshot"
     """
     Specifies the event type. For a screenshot action, this property is 
     always set to `screenshot`.
@@ -10199,7 +10199,7 @@ class Scroll(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['scroll'] = 'scroll'
+    type: Literal["scroll"] = "scroll"
     """
     Specifies the event type. For a scroll action, this property is 
     always set to `scroll`.
@@ -10227,11 +10227,11 @@ class Scroll(BaseModel):
     """
 
 
-class ServiceTier(RootModel[Literal['auto', 'default', 'flex'] | None]):
+class ServiceTier(RootModel[Literal["auto", "default", "flex"] | None]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['auto', 'default', 'flex'] | None = 'auto'
+    root: Literal["auto", "default", "flex"] | None = "auto"
     """
     Specifies the latency tier to use for processing the request. This parameter is relevant for customers subscribed to the scale tier service:
       - If set to 'auto', and the Project is Scale tier enabled, the system
@@ -10248,7 +10248,7 @@ class ServiceTier(RootModel[Literal['auto', 'default', 'flex'] | None]):
 
 class StaticChunkingStrategy(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     max_chunk_size_tokens: int = Field(..., ge=100, le=4096)
@@ -10270,10 +10270,10 @@ class StaticChunkingStrategyRequestParam(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['static'] = 'static'
+    type: Literal["static"] = "static"
     """
     Always `static`.
     """
@@ -10282,21 +10282,21 @@ class StaticChunkingStrategyRequestParam(BaseModel):
 
 class StaticChunkingStrategyResponseParam(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['static'] = 'static'
+    type: Literal["static"] = "static"
     """
     Always `static`.
     """
     static: StaticChunkingStrategy
 
 
-class StopConfiguration1(RootModel[List[str] | None]):
+class StopConfiguration1(RootModel[list[str] | None]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[str] | None = Field(None, max_length=4, min_length=1)
+    root: list[str] | None = Field(None, max_length=4, min_length=1)
     """
     Not supported with latest reasoning models `o3` and `o4-mini`.
 
@@ -10336,10 +10336,10 @@ class ToolOutput(BaseModel):
 
 class SubmitToolOutputsRunRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    tool_outputs: List[ToolOutput]
+    tool_outputs: list[ToolOutput]
     """
     A list of tools for which the outputs are being submitted.
     """
@@ -10360,7 +10360,7 @@ class TextResponseFormatJsonSchema(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['json_schema'] = 'json_schema'
+    type: Literal["json_schema"] = "json_schema"
     """
     The type of response format being defined. Always `json_schema`.
     """
@@ -10413,7 +10413,7 @@ class ThreadObject(BaseModel):
     """
     The identifier, which can be referenced in API endpoints.
     """
-    object: Literal['thread'] = 'thread'
+    object: Literal["thread"] = "thread"
     """
     The object type, which is always `thread`.
     """
@@ -10441,7 +10441,7 @@ class ThreadStreamEvent1(BaseModel):
     """
     Whether to enable input audio transcription.
     """
-    event: Literal['thread.created'] = 'thread.created'
+    event: Literal["thread.created"] = "thread.created"
     data: ThreadObject
 
 
@@ -10456,7 +10456,7 @@ class ToggleCertificatesRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    certificate_ids: List[str] = Field(..., max_length=10, min_length=1)
+    certificate_ids: list[str] = Field(..., max_length=10, min_length=1)
 
 
 class ToolChoiceFunction(BaseModel):
@@ -10468,7 +10468,7 @@ class ToolChoiceFunction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     For function calling, the type is always `function`.
     """
@@ -10478,12 +10478,12 @@ class ToolChoiceFunction(BaseModel):
     """
 
 
-class ToolChoiceOptions(RootModel[Literal['none', 'auto', 'required']]):
+class ToolChoiceOptions(RootModel[Literal["none", "auto", "required"]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['none', 'auto', 'required'] = Field(
-        ..., title='Tool choice mode'
+    root: Literal["none", "auto", "required"] = Field(
+        ..., title="Tool choice mode"
     )
     """
     Controls which (if any) tool is called by the model.
@@ -10509,10 +10509,10 @@ class ToolChoiceTypes(BaseModel):
         populate_by_name=True,
     )
     type: Literal[
-        'file_search',
-        'web_search_preview',
-        'computer_use_preview',
-        'web_search_preview_2025_03_11',
+        "file_search",
+        "web_search_preview",
+        "computer_use_preview",
+        "web_search_preview_2025_03_11",
     ]
     """
     The type of hosted tool the model should to use. Learn more about
@@ -10540,7 +10540,7 @@ class Logprob1(BaseModel):
     The log probability of the token.
 
     """
-    bytes: List | None = None
+    bytes: list | None = None
     """
     The bytes that were used to generate the log probability.
 
@@ -10555,7 +10555,7 @@ class TranscriptTextDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['TranscriptTextDeltaEvent'] = 'TranscriptTextDeltaEvent'
+    type: Literal["TranscriptTextDeltaEvent"] = "TranscriptTextDeltaEvent"
     """
     The type of the event. Always `transcript.text.delta`.
 
@@ -10565,7 +10565,7 @@ class TranscriptTextDeltaEvent(BaseModel):
     The text delta that was additionally transcribed.
 
     """
-    logprobs: List[Logprob1] | None = None
+    logprobs: list[Logprob1] | None = None
     """
     The log probabilities of the delta. Only included if you [create a transcription](/docs/api-reference/audio/create-transcription) with the `include[]` parameter set to `logprobs`.
 
@@ -10580,7 +10580,7 @@ class TranscriptTextDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['TranscriptTextDoneEvent'] = 'TranscriptTextDoneEvent'
+    type: Literal["TranscriptTextDoneEvent"] = "TranscriptTextDoneEvent"
     """
     The type of the event. Always `transcript.text.done`.
 
@@ -10590,18 +10590,18 @@ class TranscriptTextDoneEvent(BaseModel):
     The text that was transcribed.
 
     """
-    logprobs: List[Logprob1] | None = None
+    logprobs: list[Logprob1] | None = None
     """
     The log probabilities of the individual tokens in the transcription. Only included if you [create a transcription](/docs/api-reference/audio/create-transcription) with the `include[]` parameter set to `logprobs`.
 
     """
 
 
-class TranscriptionInclude(RootModel[Literal['logprobs']]):
+class TranscriptionInclude(RootModel[Literal["logprobs"]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['logprobs'] = 'logprobs'
+    root: Literal["logprobs"] = "logprobs"
 
 
 class TranscriptionSegment(BaseModel):
@@ -10628,7 +10628,7 @@ class TranscriptionSegment(BaseModel):
     """
     Text content of the segment.
     """
-    tokens: List[int]
+    tokens: list[int]
     """
     Array of token IDs for the text content.
     """
@@ -10676,7 +10676,7 @@ class TruncationObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['auto', 'last_messages']
+    type: Literal["auto", "last_messages"]
     """
     The truncation strategy to use for the thread. The default is `auto`. If set to `last_messages`, the thread will be truncated to the n most recent messages in the thread. When set to `auto`, messages in the middle of the thread will be dropped to fit the context length of the model, `max_prompt_tokens`.
     """
@@ -10695,7 +10695,7 @@ class Type(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['type'] = 'type'
+    type: Literal["type"] = "type"
     """
     Specifies the event type. For a type action, this property is 
     always set to `type`.
@@ -10737,7 +10737,7 @@ class Upload(BaseModel):
     """
     The intended purpose of the file. [Please refer here](/docs/api-reference/files/object#files/object-purpose) for acceptable values.
     """
-    status: Literal['pending', 'completed', 'cancelled', 'expired']
+    status: Literal["pending", "completed", "cancelled", "expired"]
     """
     The status of the Upload.
     """
@@ -10745,7 +10745,7 @@ class Upload(BaseModel):
     """
     The Unix timestamp (in seconds) for when the Upload will expire.
     """
-    object: Literal['upload'] | None = None
+    object: Literal["upload"] | None = None
     """
     The object type, which is always "upload".
     """
@@ -10787,7 +10787,7 @@ class UploadPart(BaseModel):
     """
     The ID of the Upload object that this Part was added to.
     """
-    object: Literal['upload.part'] = 'upload.part'
+    object: Literal["upload.part"] = "upload.part"
     """
     The object type, which is always `upload.part`.
     """
@@ -10801,8 +10801,8 @@ class UsageAudioSpeechesResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.audio_speeches.result'] = (
-        'organization.usage.audio_speeches.result'
+    object: Literal["organization.usage.audio_speeches.result"] = (
+        "organization.usage.audio_speeches.result"
     )
     characters: int
     """
@@ -10838,8 +10838,8 @@ class UsageAudioTranscriptionsResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.audio_transcriptions.result'] = (
-        'organization.usage.audio_transcriptions.result'
+    object: Literal["organization.usage.audio_transcriptions.result"] = (
+        "organization.usage.audio_transcriptions.result"
     )
     seconds: int
     """
@@ -10875,8 +10875,8 @@ class UsageCodeInterpreterSessionsResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.code_interpreter_sessions.result'] = (
-        'organization.usage.code_interpreter_sessions.result'
+    object: Literal["organization.usage.code_interpreter_sessions.result"] = (
+        "organization.usage.code_interpreter_sessions.result"
     )
     num_sessions: int | None = None
     """
@@ -10896,8 +10896,8 @@ class UsageCompletionsResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.completions.result'] = (
-        'organization.usage.completions.result'
+    object: Literal["organization.usage.completions.result"] = (
+        "organization.usage.completions.result"
     )
     input_tokens: int
     """
@@ -10953,8 +10953,8 @@ class UsageEmbeddingsResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.embeddings.result'] = (
-        'organization.usage.embeddings.result'
+    object: Literal["organization.usage.embeddings.result"] = (
+        "organization.usage.embeddings.result"
     )
     input_tokens: int
     """
@@ -10990,8 +10990,8 @@ class UsageImagesResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.images.result'] = (
-        'organization.usage.images.result'
+    object: Literal["organization.usage.images.result"] = (
+        "organization.usage.images.result"
     )
     images: int
     """
@@ -11035,8 +11035,8 @@ class UsageModerationsResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.moderations.result'] = (
-        'organization.usage.moderations.result'
+    object: Literal["organization.usage.moderations.result"] = (
+        "organization.usage.moderations.result"
     )
     input_tokens: int
     """
@@ -11072,8 +11072,8 @@ class UsageVectorStoresResult(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.usage.vector_stores.result'] = (
-        'organization.usage.vector_stores.result'
+    object: Literal["organization.usage.vector_stores.result"] = (
+        "organization.usage.vector_stores.result"
     )
     usage_bytes: int
     """
@@ -11093,7 +11093,7 @@ class User(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.user'] = 'organization.user'
+    object: Literal["organization.user"] = "organization.user"
     """
     The object type, which is always `organization.user`
     """
@@ -11109,7 +11109,7 @@ class User(BaseModel):
     """
     The email address of the user
     """
-    role: Literal['owner', 'reader']
+    role: Literal["owner", "reader"]
     """
     `owner` or `reader`
     """
@@ -11123,7 +11123,7 @@ class UserDeleteResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.user.deleted'] = 'organization.user.deleted'
+    object: Literal["organization.user.deleted"] = "organization.user.deleted"
     id: str
     deleted: bool
 
@@ -11132,8 +11132,8 @@ class UserListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
-    data: List[User]
+    object: Literal["list"] = "list"
+    data: list[User]
     first_id: str
     last_id: str
     has_more: bool
@@ -11143,7 +11143,7 @@ class UserRoleUpdateRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    role: Literal['owner', 'reader']
+    role: Literal["owner", "reader"]
     """
     `owner` or `reader`
     """
@@ -11157,7 +11157,7 @@ class VectorStoreExpirationAfter(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    anchor: Literal['last_active_at'] = 'last_active_at'
+    anchor: Literal["last_active_at"] = "last_active_at"
     """
     Anchor timestamp after which the expiration policy applies. Supported anchors: `last_active_at`.
     """
@@ -11175,7 +11175,7 @@ class VectorStoreFileAttributes1(RootModel[str]):
 
 
 class VectorStoreFileAttributes(
-    RootModel[Dict[str, VectorStoreFileAttributes1 | float | bool] | None]
+    RootModel[dict[str, VectorStoreFileAttributes1 | float | bool] | None]
 ):
     """
     Set of 16 key-value pairs that can be attached to an object. This can be
@@ -11189,7 +11189,7 @@ class VectorStoreFileAttributes(
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Dict[str, VectorStoreFileAttributes1 | float | bool] | None = None
+    root: dict[str, VectorStoreFileAttributes1 | float | bool] | None = None
 
 
 class FileCounts(BaseModel):
@@ -11230,7 +11230,7 @@ class VectorStoreFileBatchObject(BaseModel):
     """
     The identifier, which can be referenced in API endpoints.
     """
-    object: Literal['vector_store.files_batch'] = 'vector_store.files_batch'
+    object: Literal["vector_store.files_batch"] = "vector_store.files_batch"
     """
     The object type, which is always `vector_store.file_batch`.
     """
@@ -11242,7 +11242,7 @@ class VectorStoreFileBatchObject(BaseModel):
     """
     The ID of the [vector store](/docs/api-reference/vector-stores/object) that the [File](/docs/api-reference/files) is attached to.
     """
-    status: Literal['in_progress', 'completed', 'cancelled', 'failed']
+    status: Literal["in_progress", "completed", "cancelled", "failed"]
     """
     The status of the vector store files batch, which can be either `in_progress`, `completed`, `cancelled` or `failed`.
     """
@@ -11271,13 +11271,13 @@ class VectorStoreFileContentResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['vector_store.file_content.page'] = (
-        'vector_store.file_content.page'
+    object: Literal["vector_store.file_content.page"] = (
+        "vector_store.file_content.page"
     )
     """
     The object type, which is always `vector_store.file_content.page`
     """
-    data: List[Datum2]
+    data: list[Datum2]
     """
     Parsed content of the file.
     """
@@ -11299,7 +11299,7 @@ class LastError2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    code: Literal['server_error', 'unsupported_file', 'invalid_file']
+    code: Literal["server_error", "unsupported_file", "invalid_file"]
     """
     One of `server_error` or `rate_limit_exceeded`.
     """
@@ -11321,7 +11321,7 @@ class VectorStoreFileObject(BaseModel):
     """
     The identifier, which can be referenced in API endpoints.
     """
-    object: Literal['vector_store.file'] = 'vector_store.file'
+    object: Literal["vector_store.file"] = "vector_store.file"
     """
     The object type, which is always `vector_store.file`.
     """
@@ -11337,7 +11337,7 @@ class VectorStoreFileObject(BaseModel):
     """
     The ID of the [vector store](/docs/api-reference/vector-stores/object) that the [File](/docs/api-reference/files) is attached to.
     """
-    status: Literal['in_progress', 'completed', 'cancelled', 'failed']
+    status: Literal["in_progress", "completed", "cancelled", "failed"]
     """
     The status of the vector store file, which can be either `in_progress`, `completed`, `cancelled`, or `failed`. The status `completed` indicates that the vector store file is ready for use.
     """
@@ -11394,7 +11394,7 @@ class VectorStoreObject(BaseModel):
     """
     The identifier, which can be referenced in API endpoints.
     """
-    object: Literal['vector_store'] = 'vector_store'
+    object: Literal["vector_store"] = "vector_store"
     """
     The object type, which is always `vector_store`.
     """
@@ -11411,7 +11411,7 @@ class VectorStoreObject(BaseModel):
     The total number of bytes used by the files in the vector store.
     """
     file_counts: FileCounts1
-    status: Literal['expired', 'in_progress', 'completed']
+    status: Literal["expired", "in_progress", "completed"]
     """
     The status of the vector store, which can be either `expired`, `in_progress`, or `completed`. A status of `completed` indicates that the vector store is ready for use.
     """
@@ -11443,19 +11443,19 @@ class RankingOptions(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    ranker: Literal['auto', 'default-2024-11-15'] | None = 'auto'
+    ranker: Literal["auto", "default-2024-11-15"] | None = "auto"
     score_threshold: float | None = Field(0, ge=0.0, le=1.0)
 
 
 class VectorStoreSearchRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    query: str | List[QueryItem]
+    query: str | list[QueryItem]
     """
     A query string for a search
     """
@@ -11479,10 +11479,10 @@ class VectorStoreSearchRequest(BaseModel):
 
 class VectorStoreSearchResultContentObject(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    type: Literal['text'] = 'text'
+    type: Literal["text"] = "text"
     """
     The type of content.
     """
@@ -11494,7 +11494,7 @@ class VectorStoreSearchResultContentObject(BaseModel):
 
 class VectorStoreSearchResultItem(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     file_id: str
@@ -11510,7 +11510,7 @@ class VectorStoreSearchResultItem(BaseModel):
     The similarity score for the result.
     """
     attributes: VectorStoreFileAttributes
-    content: List[VectorStoreSearchResultContentObject]
+    content: list[VectorStoreSearchResultContentObject]
     """
     Content chunks from the file.
     """
@@ -11528,17 +11528,17 @@ class SearchQueryItem(RootModel[str]):
 
 class VectorStoreSearchResultsPage(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    object: Literal['vector_store.search_results.page'] = (
-        'vector_store.search_results.page'
+    object: Literal["vector_store.search_results.page"] = (
+        "vector_store.search_results.page"
     )
     """
     The object type, which is always `vector_store.search_results.page`
     """
-    search_query: List[SearchQueryItem]
-    data: List[VectorStoreSearchResultItem]
+    search_query: list[SearchQueryItem]
+    data: list[VectorStoreSearchResultItem]
     """
     The list of search result items.
     """
@@ -11556,17 +11556,17 @@ class VoiceIdsShared(
     RootModel[
         str
         | Literal[
-            'alloy',
-            'ash',
-            'ballad',
-            'coral',
-            'echo',
-            'fable',
-            'onyx',
-            'nova',
-            'sage',
-            'shimmer',
-            'verse',
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+            "verse",
         ]
     ]
 ):
@@ -11576,19 +11576,19 @@ class VoiceIdsShared(
     root: (
         str
         | Literal[
-            'alloy',
-            'ash',
-            'ballad',
-            'coral',
-            'echo',
-            'fable',
-            'onyx',
-            'nova',
-            'sage',
-            'shimmer',
-            'verse',
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+            "verse",
         ]
-    ) = Field(..., examples=['ash'])
+    ) = Field(..., examples=["ash"])
 
 
 class Wait(BaseModel):
@@ -11600,7 +11600,7 @@ class Wait(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['wait'] = 'wait'
+    type: Literal["wait"] = "wait"
     """
     Specifies the event type. For a wait action, this property is 
     always set to `wait`.
@@ -11608,11 +11608,11 @@ class Wait(BaseModel):
     """
 
 
-class WebSearchContextSize(RootModel[Literal['low', 'medium', 'high']]):
+class WebSearchContextSize(RootModel[Literal["low", "medium", "high"]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['low', 'medium', 'high']
+    root: Literal["low", "medium", "high"]
     """
     High level guidance for the amount of context window space to use for the 
     search. One of `low`, `medium`, or `high`. `medium` is the default.
@@ -11668,12 +11668,12 @@ class WebSearchToolCall(BaseModel):
     The unique ID of the web search tool call.
 
     """
-    type: Literal['WebSearchToolCall'] = 'WebSearchToolCall'
+    type: Literal["WebSearchToolCall"] = "WebSearchToolCall"
     """
     The type of the web search tool call. Always `web_search_call`.
 
     """
-    status: Literal['in_progress', 'searching', 'completed', 'failed']
+    status: Literal["in_progress", "searching", "completed", "failed"]
     """
     The status of the web search tool call.
 
@@ -11688,7 +11688,7 @@ class InputTextContent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['input_text'] = 'input_text'
+    type: Literal["input_text"] = "input_text"
     """
     The type of the input item. Always `input_text`.
     """
@@ -11706,13 +11706,13 @@ class InputImageContent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['input_image'] = 'input_image'
+    type: Literal["input_image"] = "input_image"
     """
     The type of the input item. Always `input_image`.
     """
     image_url: str | None = None
     file_id: str | None = None
-    detail: Literal['low', 'high', 'auto']
+    detail: Literal["low", "high", "auto"]
     """
     The detail level of the image to be sent to the model. One of `high`, `low`, or `auto`. Defaults to `auto`.
     """
@@ -11726,7 +11726,7 @@ class InputFileContent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['input_file'] = 'input_file'
+    type: Literal["input_file"] = "input_file"
     """
     The type of the input item. Always `input_file`.
     """
@@ -11746,7 +11746,7 @@ class RankingOptions1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    ranker: Literal['auto', 'default-2024-11-15'] | None = None
+    ranker: Literal["auto", "default-2024-11-15"] | None = None
     """
     The ranker to use for the file search.
     """
@@ -11771,11 +11771,11 @@ class FileSearchTool(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['FileSearchTool'] = 'FileSearchTool'
+    type: Literal["FileSearchTool"] = "FileSearchTool"
     """
     The type of the file search tool. Always `file_search`.
     """
-    vector_store_ids: List[str]
+    vector_store_ids: list[str]
     """
     The IDs of the vector stores to search.
     """
@@ -11798,7 +11798,7 @@ class FunctionTool(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['FunctionTool'] = 'FunctionTool'
+    type: Literal["FunctionTool"] = "FunctionTool"
     """
     The type of the function tool. Always `function`.
     """
@@ -11807,7 +11807,7 @@ class FunctionTool(BaseModel):
     The name of the function to call.
     """
     description: str | None = None
-    parameters: Dict[str, Any] | None = None
+    parameters: dict[str, Any] | None = None
     strict: bool | None = None
 
 
@@ -11815,7 +11815,7 @@ class ApproximateLocation(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['approximate'] = 'approximate'
+    type: Literal["approximate"] = "approximate"
     """
     The type of location approximation. Always `approximate`.
     """
@@ -11833,12 +11833,12 @@ class WebSearchPreviewTool(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['WebSearchPreviewTool'] = 'WebSearchPreviewTool'
+    type: Literal["WebSearchPreviewTool"] = "WebSearchPreviewTool"
     """
     The type of the web search tool. One of `web_search_preview` or `web_search_preview_2025_03_11`.
     """
     user_location: ApproximateLocation | None = None
-    search_context_size: Literal['low', 'medium', 'high'] | None = None
+    search_context_size: Literal["low", "medium", "high"] | None = None
     """
     High level guidance for the amount of context window space to use for the search. One of `low`, `medium`, or `high`. `medium` is the default.
     """
@@ -11852,11 +11852,11 @@ class ComputerUsePreviewTool(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ComputerUsePreviewTool'] = 'ComputerUsePreviewTool'
+    type: Literal["ComputerUsePreviewTool"] = "ComputerUsePreviewTool"
     """
     The type of the computer use tool. Always `computer_use_preview`.
     """
-    environment: Literal['windows', 'mac', 'linux', 'ubuntu', 'browser']
+    environment: Literal["windows", "mac", "linux", "ubuntu", "browser"]
     """
     The type of computer environment to control.
     """
@@ -11886,7 +11886,7 @@ class ToolModel(
         | FunctionTool
         | WebSearchPreviewTool
         | ComputerUsePreviewTool
-    ) = Field(..., discriminator='type')
+    ) = Field(..., discriminator="type")
 
 
 class FileCitationBody(BaseModel):
@@ -11897,7 +11897,7 @@ class FileCitationBody(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['FileCitationBody'] = 'FileCitationBody'
+    type: Literal["FileCitationBody"] = "FileCitationBody"
     """
     The type of the file citation. Always `file_citation`.
     """
@@ -11919,7 +11919,7 @@ class UrlCitationBody(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['UrlCitationBody'] = 'UrlCitationBody'
+    type: Literal["UrlCitationBody"] = "UrlCitationBody"
     """
     The type of the URL citation. Always `url_citation`.
     """
@@ -11948,7 +11948,7 @@ class AnnotationModel(
         populate_by_name=True,
     )
     root: FileCitationBody | UrlCitationBody | FilePath = Field(
-        ..., discriminator='type'
+        ..., discriminator="type"
     )
 
 
@@ -11960,7 +11960,7 @@ class OutputTextContent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['output_text'] = 'output_text'
+    type: Literal["output_text"] = "output_text"
     """
     The type of the output text. Always `output_text`.
     """
@@ -11968,7 +11968,7 @@ class OutputTextContent(BaseModel):
     """
     The text output from the model.
     """
-    annotations: List[AnnotationModel]
+    annotations: list[AnnotationModel]
     """
     The annotations of the text output.
     """
@@ -11982,7 +11982,7 @@ class RefusalContent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['refusal'] = 'refusal'
+    type: Literal["refusal"] = "refusal"
     """
     The type of the refusal. Always `refusal`.
     """
@@ -12021,17 +12021,17 @@ class ComputerCallOutputItemParam(BaseModel):
     """
     The ID of the computer tool call that produced the output.
     """
-    type: Literal['ComputerCallOutputItemParam'] = (
-        'ComputerCallOutputItemParam'
+    type: Literal["ComputerCallOutputItemParam"] = (
+        "ComputerCallOutputItemParam"
     )
     """
     The type of the computer tool call output. Always `computer_call_output`.
     """
     output: ComputerScreenshotImage
-    acknowledged_safety_checks: List[ComputerCallSafetyCheckParam] | None = (
+    acknowledged_safety_checks: list[ComputerCallSafetyCheckParam] | None = (
         None
     )
-    status: Literal['in_progress', 'completed', 'incomplete'] | None = None
+    status: Literal["in_progress", "completed", "incomplete"] | None = None
 
 
 class FunctionCallOutputItemParam(BaseModel):
@@ -12047,8 +12047,8 @@ class FunctionCallOutputItemParam(BaseModel):
     """
     The unique ID of the function tool call generated by the model.
     """
-    type: Literal['FunctionCallOutputItemParam'] = (
-        'FunctionCallOutputItemParam'
+    type: Literal["FunctionCallOutputItemParam"] = (
+        "FunctionCallOutputItemParam"
     )
     """
     The type of the function tool call output. Always `function_call_output`.
@@ -12057,7 +12057,7 @@ class FunctionCallOutputItemParam(BaseModel):
     """
     A JSON string of the output of the function tool call.
     """
-    status: Literal['in_progress', 'completed', 'incomplete'] | None = None
+    status: Literal["in_progress", "completed", "incomplete"] | None = None
 
 
 class ItemReferenceParam(BaseModel):
@@ -12068,7 +12068,7 @@ class ItemReferenceParam(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ItemReferenceParam'] = 'ItemReferenceParam'
+    type: Literal["ItemReferenceParam"] = "ItemReferenceParam"
     id: str
     """
     The ID of the item to reference.
@@ -12097,7 +12097,7 @@ class AssistantToolsFileSearch(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['file_search'] = 'file_search'
+    type: Literal["file_search"] = "file_search"
     """
     The type of tool being defined: `file_search`
     """
@@ -12108,12 +12108,12 @@ class AssistantToolsFileSearch(BaseModel):
 
 
 class AssistantsApiToolChoiceOption(
-    RootModel[Literal['none', 'auto', 'required'] | AssistantsNamedToolChoice]
+    RootModel[Literal["none", "auto", "required"] | AssistantsNamedToolChoice]
 ):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: Literal['none', 'auto', 'required'] | AssistantsNamedToolChoice
+    root: Literal["none", "auto", "required"] | AssistantsNamedToolChoice
     """
     Controls which (if any) tool is called by the model.
     `none` means the model will not call any tools and instead generates a message.
@@ -12136,7 +12136,7 @@ class AuditLogActorApiKey(BaseModel):
     """
     The tracking id of the API key.
     """
-    type: Literal['user', 'service_account'] | None = None
+    type: Literal["user", "service_account"] | None = None
     """
     The type of API key. Can be either `user` or `service_account`.
     """
@@ -12164,7 +12164,7 @@ class Batch(BaseModel):
         populate_by_name=True,
     )
     id: str
-    object: Literal['batch'] = 'batch'
+    object: Literal["batch"] = "batch"
     """
     The object type, which is always `batch`.
     """
@@ -12182,14 +12182,14 @@ class Batch(BaseModel):
     The time frame within which the batch should be processed.
     """
     status: Literal[
-        'validating',
-        'failed',
-        'in_progress',
-        'finalizing',
-        'completed',
-        'expired',
-        'cancelling',
-        'cancelled',
+        "validating",
+        "failed",
+        "in_progress",
+        "finalizing",
+        "completed",
+        "expired",
+        "cancelling",
+        "cancelled",
     ]
     """
     The current status of the batch.
@@ -12279,12 +12279,12 @@ class ChatCompletionMessageList(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The type of this object. It is always set to "list".
 
     """
-    data: List[Datum1]
+    data: list[Datum1]
     """
     An array of chat completion message objects.
 
@@ -12318,12 +12318,12 @@ class ChatCompletionRequestAssistantMessageContentPart(
     )
 
 
-class Content1(RootModel[List[ChatCompletionRequestMessageContentPartText]]):
+class Content1(RootModel[list[ChatCompletionRequestMessageContentPartText]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[ChatCompletionRequestMessageContentPartText] = Field(
-        ..., min_length=1, title='Array of content parts'
+    root: list[ChatCompletionRequestMessageContentPartText] = Field(
+        ..., min_length=1, title="Array of content parts"
     )
     """
     An array of content parts with a defined type. For developer messages, only type `text` is supported.
@@ -12345,7 +12345,7 @@ class ChatCompletionRequestDeveloperMessage(BaseModel):
     """
     The contents of the developer message.
     """
-    role: Literal['developer'] = 'developer'
+    role: Literal["developer"] = "developer"
     """
     The role of the messages author, in this case `developer`.
     """
@@ -12355,12 +12355,12 @@ class ChatCompletionRequestDeveloperMessage(BaseModel):
     """
 
 
-class Content2(RootModel[List[ChatCompletionRequestSystemMessageContentPart]]):
+class Content2(RootModel[list[ChatCompletionRequestSystemMessageContentPart]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[ChatCompletionRequestSystemMessageContentPart] = Field(
-        ..., min_length=1, title='Array of content parts'
+    root: list[ChatCompletionRequestSystemMessageContentPart] = Field(
+        ..., min_length=1, title="Array of content parts"
     )
     """
     An array of content parts with a defined type. For system messages, only type `text` is supported.
@@ -12382,7 +12382,7 @@ class ChatCompletionRequestSystemMessage(BaseModel):
     """
     The contents of the system message.
     """
-    role: Literal['system'] = 'system'
+    role: Literal["system"] = "system"
     """
     The role of the messages author, in this case `system`.
     """
@@ -12392,12 +12392,12 @@ class ChatCompletionRequestSystemMessage(BaseModel):
     """
 
 
-class Content3(RootModel[List[ChatCompletionRequestToolMessageContentPart]]):
+class Content3(RootModel[list[ChatCompletionRequestToolMessageContentPart]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[ChatCompletionRequestToolMessageContentPart] = Field(
-        ..., min_length=1, title='Array of content parts'
+    root: list[ChatCompletionRequestToolMessageContentPart] = Field(
+        ..., min_length=1, title="Array of content parts"
     )
     """
     An array of content parts with a defined type. For tool messages, only type `text` is supported.
@@ -12408,7 +12408,7 @@ class ChatCompletionRequestToolMessage(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    role: Literal['tool'] = 'tool'
+    role: Literal["tool"] = "tool"
     """
     The role of the messages author, in this case `tool`.
     """
@@ -12422,12 +12422,12 @@ class ChatCompletionRequestToolMessage(BaseModel):
     """
 
 
-class Content4(RootModel[List[ChatCompletionRequestUserMessageContentPart]]):
+class Content4(RootModel[list[ChatCompletionRequestUserMessageContentPart]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[ChatCompletionRequestUserMessageContentPart] = Field(
-        ..., min_length=1, title='Array of content parts'
+    root: list[ChatCompletionRequestUserMessageContentPart] = Field(
+        ..., min_length=1, title="Array of content parts"
     )
     """
     An array of content parts with a defined type. Supported options differ based on the [model](/docs/models) being used to generate the response. Can contain text, image, or audio inputs.
@@ -12449,7 +12449,7 @@ class ChatCompletionRequestUserMessage(BaseModel):
     The contents of the user message.
 
     """
-    role: Literal['user'] = 'user'
+    role: Literal["user"] = "user"
     """
     The role of the messages author, in this case `user`.
     """
@@ -12487,7 +12487,7 @@ class CodeInterpreterToolCall(BaseModel):
     The unique ID of the code interpreter tool call.
 
     """
-    type: Literal['code_interpreter_call'] = 'code_interpreter_call'
+    type: Literal["code_interpreter_call"] = "code_interpreter_call"
     """
     The type of the code interpreter tool call. Always `code_interpreter_call`.
 
@@ -12497,12 +12497,12 @@ class CodeInterpreterToolCall(BaseModel):
     The code to run.
 
     """
-    status: Literal['in_progress', 'interpreting', 'completed']
+    status: Literal["in_progress", "interpreting", "completed"]
     """
     The status of the code interpreter tool call.
 
     """
-    results: List[CodeInterpreterToolOutput]
+    results: list[CodeInterpreterToolOutput]
     """
     The results of the code interpreter tool call.
 
@@ -12548,7 +12548,7 @@ class ComputerToolCall(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ComputerToolCall'] = 'ComputerToolCall'
+    type: Literal["ComputerToolCall"] = "ComputerToolCall"
     """
     The type of the computer call. Always `computer_call`.
     """
@@ -12562,12 +12562,12 @@ class ComputerToolCall(BaseModel):
 
     """
     action: ComputerAction
-    pending_safety_checks: List[ComputerToolCallSafetyCheck]
+    pending_safety_checks: list[ComputerToolCallSafetyCheck]
     """
     The pending safety checks for the computer call.
 
     """
-    status: Literal['in_progress', 'completed', 'incomplete']
+    status: Literal["in_progress", "completed", "incomplete"]
     """
     The status of the item. One of `in_progress`, `completed`, or
     `incomplete`. Populated when items are returned via API.
@@ -12584,7 +12584,7 @@ class ComputerToolCallOutput(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['computer_call_output'] = 'computer_call_output'
+    type: Literal["computer_call_output"] = "computer_call_output"
     """
     The type of the computer tool call output. Always `computer_call_output`.
 
@@ -12599,14 +12599,14 @@ class ComputerToolCallOutput(BaseModel):
     The ID of the computer tool call that produced the output.
 
     """
-    acknowledged_safety_checks: List[ComputerToolCallSafetyCheck] | None = None
+    acknowledged_safety_checks: list[ComputerToolCallSafetyCheck] | None = None
     """
     The safety checks reported by the API that have been acknowledged by the 
     developer.
 
     """
     output: ComputerScreenshotImage
-    status: Literal['in_progress', 'completed', 'incomplete'] | None = None
+    status: Literal["in_progress", "completed", "incomplete"] | None = None
     """
     The status of the message input. One of `in_progress`, `completed`, or
     `incomplete`. Populated when input items are returned via API.
@@ -12623,8 +12623,8 @@ class ComputerToolCallOutputResource(ComputerToolCallOutput):
     The unique ID of the computer call tool output.
 
     """
-    type: Literal['ComputerToolCallOutputResource'] = (
-        'ComputerToolCallOutputResource'
+    type: Literal["ComputerToolCallOutputResource"] = (
+        "ComputerToolCallOutputResource"
     )
 
 
@@ -12632,7 +12632,7 @@ class VectorStore(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field(None, max_length=10000)
+    file_ids: list[str] | None = Field(None, max_length=10000)
     """
     A list of [file](/docs/api-reference/files) IDs to add to the vector store. There can be a maximum of 10000 files in a vector store.
 
@@ -12648,12 +12648,12 @@ class FileSearch2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    vector_store_ids: List[str] = Field(..., max_length=1)
+    vector_store_ids: list[str] = Field(..., max_length=1)
     """
     The [vector store](/docs/api-reference/vector-stores/object) attached to this assistant. There can be a maximum of 1 vector store attached to the assistant.
 
     """
-    vector_stores: List[VectorStore] | None = Field(None, max_length=1)
+    vector_stores: list[VectorStore] | None = Field(None, max_length=1)
     """
     A helper to create a [vector store](/docs/api-reference/vector-stores/object) with file_ids and attach it to this assistant. There can be a maximum of 1 vector store attached to the assistant.
 
@@ -12664,7 +12664,7 @@ class VectorStore1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field(None, max_length=10000)
+    file_ids: list[str] | None = Field(None, max_length=10000)
     """
     A list of [file](/docs/api-reference/files) IDs to add to the vector store. There can be a maximum of 10000 files in a vector store.
 
@@ -12680,12 +12680,12 @@ class FileSearch3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    vector_store_ids: List[str] | None = Field(None, max_length=1)
+    vector_store_ids: list[str] | None = Field(None, max_length=1)
     """
     The [vector store](/docs/api-reference/vector-stores/object) attached to this assistant. There can be a maximum of 1 vector store attached to the assistant.
 
     """
-    vector_stores: List[VectorStore1] = Field(..., max_length=1)
+    vector_stores: list[VectorStore1] = Field(..., max_length=1)
     """
     A helper to create a [vector store](/docs/api-reference/vector-stores/object) with file_ids and attach it to this assistant. There can be a maximum of 1 vector store attached to the assistant.
 
@@ -12714,7 +12714,7 @@ class UserLocation(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['approximate'] = 'approximate'
+    type: Literal["approximate"] = "approximate"
     """
     The type of location approximation. Always `approximate`.
 
@@ -12738,7 +12738,7 @@ class WebSearchOptions(BaseModel):
 
     """
     search_context_size: WebSearchContextSize | None = Field(
-        default_factory=lambda: WebSearchContextSize.model_validate('medium')
+        default_factory=lambda: WebSearchContextSize.model_validate("medium")
     )
 
 
@@ -12758,7 +12758,7 @@ class Audio2(BaseModel):
     `alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `nova`, `onyx`, `sage`, and `shimmer`.
 
     """
-    format: Literal['wav', 'aac', 'mp3', 'flac', 'opus', 'pcm16']
+    format: Literal["wav", "aac", "mp3", "flac", "opus", "pcm16"]
     """
     Specifies the output audio format. Must be one of `wav`, `mp3`, `flac`,
     `opus`, or `pcm16`.
@@ -12778,7 +12778,7 @@ class CreateChatCompletionResponse(BaseModel):
     """
     A unique identifier for the chat completion.
     """
-    choices: List[Choice]
+    choices: list[Choice]
     """
     A list of chat completion choices. Can be more than one if `n` is greater than 1.
     """
@@ -12791,7 +12791,7 @@ class CreateChatCompletionResponse(BaseModel):
     The model used for the chat completion.
     """
     service_tier: ServiceTier | None = Field(
-        default_factory=lambda: ServiceTier.model_validate('auto')
+        default_factory=lambda: ServiceTier.model_validate("auto")
     )
     system_fingerprint: str | None = None
     """
@@ -12800,7 +12800,7 @@ class CreateChatCompletionResponse(BaseModel):
     Can be used in conjunction with the `seed` request parameter to understand when backend changes have been made that might impact determinism.
 
     """
-    object: Literal['chat.completion'] = 'chat.completion'
+    object: Literal["chat.completion"] = "chat.completion"
     """
     The object type, which is always `chat.completion`.
     """
@@ -12822,7 +12822,7 @@ class CreateChatCompletionStreamResponse(BaseModel):
     """
     A unique identifier for the chat completion. Each chunk has the same ID.
     """
-    choices: List[Choice1]
+    choices: list[Choice1]
     """
     A list of chat completion choices. Can contain more than one elements if `n` is greater than 1. Can also be empty for the
     last chunk if you set `stream_options: {"include_usage": true}`.
@@ -12837,7 +12837,7 @@ class CreateChatCompletionStreamResponse(BaseModel):
     The model to generate the completion.
     """
     service_tier: ServiceTier | None = Field(
-        default_factory=lambda: ServiceTier.model_validate('auto')
+        default_factory=lambda: ServiceTier.model_validate("auto")
     )
     system_fingerprint: str | None = None
     """
@@ -12845,7 +12845,7 @@ class CreateChatCompletionStreamResponse(BaseModel):
     Can be used in conjunction with the `seed` request parameter to understand when backend changes have been made that might impact determinism.
 
     """
-    object: Literal['chat.completion.chunk'] = 'chat.completion.chunk'
+    object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
     """
     The object type, which is always `chat.completion.chunk`.
     """
@@ -12868,13 +12868,13 @@ class CreateCompletionRequest(BaseModel):
         populate_by_name=True,
     )
     model: (
-        str | Literal['gpt-3.5-turbo-instruct', 'davinci-002', 'babbage-002']
+        str | Literal["gpt-3.5-turbo-instruct", "davinci-002", "babbage-002"]
     )
     """
     ID of the model to use. You can use the [List models](/docs/api-reference/models/list) API to see all of your available models, or see our [Model overview](/docs/models) for descriptions of them.
 
     """
-    prompt: str | List[str] | Prompt | Prompt1
+    prompt: str | list[str] | Prompt | Prompt1
     """
     The prompt(s) to generate completions for, encoded as a string, array of strings, array of tokens, or array of token arrays.
 
@@ -12902,7 +12902,7 @@ class CreateCompletionRequest(BaseModel):
     [See more information about frequency and presence penalties.](/docs/guides/text-generation)
 
     """
-    logit_bias: Dict[str, int] | None = None
+    logit_bias: dict[str, int] | None = None
     """
     Modify the likelihood of specified tokens appearing in the completion.
 
@@ -12953,7 +12953,7 @@ class CreateCompletionRequest(BaseModel):
 
     """
     stream_options: ChatCompletionStreamOptions | None = None
-    suffix: str | None = Field(None, examples=['test.'])
+    suffix: str | None = Field(None, examples=["test."])
     """
     The suffix that comes after a completion of inserted text.
 
@@ -12974,7 +12974,7 @@ class CreateCompletionRequest(BaseModel):
     We generally recommend altering this or `temperature` but not both.
 
     """
-    user: str | None = Field(None, examples=['user-1234'])
+    user: str | None = Field(None, examples=["user-1234"])
     """
     A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices#end-user-ids).
 
@@ -12985,7 +12985,7 @@ class CreateEmbeddingResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    data: List[Embedding]
+    data: list[Embedding]
     """
     The list of embeddings generated by the model.
     """
@@ -12993,7 +12993,7 @@ class CreateEmbeddingResponse(BaseModel):
     """
     The name of the model used to generate the embedding.
     """
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The object type, which is always "list".
     """
@@ -13012,7 +13012,7 @@ class CreateEvalJsonlRunDataSource(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['jsonl'] = 'jsonl'
+    type: Literal["jsonl"] = "jsonl"
     """
     The type of data source. Always `jsonl`.
     """
@@ -13021,7 +13021,7 @@ class CreateEvalJsonlRunDataSource(BaseModel):
 
 class Content6(
     RootModel[
-        List[
+        list[
             MessageContentImageFileObject
             | MessageContentImageUrlObject
             | MessageRequestContentTextObject
@@ -13031,11 +13031,11 @@ class Content6(
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[
+    root: list[
         MessageContentImageFileObject
         | MessageContentImageUrlObject
         | MessageRequestContentTextObject
-    ] = Field(..., min_length=1, title='Array of content parts')
+    ] = Field(..., min_length=1, title="Array of content parts")
     """
     An array of content parts with a defined type, each can be of type `text` or images can be passed with `image_url` or `image_file`. Image types are only supported on [Vision-compatible models](/docs/models).
     """
@@ -13043,10 +13043,10 @@ class Content6(
 
 class CreateMessageRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    role: Literal['user', 'assistant']
+    role: Literal["user", "assistant"]
     """
     The role of the entity that is creating the message. Allowed values include:
     - `user`: Indicates the message is sent by an actual user and should be used in most cases to represent user-generated messages.
@@ -13054,7 +13054,7 @@ class CreateMessageRequest(BaseModel):
 
     """
     content: str | Content6
-    attachments: List[Attachment] | None = None
+    attachments: list[Attachment] | None = None
     """
     A list of files attached to the message, and the tools they should be added to.
     """
@@ -13063,10 +13063,10 @@ class CreateMessageRequest(BaseModel):
 
 class CreateSpeechRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    model: str | Literal['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts']
+    model: str | Literal["tts-1", "tts-1-hd", "gpt-4o-mini-tts"]
     """
     One of the available [TTS models](/docs/models#tts): `tts-1`, `tts-1-hd` or `gpt-4o-mini-tts`.
 
@@ -13084,8 +13084,8 @@ class CreateSpeechRequest(BaseModel):
     The voice to use when generating the audio. Supported voices are `alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `onyx`, `nova`, `sage`, `shimmer`, and `verse`. Previews of the voices are available in the [Text to speech guide](/docs/guides/text-to-speech#voice-options).
     """
     response_format: (
-        Literal['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'] | None
-    ) = 'mp3'
+        Literal["mp3", "opus", "aac", "flac", "wav", "pcm"] | None
+    ) = "mp3"
     """
     The format to audio in. Supported formats are `mp3`, `opus`, `aac`, `flac`, `wav`, and `pcm`.
     """
@@ -13099,7 +13099,7 @@ class VectorStore2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field(None, max_length=10000)
+    file_ids: list[str] | None = Field(None, max_length=10000)
     """
     A list of [file](/docs/api-reference/files) IDs to add to the vector store. There can be a maximum of 10000 files in a vector store.
 
@@ -13115,12 +13115,12 @@ class FileSearch5(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    vector_store_ids: List[str] = Field(..., max_length=1)
+    vector_store_ids: list[str] = Field(..., max_length=1)
     """
     The [vector store](/docs/api-reference/vector-stores/object) attached to this thread. There can be a maximum of 1 vector store attached to the thread.
 
     """
-    vector_stores: List[VectorStore2] | None = Field(None, max_length=1)
+    vector_stores: list[VectorStore2] | None = Field(None, max_length=1)
     """
     A helper to create a [vector store](/docs/api-reference/vector-stores/object) with file_ids and attach it to this thread. There can be a maximum of 1 vector store attached to the thread.
 
@@ -13131,7 +13131,7 @@ class VectorStore3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field(None, max_length=10000)
+    file_ids: list[str] | None = Field(None, max_length=10000)
     """
     A list of [file](/docs/api-reference/files) IDs to add to the vector store. There can be a maximum of 10000 files in a vector store.
 
@@ -13147,12 +13147,12 @@ class FileSearch6(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    vector_store_ids: List[str] | None = Field(None, max_length=1)
+    vector_store_ids: list[str] | None = Field(None, max_length=1)
     """
     The [vector store](/docs/api-reference/vector-stores/object) attached to this thread. There can be a maximum of 1 vector store attached to the thread.
 
     """
-    vector_stores: List[VectorStore3] = Field(..., max_length=1)
+    vector_stores: list[VectorStore3] = Field(..., max_length=1)
     """
     A helper to create a [vector store](/docs/api-reference/vector-stores/object) with file_ids and attach it to this thread. There can be a maximum of 1 vector store attached to the thread.
 
@@ -13180,10 +13180,10 @@ class CreateThreadRequest(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    messages: List[CreateMessageRequest] | None = None
+    messages: list[CreateMessageRequest] | None = None
     """
     A list of [messages](/docs/api-reference/messages) to start the thread with.
     """
@@ -13197,7 +13197,7 @@ class CreateThreadRequest(BaseModel):
 
 class CreateTranscriptionRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     file: bytes_aliased
@@ -13207,8 +13207,8 @@ class CreateTranscriptionRequest(BaseModel):
     """
     model: (
         str
-        | Literal['whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe']
-    ) = Field(..., examples=['gpt-4o-transcribe'])
+        | Literal["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"]
+    ) = Field(..., examples=["gpt-4o-transcribe"])
     """
     ID of the model to use. The options are `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, and `whisper-1` (which is powered by our open source Whisper V2 model).
 
@@ -13224,14 +13224,14 @@ class CreateTranscriptionRequest(BaseModel):
 
     """
     response_format: AudioResponseFormat | None = Field(
-        default_factory=lambda: AudioResponseFormat.model_validate('json')
+        default_factory=lambda: AudioResponseFormat.model_validate("json")
     )
     temperature: float | None = 0
     """
     The sampling temperature, between 0 and 1. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. If set to 0, the model will use [log probability](https://en.wikipedia.org/wiki/Log_probability) to automatically increase the temperature until certain thresholds are hit.
 
     """
-    include__: List[TranscriptionInclude] | None = None
+    include__: list[TranscriptionInclude] | None = None
     """
     Additional information to include in the transcription response. 
     `logprobs` will return the log probabilities of the tokens in the 
@@ -13240,8 +13240,8 @@ class CreateTranscriptionRequest(BaseModel):
     the models `gpt-4o-transcribe` and `gpt-4o-mini-transcribe`.
 
     """
-    timestamp_granularities__: List[Literal['word', 'segment']] | None = [
-        'segment'
+    timestamp_granularities__: list[Literal["word", "segment"]] | None = [
+        "segment"
     ]
     """
     The timestamp granularities to populate for this transcription. `response_format` must be set `verbose_json` to use timestamp granularities. Either or both of these options are supported: `word`, or `segment`. Note: There is no additional latency for segment timestamps, but generating word timestamps incurs additional latency.
@@ -13266,7 +13266,7 @@ class CreateTranscriptionResponseStreamEvent(
         populate_by_name=True,
     )
     root: TranscriptTextDeltaEvent | TranscriptTextDoneEvent = Field(
-        ..., discriminator='type'
+        ..., discriminator="type"
     )
 
 
@@ -13290,11 +13290,11 @@ class CreateTranscriptionResponseVerboseJson(BaseModel):
     """
     The transcribed text.
     """
-    words: List[TranscriptionWord] | None = None
+    words: list[TranscriptionWord] | None = None
     """
     Extracted words and their corresponding timestamps.
     """
-    segments: List[TranscriptionSegment] | None = None
+    segments: list[TranscriptionSegment] | None = None
     """
     Segments of the transcribed text and their corresponding details.
     """
@@ -13316,7 +13316,7 @@ class CreateTranslationResponseVerboseJson(BaseModel):
     """
     The translated text.
     """
-    segments: List[TranscriptionSegment] | None = None
+    segments: list[TranscriptionSegment] | None = None
     """
     Segments of the translated text and their corresponding details.
     """
@@ -13324,10 +13324,10 @@ class CreateTranslationResponseVerboseJson(BaseModel):
 
 class CreateVectorStoreFileBatchRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    file_ids: List[str] = Field(..., max_length=500, min_length=1)
+    file_ids: list[str] = Field(..., max_length=500, min_length=1)
     """
     A list of [File](/docs/api-reference/files) IDs that the vector store should use. Useful for tools like `file_search` that can access files.
     """
@@ -13337,7 +13337,7 @@ class CreateVectorStoreFileBatchRequest(BaseModel):
 
 class CreateVectorStoreFileRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     file_id: str
@@ -13350,10 +13350,10 @@ class CreateVectorStoreFileRequest(BaseModel):
 
 class CreateVectorStoreRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    file_ids: List[str] | None = Field(None, max_length=500)
+    file_ids: list[str] | None = Field(None, max_length=500)
     """
     A list of [File](/docs/api-reference/files) IDs that the vector store should use. Useful for tools like `file_search` that can access files.
     """
@@ -13386,7 +13386,7 @@ class EvalItem(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    role: Literal['user', 'assistant', 'system', 'developer']
+    role: Literal["user", "assistant", "system", "developer"]
     """
     The role of the message input. One of `user`, `assistant`, `system`, or
     `developer`.
@@ -13397,7 +13397,7 @@ class EvalItem(BaseModel):
     Text inputs to the model - can contain template strings.
 
     """
-    type: Literal['message'] | None = None
+    type: Literal["message"] | None = None
     """
     The type of the message input. Always `message`.
 
@@ -13414,7 +13414,7 @@ class EvalLabelModelGrader(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['label_model'] = 'label_model'
+    type: Literal["label_model"] = "label_model"
     """
     The object type, which is always `label_model`.
     """
@@ -13426,12 +13426,12 @@ class EvalLabelModelGrader(BaseModel):
     """
     The model to use for the evaluation. Must support structured outputs.
     """
-    input: List[EvalItem]
-    labels: List[str]
+    input: list[EvalItem]
+    labels: list[str]
     """
     The labels to assign to each item in the evaluation.
     """
-    passing_labels: List[str]
+    passing_labels: list[str]
     """
     The labels that indicate a passing result. Must be a subset of labels.
     """
@@ -13446,11 +13446,11 @@ class EvalResponsesSource(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['responses'] = 'responses'
+    type: Literal["responses"] = "responses"
     """
     The type of run data source. Always `responses`.
     """
-    metadata: Dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
     """
     Metadata filter for the responses. This is a query parameter used to select responses.
     """
@@ -13475,7 +13475,7 @@ class EvalResponsesSource(BaseModel):
     Whether the response has tool calls. This is a query parameter used to select responses.
     """
     reasoning_effort: ReasoningEffort | None = Field(
-        default_factory=lambda: ReasoningEffort.model_validate('medium')
+        default_factory=lambda: ReasoningEffort.model_validate("medium")
     )
     """
     Optional reasoning effort parameter. This is a query parameter used to select responses.
@@ -13488,7 +13488,7 @@ class EvalResponsesSource(BaseModel):
     """
     Nucleus sampling parameter. This is a query parameter used to select responses.
     """
-    users: List[str] | None = None
+    users: list[str] | None = None
     """
     List of user identifiers. This is a query parameter used to select responses.
     """
@@ -13507,7 +13507,7 @@ class EvalScoreModelGrader(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['score_model'] = 'score_model'
+    type: Literal["score_model"] = "score_model"
     """
     The object type, which is always `score_model`.
     """
@@ -13519,11 +13519,11 @@ class EvalScoreModelGrader(BaseModel):
     """
     The model to use for the evaluation.
     """
-    sampling_params: Dict[str, Any] | None = None
+    sampling_params: dict[str, Any] | None = None
     """
     The sampling parameters for the model.
     """
-    input: List[EvalItem]
+    input: list[EvalItem]
     """
     The input text. This may include template strings.
     """
@@ -13531,7 +13531,7 @@ class EvalScoreModelGrader(BaseModel):
     """
     The threshold for the score.
     """
-    range: List[float] | None = None
+    range: list[float] | None = None
     """
     The range of the score. Defaults to `[0, 1]`.
     """
@@ -13549,12 +13549,12 @@ class EvalStoredCompletionsDataSourceConfig(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['stored_completions'] = 'stored_completions'
+    type: Literal["stored_completions"] = "stored_completions"
     """
     The type of data source. Always `stored_completions`.
     """
     metadata: Metadata | None = None
-    schema_: Dict[str, Any]
+    schema_: dict[str, Any]
     """
     The json schema for the run data source items.
     Learn how to build JSON schemas [here](https://json-schema.org/).
@@ -13571,7 +13571,7 @@ class EvalStoredCompletionsSource(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['stored_completions'] = 'stored_completions'
+    type: Literal["stored_completions"] = "stored_completions"
     """
     The type of source. Always `stored_completions`.
     """
@@ -13636,25 +13636,25 @@ class FileSearchToolCall(BaseModel):
     The unique ID of the file search tool call.
 
     """
-    type: Literal['FileSearchToolCall'] = 'FileSearchToolCall'
+    type: Literal["FileSearchToolCall"] = "FileSearchToolCall"
     """
     The type of the file search tool call. Always `file_search_call`.
 
     """
     status: Literal[
-        'in_progress', 'searching', 'completed', 'incomplete', 'failed'
+        "in_progress", "searching", "completed", "incomplete", "failed"
     ]
     """
     The status of the file search tool call. One of `in_progress`, 
     `searching`, `incomplete` or `failed`,
 
     """
-    queries: List[str]
+    queries: list[str]
     """
     The queries used to search for files.
 
     """
-    results: List[Result1] | None = None
+    results: list[Result1] | None = None
     """
     The results of the file search tool call.
 
@@ -13669,7 +13669,7 @@ class FineTuneMethod(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['supervised', 'dpo'] | None = None
+    type: Literal["supervised", "dpo"] | None = None
     """
     The type of method. Is either `supervised` or `dpo`.
     """
@@ -13714,7 +13714,7 @@ class FineTuningJob(BaseModel):
     """
     The base model that is being fine-tuned.
     """
-    object: Literal['fine_tuning.job'] = 'fine_tuning.job'
+    object: Literal["fine_tuning.job"] = "fine_tuning.job"
     """
     The object type, which is always "fine_tuning.job".
     """
@@ -13722,17 +13722,17 @@ class FineTuningJob(BaseModel):
     """
     The organization that owns the fine-tuning job.
     """
-    result_files: List[str]
+    result_files: list[str]
     """
     The compiled results file ID(s) for the fine-tuning job. You can retrieve the results with the [Files API](/docs/api-reference/files/retrieve-contents).
     """
     status: Literal[
-        'validating_files',
-        'queued',
-        'running',
-        'succeeded',
-        'failed',
-        'cancelled',
+        "validating_files",
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
     ]
     """
     The current status of the fine-tuning job, which can be either `validating_files`, `queued`, `running`, `succeeded`, `failed`, or `cancelled`.
@@ -13749,7 +13749,7 @@ class FineTuningJob(BaseModel):
     """
     The file ID used for validation. You can retrieve the validation results with the [Files API](/docs/api-reference/files/retrieve-contents).
     """
-    integrations: List[FineTuningIntegration] | None = Field(
+    integrations: list[FineTuningIntegration] | None = Field(
         None, max_length=5
     )
     """
@@ -13795,7 +13795,7 @@ class InputContent(
     root: InputTextContent | InputImageContent | InputFileContent
 
 
-class InputMessageContentList(RootModel[List[InputContent]]):
+class InputMessageContentList(RootModel[list[InputContent]]):
     """
     A list of one or many input items to the model, containing different content
     types.
@@ -13805,7 +13805,7 @@ class InputMessageContentList(RootModel[List[InputContent]]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[InputContent] = Field(..., title='Input item content list')
+    root: list[InputContent] = Field(..., title="Input item content list")
     """
     A list of one or many input items to the model, containing different content 
     types.
@@ -13817,21 +13817,21 @@ class ListBatchesResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    data: List[Batch]
-    first_id: str | None = Field(None, examples=['batch_abc123'])
-    last_id: str | None = Field(None, examples=['batch_abc456'])
+    data: list[Batch]
+    first_id: str | None = Field(None, examples=["batch_abc123"])
+    last_id: str | None = Field(None, examples=["batch_abc456"])
     has_more: bool
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
 
 
 class ListFilesResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['list'])
-    data: List[OpenAIFile]
-    first_id: str = Field(..., examples=['file-abc123'])
-    last_id: str = Field(..., examples=['file-abc456'])
+    object: str = Field(..., examples=["list"])
+    data: list[OpenAIFile]
+    first_id: str = Field(..., examples=["file-abc123"])
+    last_id: str = Field(..., examples=["file-abc456"])
     has_more: bool = Field(..., examples=[False])
 
 
@@ -13839,27 +13839,27 @@ class ListModelsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
-    data: List[Model]
+    object: Literal["list"] = "list"
+    data: list[Model]
 
 
 class ListPaginatedFineTuningJobsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    data: List[FineTuningJob]
+    data: list[FineTuningJob]
     has_more: bool
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
 
 
 class ListVectorStoreFilesResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['list'])
-    data: List[VectorStoreFileObject]
-    first_id: str = Field(..., examples=['file-abc123'])
-    last_id: str = Field(..., examples=['file-abc456'])
+    object: str = Field(..., examples=["list"])
+    data: list[VectorStoreFileObject]
+    first_id: str = Field(..., examples=["file-abc123"])
+    last_id: str = Field(..., examples=["file-abc456"])
     has_more: bool = Field(..., examples=[False])
 
 
@@ -13867,10 +13867,10 @@ class ListVectorStoresResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['list'])
-    data: List[VectorStoreObject]
-    first_id: str = Field(..., examples=['vs_abc123'])
-    last_id: str = Field(..., examples=['vs_abc456'])
+    object: str = Field(..., examples=["list"])
+    data: list[VectorStoreObject]
+    first_id: str = Field(..., examples=["vs_abc123"])
+    last_id: str = Field(..., examples=["vs_abc456"])
     has_more: bool = Field(..., examples=[False])
 
 
@@ -13886,7 +13886,7 @@ class MessageObject(BaseModel):
     """
     The identifier, which can be referenced in API endpoints.
     """
-    object: Literal['thread.message'] = 'thread.message'
+    object: Literal["thread.message"] = "thread.message"
     """
     The object type, which is always `thread.message`.
     """
@@ -13898,7 +13898,7 @@ class MessageObject(BaseModel):
     """
     The [thread](/docs/api-reference/threads) ID that this message belongs to.
     """
-    status: Literal['in_progress', 'incomplete', 'completed']
+    status: Literal["in_progress", "incomplete", "completed"]
     """
     The status of the message, which can be either `in_progress`, `incomplete`, or `completed`.
     """
@@ -13914,11 +13914,11 @@ class MessageObject(BaseModel):
     """
     The Unix timestamp (in seconds) for when the message was marked as incomplete.
     """
-    role: Literal['user', 'assistant']
+    role: Literal["user", "assistant"]
     """
     The entity that produced the message. One of `user` or `assistant`.
     """
-    content: List[
+    content: list[
         MessageContentImageFileObject
         | MessageContentImageUrlObject
         | MessageContentTextObject
@@ -13935,7 +13935,7 @@ class MessageObject(BaseModel):
     """
     The ID of the [run](/docs/api-reference/runs) associated with the creation of this message. Value is `null` when messages are created manually using the create message or create thread endpoints.
     """
-    attachments: List[Attachment]
+    attachments: list[Attachment]
     """
     A list of files attached to the message, and the tools they were added to.
     """
@@ -13950,7 +13950,7 @@ class MessageStreamEvent1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.message.created'] = 'thread.message.created'
+    event: Literal["thread.message.created"] = "thread.message.created"
     data: MessageObject
 
 
@@ -13962,7 +13962,7 @@ class MessageStreamEvent2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.message.in_progress'] = 'thread.message.in_progress'
+    event: Literal["thread.message.in_progress"] = "thread.message.in_progress"
     data: MessageObject
 
 
@@ -13974,7 +13974,7 @@ class MessageStreamEvent4(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.message.completed'] = 'thread.message.completed'
+    event: Literal["thread.message.completed"] = "thread.message.completed"
     data: MessageObject
 
 
@@ -13986,7 +13986,7 @@ class MessageStreamEvent5(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.message.incomplete'] = 'thread.message.incomplete'
+    event: Literal["thread.message.incomplete"] = "thread.message.incomplete"
     data: MessageObject
 
 
@@ -14015,10 +14015,10 @@ class ModelIdsResponses(
     RootModel[
         ModelIdsShared
         | Literal[
-            'o1-pro',
-            'o1-pro-2025-03-19',
-            'computer-use-preview',
-            'computer-use-preview-2025-03-11',
+            "o1-pro",
+            "o1-pro-2025-03-19",
+            "computer-use-preview",
+            "computer-use-preview-2025-03-11",
         ]
     ]
 ):
@@ -14028,12 +14028,12 @@ class ModelIdsResponses(
     root: (
         ModelIdsShared
         | Literal[
-            'o1-pro',
-            'o1-pro-2025-03-19',
-            'computer-use-preview',
-            'computer-use-preview-2025-03-11',
+            "o1-pro",
+            "o1-pro-2025-03-19",
+            "computer-use-preview",
+            "computer-use-preview-2025-03-11",
         ]
-    ) = Field(..., examples=['gpt-4o'])
+    ) = Field(..., examples=["gpt-4o"])
 
 
 class ModelResponseProperties(BaseModel):
@@ -14057,13 +14057,13 @@ class ModelResponseProperties(BaseModel):
     We generally recommend altering this or `temperature` but not both.
 
     """
-    user: str | None = Field(None, examples=['user-1234'])
+    user: str | None = Field(None, examples=["user-1234"])
     """
     A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices#end-user-ids).
 
     """
     service_tier: ServiceTier | None = Field(
-        default_factory=lambda: ServiceTier.model_validate('auto')
+        default_factory=lambda: ServiceTier.model_validate("auto")
     )
 
 
@@ -14088,22 +14088,22 @@ class OutputMessage(BaseModel):
     The unique ID of the output message.
 
     """
-    type: Literal['OutputMessage'] = 'OutputMessage'
+    type: Literal["OutputMessage"] = "OutputMessage"
     """
     The type of the output message. Always `message`.
 
     """
-    role: Literal['assistant'] = 'assistant'
+    role: Literal["assistant"] = "assistant"
     """
     The role of the output message. Always `assistant`.
 
     """
-    content: List[OutputContent]
+    content: list[OutputContent]
     """
     The content of the output message.
 
     """
-    status: Literal['in_progress', 'completed', 'incomplete']
+    status: Literal["in_progress", "completed", "incomplete"]
     """
     The status of the message input. One of `in_progress`, `completed`, or
     `incomplete`. Populated when input items are returned via API.
@@ -14115,7 +14115,7 @@ class Owner1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['user', 'service_account'] | None = None
+    type: Literal["user", "service_account"] | None = None
     """
     `user` or `service_account`
     """
@@ -14131,8 +14131,8 @@ class ProjectApiKey(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['organization.project.api_key'] = (
-        'organization.project.api_key'
+    object: Literal["organization.project.api_key"] = (
+        "organization.project.api_key"
     )
     """
     The object type, which is always `organization.project.api_key`
@@ -14164,8 +14164,8 @@ class ProjectApiKeyListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
-    data: List[ProjectApiKey]
+    object: Literal["list"] = "list"
+    data: list[ProjectApiKey]
     first_id: str
     last_id: str
     has_more: bool
@@ -14190,8 +14190,8 @@ class RealtimeClientEventConversationItemCreate(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventConversationItemCreate'] = (
-        'RealtimeClientEventConversationItemCreate'
+    type: Literal["RealtimeClientEventConversationItemCreate"] = (
+        "RealtimeClientEventConversationItemCreate"
     )
     """
     The event type, must be `conversation.item.create`.
@@ -14221,8 +14221,8 @@ class RealtimeClientEventTranscriptionSessionUpdate(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventTranscriptionSessionUpdate'] = (
-        'RealtimeClientEventTranscriptionSessionUpdate'
+    type: Literal["RealtimeClientEventTranscriptionSessionUpdate"] = (
+        "RealtimeClientEventTranscriptionSessionUpdate"
     )
     """
     The event type, must be `transcription_session.update`.
@@ -14242,12 +14242,12 @@ class RealtimeResponse(BaseModel):
     """
     The unique ID of the response.
     """
-    object: Literal['realtime.response'] | None = None
+    object: Literal["realtime.response"] | None = None
     """
     The object type, must be `realtime.response`.
     """
     status: (
-        Literal['completed', 'cancelled', 'failed', 'incomplete'] | None
+        Literal["completed", "cancelled", "failed", "incomplete"] | None
     ) = None
     """
     The final status of the response (`completed`, `cancelled`, `failed`, or 
@@ -14258,7 +14258,7 @@ class RealtimeResponse(BaseModel):
     """
     Additional details about the status.
     """
-    output: List[RealtimeConversationItem] | None = None
+    output: list[RealtimeConversationItem] | None = None
     """
     The list of output items generated by the response.
     """
@@ -14289,14 +14289,14 @@ class RealtimeResponse(BaseModel):
     `onyx`, `nova`, `sage`, `shimmer`, and `verse`.
 
     """
-    modalities: List[Literal['text', 'audio']] | None = None
+    modalities: list[Literal["text", "audio"]] | None = None
     """
     The set of modalities the model used to respond. If there are multiple modalities,
     the model will pick one, for example if `modalities` is `["text", "audio"]`, the model
     could be responding in either text or audio.
 
     """
-    output_audio_format: Literal['pcm16', 'g711_ulaw', 'g711_alaw'] | None = (
+    output_audio_format: Literal["pcm16", "g711_ulaw", "g711_alaw"] | None = (
         None
     )
     """
@@ -14308,7 +14308,7 @@ class RealtimeResponse(BaseModel):
     Sampling temperature for the model, limited to [0.6, 1.2]. Defaults to 0.8.
 
     """
-    max_output_tokens: int | Literal['inf'] | None = None
+    max_output_tokens: int | Literal["inf"] | None = None
     """
     Maximum number of output tokens for a single assistant response,
     inclusive of tool calls, that was used in this response.
@@ -14324,7 +14324,7 @@ class RealtimeResponseCreateParams(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    modalities: List[Literal['text', 'audio']] | None = None
+    modalities: list[Literal["text", "audio"]] | None = None
     """
     The set of modalities the model can respond with. To disable audio,
     set this to ["text"].
@@ -14354,14 +14354,14 @@ class RealtimeResponseCreateParams(BaseModel):
     `onyx`, `nova`, `sage`, `shimmer`, and `verse`.
 
     """
-    output_audio_format: Literal['pcm16', 'g711_ulaw', 'g711_alaw'] | None = (
+    output_audio_format: Literal["pcm16", "g711_ulaw", "g711_alaw"] | None = (
         None
     )
     """
     The format of output audio. Options are `pcm16`, `g711_ulaw`, or `g711_alaw`.
 
     """
-    tools: List[Tool] | None = None
+    tools: list[Tool] | None = None
     """
     Tools (functions) available to the model.
     """
@@ -14376,7 +14376,7 @@ class RealtimeResponseCreateParams(BaseModel):
     Sampling temperature for the model, limited to [0.6, 1.2]. Defaults to 0.8.
 
     """
-    max_response_output_tokens: int | Literal['inf'] | None = None
+    max_response_output_tokens: int | Literal["inf"] | None = None
     """
     Maximum number of output tokens for a single assistant response,
     inclusive of tool calls. Provide an integer between 1 and 4096 to
@@ -14384,7 +14384,7 @@ class RealtimeResponseCreateParams(BaseModel):
     given model. Defaults to `inf`.
 
     """
-    conversation: str | Literal['auto', 'none'] | None = None
+    conversation: str | Literal["auto", "none"] | None = None
     """
     Controls which conversation the response is added to. Currently supports
     `auto` and `none`, with `auto` as the default value. The `auto` value
@@ -14394,7 +14394,7 @@ class RealtimeResponseCreateParams(BaseModel):
 
     """
     metadata: Metadata | None = None
-    input: List[RealtimeConversationItemWithReference] | None = None
+    input: list[RealtimeConversationItemWithReference] | None = None
     """
     Input items to include in the prompt for the model. Using this field
     creates a new context for this Response instead of using the default
@@ -14418,8 +14418,8 @@ class RealtimeServerEventResponseCreated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseCreated'] = (
-        'RealtimeServerEventResponseCreated'
+    type: Literal["RealtimeServerEventResponseCreated"] = (
+        "RealtimeServerEventResponseCreated"
     )
     """
     The event type, must be `response.created`.
@@ -14442,8 +14442,8 @@ class RealtimeServerEventResponseDone(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventResponseDone'] = (
-        'RealtimeServerEventResponseDone'
+    type: Literal["RealtimeServerEventResponseDone"] = (
+        "RealtimeServerEventResponseDone"
     )
     """
     The event type, must be `response.done`.
@@ -14465,8 +14465,8 @@ class RealtimeServerEventTranscriptionSessionUpdated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventTranscriptionSessionUpdated'] = (
-        'RealtimeServerEventTranscriptionSessionUpdated'
+    type: Literal["RealtimeServerEventTranscriptionSessionUpdated"] = (
+        "RealtimeServerEventTranscriptionSessionUpdated"
     )
     """
     The event type, must be `transcription_session.updated`.
@@ -14487,7 +14487,7 @@ class RealtimeSession(BaseModel):
     Unique identifier for the session that looks like `sess_1234567890abcdef`.
 
     """
-    modalities: List[Literal['text', 'audio']] | None = None
+    modalities: list[Literal["text", "audio"]] | None = None
     """
     The set of modalities the model can respond with. To disable audio,
     set this to ["text"].
@@ -14495,11 +14495,11 @@ class RealtimeSession(BaseModel):
     """
     model: (
         Literal[
-            'gpt-4o-realtime-preview',
-            'gpt-4o-realtime-preview-2024-10-01',
-            'gpt-4o-realtime-preview-2024-12-17',
-            'gpt-4o-mini-realtime-preview',
-            'gpt-4o-mini-realtime-preview-2024-12-17',
+            "gpt-4o-realtime-preview",
+            "gpt-4o-realtime-preview-2024-10-01",
+            "gpt-4o-realtime-preview-2024-12-17",
+            "gpt-4o-mini-realtime-preview",
+            "gpt-4o-mini-realtime-preview-2024-12-17",
         ]
         | None
     ) = None
@@ -14522,8 +14522,8 @@ class RealtimeSession(BaseModel):
     `shimmer` and `verse`.
 
     """
-    input_audio_format: Literal['pcm16', 'g711_ulaw', 'g711_alaw'] | None = (
-        'pcm16'
+    input_audio_format: Literal["pcm16", "g711_ulaw", "g711_alaw"] | None = (
+        "pcm16"
     )
     """
     The format of input audio. Options are `pcm16`, `g711_ulaw`, or `g711_alaw`.
@@ -14531,8 +14531,8 @@ class RealtimeSession(BaseModel):
     single channel (mono), and little-endian byte order.
 
     """
-    output_audio_format: Literal['pcm16', 'g711_ulaw', 'g711_alaw'] | None = (
-        'pcm16'
+    output_audio_format: Literal["pcm16", "g711_ulaw", "g711_alaw"] | None = (
+        "pcm16"
     )
     """
     The format of output audio. Options are `pcm16`, `g711_ulaw`, or `g711_alaw`.
@@ -14558,11 +14558,11 @@ class RealtimeSession(BaseModel):
     Filtering the audio can improve VAD and turn detection accuracy (reducing false positives) and model performance by improving perception of the input audio.
 
     """
-    tools: List[Tool] | None = None
+    tools: list[Tool] | None = None
     """
     Tools (functions) available to the model.
     """
-    tool_choice: str | None = 'auto'
+    tool_choice: str | None = "auto"
     """
     How the model chooses tools. Options are `auto`, `none`, `required`, or 
     specify a function.
@@ -14573,7 +14573,7 @@ class RealtimeSession(BaseModel):
     Sampling temperature for the model, limited to [0.6, 1.2]. For audio models a temperature of 0.8 is highly recommended for best performance.
 
     """
-    max_response_output_tokens: int | Literal['inf'] | None = None
+    max_response_output_tokens: int | Literal["inf"] | None = None
     """
     Maximum number of output tokens for a single assistant response,
     inclusive of tool calls. Provide an integer between 1 and 4096 to
@@ -14591,7 +14591,7 @@ class RealtimeSessionCreateRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    modalities: List[Literal['text', 'audio']] | None = None
+    modalities: list[Literal["text", "audio"]] | None = None
     """
     The set of modalities the model can respond with. To disable audio,
     set this to ["text"].
@@ -14599,11 +14599,11 @@ class RealtimeSessionCreateRequest(BaseModel):
     """
     model: (
         Literal[
-            'gpt-4o-realtime-preview',
-            'gpt-4o-realtime-preview-2024-10-01',
-            'gpt-4o-realtime-preview-2024-12-17',
-            'gpt-4o-mini-realtime-preview',
-            'gpt-4o-mini-realtime-preview-2024-12-17',
+            "gpt-4o-realtime-preview",
+            "gpt-4o-realtime-preview-2024-10-01",
+            "gpt-4o-realtime-preview-2024-12-17",
+            "gpt-4o-mini-realtime-preview",
+            "gpt-4o-mini-realtime-preview-2024-12-17",
         ]
         | None
     ) = None
@@ -14626,8 +14626,8 @@ class RealtimeSessionCreateRequest(BaseModel):
     `onyx`, `nova`, `sage`, `shimmer`, and `verse`.
 
     """
-    input_audio_format: Literal['pcm16', 'g711_ulaw', 'g711_alaw'] | None = (
-        'pcm16'
+    input_audio_format: Literal["pcm16", "g711_ulaw", "g711_alaw"] | None = (
+        "pcm16"
     )
     """
     The format of input audio. Options are `pcm16`, `g711_ulaw`, or `g711_alaw`.
@@ -14635,8 +14635,8 @@ class RealtimeSessionCreateRequest(BaseModel):
     single channel (mono), and little-endian byte order.
 
     """
-    output_audio_format: Literal['pcm16', 'g711_ulaw', 'g711_alaw'] | None = (
-        'pcm16'
+    output_audio_format: Literal["pcm16", "g711_ulaw", "g711_alaw"] | None = (
+        "pcm16"
     )
     """
     The format of output audio. Options are `pcm16`, `g711_ulaw`, or `g711_alaw`.
@@ -14662,11 +14662,11 @@ class RealtimeSessionCreateRequest(BaseModel):
     Filtering the audio can improve VAD and turn detection accuracy (reducing false positives) and model performance by improving perception of the input audio.
 
     """
-    tools: List[Tool] | None = None
+    tools: list[Tool] | None = None
     """
     Tools (functions) available to the model.
     """
-    tool_choice: str | None = 'auto'
+    tool_choice: str | None = "auto"
     """
     How the model chooses tools. Options are `auto`, `none`, `required`, or 
     specify a function.
@@ -14677,7 +14677,7 @@ class RealtimeSessionCreateRequest(BaseModel):
     Sampling temperature for the model, limited to [0.6, 1.2]. For audio models a temperature of 0.8 is highly recommended for best performance.
 
     """
-    max_response_output_tokens: int | Literal['inf'] | None = None
+    max_response_output_tokens: int | Literal["inf"] | None = None
     """
     Maximum number of output tokens for a single assistant response,
     inclusive of tool calls. Provide an integer between 1 and 4096 to
@@ -14701,7 +14701,7 @@ class RealtimeSessionCreateResponse(BaseModel):
     """
     Ephemeral key returned by the API.
     """
-    modalities: List[Literal['text', 'audio']] | None = None
+    modalities: list[Literal["text", "audio"]] | None = None
     """
     The set of modalities the model can respond with. To disable audio,
     set this to ["text"].
@@ -14757,7 +14757,7 @@ class RealtimeSessionCreateResponse(BaseModel):
     audio volume and respond at the end of user speech.
 
     """
-    tools: List[Tool] | None = None
+    tools: list[Tool] | None = None
     """
     Tools (functions) available to the model.
     """
@@ -14772,7 +14772,7 @@ class RealtimeSessionCreateResponse(BaseModel):
     Sampling temperature for the model, limited to [0.6, 1.2]. Defaults to 0.8.
 
     """
-    max_response_output_tokens: int | Literal['inf'] | None = None
+    max_response_output_tokens: int | Literal["inf"] | None = None
     """
     Maximum number of output tokens for a single assistant response,
     inclusive of tool calls. Provide an integer between 1 and 4096 to
@@ -14795,16 +14795,16 @@ class Reasoning(BaseModel):
         populate_by_name=True,
     )
     effort: ReasoningEffort | None = Field(
-        default_factory=lambda: ReasoningEffort.model_validate('medium')
+        default_factory=lambda: ReasoningEffort.model_validate("medium")
     )
-    summary: Literal['auto', 'concise', 'detailed'] | None = None
+    summary: Literal["auto", "concise", "detailed"] | None = None
     """
     A summary of the reasoning performed by the model. This can be
     useful for debugging and understanding the model's reasoning process.
     One of `auto`, `concise`, or `detailed`.
 
     """
-    generate_summary: Literal['auto', 'concise', 'detailed'] | None = None
+    generate_summary: Literal["auto", "concise", "detailed"] | None = None
     """
     **Deprecated:** use `summary` instead.
 
@@ -14823,8 +14823,8 @@ class ResponseCodeInterpreterCallCompletedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseCodeInterpreterCallCompletedEvent'] = (
-        'ResponseCodeInterpreterCallCompletedEvent'
+    type: Literal["ResponseCodeInterpreterCallCompletedEvent"] = (
+        "ResponseCodeInterpreterCallCompletedEvent"
     )
     """
     The type of the event. Always `response.code_interpreter_call.completed`.
@@ -14846,8 +14846,8 @@ class ResponseCodeInterpreterCallInProgressEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseCodeInterpreterCallInProgressEvent'] = (
-        'ResponseCodeInterpreterCallInProgressEvent'
+    type: Literal["ResponseCodeInterpreterCallInProgressEvent"] = (
+        "ResponseCodeInterpreterCallInProgressEvent"
     )
     """
     The type of the event. Always `response.code_interpreter_call.in_progress`.
@@ -14869,8 +14869,8 @@ class ResponseCodeInterpreterCallInterpretingEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseCodeInterpreterCallInterpretingEvent'] = (
-        'ResponseCodeInterpreterCallInterpretingEvent'
+    type: Literal["ResponseCodeInterpreterCallInterpretingEvent"] = (
+        "ResponseCodeInterpreterCallInterpretingEvent"
     )
     """
     The type of the event. Always `response.code_interpreter_call.interpreting`.
@@ -14892,8 +14892,8 @@ class ResponseContentPartAddedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseContentPartAddedEvent'] = (
-        'ResponseContentPartAddedEvent'
+    type: Literal["ResponseContentPartAddedEvent"] = (
+        "ResponseContentPartAddedEvent"
     )
     """
     The type of the event. Always `response.content_part.added`.
@@ -14929,8 +14929,8 @@ class ResponseContentPartDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseContentPartDoneEvent'] = (
-        'ResponseContentPartDoneEvent'
+    type: Literal["ResponseContentPartDoneEvent"] = (
+        "ResponseContentPartDoneEvent"
     )
     """
     The type of the event. Always `response.content_part.done`.
@@ -15018,11 +15018,11 @@ class ResponseFormatJsonSchema(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['json_schema'] = 'json_schema'
+    type: Literal["json_schema"] = "json_schema"
     """
     The type of response format being defined. Always `json_schema`.
     """
-    json_schema: JsonSchema = Field(..., title='JSON schema')
+    json_schema: JsonSchema = Field(..., title="JSON schema")
     """
     Structured Outputs configuration options, including a JSON Schema.
 
@@ -15037,8 +15037,8 @@ class ResponseTextAnnotationDeltaEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseTextAnnotationDeltaEvent'] = (
-        'ResponseTextAnnotationDeltaEvent'
+    type: Literal["ResponseTextAnnotationDeltaEvent"] = (
+        "ResponseTextAnnotationDeltaEvent"
     )
     """
     The type of the event. Always `response.output_text.annotation.added`.
@@ -15075,7 +15075,7 @@ class SubmitToolOutputs(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    tool_calls: List[RunToolCallObject]
+    tool_calls: list[RunToolCallObject]
     """
     A list of the relevant tool calls.
     """
@@ -15089,7 +15089,7 @@ class RequiredAction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['submit_tool_outputs'] = 'submit_tool_outputs'
+    type: Literal["submit_tool_outputs"] = "submit_tool_outputs"
     """
     For now, this is always `submit_tool_outputs`.
     """
@@ -15112,7 +15112,7 @@ class CodeInterpreter6(BaseModel):
     The input to the Code Interpreter tool call.
     """
     outputs: (
-        List[
+        list[
             RunStepDeltaStepDetailsToolCallsCodeOutputLogsObject
             | RunStepDeltaStepDetailsToolCallsCodeOutputImageObject
         ]
@@ -15139,7 +15139,7 @@ class RunStepDeltaStepDetailsToolCallsCodeObject(BaseModel):
     """
     The ID of the tool call.
     """
-    type: Literal['code_interpreter'] = 'code_interpreter'
+    type: Literal["code_interpreter"] = "code_interpreter"
     """
     The type of tool call. This is always going to be `code_interpreter` for this type of tool call.
     """
@@ -15157,12 +15157,12 @@ class RunStepDeltaStepDetailsToolCallsObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['tool_calls'] = 'tool_calls'
+    type: Literal["tool_calls"] = "tool_calls"
     """
     Always `tool_calls`.
     """
     tool_calls: (
-        List[
+        list[
             RunStepDeltaStepDetailsToolCallsCodeObject
             | RunStepDeltaStepDetailsToolCallsFileSearchObject
             | RunStepDeltaStepDetailsToolCallsFunctionObject
@@ -15187,7 +15187,7 @@ class CodeInterpreter7(BaseModel):
     """
     The input to the Code Interpreter tool call.
     """
-    outputs: List[
+    outputs: list[
         RunStepDetailsToolCallsCodeOutputLogsObject
         | RunStepDetailsToolCallsCodeOutputImageObject
     ]
@@ -15208,7 +15208,7 @@ class RunStepDetailsToolCallsCodeObject(BaseModel):
     """
     The ID of the tool call.
     """
-    type: Literal['code_interpreter'] = 'code_interpreter'
+    type: Literal["code_interpreter"] = "code_interpreter"
     """
     The type of tool call. This is always going to be `code_interpreter` for this type of tool call.
     """
@@ -15229,7 +15229,7 @@ class FileSearch9(BaseModel):
     ranking_options: (
         RunStepDetailsToolCallsFileSearchRankingOptionsObject | None
     ) = None
-    results: List[RunStepDetailsToolCallsFileSearchResultObject] | None = None
+    results: list[RunStepDetailsToolCallsFileSearchResultObject] | None = None
     """
     The results of the file search.
     """
@@ -15243,7 +15243,7 @@ class RunStepDetailsToolCallsFileSearchObject(BaseModel):
     """
     The ID of the tool call object.
     """
-    type: Literal['file_search'] = 'file_search'
+    type: Literal["file_search"] = "file_search"
     """
     The type of tool call. This is always going to be `file_search` for this type of tool call.
     """
@@ -15261,11 +15261,11 @@ class RunStepDetailsToolCallsObject(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['tool_calls'] = 'tool_calls'
+    type: Literal["tool_calls"] = "tool_calls"
     """
     Always `tool_calls`.
     """
-    tool_calls: List[
+    tool_calls: list[
         RunStepDetailsToolCallsCodeObject
         | RunStepDetailsToolCallsFileSearchObject
         | RunStepDetailsToolCallsFunctionObject
@@ -15289,7 +15289,7 @@ class RunStepObject(BaseModel):
     """
     The identifier of the run step, which can be referenced in API endpoints.
     """
-    object: Literal['thread.run.step'] = 'thread.run.step'
+    object: Literal["thread.run.step"] = "thread.run.step"
     """
     The object type, which is always `thread.run.step`.
     """
@@ -15309,12 +15309,12 @@ class RunStepObject(BaseModel):
     """
     The ID of the [run](/docs/api-reference/runs) that this run step is a part of.
     """
-    type: Literal['message_creation', 'tool_calls']
+    type: Literal["message_creation", "tool_calls"]
     """
     The type of run step, which can be either `message_creation` or `tool_calls`.
     """
     status: Literal[
-        'in_progress', 'cancelled', 'failed', 'completed', 'expired'
+        "in_progress", "cancelled", "failed", "completed", "expired"
     ]
     """
     The status of the run step, which can be either `in_progress`, `cancelled`, `failed`, `completed`, or `expired`.
@@ -15357,7 +15357,7 @@ class RunStepStreamEvent1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.step.created'] = 'thread.run.step.created'
+    event: Literal["thread.run.step.created"] = "thread.run.step.created"
     data: RunStepObject
 
 
@@ -15369,8 +15369,8 @@ class RunStepStreamEvent2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.step.in_progress'] = (
-        'thread.run.step.in_progress'
+    event: Literal["thread.run.step.in_progress"] = (
+        "thread.run.step.in_progress"
     )
     data: RunStepObject
 
@@ -15383,7 +15383,7 @@ class RunStepStreamEvent4(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.step.completed'] = 'thread.run.step.completed'
+    event: Literal["thread.run.step.completed"] = "thread.run.step.completed"
     data: RunStepObject
 
 
@@ -15395,7 +15395,7 @@ class RunStepStreamEvent5(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.step.failed'] = 'thread.run.step.failed'
+    event: Literal["thread.run.step.failed"] = "thread.run.step.failed"
     data: RunStepObject
 
 
@@ -15407,7 +15407,7 @@ class RunStepStreamEvent6(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.step.cancelled'] = 'thread.run.step.cancelled'
+    event: Literal["thread.run.step.cancelled"] = "thread.run.step.cancelled"
     data: RunStepObject
 
 
@@ -15419,7 +15419,7 @@ class RunStepStreamEvent7(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.step.expired'] = 'thread.run.step.expired'
+    event: Literal["thread.run.step.expired"] = "thread.run.step.expired"
     data: RunStepObject
 
 
@@ -15458,7 +15458,7 @@ class TextResponseFormatConfiguration(
 
 class UpdateVectorStoreFileAttributesRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     attributes: VectorStoreFileAttributes
@@ -15466,7 +15466,7 @@ class UpdateVectorStoreFileAttributesRequest(BaseModel):
 
 class UpdateVectorStoreRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     name: str | None = None
@@ -15481,10 +15481,10 @@ class UsageTimeBucket(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['bucket'] = 'bucket'
+    object: Literal["bucket"] = "bucket"
     start_time: int
     end_time: int
-    result: List[
+    result: list[
         UsageCompletionsResult
         | UsageEmbeddingsResult
         | UsageModerationsResult
@@ -15501,7 +15501,7 @@ class AssistantToolsFunction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     The type of tool being defined: `function`
     """
@@ -15510,7 +15510,7 @@ class AssistantToolsFunction(BaseModel):
 
 class AssistantsApiResponseFormatOption(
     RootModel[
-        Literal['auto']
+        Literal["auto"]
         | ResponseFormatText
         | ResponseFormatJsonObject
         | ResponseFormatJsonSchema
@@ -15520,7 +15520,7 @@ class AssistantsApiResponseFormatOption(
         populate_by_name=True,
     )
     root: (
-        Literal['auto']
+        Literal["auto"]
         | ResponseFormatText
         | ResponseFormatJsonObject
         | ResponseFormatJsonSchema
@@ -15545,7 +15545,7 @@ class AuditLogActor(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['session', 'api_key'] | None = None
+    type: Literal["session", "api_key"] | None = None
     """
     The type of actor. Is either `session` or `api_key`.
     """
@@ -15562,12 +15562,12 @@ class ChatCompletionList(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The type of this object. It is always set to "list".
 
     """
-    data: List[CreateChatCompletionResponse]
+    data: list[CreateChatCompletionResponse]
     """
     An array of chat completion objects.
 
@@ -15587,13 +15587,13 @@ class ChatCompletionList(BaseModel):
 
 
 class Content(
-    RootModel[List[ChatCompletionRequestAssistantMessageContentPart] | None]
+    RootModel[list[ChatCompletionRequestAssistantMessageContentPart] | None]
 ):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: List[ChatCompletionRequestAssistantMessageContentPart] | None = (
-        Field(None, min_length=1, title='Array of content parts')
+    root: list[ChatCompletionRequestAssistantMessageContentPart] | None = (
+        Field(None, min_length=1, title="Array of content parts")
     )
     """
     An array of content parts with a defined type. Can be one or more of type `text`, or exactly one of type `refusal`.
@@ -15618,7 +15618,7 @@ class ChatCompletionRequestAssistantMessage(BaseModel):
     """
     The refusal message by the assistant.
     """
-    role: Literal['assistant'] = 'assistant'
+    role: Literal["assistant"] = "assistant"
     """
     The role of the messages author, in this case `assistant`.
     """
@@ -15666,7 +15666,7 @@ class ChatCompletionTool(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['function'] = 'function'
+    type: Literal["function"] = "function"
     """
     The type of the tool. Currently, only `function` is supported.
     """
@@ -15686,10 +15686,10 @@ class Content5(RootModel[InputContent | OutputContent]):
 
 class CreateAssistantRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
-    model: str | AssistantSupportedModels = Field(..., examples=['gpt-4o'])
+    model: str | AssistantSupportedModels = Field(..., examples=["gpt-4o"])
     """
     ID of the model to use. You can use the [List models](/docs/api-reference/models/list) API to see all of your available models, or see our [Model overview](/docs/models) for descriptions of them.
 
@@ -15710,10 +15710,10 @@ class CreateAssistantRequest(BaseModel):
 
     """
     reasoning_effort: ReasoningEffort | None = Field(
-        default_factory=lambda: ReasoningEffort.model_validate('medium')
+        default_factory=lambda: ReasoningEffort.model_validate("medium")
     )
     tools: (
-        List[
+        list[
             AssistantToolsCode
             | AssistantToolsFileSearch
             | AssistantToolsFunction
@@ -15749,7 +15749,7 @@ class CreateEvalItem(RootModel[CreateEvalItem1 | EvalItem]):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    root: CreateEvalItem1 | EvalItem = Field(..., title='CreateEvalItem')
+    root: CreateEvalItem1 | EvalItem = Field(..., title="CreateEvalItem")
     """
     A chat message that makes up the prompt or context. May include variable references to the "item" namespace, ie {{item.name}}.
     """
@@ -15765,7 +15765,7 @@ class CreateEvalLabelModelGrader(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['label_model'] = 'label_model'
+    type: Literal["label_model"] = "label_model"
     """
     The object type, which is always `label_model`.
     """
@@ -15777,15 +15777,15 @@ class CreateEvalLabelModelGrader(BaseModel):
     """
     The model to use for the evaluation. Must support structured outputs.
     """
-    input: List[CreateEvalItem]
+    input: list[CreateEvalItem]
     """
     A list of chat messages forming the prompt or context. May include variable references to the "item" namespace, ie {{item.name}}.
     """
-    labels: List[str]
+    labels: list[str]
     """
     The labels to classify to each item in the evaluation.
     """
-    passing_labels: List[str]
+    passing_labels: list[str]
     """
     The labels that indicate a passing result. Must be a subset of labels.
     """
@@ -15806,7 +15806,7 @@ class CreateEvalRequest(BaseModel):
     """
     The configuration for the data source used for the evaluation runs.
     """
-    testing_criteria: List[
+    testing_criteria: list[
         CreateEvalLabelModelGrader
         | EvalStringCheckGrader
         | EvalTextSimilarityGrader
@@ -15822,11 +15822,11 @@ class InputMessages2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['template'] = 'template'
+    type: Literal["template"] = "template"
     """
     The type of input messages. Always `template`.
     """
-    template: List[Template | EvalItem]
+    template: list[Template | EvalItem]
     """
     A list of chat messages forming the prompt or context. May include variable references to the "item" namespace, ie {{item.name}}.
     """
@@ -15841,7 +15841,7 @@ class CreateEvalResponsesRunDataSource(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['completions'] = 'completions'
+    type: Literal["completions"] = "completions"
     """
     The type of run data source. Always `completions`.
     """
@@ -15864,14 +15864,14 @@ class CreateFineTuningJobRequest(BaseModel):
     )
     model: (
         str
-        | Literal['babbage-002', 'davinci-002', 'gpt-3.5-turbo', 'gpt-4o-mini']
-    ) = Field(..., examples=['gpt-4o-mini'])
+        | Literal["babbage-002", "davinci-002", "gpt-3.5-turbo", "gpt-4o-mini"]
+    ) = Field(..., examples=["gpt-4o-mini"])
     """
     The name of the model to fine-tune. You can select one of the
     [supported models](/docs/guides/fine-tuning#which-models-can-be-fine-tuned).
 
     """
-    training_file: str = Field(..., examples=['file-abc123'])
+    training_file: str = Field(..., examples=["file-abc123"])
     """
     The ID of an uploaded file that contains training data.
 
@@ -15897,7 +15897,7 @@ class CreateFineTuningJobRequest(BaseModel):
     For example, a `suffix` of "custom-model-name" would produce a model name like `ft:gpt-4o-mini:openai:custom-model-name:7p4lURel`.
 
     """
-    validation_file: str | None = Field(None, examples=['file-abc123'])
+    validation_file: str | None = Field(None, examples=["file-abc123"])
     """
     The ID of an uploaded file that contains validation data.
 
@@ -15911,7 +15911,7 @@ class CreateFineTuningJobRequest(BaseModel):
     See the [fine-tuning guide](/docs/guides/fine-tuning) for more details.
 
     """
-    integrations: List[Integration] | None = None
+    integrations: list[Integration] | None = None
     """
     A list of integrations to enable for your fine-tuning job.
     """
@@ -15934,7 +15934,7 @@ class CreateModelResponseProperties(ModelResponseProperties):
 
 class CreateRunRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     assistant_id: str
@@ -15942,13 +15942,13 @@ class CreateRunRequest(BaseModel):
     The ID of the [assistant](/docs/api-reference/assistants) to use to execute this run.
     """
     model: str | AssistantSupportedModels | None = Field(
-        None, examples=['gpt-4o']
+        None, examples=["gpt-4o"]
     )
     """
     The ID of the [Model](/docs/api-reference/models) to be used to execute this run. If a value is provided here, it will override the model associated with the assistant. If not, the model associated with the assistant will be used.
     """
     reasoning_effort: ReasoningEffort | None = Field(
-        default_factory=lambda: ReasoningEffort.model_validate('medium')
+        default_factory=lambda: ReasoningEffort.model_validate("medium")
     )
     instructions: str | None = None
     """
@@ -15958,12 +15958,12 @@ class CreateRunRequest(BaseModel):
     """
     Appends additional instructions at the end of the instructions for the run. This is useful for modifying the behavior on a per-run basis without overriding other instructions.
     """
-    additional_messages: List[CreateMessageRequest] | None = None
+    additional_messages: list[CreateMessageRequest] | None = None
     """
     Adds additional messages to the thread before creating the run.
     """
     tools: (
-        List[
+        list[
             AssistantToolsCode
             | AssistantToolsFileSearch
             | AssistantToolsFunction
@@ -16011,7 +16011,7 @@ class CreateRunRequest(BaseModel):
 
 class CreateThreadAndRunRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     assistant_id: str
@@ -16022,41 +16022,41 @@ class CreateThreadAndRunRequest(BaseModel):
     model: (
         str
         | Literal[
-            'gpt-4.1',
-            'gpt-4.1-mini',
-            'gpt-4.1-nano',
-            'gpt-4.1-2025-04-14',
-            'gpt-4.1-mini-2025-04-14',
-            'gpt-4.1-nano-2025-04-14',
-            'gpt-4o',
-            'gpt-4o-2024-11-20',
-            'gpt-4o-2024-08-06',
-            'gpt-4o-2024-05-13',
-            'gpt-4o-mini',
-            'gpt-4o-mini-2024-07-18',
-            'gpt-4.5-preview',
-            'gpt-4.5-preview-2025-02-27',
-            'gpt-4-turbo',
-            'gpt-4-turbo-2024-04-09',
-            'gpt-4-0125-preview',
-            'gpt-4-turbo-preview',
-            'gpt-4-1106-preview',
-            'gpt-4-vision-preview',
-            'gpt-4',
-            'gpt-4-0314',
-            'gpt-4-0613',
-            'gpt-4-32k',
-            'gpt-4-32k-0314',
-            'gpt-4-32k-0613',
-            'gpt-3.5-turbo',
-            'gpt-3.5-turbo-16k',
-            'gpt-3.5-turbo-0613',
-            'gpt-3.5-turbo-1106',
-            'gpt-3.5-turbo-0125',
-            'gpt-3.5-turbo-16k-0613',
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4.1-2025-04-14",
+            "gpt-4.1-mini-2025-04-14",
+            "gpt-4.1-nano-2025-04-14",
+            "gpt-4o",
+            "gpt-4o-2024-11-20",
+            "gpt-4o-2024-08-06",
+            "gpt-4o-2024-05-13",
+            "gpt-4o-mini",
+            "gpt-4o-mini-2024-07-18",
+            "gpt-4.5-preview",
+            "gpt-4.5-preview-2025-02-27",
+            "gpt-4-turbo",
+            "gpt-4-turbo-2024-04-09",
+            "gpt-4-0125-preview",
+            "gpt-4-turbo-preview",
+            "gpt-4-1106-preview",
+            "gpt-4-vision-preview",
+            "gpt-4",
+            "gpt-4-0314",
+            "gpt-4-0613",
+            "gpt-4-32k",
+            "gpt-4-32k-0314",
+            "gpt-4-32k-0613",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-0613",
+            "gpt-3.5-turbo-1106",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo-16k-0613",
         ]
         | None
-    ) = Field(None, examples=['gpt-4o'])
+    ) = Field(None, examples=["gpt-4o"])
     """
     The ID of the [Model](/docs/api-reference/models) to be used to execute this run. If a value is provided here, it will override the model associated with the assistant. If not, the model associated with the assistant will be used.
     """
@@ -16065,7 +16065,7 @@ class CreateThreadAndRunRequest(BaseModel):
     Override the default system message of the assistant. This is useful for modifying the behavior on a per-run basis.
     """
     tools: (
-        List[
+        list[
             AssistantToolsCode
             | AssistantToolsFileSearch
             | AssistantToolsFunction
@@ -16129,7 +16129,7 @@ class EasyInputMessage(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    role: Literal['user', 'assistant', 'system', 'developer']
+    role: Literal["user", "assistant", "system", "developer"]
     """
     The role of the message input. One of `user`, `assistant`, `system`, or
     `developer`.
@@ -16141,7 +16141,7 @@ class EasyInputMessage(BaseModel):
     Can also contain previous assistant responses.
 
     """
-    type: Literal['EasyInputMessage'] = 'EasyInputMessage'
+    type: Literal["EasyInputMessage"] = "EasyInputMessage"
     """
     The type of the message input. Always `message`.
 
@@ -16162,7 +16162,7 @@ class Eval(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['eval'] = 'eval'
+    object: Literal["eval"] = "eval"
     """
     The object type.
     """
@@ -16170,7 +16170,7 @@ class Eval(BaseModel):
     """
     Unique identifier for the evaluation.
     """
-    name: str = Field(..., examples=['Chatbot effectiveness Evaluation'])
+    name: str = Field(..., examples=["Chatbot effectiveness Evaluation"])
     """
     The name of the evaluation.
     """
@@ -16180,7 +16180,7 @@ class Eval(BaseModel):
     """
     Configuration of data sources used in runs of the evaluation.
     """
-    testing_criteria: List[
+    testing_criteria: list[
         EvalLabelModelGrader
         | EvalStringCheckGrader
         | EvalTextSimilarityGrader
@@ -16206,12 +16206,12 @@ class EvalList(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The type of this object. It is always set to "list".
 
     """
-    data: List[Eval]
+    data: list[Eval]
     """
     An array of eval objects.
 
@@ -16240,7 +16240,7 @@ class FineTuneChatCompletionRequestAssistantMessage(
     """
     Controls whether the assistant message is trained against (0 or 1)
     """
-    role: Literal['assistant'] = 'assistant'
+    role: Literal["assistant"] = "assistant"
     """
     The role of the messages author, in this case `assistant`.
     """
@@ -16255,7 +16255,7 @@ class FineTuneChatRequestInput(BaseModel):
         populate_by_name=True,
     )
     messages: (
-        List[
+        list[
             ChatCompletionRequestSystemMessage
             | ChatCompletionRequestUserMessage
             | FineTuneChatCompletionRequestAssistantMessage
@@ -16264,14 +16264,14 @@ class FineTuneChatRequestInput(BaseModel):
         ]
         | None
     ) = Field(None, min_length=1)
-    tools: List[ChatCompletionTool] | None = None
+    tools: list[ChatCompletionTool] | None = None
     """
     A list of tools the model may generate JSON inputs for.
     """
     parallel_tool_calls: ParallelToolCalls | None = Field(
         default_factory=lambda: ParallelToolCalls.model_validate(True)
     )
-    functions: List[ChatCompletionFunctions] | None = Field(
+    functions: list[ChatCompletionFunctions] | None = Field(
         None, max_length=128, min_length=1
     )
     """
@@ -16284,7 +16284,7 @@ class Input5(BaseModel):
         populate_by_name=True,
     )
     messages: (
-        List[
+        list[
             ChatCompletionRequestSystemMessage
             | ChatCompletionRequestUserMessage
             | FineTuneChatCompletionRequestAssistantMessage
@@ -16293,7 +16293,7 @@ class Input5(BaseModel):
         ]
         | None
     ) = Field(None, min_length=1)
-    tools: List[ChatCompletionTool] | None = None
+    tools: list[ChatCompletionTool] | None = None
     """
     A list of tools the model may generate JSON inputs for.
     """
@@ -16312,13 +16312,13 @@ class FineTunePreferenceRequestInput(BaseModel):
     )
     input: Input5 | None = None
     preferred_completion: (
-        List[ChatCompletionRequestAssistantMessage] | None
+        list[ChatCompletionRequestAssistantMessage] | None
     ) = Field(None, max_length=1)
     """
     The preferred completion message for the output.
     """
     non_preferred_completion: (
-        List[ChatCompletionRequestAssistantMessage] | None
+        list[ChatCompletionRequestAssistantMessage] | None
     ) = Field(None, max_length=1)
     """
     The non-preferred completion message for the output.
@@ -16336,17 +16336,17 @@ class InputMessage(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['InputMessage'] = 'InputMessage'
+    type: Literal["InputMessage"] = "InputMessage"
     """
     The type of the message input. Always set to `message`.
 
     """
-    role: Literal['user', 'system', 'developer']
+    role: Literal["user", "system", "developer"]
     """
     The role of the message input. One of `user`, `system`, or `developer`.
 
     """
-    status: Literal['in_progress', 'completed', 'incomplete'] | None = None
+    status: Literal["in_progress", "completed", "incomplete"] | None = None
     """
     The status of item. One of `in_progress`, `completed`, or
     `incomplete`. Populated when items are returned via API.
@@ -16364,7 +16364,7 @@ class InputMessageResource(InputMessage):
     The unique ID of the message input.
 
     """
-    type: Literal['InputMessageResource'] = 'InputMessageResource'
+    type: Literal["InputMessageResource"] = "InputMessageResource"
 
 
 class Item(
@@ -16393,7 +16393,7 @@ class Item(
         | FunctionToolCall
         | FunctionCallOutputItemParam
         | ReasoningItem
-    ) = Field(..., discriminator='type')
+    ) = Field(..., discriminator="type")
     """
     Content item used to generate a response.
 
@@ -16424,7 +16424,7 @@ class ItemResource(
         | WebSearchToolCall
         | FunctionToolCallResource
         | FunctionToolCallOutputResource
-    ) = Field(..., discriminator='type')
+    ) = Field(..., discriminator="type")
     """
     Content item used to generate a response.
 
@@ -16435,10 +16435,10 @@ class ListMessagesResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['list'])
-    data: List[MessageObject]
-    first_id: str = Field(..., examples=['msg_abc123'])
-    last_id: str = Field(..., examples=['msg_abc123'])
+    object: str = Field(..., examples=["list"])
+    data: list[MessageObject]
+    first_id: str = Field(..., examples=["msg_abc123"])
+    last_id: str = Field(..., examples=["msg_abc123"])
     has_more: bool = Field(..., examples=[False])
 
 
@@ -16446,10 +16446,10 @@ class ListRunStepsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['list'])
-    data: List[RunStepObject]
-    first_id: str = Field(..., examples=['step_abc123'])
-    last_id: str = Field(..., examples=['step_abc456'])
+    object: str = Field(..., examples=["list"])
+    data: list[RunStepObject]
+    first_id: str = Field(..., examples=["step_abc123"])
+    last_id: str = Field(..., examples=["step_abc456"])
     has_more: bool = Field(..., examples=[False])
 
 
@@ -16462,7 +16462,7 @@ class ModelIds(RootModel[ModelIdsShared | ModelIdsResponses]):
 
 class ModifyAssistantRequest(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         populate_by_name=True,
     )
     model: str | AssistantSupportedModels | None = None
@@ -16471,7 +16471,7 @@ class ModifyAssistantRequest(BaseModel):
 
     """
     reasoning_effort: ReasoningEffort | None = Field(
-        default_factory=lambda: ReasoningEffort.model_validate('medium')
+        default_factory=lambda: ReasoningEffort.model_validate("medium")
     )
     name: str | None = Field(None, max_length=256)
     """
@@ -16489,7 +16489,7 @@ class ModifyAssistantRequest(BaseModel):
 
     """
     tools: (
-        List[
+        list[
             AssistantToolsCode
             | AssistantToolsFileSearch
             | AssistantToolsFunction
@@ -16541,7 +16541,7 @@ class OutputItem1(
         | WebSearchToolCall
         | ComputerToolCall
         | ReasoningItem
-    ) = Field(..., discriminator='type')
+    ) = Field(..., discriminator="type")
 
 
 class RealtimeClientEventResponseCreate(BaseModel):
@@ -16571,8 +16571,8 @@ class RealtimeClientEventResponseCreate(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventResponseCreate'] = (
-        'RealtimeClientEventResponseCreate'
+    type: Literal["RealtimeClientEventResponseCreate"] = (
+        "RealtimeClientEventResponseCreate"
     )
     """
     The event type, must be `response.create`.
@@ -16602,8 +16602,8 @@ class RealtimeClientEventSessionUpdate(BaseModel):
     """
     Optional client-generated ID used to identify this event.
     """
-    type: Literal['RealtimeClientEventSessionUpdate'] = (
-        'RealtimeClientEventSessionUpdate'
+    type: Literal["RealtimeClientEventSessionUpdate"] = (
+        "RealtimeClientEventSessionUpdate"
     )
     """
     The event type, must be `session.update`.
@@ -16626,8 +16626,8 @@ class RealtimeServerEventSessionCreated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventSessionCreated'] = (
-        'RealtimeServerEventSessionCreated'
+    type: Literal["RealtimeServerEventSessionCreated"] = (
+        "RealtimeServerEventSessionCreated"
     )
     """
     The event type, must be `session.created`.
@@ -16649,8 +16649,8 @@ class RealtimeServerEventSessionUpdated(BaseModel):
     """
     The unique ID of the server event.
     """
-    type: Literal['RealtimeServerEventSessionUpdated'] = (
-        'RealtimeServerEventSessionUpdated'
+    type: Literal["RealtimeServerEventSessionUpdated"] = (
+        "RealtimeServerEventSessionUpdated"
     )
     """
     The event type, must be `session.updated`.
@@ -16666,11 +16666,11 @@ class ResponseItemList(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The type of object returned, must be `list`.
     """
-    data: List[ItemResource]
+    data: list[ItemResource]
     """
     A list of items used to generate this response.
     """
@@ -16696,8 +16696,8 @@ class ResponseOutputItemAddedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseOutputItemAddedEvent'] = (
-        'ResponseOutputItemAddedEvent'
+    type: Literal["ResponseOutputItemAddedEvent"] = (
+        "ResponseOutputItemAddedEvent"
     )
     """
     The type of the event. Always `response.output_item.added`.
@@ -16723,8 +16723,8 @@ class ResponseOutputItemDoneEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseOutputItemDoneEvent'] = (
-        'ResponseOutputItemDoneEvent'
+    type: Literal["ResponseOutputItemDoneEvent"] = (
+        "ResponseOutputItemDoneEvent"
     )
     """
     The type of the event. Always `response.output_item.done`.
@@ -16799,7 +16799,7 @@ class ResponseProperties(BaseModel):
     - [Structured Outputs](/docs/guides/structured-outputs)
 
     """
-    tools: List[ToolModel] | None = None
+    tools: list[ToolModel] | None = None
     """
     An array of tools the model may call while generating a response. You 
     can specify which tool to use by setting the `tool_choice` parameter.
@@ -16824,7 +16824,7 @@ class ResponseProperties(BaseModel):
     the model can call.
 
     """
-    truncation: Literal['auto', 'disabled'] | None = 'disabled'
+    truncation: Literal["auto", "disabled"] | None = "disabled"
     """
     The truncation strategy to use for the model response.
     - `auto`: If the context of this response and previous ones exceeds
@@ -16849,7 +16849,7 @@ class RunObject(BaseModel):
     """
     The identifier, which can be referenced in API endpoints.
     """
-    object: Literal['thread.run'] = 'thread.run'
+    object: Literal["thread.run"] = "thread.run"
     """
     The object type, which is always `thread.run`.
     """
@@ -16866,15 +16866,15 @@ class RunObject(BaseModel):
     The ID of the [assistant](/docs/api-reference/assistants) used for execution of this run.
     """
     status: Literal[
-        'queued',
-        'in_progress',
-        'requires_action',
-        'cancelling',
-        'cancelled',
-        'failed',
-        'completed',
-        'incomplete',
-        'expired',
+        "queued",
+        "in_progress",
+        "requires_action",
+        "cancelling",
+        "cancelled",
+        "failed",
+        "completed",
+        "incomplete",
+        "expired",
     ]
     """
     The status of the run, which can be either `queued`, `in_progress`, `requires_action`, `cancelling`, `cancelled`, `failed`, `completed`, `incomplete`, or `expired`.
@@ -16919,7 +16919,7 @@ class RunObject(BaseModel):
     """
     The instructions that the [assistant](/docs/api-reference/assistants) used for this run.
     """
-    tools: List[
+    tools: list[
         AssistantToolsCode | AssistantToolsFileSearch | AssistantToolsFunction
     ] = Field(..., max_length=20)
     """
@@ -16982,7 +16982,7 @@ class RunStepDeltaObject(BaseModel):
     """
     The identifier of the run step, which can be referenced in API endpoints.
     """
-    object: Literal['thread.run.step.delta'] = 'thread.run.step.delta'
+    object: Literal["thread.run.step.delta"] = "thread.run.step.delta"
     """
     The object type, which is always `thread.run.step.delta`.
     """
@@ -17000,7 +17000,7 @@ class RunStepStreamEvent3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.step.delta'] = 'thread.run.step.delta'
+    event: Literal["thread.run.step.delta"] = "thread.run.step.delta"
     data: RunStepDeltaObject
 
 
@@ -17037,7 +17037,7 @@ class RunStreamEvent1(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.created'] = 'thread.run.created'
+    event: Literal["thread.run.created"] = "thread.run.created"
     data: RunObject
 
 
@@ -17049,7 +17049,7 @@ class RunStreamEvent2(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.queued'] = 'thread.run.queued'
+    event: Literal["thread.run.queued"] = "thread.run.queued"
     data: RunObject
 
 
@@ -17061,7 +17061,7 @@ class RunStreamEvent3(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.in_progress'] = 'thread.run.in_progress'
+    event: Literal["thread.run.in_progress"] = "thread.run.in_progress"
     data: RunObject
 
 
@@ -17073,7 +17073,7 @@ class RunStreamEvent4(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.requires_action'] = 'thread.run.requires_action'
+    event: Literal["thread.run.requires_action"] = "thread.run.requires_action"
     data: RunObject
 
 
@@ -17085,7 +17085,7 @@ class RunStreamEvent5(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.completed'] = 'thread.run.completed'
+    event: Literal["thread.run.completed"] = "thread.run.completed"
     data: RunObject
 
 
@@ -17097,7 +17097,7 @@ class RunStreamEvent6(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.incomplete'] = 'thread.run.incomplete'
+    event: Literal["thread.run.incomplete"] = "thread.run.incomplete"
     data: RunObject
 
 
@@ -17109,7 +17109,7 @@ class RunStreamEvent7(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.failed'] = 'thread.run.failed'
+    event: Literal["thread.run.failed"] = "thread.run.failed"
     data: RunObject
 
 
@@ -17121,7 +17121,7 @@ class RunStreamEvent8(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.cancelling'] = 'thread.run.cancelling'
+    event: Literal["thread.run.cancelling"] = "thread.run.cancelling"
     data: RunObject
 
 
@@ -17133,7 +17133,7 @@ class RunStreamEvent9(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.cancelled'] = 'thread.run.cancelled'
+    event: Literal["thread.run.cancelled"] = "thread.run.cancelled"
     data: RunObject
 
 
@@ -17145,7 +17145,7 @@ class RunStreamEvent10(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    event: Literal['thread.run.expired'] = 'thread.run.expired'
+    event: Literal["thread.run.expired"] = "thread.run.expired"
     data: RunObject
 
 
@@ -17184,8 +17184,8 @@ class UsageResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['page'] = 'page'
-    data: List[UsageTimeBucket]
+    object: Literal["page"] = "page"
+    data: list[UsageTimeBucket]
     has_more: bool
     next_page: str
 
@@ -17202,7 +17202,7 @@ class AssistantObject(BaseModel):
     """
     The identifier, which can be referenced in API endpoints.
     """
-    object: Literal['assistant'] = 'assistant'
+    object: Literal["assistant"] = "assistant"
     """
     The object type, which is always `assistant`.
     """
@@ -17230,7 +17230,7 @@ class AssistantObject(BaseModel):
     The system instructions that the assistant uses. The maximum length is 256,000 characters.
 
     """
-    tools: List[
+    tools: list[
         AssistantToolsCode | AssistantToolsFileSearch | AssistantToolsFunction
     ] = Field(..., max_length=128)
     """
@@ -17439,7 +17439,7 @@ class CreateChatCompletionRequest(CreateModelResponseProperties):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    messages: List[ChatCompletionRequestMessage] = Field(..., min_length=1)
+    messages: list[ChatCompletionRequestMessage] = Field(..., min_length=1)
     """
     A list of messages comprising the conversation so far. Depending on the
     [model](/docs/models) you use, different message types (modalities) are
@@ -17457,7 +17457,7 @@ class CreateChatCompletionRequest(CreateModelResponseProperties):
     """
     modalities: ResponseModalities | None = None
     reasoning_effort: ReasoningEffort | None = Field(
-        default_factory=lambda: ReasoningEffort.model_validate('medium')
+        default_factory=lambda: ReasoningEffort.model_validate("medium")
     )
     max_completion_tokens: int | None = None
     """
@@ -17479,7 +17479,7 @@ class CreateChatCompletionRequest(CreateModelResponseProperties):
 
     """
     web_search_options: WebSearchOptions | None = Field(
-        None, title='Web search'
+        None, title="Web search"
     )
     """
     This tool searches the web for relevant results to use in a response.
@@ -17535,7 +17535,7 @@ class CreateChatCompletionRequest(CreateModelResponseProperties):
 
     """
     stop: StopConfiguration | None = None
-    logit_bias: Dict[str, int] | None = None
+    logit_bias: dict[str, int] | None = None
     """
     Modify the likelihood of specified tokens appearing in the completion.
 
@@ -17586,7 +17586,7 @@ class CreateChatCompletionRequest(CreateModelResponseProperties):
 
     """
     stream_options: ChatCompletionStreamOptions | None = None
-    tools: List[ChatCompletionTool] | None = None
+    tools: list[ChatCompletionTool] | None = None
     """
     A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of functions the model may generate JSON inputs for. A max of 128 functions are supported.
 
@@ -17596,7 +17596,7 @@ class CreateChatCompletionRequest(CreateModelResponseProperties):
         default_factory=lambda: ParallelToolCalls.model_validate(True)
     )
     function_call: (
-        Literal['none', 'auto'] | ChatCompletionFunctionCallOption | None
+        Literal["none", "auto"] | ChatCompletionFunctionCallOption | None
     ) = None
     """
     Deprecated in favor of `tool_choice`.
@@ -17616,7 +17616,7 @@ class CreateChatCompletionRequest(CreateModelResponseProperties):
     if functions are present.
 
     """
-    functions: List[ChatCompletionFunctions] | None = Field(
+    functions: list[ChatCompletionFunctions] | None = Field(
         None, max_length=128, min_length=1
     )
     """
@@ -17631,11 +17631,11 @@ class InputMessages(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['template'] = 'template'
+    type: Literal["template"] = "template"
     """
     The type of input messages. Always `template`.
     """
-    template: List[EasyInputMessage | EvalItem]
+    template: list[EasyInputMessage | EvalItem]
     """
     A list of chat messages forming the prompt or context. May include variable references to the "item" namespace, ie {{item.name}}.
     """
@@ -17650,7 +17650,7 @@ class CreateEvalCompletionsRunDataSource(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['completions'] = 'completions'
+    type: Literal["completions"] = "completions"
     """
     The type of run data source. Always `completions`.
     """
@@ -17695,7 +17695,7 @@ class EvalRun(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['eval.run'] = 'eval.run'
+    object: Literal["eval.run"] = "eval.run"
     """
     The type of the object. Always "eval.run".
     """
@@ -17731,11 +17731,11 @@ class EvalRun(BaseModel):
     """
     Counters summarizing the outcomes of the evaluation run.
     """
-    per_model_usage: List[PerModelUsageItem]
+    per_model_usage: list[PerModelUsageItem]
     """
     Usage statistics for each model during the evaluation run.
     """
-    per_testing_criteria_results: List[PerTestingCriteriaResult]
+    per_testing_criteria_results: list[PerTestingCriteriaResult]
     """
     Results per testing criteria applied during the evaluation run.
     """
@@ -17760,12 +17760,12 @@ class EvalRunList(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
+    object: Literal["list"] = "list"
     """
     The type of this object. It is always set to "list".
 
     """
-    data: List[EvalRun]
+    data: list[EvalRun]
     """
     An array of eval run objects.
 
@@ -17789,7 +17789,7 @@ class InputItem(RootModel[EasyInputMessage | Item | ItemReferenceParam]):
         populate_by_name=True,
     )
     root: EasyInputMessage | Item | ItemReferenceParam = Field(
-        ..., discriminator='type'
+        ..., discriminator="type"
     )
 
 
@@ -17797,10 +17797,10 @@ class ListAssistantsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['list'])
-    data: List[AssistantObject]
-    first_id: str = Field(..., examples=['asst_abc123'])
-    last_id: str = Field(..., examples=['asst_abc456'])
+    object: str = Field(..., examples=["list"])
+    data: list[AssistantObject]
+    first_id: str = Field(..., examples=["asst_abc123"])
+    last_id: str = Field(..., examples=["asst_abc456"])
     has_more: bool = Field(..., examples=[False])
 
 
@@ -17808,10 +17808,10 @@ class ListAuditLogsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: Literal['list'] = 'list'
-    data: List[AuditLog]
-    first_id: str = Field(..., examples=['audit_log-defb456h8dks'])
-    last_id: str = Field(..., examples=['audit_log-hnbkd8s93s'])
+    object: Literal["list"] = "list"
+    data: list[AuditLog]
+    first_id: str = Field(..., examples=["audit_log-defb456h8dks"])
+    last_id: str = Field(..., examples=["audit_log-hnbkd8s93s"])
     has_more: bool
 
 
@@ -17819,10 +17819,10 @@ class ListRunsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    object: str = Field(..., examples=['list'])
-    data: List[RunObject]
-    first_id: str = Field(..., examples=['run_abc123'])
-    last_id: str = Field(..., examples=['run_abc456'])
+    object: str = Field(..., examples=["list"])
+    data: list[RunObject]
+    first_id: str = Field(..., examples=["run_abc123"])
+    last_id: str = Field(..., examples=["run_abc456"])
     has_more: bool = Field(..., examples=[False])
 
 
@@ -17858,7 +17858,7 @@ class RealtimeClientEvent(
         | RealtimeClientEventResponseCreate
         | RealtimeClientEventSessionUpdate
         | RealtimeClientEventTranscriptionSessionUpdate
-    ) = Field(..., discriminator='type')
+    ) = Field(..., discriminator="type")
     """
     A realtime client event.
 
@@ -17941,7 +17941,7 @@ class RealtimeServerEvent(
         | RealtimeServerEventOutputAudioBufferStarted
         | RealtimeServerEventOutputAudioBufferStopped
         | RealtimeServerEventOutputAudioBufferCleared
-    ) = Field(..., discriminator='type')
+    ) = Field(..., discriminator="type")
     """
     A realtime server event.
 
@@ -17957,13 +17957,13 @@ class Response1(ModelResponseProperties, ResponseProperties):
     Unique identifier for this Response.
 
     """
-    object: Literal['response'] = 'response'
+    object: Literal["response"] = "response"
     """
     The object type of this resource - always set to `response`.
 
     """
     status: (
-        Literal['completed', 'failed', 'in_progress', 'incomplete'] | None
+        Literal["completed", "failed", "in_progress", "incomplete"] | None
     ) = None
     """
     The status of the response generation. One of `completed`, `failed`, 
@@ -17981,7 +17981,7 @@ class Response1(ModelResponseProperties, ResponseProperties):
     Details about why the response is incomplete.
 
     """
-    output: List[OutputItem1]
+    output: list[OutputItem1]
     """
     An array of content items generated by the model.
 
@@ -18016,7 +18016,7 @@ class ResponseCompletedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseCompletedEvent'] = 'ResponseCompletedEvent'
+    type: Literal["ResponseCompletedEvent"] = "ResponseCompletedEvent"
     """
     The type of the event. Always `response.completed`.
 
@@ -18037,7 +18037,7 @@ class ResponseCreatedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseCreatedEvent'] = 'ResponseCreatedEvent'
+    type: Literal["ResponseCreatedEvent"] = "ResponseCreatedEvent"
     """
     The type of the event. Always `response.created`.
 
@@ -18058,7 +18058,7 @@ class ResponseFailedEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseFailedEvent'] = 'ResponseFailedEvent'
+    type: Literal["ResponseFailedEvent"] = "ResponseFailedEvent"
     """
     The type of the event. Always `response.failed`.
 
@@ -18078,7 +18078,7 @@ class ResponseInProgressEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseInProgressEvent'] = 'ResponseInProgressEvent'
+    type: Literal["ResponseInProgressEvent"] = "ResponseInProgressEvent"
     """
     The type of the event. Always `response.in_progress`.
 
@@ -18099,7 +18099,7 @@ class ResponseIncompleteEvent(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    type: Literal['ResponseIncompleteEvent'] = 'ResponseIncompleteEvent'
+    type: Literal["ResponseIncompleteEvent"] = "ResponseIncompleteEvent"
     """
     The type of the event. Always `response.incomplete`.
 
@@ -18191,14 +18191,14 @@ class ResponseStreamEvent(
         | ResponseWebSearchCallCompletedEvent
         | ResponseWebSearchCallInProgressEvent
         | ResponseWebSearchCallSearchingEvent
-    ) = Field(..., discriminator='type')
+    ) = Field(..., discriminator="type")
 
 
 class CreateResponse(CreateModelResponseProperties, ResponseProperties):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    input: str | List[InputItem]
+    input: str | list[InputItem]
     """
     Text, image, or file inputs to the model, used to generate a response.
 
@@ -18210,7 +18210,7 @@ class CreateResponse(CreateModelResponseProperties, ResponseProperties):
     - [Function calling](/docs/guides/function-calling)
 
     """
-    include: List[Includable] | None = None
+    include: list[Includable] | None = None
     """
     Specify additional output data to include in the model response. Currently
     supported values are:

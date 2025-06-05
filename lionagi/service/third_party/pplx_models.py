@@ -32,7 +32,8 @@ class PerplexityMessage(BaseModel):
         description="The role of the speaker. Must be system, user, or assistant.",
     )
     content: str = Field(
-        ..., description="The contents of the message in this turn of conversation"
+        ...,
+        description="The contents of the message in this turn of conversation",
     )
 
 
@@ -104,7 +105,12 @@ class PerplexityChatRequest(BaseModel):
         "to 10 domains for Allowlisting and Denylisting. For Denylisting, add a - at "
         "the beginning of the domain string. for more info, "
         "see: https://docs.perplexity.ai/guides/search-domain-filters",
-        examples=["nasa.gov", "wikipedia.org", "-example.com", "-facebook.com"],
+        examples=[
+            "nasa.gov",
+            "wikipedia.org",
+            "-example.com",
+            "-facebook.com",
+        ],
     )
     search_recency_filter: str | None = Field(
         default=None,

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 class TextContentBlock(BaseModel):
     type: Literal["text"] = "text"
     text: str
-    cache_control: Optional[dict] = None
+    cache_control: dict | None = None
 
 
 class ImageSource(BaseModel):
@@ -33,7 +33,7 @@ ContentBlock = Union[TextContentBlock, ImageContentBlock]
 
 class Message(BaseModel):
     role: Literal["user", "assistant"]
-    content: Union[str, list[Union[str, ContentBlock]]]
+    content: str | list[str | ContentBlock]
 
     @field_validator("content", mode="before")
     def validate_content(cls, v):
@@ -53,33 +53,35 @@ class Message(BaseModel):
 
 
 class ToolDefinition(BaseModel):
-    name: str = Field(..., min_length=1, max_length=64, pattern="^[a-zA-Z0-9_-]+$")
-    description: Optional[str] = None
+    name: str = Field(
+        ..., min_length=1, max_length=64, pattern="^[a-zA-Z0-9_-]+$"
+    )
+    description: str | None = None
     input_schema: dict
 
 
 class ToolChoice(BaseModel):
     type: Literal["auto", "any", "tool"]
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class CreateMessageRequest(BaseModel):
     """Request model for Anthropic messages API."""
-    
+
     model: str = Field(..., min_length=1, max_length=256)
     messages: list[Message]
     max_tokens: int = Field(..., ge=1)
-    
+
     # Optional fields
-    system: Optional[Union[str, list[ContentBlock]]] = None
-    temperature: Optional[float] = Field(None, ge=0, le=1)
-    top_p: Optional[float] = Field(None, ge=0, le=1)
-    top_k: Optional[int] = Field(None, ge=0)
-    stop_sequences: Optional[list[str]] = None
-    stream: Optional[bool] = False
-    metadata: Optional[dict] = None
-    tools: Optional[list[ToolDefinition]] = None
-    tool_choice: Optional[Union[ToolChoice, dict]] = None
+    system: str | list[ContentBlock] | None = None
+    temperature: float | None = Field(None, ge=0, le=1)
+    top_p: float | None = Field(None, ge=0, le=1)
+    top_k: int | None = Field(None, ge=0)
+    stop_sequences: list[str] | None = None
+    stream: bool | None = False
+    metadata: dict | None = None
+    tools: list[ToolDefinition] | None = None
+    tool_choice: ToolChoice | dict | None = None
 
     class Config:
         extra = "forbid"
@@ -87,26 +89,30 @@ class CreateMessageRequest(BaseModel):
 
 class Usage(BaseModel):
     """Token usage information."""
+
     input_tokens: int
     output_tokens: int
 
 
 class ContentBlockResponse(BaseModel):
     """Response content block."""
+
     type: Literal["text"]
     text: str
 
 
 class CreateMessageResponse(BaseModel):
     """Response model for Anthropic messages API."""
-    
+
     id: str
     type: Literal["message"] = "message"
     role: Literal["assistant"] = "assistant"
     content: list[ContentBlockResponse]
     model: str
-    stop_reason: Optional[Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"]] = None
-    stop_sequence: Optional[str] = None
+    stop_reason: None | (
+        Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"]
+    ) = None
+    stop_sequence: str | None = None
     usage: Usage
 
 
@@ -136,7 +142,7 @@ class ContentBlockStopEvent(BaseModel):
 class MessageDeltaEvent(BaseModel):
     type: Literal["message_delta"] = "message_delta"
     delta: dict
-    usage: Optional[Usage] = None
+    usage: Usage | None = None
 
 
 class MessageStopEvent(BaseModel):
