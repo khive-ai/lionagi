@@ -471,7 +471,7 @@ def circuit_breaker(
     """
 
     def decorator(
-        func: Callable[..., Awaitable[T]]
+        func: Callable[..., Awaitable[T]],
     ) -> Callable[..., Awaitable[T]]:
         # Create a unique name for the circuit breaker if not provided
         cb_name = name or f"cb_{func.__module__}_{func.__qualname__}"
@@ -522,7 +522,7 @@ def with_retry(
     """
 
     def decorator(
-        func: Callable[..., Awaitable[T]]
+        func: Callable[..., Awaitable[T]],
     ) -> Callable[..., Awaitable[T]]:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
