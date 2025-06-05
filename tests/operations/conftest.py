@@ -7,7 +7,7 @@ import pytest
 from lionagi.protocols.generic.event import EventStatus
 
 # Import these so we can construct a real APICalling object:
-from lionagi.service.endpoints.base import APICalling
+from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch
 
@@ -23,11 +23,9 @@ def branch_with_mock_imodel():
     async def _fake_invoke(**kwargs):
         # Build a real APICalling object so it plays nicely with logging & validation
         fake_call = APICalling(
-            payload={},
-            headers={},
+            payload={"model": "gpt-4o-mini", "messages": []},
+            headers={"Authorization": "Bearer test"},
             endpoint=branch.chat_model.endpoint,  # Some endpoint, real or mock
-            is_cached=False,
-            should_invoke_endpoint=False,
         )
         # The main thing your code sees is `fake_call.execution.response`
         # which we set to a dict containing "mocked_response_string".
@@ -38,12 +36,12 @@ def branch_with_mock_imodel():
     async_mock_invoke = AsyncMock(side_effect=_fake_invoke)
 
     mock_chat_model = iModel(
-        provider="test_mock", model="test_chat_model", api_key="test_key"
+        provider="openai", model="gpt-4o-mini", api_key="test_key"
     )
     mock_chat_model.invoke = async_mock_invoke
 
     mock_parse_model = iModel(
-        provider="test_mock", model="test_parse_model", api_key="test_key"
+        provider="openai", model="gpt-4o-mini", api_key="test_key"
     )
     mock_parse_model.invoke = async_mock_invoke
 
