@@ -10,6 +10,7 @@ import pandas as pd
 from jinja2 import Template
 from pydantic import BaseModel, Field, JsonValue, PrivateAttr
 
+from lionagi.config import settings
 from lionagi.fields import Instruct
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.models.field_model import FieldModel
@@ -42,7 +43,7 @@ from lionagi.protocols.types import (
     SenderRecipient,
     System,
 )
-from lionagi.service.endpoints.base import EndPoint
+from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.types import iModel, iModelManager
 from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
@@ -200,9 +201,15 @@ class Branch(Element, Communicatable, Relational):
 
         chat_model = chat_model or imodel
         if not chat_model:
-            chat_model = iModel(**Settings.iModel.CHAT)
+            chat_model = iModel(
+                provider=settings.LIONAGI_CHAT_PROVIDER,
+                model=settings.LIONAGI_CHAT_MODEL,
+            )
         if not parse_model:
-            parse_model = iModel(**Settings.iModel.PARSE)
+            parse_model = iModel(
+                provider=settings.LIONAGI_CHAT_PROVIDER,
+                model="gpt-4o-mini",  # Default parse model
+            )
 
         if isinstance(chat_model, dict):
             chat_model = iModel.from_dict(chat_model)
@@ -571,7 +578,7 @@ class Branch(Element, Communicatable, Relational):
         self,
         provider: str = None,
         base_url: str = None,
-        endpoint: str | EndPoint = "chat",
+        endpoint: str | Endpoint = "chat",
         endpoint_params: list[str] | None = None,
         api_key: str = None,
         queue_capacity: int = 100,
@@ -799,9 +806,7 @@ class Branch(Element, Communicatable, Relational):
             request_fields=request_fields,
             response_format=response_format,
             progression=progression,
-            chat_model=kwargs.pop("chat_model", None)
-            or imodel
-            or self.chat_model,
+            imodel=imodel or kwargs.pop("chat_model", None) or self.chat_model,
             tool_schemas=tool_schemas,
             images=images,
             image_detail=image_detail,

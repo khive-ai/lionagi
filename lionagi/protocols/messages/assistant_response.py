@@ -46,7 +46,7 @@ def prepare_assistant_response(
                     elif isinstance(j, str):
                         text_contents.append(j)
 
-            # openai standard
+            # openai chat completions standard
             elif "choices" in i:
                 choices = i["choices"]
                 choices = (
@@ -57,6 +57,25 @@ def prepare_assistant_response(
                         text_contents.append(j["message"]["content"] or "")
                     elif "delta" in j:
                         text_contents.append(j["delta"]["content"] or "")
+
+            # openai responses API standard
+            elif "output" in i:
+                output = i["output"]
+                output = [output] if not isinstance(output, list) else output
+                for item in output:
+                    if isinstance(item, dict):
+                        if item.get("type") == "message":
+                            # Extract content from message
+                            content = item.get("content", [])
+                            if isinstance(content, list):
+                                for c in content:
+                                    if (
+                                        isinstance(c, dict)
+                                        and c.get("type") == "output_text"
+                                    ):
+                                        text_contents.append(c.get("text", ""))
+                                    elif isinstance(c, str):
+                                        text_contents.append(c)
 
         elif isinstance(i, str):
             text_contents.append(i)

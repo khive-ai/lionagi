@@ -91,12 +91,27 @@ async def communicate(
         return res.response
 
     if response_format is not None:
-        return await branch.parse(
-            text=res.response,
-            request_type=response_format,
-            max_retries=num_parse_retries,
+        # Default to raising errors unless explicitly set in fuzzy_match_kwargs
+        parse_kwargs = {
+            "handle_validation": "raise",  # Default to raising errors
             **(fuzzy_match_kwargs or {}),
-        )
+        }
+
+        try:
+            return await branch.parse(
+                text=res.response,
+                request_type=response_format,
+                max_retries=num_parse_retries,
+                **parse_kwargs,
+            )
+        except ValueError as e:
+            # Re-raise with more context
+            logging.error(
+                f"Failed to parse response '{res.response}' into {response_format}: {e}"
+            )
+            raise ValueError(
+                f"Failed to parse model response into {response_format.__name__}: {e}"
+            ) from e
 
     if request_fields is not None:
         _d = fuzzy_validate_mapping(

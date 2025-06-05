@@ -5,11 +5,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lionagi.protocols.generic.event import EventStatus
-from lionagi.service.endpoints.base import APICalling, EndPoint
-from lionagi.service.imodel import iModel
-from lionagi.service.providers.openai_.chat_completions import (
-    CHAT_COMPLETION_CONFIG,
+from lionagi.service.connections.api_calling import APICalling
+from lionagi.service.connections.endpoint import Endpoint
+from lionagi.service.connections.providers.oai_ import (
+    OPENAI_CHAT_ENDPOINT_CONFIG,
 )
+from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch
 
 
@@ -17,13 +18,11 @@ def make_mocked_branch_for_interpret():
     branch = Branch(user="tester_fixture", name="BranchForTests_Interpret")
 
     async def _fake_invoke(**kwargs):
-        endpoint = EndPoint(config=CHAT_COMPLETION_CONFIG)
+        endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
         fake_call = APICalling(
-            payload={},
-            headers={},
+            payload={"model": "gpt-4o-mini", "messages": []},
+            headers={"Authorization": "Bearer test"},
             endpoint=endpoint,
-            is_cached=False,
-            should_invoke_endpoint=False,
         )
         fake_call.execution.response = "mocked_response_string"
         fake_call.execution.status = EventStatus.COMPLETED
@@ -31,7 +30,7 @@ def make_mocked_branch_for_interpret():
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
     mock_chat_model = iModel(
-        "test_mock", model="test_chat_model", api_key="test_key"
+        provider="openai", model="gpt-4o-mini", api_key="test_key"
     )
     mock_chat_model.invoke = mock_invoke
 

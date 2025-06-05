@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.generic.log import Log
-from lionagi.service.endpoints.base import APICalling
+from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.imodel import iModel
 from lionagi.utils import alcall, lcall, to_dict, to_list
 
@@ -208,9 +208,7 @@ class LLMCompressor:
         Tokenize text. If no custom tokenizer, use the default from lionagi.
         """
         if not self.tokenizer:
-            from lionagi.service.endpoints.token_calculator import (
-                TokenCalculator,
-            )
+            from lionagi.service.token_calculator import TokenCalculator
 
             return TokenCalculator.tokenize(
                 text,

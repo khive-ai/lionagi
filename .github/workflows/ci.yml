@@ -35,7 +35,7 @@ jobs:
       if: steps.cached-uv-dependencies.outputs.cache-hit != 'true'
       run: |
         uv venv
-        uv build
+        uv sync --extra all
     
     - name: Run tests
       run: |

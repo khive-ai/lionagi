@@ -38,8 +38,13 @@ def branch_with_mock_imodel() -> Branch:
     )
 
     async def invoke(*args, **kwargs):
+        from unittest.mock import MagicMock
+
         a = mock_model.create_api_calling()
-        a.response = """{"foo": "mocked_response", "bar": 123}"""
+        # Mock the execution with response
+        mock_execution = MagicMock()
+        mock_execution.response = """{"foo": "mocked_response", "bar": 123}"""
+        a.execution = mock_execution
         return a
 
     mock_model.invoke = invoke
