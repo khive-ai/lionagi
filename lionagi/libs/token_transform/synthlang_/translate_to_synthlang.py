@@ -93,7 +93,7 @@ async def translate_to_synthlang(
     else:
         branch = Branch(system=final_prompt, chat_model=chat_model)
 
-    from lionagi.service.endpoints.token_calculator import TokenCalculator
+    from lionagi.service.token_calculator import TokenCalculator
 
     calculator = TokenCalculator()
 

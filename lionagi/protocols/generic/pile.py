@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Generic, TypeVar
 
 import pandas as pd
-from pydantic import Field, field_serializer
+from pydantic import Field
 from pydantic.fields import FieldInfo
 from typing_extensions import Self, override
 
@@ -910,9 +910,23 @@ class Pile(Element, Collective[E], Generic[E]):
         self.progression.insert(index, item_order)
         self.collections.update(item_dict)
 
-    @field_serializer("collections")
-    def _(self, value: dict[str, T]):
-        return [i.to_dict() for i in value.values()]
+    def to_dict(self) -> dict[str, Any]:
+        """Convert pile to dictionary, properly handling collections."""
+        # Get base dict from parent class
+        dict_ = super().to_dict()
+
+        # Manually serialize collections
+        collections_list = []
+        for item in self.collections.values():
+            if hasattr(item, "to_dict"):
+                collections_list.append(item.to_dict())
+            elif hasattr(item, "model_dump"):
+                collections_list.append(item.model_dump())
+            else:
+                collections_list.append(str(item))
+
+        dict_["collections"] = collections_list
+        return dict_
 
     class AsyncPileIterator:
         def __init__(self, pile: Pile):

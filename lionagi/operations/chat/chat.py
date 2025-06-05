@@ -122,8 +122,8 @@ async def chat(
                     _msgs.append(i)
         messages = _msgs
 
-    imodel = imodel or branch.chat_model
-    if branch.msgs.system and imodel.sequential_exchange:
+    # All endpoints now assume sequential exchange (system message embedded in first user message)
+    if branch.msgs.system:
         messages = [msg for msg in messages if msg.role != "system"]
         first_instruction = None
 
