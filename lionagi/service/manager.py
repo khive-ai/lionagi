@@ -5,7 +5,6 @@
 from lionagi.protocols._concepts import Manager
 from lionagi.utils import is_same_dtype
 
-from .endpoints.chat_completion import ChatCompletionEndPoint
 from .imodel import iModel
 
 
@@ -34,12 +33,7 @@ class iModelManager(Manager):
         return self.registry.get("parse", None)
 
     def register_imodel(self, name: str, model: iModel):
-        if isinstance(model.endpoint, ChatCompletionEndPoint):
-            if name != "parse":
-                self.registry["chat"] = model
-            else:
-                self.registry["parse"] = model
-        elif isinstance(model, iModel):
+        if isinstance(model, iModel):
             self.registry[name] = model
         else:
             raise TypeError("Input model is not an instance of iModel")

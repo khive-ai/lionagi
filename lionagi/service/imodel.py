@@ -3,17 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import os
 from collections.abc import AsyncGenerator, Callable
 
 from pydantic import BaseModel
 
 from lionagi.protocols.generic.event import EventStatus
-from lionagi.utils import is_coro_func, to_dict
+from lionagi.utils import is_coro_func
 
-from .endpoints.base import APICalling, EndPoint, EndpointConfig
-from .endpoints.match_endpoint import match_endpoint
-from .endpoints.rate_limited_processor import RateLimitedAPIExecutor
+from .connections.api_calling import APICalling
+from .connections.endpoint import Endpoint
+from .connections.match_endpoint import match_endpoint
+from .rate_limited_processor import RateLimitedAPIExecutor
 
 
 class iModel:
@@ -25,15 +25,9 @@ class iModel:
     handle queuing and throttling requests.
 
     Attributes:
-        endpoint (EndPoint):
+        endpoint (Endpoint):
             The chosen endpoint object (constructed via `match_endpoint` if
             none is provided).
-        should_invoke_endpoint (bool):
-            If True, the endpoint is called for real. If False, calls might
-            be mocked or cached.
-        kwargs (dict):
-            Any additional keyword arguments passed to initialize and
-            configure the iModel (e.g., `model`, `api_key`).
         executor (RateLimitedAPIExecutor):
             The rate-limited executor that queues and runs API calls in a
             controlled fashion.
@@ -43,18 +37,15 @@ class iModel:
         self,
         provider: str = None,
         base_url: str = None,
-        endpoint: str | EndPoint = "chat",
-        endpoint_params: list[str] | None = None,
+        endpoint: str | Endpoint = "chat",
         api_key: str = None,
         queue_capacity: int = 100,
         capacity_refresh_time: float = 60,
         interval: float | None = None,
         limit_requests: int = None,
         limit_tokens: int = None,
-        invoke_with_endpoint: bool = None,
         concurrency_limit: int | None = None,
         streaming_process_func: Callable = None,
-        requires_api_key: bool = True,
         **kwargs,
     ) -> None:
         """Initializes the iModel instance.
@@ -64,9 +55,9 @@ class iModel:
                 Name of the provider (e.g., 'openai', 'anthropic').
             base_url (str, optional):
                 Base URL for the API (if a custom endpoint is needed).
-            endpoint (str | EndPoint, optional):
+            endpoint (str | Endpoint, optional):
                 Either a string representing the endpoint type (e.g., 'chat')
-                or an `EndPoint` instance.
+                or an `Endpoint` instance.
             endpoint_params (list[str] | None, optional):
                 Additional parameters for the endpoint (e.g., 'v1' or other).
             api_key (str, optional):
@@ -85,9 +76,6 @@ class iModel:
                 Maximum number of requests allowed per cycle, if any.
             limit_tokens (int | None, optional):
                 Maximum number of tokens allowed per cycle, if any.
-            invoke_with_endpoint (bool, optional):
-                If True, the endpoint is actually invoked. If False,
-                calls might be mocked or cached.
             concurrency_limit (int | None, optional):
                 Maximum number of streaming concurrent requests allowed.
                 only applies to streaming requests.
@@ -105,56 +93,22 @@ class iModel:
                 else:
                     raise ValueError("Provider must be provided")
 
-        if api_key is None:
-            provider = str(provider or "").strip().lower()
-            match provider:
-                case "openai":
-                    api_key = "OPENAI_API_KEY"
-                case "anthropic":
-                    api_key = "ANTHROPIC_API_KEY"
-                case "openrouter":
-                    api_key = "OPENROUTER_API_KEY"
-                case "perplexity":
-                    api_key = "PERPLEXITY_API_KEY"
-                case "groq":
-                    api_key = "GROQ_API_KEY"
-                case "exa":
-                    api_key = "EXA_API_KEY"
-                case "ollama":
-                    api_key = "ollama"
-                case "":
-                    if requires_api_key:
-                        raise ValueError("API key must be provided")
-                case _:
-                    api_key = f"{provider.upper()}_API_KEY"
-
-        if os.getenv(api_key, None) is not None:
-            self.api_key_scheme = api_key
-            api_key = os.getenv(api_key)
-
-        kwargs["api_key"] = api_key
-        if isinstance(endpoint, EndPoint):
+        # Pass api_key to endpoint if provided
+        if api_key is not None:
+            kwargs["api_key"] = api_key
+        if isinstance(endpoint, Endpoint):
             self.endpoint = endpoint
         else:
             self.endpoint = match_endpoint(
                 provider=provider,
-                base_url=base_url,
                 endpoint=endpoint,
-                endpoint_params=endpoint_params,
+                **kwargs,
             )
         if provider:
             self.endpoint.config.provider = provider
         if base_url:
             self.endpoint.config.base_url = base_url
 
-        if (
-            invoke_with_endpoint is None
-            and self.endpoint.config.invoke_with_endpoint is True
-        ):
-            invoke_with_endpoint = True
-
-        self.should_invoke_endpoint = invoke_with_endpoint or False
-        self.kwargs = kwargs
         self.executor = RateLimitedAPIExecutor(
             queue_capacity=queue_capacity,
             capacity_refresh_time=capacity_refresh_time,
@@ -163,12 +117,8 @@ class iModel:
             limit_tokens=limit_tokens,
             concurrency_limit=concurrency_limit,
         )
-        if not streaming_process_func and hasattr(
-            self.endpoint, "process_chunk"
-        ):
-            self.streaming_process_func = self.endpoint.process_chunk
-        else:
-            self.streaming_process_func = streaming_process_func
+        # Use provided streaming_process_func or default to None
+        self.streaming_process_func = streaming_process_func
 
     def create_api_calling(
         self, include_token_usage_to_model: bool = False, **kwargs
@@ -177,22 +127,24 @@ class iModel:
 
         Args:
             **kwargs:
-                Additional arguments used to generate the payload (merged
-                with self.kwargs).
+                Additional arguments used to generate the payload.
 
         Returns:
             APICalling:
                 An `APICalling` instance with the constructed payload,
                 headers, and the selected endpoint.
         """
-        kwargs.update(self.kwargs)
-        payload = self.endpoint.create_payload(**kwargs)
+        # The new Endpoint.create_payload returns (payload, headers)
+        payload, headers = self.endpoint.create_payload(request=kwargs)
+
+        # Extract cache_control if provided
+        cache_control = kwargs.pop("cache_control", False)
+
         return APICalling(
-            payload=payload["payload"],
-            headers=payload["headers"],
+            payload=payload,
+            headers=headers,
             endpoint=self.endpoint,
-            is_cached=payload.get("is_cached", False),
-            should_invoke_endpoint=self.should_invoke_endpoint,
+            cache_control=cache_control,
             include_token_usage_to_model=include_token_usage_to_model,
         )
 
@@ -321,23 +273,13 @@ class iModel:
         return {"system", "user", "assistant"}
 
     @property
-    def sequential_exchange(self) -> bool:
-        """bool: Indicates whether requests must occur in a strict sequence.
-
-        Returns:
-            True if the endpoint requires sequential handling of
-            messages; False otherwise.
-        """
-        return self.endpoint.sequential_exchange
-
-    @property
     def model_name(self) -> str:
         """str: The name of the model used by the endpoint.
 
         Returns:
             The model name if available; otherwise, an empty string.
         """
-        return self.kwargs.get("model", "")
+        return self.endpoint.config.kwargs.get("model", "")
 
     @property
     def request_options(self) -> type[BaseModel] | None:
@@ -349,73 +291,23 @@ class iModel:
         return self.endpoint.request_options
 
     def to_dict(self):
-        kwargs = self.kwargs
-        if "kwargs" in self.kwargs:
-            kwargs = self.kwargs["kwargs"]
-
         return {
-            "provider": self.endpoint.config.provider,
-            "endpoint": self.endpoint.config.model_dump_json(),
-            "api_key": (
-                self.api_key_scheme
-                if hasattr(self, "api_key_scheme")
-                else None
-            ),
+            "endpoint": self.endpoint.to_dict(),
             "processor_config": self.executor.config,
-            "invoke_with_endpoint": self.should_invoke_endpoint,
-            **{k: v for k, v in kwargs.items() if k != "api_key"},
         }
 
     @classmethod
     def from_dict(cls, data: dict):
-        provider = data.pop("provider", None)
-        base_url = data.pop("base_url", None)
-        api_key = data.pop("api_key", None)
+        endpoint = Endpoint.from_dict(data.get("endpoint", {}))
 
-        processor_config = data.pop("processor_config", {})
-        endpoint_config_params = data.pop("endpoint", {})
-        endpoint_config_params = to_dict(endpoint_config_params)
-
-        endpoint_config_params["endpoint"] = endpoint_config_params.get(
-            "endpoint", "chat"
+        e1 = match_endpoint(
+            provider=endpoint.config.provider,
+            endpoint=endpoint.config.endpoint,
         )
-        match_params = {}
 
-        for i in ("provider", "base_url", "endpoint", "endpoint_params"):
-            if endpoint_config_params.get(i):
-                match_params[i] = endpoint_config_params.pop(i)
-        endpoint = match_endpoint(**match_params)
-        endpoint.update_config(**endpoint_config_params)
+        e1.config = endpoint.config
+
         return cls(
-            provider=provider,
-            base_url=base_url,
-            endpoint=endpoint,
-            api_key=api_key,
-            **data,
-            **processor_config,
+            endpoint=e1,
+            **data.get("processor_config", {}),
         )
-
-    async def compress_text(
-        self,
-        text: str,
-        system: str = None,
-        compression_ratio: float = 0.2,
-        n_samples: int = 5,
-        max_tokens_per_sample=80,
-        verbose=True,
-        initial_text=None,
-        cumulative=False,
-        split_kwargs=None,
-        min_pplx=None,
-        **kwargs,
-    ) -> str:
-        """
-        Convenience function that instantiates LLMCompressor and compresses text.
-        """
-        from lionagi.libs.token_transform.perplexity import compress_text
-
-        params = {
-            k: v for k, v in locals().items() if k not in ("self", "kwargs")
-        }
-        params.update(kwargs)
-        return await compress_text(**params)

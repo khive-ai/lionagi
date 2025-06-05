@@ -9,7 +9,7 @@ from typing_extensions import Self, override
 
 from lionagi.protocols.types import Executor, Processor
 
-from .base import APICalling
+from .connections.api_calling import APICalling
 
 __all__ = (
     "RateLimitedAPIProcessor",
@@ -98,7 +98,7 @@ class RateLimitedAPIProcessor(Processor):
         return self
 
     @override
-    async def request_permission(self, required_tokens: int = None) -> bool:
+    async def request_permission(self, required_tokens: int = None, **kwargs) -> bool:
         async with self._lock:
             if self.limit_requests is None and self.limit_tokens is None:
                 if self.queue.qsize() < self.queue_capacity:
