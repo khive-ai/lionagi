@@ -98,7 +98,9 @@ class RateLimitedAPIProcessor(Processor):
         return self
 
     @override
-    async def request_permission(self, required_tokens: int = None, **kwargs) -> bool:
+    async def request_permission(
+        self, required_tokens: int = None, **kwargs
+    ) -> bool:
         async with self._lock:
             if self.limit_requests is None and self.limit_tokens is None:
                 if self.queue.qsize() < self.queue_capacity:

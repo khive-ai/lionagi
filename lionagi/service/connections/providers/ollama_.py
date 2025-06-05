@@ -6,9 +6,10 @@ from pydantic import BaseModel
 
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
+from lionagi.service.third_party.openai_models import (
+    CreateChatCompletionRequest,
+)
 from lionagi.utils import is_import_installed
-
-from lionagi.service.third_party.openai_models import CreateChatCompletionRequest
 
 _HAS_OLLAMA = is_import_installed("ollama")
 
@@ -38,11 +39,11 @@ class OllamaChatEndpoint(Endpoint):
             raise ModuleNotFoundError(
                 "ollama is not installed, please install it with `pip install lionagi[ollama]`"
             )
-        
+
         # Override api_key for Ollama (not needed)
         if "api_key" in kwargs:
             kwargs.pop("api_key")
-            
+
         super().__init__(config, **kwargs)
 
         from ollama import list as ollama_list  # type: ignore[import]
@@ -58,24 +59,28 @@ class OllamaChatEndpoint(Endpoint):
         **kwargs,
     ):
         """Override to handle Ollama-specific needs."""
-        payload, headers = super().create_payload(request, extra_headers, **kwargs)
-        
+        payload, headers = super().create_payload(
+            request, extra_headers, **kwargs
+        )
+
         # Ollama doesn't support reasoning_effort
         payload.pop("reasoning_effort", None)
-        
+
         return (payload, headers)
-    
+
     async def call(
         self, request: dict | BaseModel, cache_control: bool = False, **kwargs
     ):
         payload, _ = self.create_payload(request, **kwargs)
-        
+
         # Check if model exists and pull if needed
         model = payload["model"]
         self._check_model(model)
-        
+
         # The parent call method will handle headers internally
-        return await super().call(payload, cache_control=cache_control, **kwargs)
+        return await super().call(
+            payload, cache_control=cache_control, **kwargs
+        )
 
     def _pull_model(self, model: str):
         from tqdm import tqdm
@@ -106,9 +111,11 @@ class OllamaChatEndpoint(Endpoint):
     def _check_model(self, model: str):
         try:
             available_models = [i.model for i in self._list().models]
-            
+
             if model not in available_models:
-                print(f"Model '{model}' not found locally. Pulling from Ollama registry...")
+                print(
+                    f"Model '{model}' not found locally. Pulling from Ollama registry..."
+                )
                 self._pull_model(model)
                 print(f"Model '{model}' successfully pulled.")
         except Exception as e:

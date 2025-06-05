@@ -18,10 +18,8 @@ from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any, TypeVar
 
-
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
-
 
 
 class APIClientError(Exception):
@@ -48,6 +46,7 @@ class APIClientError(Exception):
         self.headers = headers or {}
         self.response_data = response_data or {}
         super().__init__(message)
+
 
 class CircuitBreakerOpenError(APIClientError):
     """Exception raised when a circuit breaker is open."""
@@ -166,11 +165,13 @@ class CircuitBreaker:
         old_state = self.state
         if new_state != old_state:
             self.state = new_state
-            self._metrics["state_changes"].append({
-                "time": time.time(),
-                "from": old_state,
-                "to": new_state,
-            })
+            self._metrics["state_changes"].append(
+                {
+                    "time": time.time(),
+                    "from": old_state,
+                    "to": new_state,
+                }
+            )
 
             logger.info(
                 f"Circuit '{self.name}' state changed from {old_state.value} to {new_state.value}"
@@ -246,7 +247,9 @@ class CircuitBreaker:
         # Check if circuit allows this call
         can_proceed = await self._check_state()
         if not can_proceed:
-            remaining = self.recovery_time - (time.time() - self.last_failure_time)
+            remaining = self.recovery_time - (
+                time.time() - self.last_failure_time
+            )
             raise CircuitBreakerOpenError(
                 f"Circuit breaker '{self.name}' is open. Retry after {remaining:.2f} seconds",
                 retry_after=remaining,
@@ -271,7 +274,8 @@ class CircuitBreaker:
         except Exception as e:
             # Determine if this exception should count as a circuit failure
             is_excluded = any(
-                isinstance(e, exc_type) for exc_type in self.excluded_exceptions
+                isinstance(e, exc_type)
+                for exc_type in self.excluded_exceptions
             )
 
             if not is_excluded:
@@ -332,7 +336,6 @@ class RetryConfig:
         self.jitter_factor = jitter_factor
         self.retry_exceptions = retry_exceptions
         self.exclude_exceptions = exclude_exceptions
-
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -411,7 +414,9 @@ async def retry_with_backoff(
             return await func(*args, **kwargs)
         except exclude_exceptions:
             # Don't retry these exceptions
-            logger.debug(f"Not retrying {func.__name__} for excluded exception type")
+            logger.debug(
+                f"Not retrying {func.__name__} for excluded exception type"
+            )
             raise
         except retry_exceptions as e:
             # No need to store the exception since we're raising it if max retries reached
@@ -425,7 +430,9 @@ async def retry_with_backoff(
             # Calculate backoff with optional jitter
             if jitter:
                 # This is not used for cryptographic purposes, just for jitter
-                jitter_amount = random.uniform(1.0 - jitter_factor, 1.0 + jitter_factor)  # noqa: S311
+                jitter_amount = random.uniform(
+                    1.0 - jitter_factor, 1.0 + jitter_factor
+                )  # noqa: S311
                 current_delay = min(delay * jitter_amount, max_delay)
             else:
                 current_delay = min(delay, max_delay)
@@ -463,7 +470,9 @@ def circuit_breaker(
         Decorator function that applies circuit breaker pattern.
     """
 
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(
+        func: Callable[..., Awaitable[T]]
+    ) -> Callable[..., Awaitable[T]]:
         # Create a unique name for the circuit breaker if not provided
         cb_name = name or f"cb_{func.__module__}_{func.__qualname__}"
 
@@ -512,7 +521,9 @@ def with_retry(
         Decorator function that applies retry pattern.
     """
 
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(
+        func: Callable[..., Awaitable[T]]
+    ) -> Callable[..., Awaitable[T]]:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             return await retry_with_backoff(

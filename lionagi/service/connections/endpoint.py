@@ -10,15 +10,18 @@ import backoff
 from aiocache import cached
 from pydantic import BaseModel
 
-from lionagi.service.resilience import CircuitBreaker, RetryConfig, retry_with_backoff
 from lionagi.config import settings
+from lionagi.service.resilience import (
+    CircuitBreaker,
+    RetryConfig,
+    retry_with_backoff,
+)
 from lionagi.utils import to_dict
 
 from .endpoint_config import EndpointConfig
 from .header_factory import HeaderFactory
 
 logger = logging.getLogger(__name__)
-
 
 
 class Endpoint:
@@ -44,10 +47,14 @@ class Endpoint:
         if isinstance(config, dict):
             _config = EndpointConfig(**config, **kwargs)
         elif isinstance(config, EndpointConfig):
-            _config = config.model_copy(deep=True)  # Use deep copy to avoid sharing kwargs dict
+            _config = config.model_copy(
+                deep=True
+            )  # Use deep copy to avoid sharing kwargs dict
             _config.update(**kwargs)
         else:
-            raise ValueError("Config must be a dict or EndpointConfig instance")
+            raise ValueError(
+                "Config must be a dict or EndpointConfig instance"
+            )
         self.config = _config
         self.circuit_breaker = circuit_breaker
         self.retry_config = retry_config
@@ -66,7 +73,6 @@ class Endpoint:
         )
 
     # Removed old context manager methods - endpoint is now stateless
-    
 
     @property
     def request_options(self):
@@ -74,7 +80,9 @@ class Endpoint:
 
     @request_options.setter
     def request_options(self, value):
-        self.config.request_options = EndpointConfig._validate_request_options(value)
+        self.config.request_options = EndpointConfig._validate_request_options(
+            value
+        )
 
     def create_payload(
         self,
@@ -98,13 +106,13 @@ class Endpoint:
             if isinstance(request, dict)
             else request.model_dump(exclude_none=True)
         )
-        
+
         # Start with config defaults
         payload = self.config.kwargs.copy()
-        
+
         # Update with request data
         payload.update(request)
-        
+
         # Update with additional kwargs
         if kwargs:
             payload.update(kwargs)
@@ -113,23 +121,41 @@ class Endpoint:
         if self.config.request_options is not None:
             # Get valid field names from the model
             valid_fields = set(self.config.request_options.model_fields.keys())
-            
+
             # Filter payload to only include valid fields
-            filtered_payload = {k: v for k, v in payload.items() if k in valid_fields}
-            
+            filtered_payload = {
+                k: v for k, v in payload.items() if k in valid_fields
+            }
+
             # Validate the filtered payload
             payload = self.config.validate_payload(filtered_payload)
         else:
             # If no request_options, we still need to remove obvious non-API params
             # These are parameters that are never part of any API payload
             non_api_params = {
-                'task', 'provider', 'base_url', 'endpoint', 'endpoint_params',
-                'api_key', 'queue_capacity', 'capacity_refresh_time', 
-                'interval', 'limit_requests', 'limit_tokens', 'invoke_with_endpoint',
-                'extra_headers', 'headers', 'cache_control', 'include_token_usage_to_model',
-                'chat_model', 'imodel', 'branch'
+                "task",
+                "provider",
+                "base_url",
+                "endpoint",
+                "endpoint_params",
+                "api_key",
+                "queue_capacity",
+                "capacity_refresh_time",
+                "interval",
+                "limit_requests",
+                "limit_tokens",
+                "invoke_with_endpoint",
+                "extra_headers",
+                "headers",
+                "cache_control",
+                "include_token_usage_to_model",
+                "chat_model",
+                "imodel",
+                "branch",
             }
-            payload = {k: v for k, v in payload.items() if k not in non_api_params}
+            payload = {
+                k: v for k, v in payload.items() if k not in non_api_params
+            }
 
         return (payload, headers)
 
@@ -148,8 +174,10 @@ class Endpoint:
             The response from the endpoint.
         """
         # Extract extra_headers before passing to create_payload
-        extra_headers = kwargs.pop('extra_headers', None)
-        payload, headers = self.create_payload(request, extra_headers=extra_headers, **kwargs)
+        extra_headers = kwargs.pop("extra_headers", None)
+        payload, headers = self.create_payload(
+            request, extra_headers=extra_headers, **kwargs
+        )
 
         async def _call(payload: dict, headers: dict, **kwargs):
             # Direct call without context manager - each method handles its own resources
@@ -245,8 +273,10 @@ class Endpoint:
                             error_body = await response.json()
                             error_message = f"Request failed with status {response.status}: {error_body}"
                         except:
-                            error_message = f"Request failed with status {response.status}"
-                        
+                            error_message = (
+                                f"Request failed with status {response.status}"
+                            )
+
                         raise aiohttp.ClientResponseError(
                             request_info=response.request_info,
                             history=response.history,
@@ -282,43 +312,48 @@ class Endpoint:
         # Apply the decorator at runtime
         return await backoff_handler(_make_request_with_backoff)()
 
-
-    
     async def stream(
-        self, request: dict | BaseModel, extra_headers: dict | None = None, **kwargs
+        self,
+        request: dict | BaseModel,
+        extra_headers: dict | None = None,
+        **kwargs,
     ):
         """
         Stream responses from the endpoint.
-        
+
         Args:
             request: The request parameters or model.
             extra_headers: Additional headers for the request.
             **kwargs: Additional keyword arguments for the request.
-            
+
         Yields:
             Streaming chunks from the API.
         """
-        payload, headers = self.create_payload(request, extra_headers, **kwargs)
-        
+        payload, headers = self.create_payload(
+            request, extra_headers, **kwargs
+        )
+
         # Direct streaming without context manager
-        async for chunk in self._stream_aiohttp(payload=payload, headers=headers, **kwargs):
+        async for chunk in self._stream_aiohttp(
+            payload=payload, headers=headers, **kwargs
+        ):
             yield chunk
-                    
+
     async def _stream_aiohttp(self, payload: dict, headers: dict, **kwargs):
         """
         Stream responses using aiohttp with a fresh session.
-        
+
         Args:
             payload: The request payload.
             headers: The request headers.
             **kwargs: Additional keyword arguments for the request.
-            
+
         Yields:
             Streaming chunks from the API.
         """
         # Ensure stream is enabled
         payload["stream"] = True
-        
+
         # Create a new session for streaming
         async with self._create_http_session() as session:
             async with session.request(
@@ -336,16 +371,22 @@ class Endpoint:
                         message=f"Request failed with status {response.status}",
                         headers=response.headers,
                     )
-                    
+
                 async for line in response.content:
                     if line:
-                        yield line.decode('utf-8')
-                    
+                        yield line.decode("utf-8")
+
     def to_dict(self):
         return {
-            "retry_config": self.retry_config.to_dict() if self.retry_config else None,
-            "circuit_breaker": self.circuit_breaker.to_dict() if self.circuit_breaker else None,
-            "config": self.config.model_dump(exclude_none=True),   
+            "retry_config": (
+                self.retry_config.to_dict() if self.retry_config else None
+            ),
+            "circuit_breaker": (
+                self.circuit_breaker.to_dict()
+                if self.circuit_breaker
+                else None
+            ),
+            "config": self.config.model_dump(exclude_none=True),
         }
 
     @classmethod
@@ -354,14 +395,14 @@ class Endpoint:
         retry_config = data.get("retry_config")
         circuit_breaker = data.get("circuit_breaker")
         config = data.get("config")
-        
+
         if retry_config:
             retry_config = RetryConfig(**retry_config)
         if circuit_breaker:
             circuit_breaker = CircuitBreaker(**circuit_breaker)
         if config:
             config = EndpointConfig(**config)
-        
+
         return cls(
             config=config,
             circuit_breaker=circuit_breaker,

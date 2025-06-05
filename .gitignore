@@ -3,10 +3,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Generated third-party models
-lionagi/service/third_party/*.py
-!lionagi/service/third_party/__init__.py
-
 # Development notes
 CLAUDE.md
 

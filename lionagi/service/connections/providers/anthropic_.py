@@ -25,7 +25,9 @@ ANTHROPIC_MESSAGES_ENDPOINT_CONFIG = EndpointConfig(
 
 class AnthropicMessagesEndpoint(Endpoint):
     def __init__(
-        self, config: EndpointConfig = ANTHROPIC_MESSAGES_ENDPOINT_CONFIG, **kwargs
+        self,
+        config: EndpointConfig = ANTHROPIC_MESSAGES_ENDPOINT_CONFIG,
+        **kwargs,
     ):
         super().__init__(config, **kwargs)
 
@@ -36,9 +38,11 @@ class AnthropicMessagesEndpoint(Endpoint):
         **kwargs,
     ):
         # Extract system message before validation if present
-        request_dict = request if isinstance(request, dict) else request.model_dump()
+        request_dict = (
+            request if isinstance(request, dict) else request.model_dump()
+        )
         system = None
-        
+
         if "messages" in request_dict and request_dict["messages"]:
             first_message = request_dict["messages"][0]
             if first_message.get("role") == "system":
@@ -46,7 +50,7 @@ class AnthropicMessagesEndpoint(Endpoint):
                 # Remove system message before validation
                 request_dict["messages"] = request_dict["messages"][1:]
                 request = request_dict
-        
+
         payload, headers = super().create_payload(
             request, extra_headers=extra_headers, **kwargs
         )

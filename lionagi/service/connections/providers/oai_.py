@@ -7,7 +7,6 @@ from pydantic import BaseModel
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-
 from lionagi.service.third_party.openai_models import (
     CreateChatCompletionRequest,
     CreateResponse,
@@ -117,7 +116,7 @@ REASONING_NOT_SUPPORT_PARAMS = (
 class OpenaiChatEndpoint(Endpoint):
     def __init__(self, config=OPENAI_CHAT_ENDPOINT_CONFIG, **kwargs):
         super().__init__(config, **kwargs)
-    
+
     def create_payload(
         self,
         request: dict | BaseModel,
@@ -125,15 +124,17 @@ class OpenaiChatEndpoint(Endpoint):
         **kwargs,
     ):
         """Override to handle model-specific parameter filtering."""
-        payload, headers = super().create_payload(request, extra_headers, **kwargs)
-        
+        payload, headers = super().create_payload(
+            request, extra_headers, **kwargs
+        )
+
         # Handle reasoning models
         model = payload.get("model")
         if model in REASONING_MODELS:
             # Remove unsupported parameters for reasoning models
             for param in REASONING_NOT_SUPPORT_PARAMS:
                 payload.pop(param, None)
-            
+
             # Convert system role to developer role for reasoning models
             if "messages" in payload and payload["messages"]:
                 if payload["messages"][0].get("role") == "system":
@@ -141,7 +142,7 @@ class OpenaiChatEndpoint(Endpoint):
         else:
             # Remove reasoning_effort for non-reasoning models
             payload.pop("reasoning_effort", None)
-        
+
         return (payload, headers)
 
 

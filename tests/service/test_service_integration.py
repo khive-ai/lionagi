@@ -2,15 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
 import os
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
-from lionagi.service.connections.endpoint_config import EndpointConfig
+import pytest
+
+from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
+from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.connections.header_factory import HeaderFactory
 from lionagi.service.connections.match_endpoint import match_endpoint
-from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.imodel import iModel
 
 
@@ -26,9 +27,9 @@ class TestServiceIntegration:
             base_url="https://api.openai.com/v1",
             endpoint_params=["chat", "completions"],
             openai_compatible=True,
-            api_key="test-key"
+            api_key="test-key",
         )
-        
+
         assert config.name == "test_endpoint"
         assert config.provider == "openai"
         assert config.endpoint == "chat"
@@ -41,9 +42,9 @@ class TestServiceIntegration:
             provider="anthropic",
             endpoint="messages",
             base_url="https://api.anthropic.com/v1",
-            api_key="sk-test-key"
+            api_key="sk-test-key",
         )
-        
+
         # Test that validation passes
         assert config.provider == "anthropic"
 
@@ -56,9 +57,9 @@ class TestServiceIntegration:
             base_url="https://api.openai.com/v1",
             endpoint_params=["chat", "completions"],
             openai_compatible=True,
-            api_key="test-key"
+            api_key="test-key",
         )
-        
+
         endpoint = Endpoint(config=config)
         assert endpoint.config == config
         # Note: allowed_roles is a property of iModel, not Endpoint
@@ -72,19 +73,19 @@ class TestServiceIntegration:
             base_url="https://api.openai.com/v1",
             endpoint_params=["chat", "completions"],
             openai_compatible=True,
-            api_key="test-key"
+            api_key="test-key",
         )
-        
+
         endpoint = Endpoint(config=config)
-        
+
         request_data = {
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "gpt-4o-mini",
-            "temperature": 0.7
+            "temperature": 0.7,
         }
-        
+
         payload, headers = endpoint.create_payload(request_data)
-        
+
         assert payload["model"] == "gpt-4o-mini"
         assert payload["messages"][0]["content"] == "Hello"
         assert payload["temperature"] == 0.7
@@ -93,14 +94,18 @@ class TestServiceIntegration:
     def test_header_factory_comprehensive(self):
         """Test comprehensive header factory functionality."""
         # Test bearer auth
-        headers = HeaderFactory.get_header(auth_type="bearer", api_key="test-key")
+        headers = HeaderFactory.get_header(
+            auth_type="bearer", api_key="test-key"
+        )
         assert headers["Authorization"] == "Bearer test-key"
         assert headers["Content-Type"] == "application/json"
-        
+
         # Test x-api-key auth
-        headers = HeaderFactory.get_header(auth_type="x-api-key", api_key="test-key")
+        headers = HeaderFactory.get_header(
+            auth_type="x-api-key", api_key="test-key"
+        )
         assert headers["x-api-key"] == "test-key"
-        
+
         # Test no auth
         headers = HeaderFactory.get_header(auth_type="none")
         assert "Authorization" not in headers
@@ -109,11 +114,9 @@ class TestServiceIntegration:
     def test_match_endpoint_openai(self):
         """Test endpoint matching for OpenAI."""
         endpoint = match_endpoint(
-            provider="openai",
-            endpoint="chat",
-            model="gpt-4o-mini"
+            provider="openai", endpoint="chat", model="gpt-4o-mini"
         )
-        
+
         assert endpoint.config.provider == "openai"
         # Note: openai_compatible may be set differently by the match_endpoint function
 
@@ -122,9 +125,9 @@ class TestServiceIntegration:
         endpoint = match_endpoint(
             provider="anthropic",
             endpoint="chat",
-            model="claude-3-opus-20240229"
+            model="claude-3-opus-20240229",
         )
-        
+
         assert endpoint.config.provider == "anthropic"
         assert endpoint.config.openai_compatible is False
 
@@ -137,17 +140,20 @@ class TestServiceIntegration:
             base_url="https://api.openai.com/v1",
             endpoint_params=["chat", "completions"],
             openai_compatible=True,
-            api_key="test-key"
+            api_key="test-key",
         )
-        
+
         endpoint = Endpoint(config=config)
-        
+
         api_call = APICalling(
-            payload={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]},
+            payload={
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
             headers={"Authorization": "Bearer test-key"},
-            endpoint=endpoint
+            endpoint=endpoint,
         )
-        
+
         assert api_call.payload["model"] == "gpt-4o-mini"
         assert api_call.headers["Authorization"] == "Bearer test-key"
         assert api_call.endpoint == endpoint
@@ -157,7 +163,7 @@ class TestServiceIntegration:
     def test_imodel_creation(self):
         """Test iModel creation."""
         imodel = iModel(provider="openai", model="gpt-4o-mini")
-        
+
         assert imodel.endpoint.config.provider == "openai"
         assert imodel.endpoint.config.kwargs["model"] == "gpt-4o-mini"
         assert imodel.model_name == "gpt-4o-mini"
@@ -166,12 +172,11 @@ class TestServiceIntegration:
     def test_imodel_api_calling_creation(self):
         """Test iModel API calling creation."""
         imodel = iModel(provider="openai", model="gpt-4o-mini")
-        
+
         api_call = imodel.create_api_calling(
-            messages=[{"role": "user", "content": "Hello"}],
-            temperature=0.7
+            messages=[{"role": "user", "content": "Hello"}], temperature=0.7
         )
-        
+
         assert isinstance(api_call, APICalling)
         assert api_call.payload["model"] == "gpt-4o-mini"
         assert api_call.payload["temperature"] == 0.7
@@ -186,16 +191,16 @@ class TestServiceIntegration:
             base_url="https://api.openai.com/v1",
             endpoint_params=["chat", "completions"],
             openai_compatible=True,
-            api_key="test-key"
+            api_key="test-key",
         )
-        
+
         openai_endpoint = Endpoint(config=openai_config)
         # Use config.full_url instead of _construct_url
         openai_url = openai_endpoint.config.full_url
         expected_url = "https://api.openai.com/v1/chat/completions"
         # URL construction may vary based on endpoint_params
         assert "api.openai.com" in openai_url
-        
+
         # Anthropic endpoint
         anthropic_config = EndpointConfig(
             name="anthropic_chat",
@@ -204,9 +209,9 @@ class TestServiceIntegration:
             base_url="https://api.anthropic.com/v1",
             endpoint_params=["messages"],
             openai_compatible=False,
-            api_key="test-key"
+            api_key="test-key",
         )
-        
+
         anthropic_endpoint = Endpoint(config=anthropic_config)
         anthropic_url = anthropic_endpoint.config.full_url
         assert "api.anthropic.com" in anthropic_url
@@ -218,11 +223,11 @@ class TestServiceIntegration:
             provider="openai",
             endpoint="chat",
             base_url="https://api.openai.com/v1",
-            api_key="test-key"
+            api_key="test-key",
         )
-        
+
         config.update(timeout=600, custom_param="value")
-        
+
         assert config.timeout == 600
         assert config.kwargs["custom_param"] == "value"
 
@@ -230,16 +235,15 @@ class TestServiceIntegration:
     def test_anthropic_integration(self):
         """Test Anthropic integration."""
         imodel = iModel(provider="anthropic", model="claude-3-opus-20240229")
-        
+
         assert imodel.endpoint.config.provider == "anthropic"
         assert imodel.endpoint.config.openai_compatible is False
-        
+
         # Test payload creation
         api_call = imodel.create_api_calling(
-            messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=100
+            messages=[{"role": "user", "content": "Hello"}], max_tokens=100
         )
-        
+
         assert api_call.payload["model"] == "claude-3-opus-20240229"
         assert api_call.payload["max_tokens"] == 100
 
@@ -252,8 +256,8 @@ class TestServiceIntegration:
             base_url="https://api.openai.com/v1",
             api_key="test-key",
             custom_field="custom_value",  # This should go to kwargs
-            another_param=123
+            another_param=123,
         )
-        
+
         assert config.kwargs["custom_field"] == "custom_value"
         assert config.kwargs["another_param"] == 123

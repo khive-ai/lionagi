@@ -67,7 +67,9 @@ def load_pydantic_model_from_schema(
         raise ImportError(error_msg)
 
     if DataModelType is not None:
-        pydantic_version = pydantic_version or DataModelType.PydanticV2BaseModel
+        pydantic_version = (
+            pydantic_version or DataModelType.PydanticV2BaseModel
+        )
         python_version = python_version or PythonVersion.PY_312
     else:
         # These won't be used since we'll raise ImportError above
@@ -76,13 +78,17 @@ def load_pydantic_model_from_schema(
 
     schema_input_data: str
     schema_dict: dict[str, Any]
-    resolved_model_name = model_name  # Keep track of the potentially updated name
+    resolved_model_name = (
+        model_name  # Keep track of the potentially updated name
+    )
 
     # --- 1. Prepare Schema Input ---
     if isinstance(schema, dict):
         try:
             model_name_from_title = schema.get("title")
-            if model_name_from_title and isinstance(model_name_from_title, str):
+            if model_name_from_title and isinstance(
+                model_name_from_title, str
+            ):
                 valid_chars = string.ascii_letters + string.digits + "_"
                 sanitized_title = "".join(
                     c
@@ -90,7 +96,9 @@ def load_pydantic_model_from_schema(
                     if c in valid_chars
                 )
                 if sanitized_title and sanitized_title[0].isalpha():
-                    resolved_model_name = sanitized_title  # Update the name to use
+                    resolved_model_name = (
+                        sanitized_title  # Update the name to use
+                    )
             schema_dict = schema
             schema_input_data = json.dumps(schema)
         except TypeError as e:
@@ -100,7 +108,9 @@ def load_pydantic_model_from_schema(
         try:
             schema_dict = json.loads(schema)
             model_name_from_title = schema_dict.get("title")
-            if model_name_from_title and isinstance(model_name_from_title, str):
+            if model_name_from_title and isinstance(
+                model_name_from_title, str
+            ):
                 valid_chars = string.ascii_letters + string.digits + "_"
                 sanitized_title = "".join(
                     c
@@ -108,7 +118,9 @@ def load_pydantic_model_from_schema(
                     if c in valid_chars
                 )
                 if sanitized_title and sanitized_title[0].isalpha():
-                    resolved_model_name = sanitized_title  # Update the name to use
+                    resolved_model_name = (
+                        sanitized_title  # Update the name to use
+                    )
             schema_input_data = schema
         except json.JSONDecodeError as e:
             error_msg = "Invalid JSON schema string provided"
@@ -240,9 +252,7 @@ def load_pydantic_model_from_schema(
         except Exception as e:
             # Optional: Print generated code on failure for debugging
             # print(f"--- Generated Code (Rebuild Error) ---\n{output_file.read_text()}\n--------------------------")
-            error_msg = (
-                f"Unexpected error during model_rebuild for {resolved_model_name}"
-            )
+            error_msg = f"Unexpected error during model_rebuild for {resolved_model_name}"
             raise RuntimeError(error_msg) from e
 
         # --- 6. Return the Resolved Model Class ---

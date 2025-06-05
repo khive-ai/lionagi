@@ -32,7 +32,7 @@ class HeaderFactory:
         default_headers: dict[str, str] | None = None,
     ) -> dict[str, str]:
         dict_ = HeaderFactory.get_content_type_header(content_type)
-        
+
         if auth_type == "none":
             # No authentication needed
             pass
@@ -40,7 +40,9 @@ class HeaderFactory:
             raise ValueError("API key is required for authentication")
         else:
             api_key = (
-                api_key.get_secret_value() if isinstance(api_key, SecretStr) else api_key
+                api_key.get_secret_value()
+                if isinstance(api_key, SecretStr)
+                else api_key
             )
             if auth_type == "bearer":
                 dict_.update(HeaderFactory.get_bearer_auth_header(api_key))

@@ -110,7 +110,7 @@ class EndpointConfig(BaseModel):
         if "kwargs" in kwargs:
             # Merge the kwargs dicts
             self.kwargs.update(kwargs.pop("kwargs"))
-            
+
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
