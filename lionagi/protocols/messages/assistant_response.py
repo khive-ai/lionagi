@@ -77,6 +77,10 @@ def prepare_assistant_response(
                                     elif isinstance(c, str):
                                         text_contents.append(c)
 
+            # claude code standard
+            elif "result" in i:
+                text_contents.append(i["result"])
+
         elif isinstance(i, str):
             text_contents.append(i)
 
