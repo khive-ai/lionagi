@@ -45,5 +45,13 @@ def match_endpoint(
         from .providers.perplexity_ import PerplexityChatEndpoint
 
         return PerplexityChatEndpoint(**kwargs)
+    if provider == "claude_code" and (
+        "query" in endpoint or "code" in endpoint
+    ):
+        from lionagi.service.connections.providers.claude_code_ import (
+            ClaudeCodeEndpoint,
+        )
+
+        return ClaudeCodeEndpoint(**kwargs)
 
     return None

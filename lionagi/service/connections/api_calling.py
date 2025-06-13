@@ -4,9 +4,8 @@
 
 import asyncio
 import logging
-from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from lionagi.protocols.generic.event import Event, EventStatus
@@ -164,10 +163,11 @@ class APICalling(Event):
         try:
             self.execution.status = EventStatus.PROCESSING
 
-            # Make the API call
+            # Make the API call with skip_payload_creation=True since payload is already prepared
             response = await self.endpoint.call(
                 request=self.payload,
                 cache_control=self.cache_control,
+                skip_payload_creation=True,
                 extra_headers=self.headers if self.headers else None,
             )
 
