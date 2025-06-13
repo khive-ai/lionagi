@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.third_party.anthropic_models import CreateMessageRequest
+from .models import CreateMessageRequest
 
 ANTHROPIC_MESSAGES_ENDPOINT_CONFIG = EndpointConfig(
     name="anthropic_messages",

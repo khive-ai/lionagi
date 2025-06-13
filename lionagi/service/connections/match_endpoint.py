@@ -12,38 +12,42 @@ def match_endpoint(
 ) -> Endpoint:
     if provider == "openai":
         if "chat" in endpoint:
-            from .providers.oai_ import OpenaiChatEndpoint
+            from lionagi.service.providers.oai_ import OpenaiChatEndpoint
 
             return OpenaiChatEndpoint(**kwargs)
         if "response" in endpoint:
-            from .providers.oai_ import OpenaiResponseEndpoint
+            from lionagi.service.providers.oai_ import OpenaiResponseEndpoint
 
             return OpenaiResponseEndpoint(**kwargs)
     if provider == "openrouter" and "chat" in endpoint:
-        from .providers.oai_ import OpenrouterChatEndpoint
+        from lionagi.service.providers.oai_ import OpenrouterChatEndpoint
 
         return OpenrouterChatEndpoint(**kwargs)
     if provider == "ollama" and "chat" in endpoint:
-        from .providers.ollama_ import OllamaChatEndpoint
+        from lionagi.service.providers.ollama_ import OllamaChatEndpoint
 
         return OllamaChatEndpoint(**kwargs)
     if provider == "exa" and "search" in endpoint:
-        from .providers.exa_ import ExaSearchEndpoint
+        from lionagi.service.providers.exa_ import ExaSearchEndpoint
 
         return ExaSearchEndpoint(**kwargs)
     if provider == "anthropic" and (
         "messages" in endpoint or "chat" in endpoint
     ):
-        from .providers.anthropic_ import AnthropicMessagesEndpoint
+        from lionagi.service.providers.anthropic_ import AnthropicMessagesEndpoint
 
         return AnthropicMessagesEndpoint(**kwargs)
     if provider == "groq" and "chat" in endpoint:
-        from .providers.oai_ import GroqChatEndpoint
+        from lionagi.service.providers.oai_ import GroqChatEndpoint
 
         return GroqChatEndpoint(**kwargs)
     if provider == "perplexity" and "chat" in endpoint:
-        from .providers.perplexity_ import PerplexityChatEndpoint
+        from lionagi.service.providers.perplexity_ import PerplexityChatEndpoint
 
         return PerplexityChatEndpoint(**kwargs)
+    if provider == "claude_code" and ("query" in endpoint or "code" in endpoint):
+        from lionagi.service.providers.anthropic_.claude_code import ClaudeCodeEndpoint
+
+        return ClaudeCodeEndpoint(**kwargs)
 
     return None
