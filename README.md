@@ -141,6 +141,7 @@ Seamlessly route to different models in the same workflow.
 ```
 pip install "lionagi[reader]"
 pip install "lionagi[ollama]"
+pip install "lionagi[claude-code]"
 ```
 
 ## Community & Contributing
