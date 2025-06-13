@@ -136,6 +136,35 @@ analysis = await branch.communicate("Analyze these stats", imodel=sonnet)
 
 Seamlessly route to different models in the same workflow.
 
+### Claude Code Integration
+
+LionAGI now supports Anthropic's [Claude Code SDK](https://github.com/anthropics/claude-code-sdk), enabling autonomous coding capabilities with persistent session management:
+
+```python
+from lionagi import iModel, Branch
+
+# Create a Claude Code model
+coder = iModel(
+    provider="claude_code",
+    endpoint="code",
+    model="claude-sonnet-4-20250514",
+    allowed_tools=["Write", "Read", "Edit"],  # Control which tools Claude can use
+)
+
+# Start a coding session
+branch = Branch(chat_model=coder)
+response = await branch.chat("Create a Python function to calculate fibonacci numbers")
+
+# Claude Code maintains session context automatically
+response2 = await branch.chat("Now optimize it for performance")
+```
+
+Key features:
+- **Auto-Resume Sessions**: Conversations automatically continue from where they left off
+- **Tool Permissions**: Fine-grained control over which tools Claude can access
+- **Streaming Support**: Real-time feedback during code generation
+- **Seamless Integration**: Works with existing LionAGI workflows
+
 ### optional dependencies
 
 ```
