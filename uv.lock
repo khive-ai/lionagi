@@ -410,6 +410,19 @@ wheels = [
 ]
 
 [[package]]
+name = "claude-code-sdk"
+version = "0.0.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/38/f5/6c69e0f26cc4dc0f473dcad3fa0138c17d620f6fd5e8019edc47a958579f/claude_code_sdk-0.0.10.tar.gz", hash = "sha256:9fb5d40089845b21de07b0f9dc6e48482c6b819ed5a7cc35dfdcd674b9592213", size = 11538, upload-time = "2025-06-12T07:30:48.054Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/05/c719217354c8a783689cf94faecc222d725732a4cd3d285a9ee160c8449e/claude_code_sdk-0.0.10-py3-none-any.whl", hash = "sha256:cf4153b1723ff0d7c6a1c281540651c059d6c53b02654cc1ab9e9a85b7092a94", size = 10344, upload-time = "2025-06-12T07:30:46.643Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.1.8"
 source = { registry = "https://pypi.org/simple" }
@@ -1166,7 +1179,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.12.6"
+version = "0.12.7"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -1183,8 +1196,12 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "claude-code-sdk" },
     { name = "docling" },
     { name = "ollama" },
+]
+claude-code = [
+    { name = "claude-code-sdk" },
 ]
 docs = [
     { name = "furo" },
@@ -1226,10 +1243,12 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.12.0" },
     { name = "backoff", specifier = ">=2.2.1" },
     { name = "black", extras = ["jupyter"], marker = "extra == 'lint'", specifier = ">=24.10.0" },
+    { name = "claude-code-sdk", marker = "extra == 'claude-code'", specifier = ">=0.0.10" },
     { name = "docling", marker = "extra == 'reader'", specifier = ">=2.15.1" },
     { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.8.6" },
     { name = "isort", marker = "extra == 'lint'", specifier = ">=5.13.2" },
     { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "lionagi", extras = ["claude-code"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["ollama"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["reader"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["reader"], marker = "extra == 'tools'" },
@@ -1237,7 +1256,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pre-commit", marker = "extra == 'lint'", specifier = ">=4.0.1" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=0.3.0" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=0.3.2" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.4" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.0.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
@@ -1246,7 +1265,7 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.8.0" },
     { name = "toml", specifier = ">=0.9.0" },
 ]
-provides-extras = ["lint", "test", "docs", "reader", "tools", "ollama", "all"]
+provides-extras = ["lint", "test", "docs", "reader", "tools", "ollama", "claude-code", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2425,16 +2444,16 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "0.3.0"
+version = "0.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "pydantic" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/84/105b7c1a0c4256f42fd9d7a69b117920b711566f1a3cd83f4b62c6c79079/pydapter-0.3.0.tar.gz", hash = "sha256:e616cf7dbf71f244b218031ca1b52f8fcf015383ebbe85bee647d518d7cc7c56", size = 371106, upload-time = "2025-05-30T17:58:48.825Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/e2/e17270acd4e7cba084705bc2e80c8ef24615cd6611236510b3fd6c3e6116/pydapter-0.3.2.tar.gz", hash = "sha256:28882820a3512299a3a0340a58f31623d20bbb7f8964afa2ae597468d77546b7", size = 422929, upload-time = "2025-06-11T19:48:35.438Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/eb/690458817b4ff29a1952fef848af5021ac48ab90c0fc06d9318237ca7e76/pydapter-0.3.0-py3-none-any.whl", hash = "sha256:edd845e06c201d825ee5c9a44bcac61946e02d41a220eb1310b8ebe7585bab3d", size = 117702, upload-time = "2025-05-30T17:58:47.662Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/54/cb3d9f65706770778155eded29476efc3a8501623ec72a6e26d5f380aca0/pydapter-0.3.2-py3-none-any.whl", hash = "sha256:2e9773580957d1bd22ebb60e37830276c26cce9139f1af77d7a69fe333700f56", size = 126581, upload-time = "2025-06-11T19:48:34.091Z" },
 ]
 
 [package.optional-dependencies]
