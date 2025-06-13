@@ -164,10 +164,11 @@ class APICalling(Event):
         try:
             self.execution.status = EventStatus.PROCESSING
 
-            # Make the API call
+            # Make the API call with skip_payload_creation=True since payload is already prepared
             response = await self.endpoint.call(
                 request=self.payload,
                 cache_control=self.cache_control,
+                skip_payload_creation=True,
                 extra_headers=self.headers if self.headers else None,
             )
 

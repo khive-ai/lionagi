@@ -47,9 +47,7 @@ class Endpoint:
         if isinstance(config, dict):
             _config = EndpointConfig(**config, **kwargs)
         elif isinstance(config, EndpointConfig):
-            _config = config.model_copy(
-                deep=True
-            )  # Use deep copy to avoid sharing kwargs dict
+            _config = config.model_copy(deep=True)
             _config.update(**kwargs)
         else:
             raise ValueError(
@@ -71,8 +69,6 @@ class Endpoint:
             timeout=aiohttp.ClientTimeout(self.config.timeout),
             **self.config.client_kwargs,
         )
-
-    # Removed old context manager methods - endpoint is now stateless
 
     @property
     def request_options(self):
@@ -159,8 +155,13 @@ class Endpoint:
 
         return (payload, headers)
 
+    async def _call(self, payload: dict, headers: dict, **kwargs):
+        return await self._call_aiohttp(
+            payload=payload, headers=headers, **kwargs
+        )
+
     async def call(
-        self, request: dict | BaseModel, cache_control: bool = False, **kwargs
+        self, request: dict | BaseModel, cache_control: bool = False, skip_payload_creation: bool = False, **kwargs
     ):
         """
         Make a call to the endpoint.
@@ -168,6 +169,7 @@ class Endpoint:
         Args:
             request: The request parameters or model.
             cache_control: Whether to use cache control.
+            skip_payload_creation: Whether to skip create_payload and treat request as ready payload.
             **kwargs: Additional keyword arguments for the request.
 
         Returns:
@@ -175,25 +177,26 @@ class Endpoint:
         """
         # Extract extra_headers before passing to create_payload
         extra_headers = kwargs.pop("extra_headers", None)
-        payload, headers = self.create_payload(
-            request, extra_headers=extra_headers, **kwargs
-        )
-
-        async def _call(payload: dict, headers: dict, **kwargs):
-            # Direct call without context manager - each method handles its own resources
-            return await self._call_aiohttp(
-                payload=payload, headers=headers, **kwargs
+        
+        payload, headers = None, None
+        if skip_payload_creation:
+            # Treat request as the ready payload
+            payload = request if isinstance(request, dict) else request.model_dump()
+            headers = extra_headers or {}
+        else:
+            payload, headers = self.create_payload(
+                request, extra_headers=extra_headers, **kwargs
             )
 
         # Apply resilience patterns if configured
-        call_func = _call
+        call_func = self._call
 
         # Apply retry if configured
         if self.retry_config:
 
             async def call_func(p, h, **kw):
                 return await retry_with_backoff(
-                    _call, p, h, **kw, **self.retry_config.as_kwargs()
+                    self._call, p, h, **kw, **self.retry_config.as_kwargs()
                 )
 
         # Apply circuit breaker if configured
@@ -208,7 +211,7 @@ class Endpoint:
                 # If only circuit breaker is configured, apply it directly
                 if not cache_control:
                     return await self.circuit_breaker.execute(
-                        _call, payload, headers, **kwargs
+                        self._call, payload, headers, **kwargs
                     )
 
         # Handle caching if requested
@@ -223,12 +226,12 @@ class Endpoint:
                     )
                 if self.circuit_breaker:
                     return await self.circuit_breaker.execute(
-                        _call, payload, headers, **kwargs
+                        self._call, payload, headers, **kwargs
                     )
                 if self.retry_config:
                     return await call_func(payload, headers, **kwargs)
 
-                return await _call(payload, headers, **kwargs)
+                return await self._call(payload, headers, **kwargs)
 
             return await _cached_call(payload, headers, **kwargs)
 
@@ -236,7 +239,7 @@ class Endpoint:
         if self.retry_config:
             return await call_func(payload, headers, **kwargs)
 
-        return await _call(payload, headers, **kwargs)
+        return await self._call(payload, headers, **kwargs)
 
     async def _call_aiohttp(self, payload: dict, headers: dict, **kwargs):
         """
