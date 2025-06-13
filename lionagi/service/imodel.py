@@ -120,6 +120,9 @@ class iModel:
         # Use provided streaming_process_func or default to None
         self.streaming_process_func = streaming_process_func
 
+        # Provider-specific metadata storage (e.g., session_id for Claude Code)
+        self._provider_metadata = {}
+
     def create_api_calling(
         self, include_token_usage_to_model: bool = False, **kwargs
     ) -> APICalling:
@@ -134,6 +137,15 @@ class iModel:
                 An `APICalling` instance with the constructed payload,
                 headers, and the selected endpoint.
         """
+        # For Claude Code, auto-inject session_id for resume if available and not explicitly provided
+        if (
+            self.endpoint.config.provider == "claude_code"
+            and "resume" not in kwargs
+            and "session_id" not in kwargs
+            and self._provider_metadata.get("session_id")
+        ):
+            kwargs["resume"] = self._provider_metadata["session_id"]
+
         # The new Endpoint.create_payload returns (payload, headers)
         payload, headers = self.endpoint.create_payload(request=kwargs)
 
@@ -256,7 +268,23 @@ class iModel:
                 await self.executor.forward()
                 ctr += 1
                 await asyncio.sleep(0.1)
-            return self.executor.pile.pop(api_call.id)
+
+            # Get the completed API call
+            completed_call = self.executor.pile.pop(api_call.id)
+
+            # Store session_id for Claude Code provider
+            if (
+                self.endpoint.config.provider == "claude_code"
+                and completed_call
+                and completed_call.response
+            ):
+                response = completed_call.response
+                if isinstance(response, dict) and "session_id" in response:
+                    self._provider_metadata["session_id"] = response[
+                        "session_id"
+                    ]
+
+            return completed_call
         except Exception as e:
             raise ValueError(f"Failed to invoke API call: {e}")
 
@@ -300,12 +328,13 @@ class iModel:
     def from_dict(cls, data: dict):
         endpoint = Endpoint.from_dict(data.get("endpoint", {}))
 
-        e1 = match_endpoint(
+        if e1 := match_endpoint(
             provider=endpoint.config.provider,
             endpoint=endpoint.config.endpoint,
-        )
-
-        e1.config = endpoint.config
+        ):
+            e1.config = endpoint.config
+        else:
+            e1 = endpoint
 
         return cls(
             endpoint=e1,
