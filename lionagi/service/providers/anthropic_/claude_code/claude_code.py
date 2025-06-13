@@ -33,7 +33,8 @@ class ClaudeCodeEndpoint(Endpoint):
         **kwargs,
     ):
         request_dict = to_dict(request)
-        request_dict = {**request_dict, **kwargs}
+        # Merge stored kwargs from config, then request, then additional kwargs
+        request_dict = {**self.config.kwargs, **request_dict, **kwargs}
         messages = request_dict.pop("messages", None)
 
         resume = request_dict.pop("resume", None)
@@ -73,20 +74,52 @@ class ClaudeCodeEndpoint(Endpoint):
         - UserMessage(s): for tool use interactions
         - ResultMessage: final result with metadata
         
-        We'll format this like a standard chat completions response.
+        When Claude Code uses tools, the ResultMessage.result may be None.
+        In that case, we need to look at the tool results in UserMessages.
         """
         result_message = None
         model = 'claude-code'
+        assistant_text_content = []
+        tool_results = []
         
-        # Find the ResultMessage which contains the summary
+        # Process all messages
         for response in responses:
             class_name = response.__class__.__name__
             
             if class_name == 'SystemMessage' and hasattr(response, 'data'):
                 model = response.data.get('model', 'claude-code')
             
+            elif class_name == 'AssistantMessage':
+                # Extract text content from assistant messages
+                if hasattr(response, 'content') and response.content:
+                    for block in response.content:
+                        if hasattr(block, 'text'):
+                            assistant_text_content.append(block.text)
+                        elif isinstance(block, dict) and 'text' in block:
+                            assistant_text_content.append(block['text'])
+            
+            elif class_name == 'UserMessage':
+                # Extract tool results from user messages
+                if hasattr(response, 'content') and response.content:
+                    for item in response.content:
+                        if isinstance(item, dict) and item.get('type') == 'tool_result':
+                            tool_results.append(item.get('content', ''))
+            
             elif class_name == 'ResultMessage':
                 result_message = response
+        
+        # Determine the final content
+        final_content = ""
+        if result_message and hasattr(result_message, 'result') and result_message.result:
+            # Use ResultMessage.result if available
+            final_content = result_message.result
+        elif assistant_text_content:
+            # Use assistant text content if available
+            final_content = '\n'.join(assistant_text_content)
+        elif tool_results:
+            # If only tool results are available, use a generic summary
+            # (Claude Code typically provides its own summary after tool use)
+            final_content = "I've completed the requested task using the available tools."
         
         # Build the clean chat completions response
         result = {
@@ -95,7 +128,7 @@ class ClaudeCodeEndpoint(Endpoint):
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": result_message.result if result_message and hasattr(result_message, 'result') else ""
+                    "content": final_content
                 },
                 "finish_reason": "stop" if not (result_message and hasattr(result_message, 'is_error') and result_message.is_error) else "error"
             }]

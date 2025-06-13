@@ -10,7 +10,7 @@ async def main():
         request_dict = {
             "messages": [
                 {"role": "user",
-                "content": "Hello, Claude Code! Can you give me a high level overview of lionagi?"}
+                "content": "Hello, Claude Code! Can you give me a brief high level overview of lionagi based on what you can find? Keep it concise in one paragraph."}
             ],
             "allowed_tools": ["Write", "Read", "Edit"],
             "model": "claude-sonnet-4-20250514",
@@ -30,29 +30,28 @@ async def main():
             model="claude-sonnet-4-20250514",
             api_key="dummy_api_key",
             allowed_tools=["Write", "Read", "Edit"],
-            max_turns=1,
         )
         
         branch = Branch(chat_model=imodel)
-        response = await branch.chat("Hello, Claude Code! Can you give me a high level overview of lionagi?")
+        ins, res = await branch.chat(
+            "Hello, Claude Code! Can you give me a brief high level overview of lionagi based on what you can find? Keep it concise in one paragraph.",
+            return_ins_res_message=True,
+        )
         
-        # response = await imodel.invoke(**request_dict)
-        # response = response.response
-
-        # print("Parsed response:", response)
-        # print()
+        print("Instruction:", ins)
+        print("Response object:", res)
+        print("Response content:", res.response if res else None)
         
-        # # Now test through iModel
-        # print("Testing through iModel...")
-        # response = await imodel.invoke(
-        #     messages=[
-        #         {"role": "user",
-        #         "content": "Hello, Claude Code! Can you help me with a Python script?"}
-        #     ],
-        #     allowed_tools=["Write", "Read", "Edit"]
-        # )
+        # Test auto-resume functionality
+        print("\n\nTesting auto-resume with same iModel...")
+        ins2, res2 = await branch.chat(
+            "What did I just ask you about?",
+            return_ins_res_message=True,
+        )
+        print("Second response:", res2.response if res2 else None)
         
-        print("Response:", response)
+        # Check if session was resumed
+        print("\nStored session_id:", imodel._provider_metadata.get("session_id"))
     except Exception as e:
         print(f"Error: {e}")
         import traceback
