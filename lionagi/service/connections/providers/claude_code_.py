@@ -83,11 +83,11 @@ ENDPOINT_CONFIG = EndpointConfig(
     endpoint="query",
     api_key="dummy",
     request_options=ClaudeCodeRequest,
+    timeout=3000,
 )
 
 
 class ClaudeCodeEndpoint(Endpoint):
-
     def __init__(self, config=ENDPOINT_CONFIG, **kwargs):
         super().__init__(config=config, **kwargs)
 
@@ -146,95 +146,51 @@ class ClaudeCodeEndpoint(Endpoint):
         When Claude Code uses tools, the ResultMessage.result may be None.
         In that case, we need to look at the tool results in UserMessages.
         """
-        result_message = None
-        model = "claude-code"
-        assistant_text_content = []
-        tool_results = []
-
-        # Process all messages
-        for response in responses:
-            class_name = response.__class__.__name__
-
-            if class_name == "SystemMessage" and hasattr(response, "data"):
-                model = response.data.get("model", "claude-code")
-
-            elif class_name == "AssistantMessage":
-                # Extract text content from assistant messages
-                if hasattr(response, "content") and response.content:
-                    for block in response.content:
-                        if hasattr(block, "text"):
-                            assistant_text_content.append(block.text)
-                        elif isinstance(block, dict) and "text" in block:
-                            assistant_text_content.append(block["text"])
-
-            elif class_name == "UserMessage":
-                # Extract tool results from user messages
-                if hasattr(response, "content") and response.content:
-                    for item in response.content:
-                        if (
-                            isinstance(item, dict)
-                            and item.get("type") == "tool_result"
-                        ):
-                            tool_results.append(item.get("content", ""))
-
-            elif class_name == "ResultMessage":
-                result_message = response
-
-        # Determine the final content
-        final_content = ""
-        if (
-            result_message
-            and hasattr(result_message, "result")
-            and result_message.result
-        ):
-            # Use ResultMessage.result if available
-            final_content = result_message.result
-        elif assistant_text_content:
-            # Use assistant text content if available
-            final_content = "\n".join(assistant_text_content)
-        elif tool_results:
-            # If only tool results are available, use a generic summary
-            # (Claude Code typically provides its own summary after tool use)
-            final_content = (
-                "I've completed the requested task using the available tools."
-            )
-
-        # Build the clean chat completions response
-        result = {
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": final_content},
-                    "finish_reason": (
-                        "stop"
-                        if not (
-                            result_message
-                            and hasattr(result_message, "is_error")
-                            and result_message.is_error
-                        )
-                        else "error"
-                    ),
-                }
-            ],
+        results = {
+            "session_id": None,
+            "model": "claude-code",
+            "result": "",
+            "tool_results": [],
+            "is_error": False,
+            "num_turns": None,
+            "cost_usd": None,
+            "total_cost_usd": None,
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
         }
 
-        # Add usage information if available
-        if result_message and hasattr(result_message, "usage"):
-            result["usage"] = result_message.usage
+        from claude_code_sdk import types
 
-        # Add only essential Claude Code metadata
-        if result_message:
-            if hasattr(result_message, "cost_usd"):
-                result["usage"]["cost_usd"] = result_message.cost_usd
-            if hasattr(result_message, "session_id"):
-                result["session_id"] = result_message.session_id
-            if hasattr(result_message, "is_error"):
-                result["is_error"] = result_message.is_error
-            if hasattr(result_message, "num_turns"):
-                result["num_turns"] = result_message.num_turns
+        for response in responses:
+            if isinstance(response, types.SystemMessage):
+                results["session_id"] = response.data.get("session_id")
+                results["model"] = response.data.get("model", "claude-code")
+            if isinstance(response, types.AssistantMessage):
+                for block in response.content:
+                    if isinstance(block, types.TextBlock):
+                        results["result"] += block.text.strip() + "\n"
+                    if isinstance(block, types.ToolResultBlock):
+                        results["tool_results"].append(
+                            {
+                                "tool_use_id": block.tool_use_id,
+                                "content": block.content,
+                                "is_error": block.is_error,
+                            }
+                        )
+            if isinstance(response, types.ResultMessage):
+                results["result"] += response.result.strip() or ""
+                results["usage"] = response.usage
+                results["cost_usd"] = response.cost_usd
+                results["is_error"] = response.is_error
+                results["total_cost_usd"] = response.total_cost_usd
+                results["num_turns"] = response.num_turns
+                results["duration_ms"] = response.duration_ms
+                results["duration_api_ms"] = response.duration_api_ms
 
-        return result
+        return results
 
     async def _call(
         self,
