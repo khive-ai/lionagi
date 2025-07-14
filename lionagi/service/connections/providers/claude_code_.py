@@ -2,83 +2,181 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from claude_code_sdk import ClaudeCodeOptions, PermissionMode
-from pydantic import BaseModel, Field
+from claude_code_sdk import ClaudeCodeOptions
+from claude_code_sdk import query as sdk_query
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.utils import to_dict
 
+# --------------------------------------------------------------------------- constants
+ClaudePermission = Literal[
+    "default",
+    "acceptEdits",
+    "bypassPermissions",
+    "dangerously-skip-permissions",
+]
 
+CLAUDE_CODE_OPTION_PARAMS = {
+    "allowed_tools",
+    "max_thinking_tokens",
+    "mcp_tools",
+    "mcp_servers",
+    "permission_mode",
+    "continue_conversation",
+    "resume",
+    "max_turns",
+    "disallowed_tools",
+    "model",
+    "permission_prompt_tool_name",
+    "cwd",
+    "system_prompt",
+    "append_system_prompt",
+}
+
+
+# --------------------------------------------------------------------------- request model
 class ClaudeCodeRequest(BaseModel):
-    prompt: str = Field(description="The prompt for Claude Code")
-    allowed_tools: list[str] = Field(
-        default_factory=list, description="List of allowed tools"
-    )
-    max_thinking_tokens: int = 8000
-    mcp_tools: list[str] = list
-    mcp_servers: dict[str, Any] = Field(default_factory=dict)
-    permission_mode: PermissionMode | None = None
-    continue_conversation: bool = False
-    resume: str | None = None
-    max_turns: int | None = None
-    disallowed_tools: list[str] = Field(default_factory=list)
-    model: str | None = None
-    permission_prompt_tool_name: str | None = None
-    cwd: str | Path | None = None
+    # -- conversational bits -------------------------------------------------
+    prompt: str = Field(description="The prompt for Claude Code")
     system_prompt: str | None = None
     append_system_prompt: str | None = None
+    max_turns: int | None = None
+    continue_conversation: bool = False
+    resume: str | None = None
 
+    # -- repo / workspace ----------------------------------------------------
+    repo: Path = Field(default_factory=Path.cwd, exclude=True)
+    ws: str | None = None  # sub-directory under repo
+    add_dir: str | None = None  # extra read-only mount
+    allowed_tools: list[str] | None = None
+
+    # -- runtime & safety ----------------------------------------------------
+    model: Literal["sonnet", "opus"] | str | None = "sonnet"
+    max_thinking_tokens: int | None = None
+    mcp_tools: list[str] = Field(default_factory=list)
+    mcp_servers: dict[str, Any] = Field(default_factory=dict)
+    permission_mode: ClaudePermission | None = None
+    permission_prompt_tool_name: str | None = None
+    disallowed_tools: list[str] = Field(default_factory=list)
+
+    # ------------------------ validators & helpers --------------------------
+    @field_validator("permission_mode", mode="before")
+    def _norm_perm(cls, v):
+        if v in {
+            "dangerously-skip-permissions",
+            "--dangerously-skip-permissions",
+        }:
+            return "bypassPermissions"
+        return v
+
+    # Workspace path derived from repo + ws
+    def cwd(self) -> Path:
+        if not self.ws:
+            return self.repo
+        ws = self.ws.lstrip("/")
+        return self.repo / ws
+
+    @model_validator(mode="after")
+    def _check_perm_workspace(self):
+        if self.permission_mode == "bypassPermissions":
+            if str(self.repo) not in str(self.cwd()):
+                raise ValueError(
+                    "With bypassPermissions the repo must be a parent of the workspace"
+                )
+        return self
+
+    # ------------------------ CLI helpers -----------------------------------
+    def as_cmd_args(self) -> list[str]:
+        """Build argument list for the *Node* `claude` CLI."""
+        full_prompt = f"Human User: {self.prompt}\n\nAssistant:"
+        args: list[str] = ["-p", full_prompt, "--output-format", "stream-json"]
+        if self.allowed_tools:
+            args.append("--allowedTools")
+            for tool in self.allowed_tools:
+                args.append(f'"{tool}"')
+
+        if self.disallowed_tools:
+            args.append("--disallowedTools")
+            for tool in self.disallowed_tools:
+                args.append(f'"{tool}"')
+
+        if self.resume:
+            args += ["--resume", self.resume]
+        elif self.continue_conversation:
+            args.append("--continue")
+
+        if self.max_turns:
+            # +1 because CLI counts *pairs*
+            args += ["--max-turns", str(self.max_turns + 1)]
+
+        if self.permission_mode == "bypassPermissions":
+            args += ["--dangerously-skip-permissions"]
+
+        if self.add_dir:
+            args += ["--add-dir", self.add_dir]
+
+        args += ["--model", self.model or "sonnet", "--verbose"]
+        return args
+
+    # ------------------------ SDK helpers -----------------------------------
     def as_claude_options(self) -> ClaudeCodeOptions:
-        dict_ = self.model_dump(exclude_unset=True)
-        dict_.pop("prompt")
-        return ClaudeCodeOptions(**dict_)
+        data = {
+            k: v
+            for k, v in self.model_dump(exclude_none=True).items()
+            if k in CLAUDE_CODE_OPTION_PARAMS
+        }
+        return ClaudeCodeOptions(**data)
 
+    # ------------------------ convenience constructor -----------------------
     @classmethod
     def create(
         cls,
-        messages: list[dict],
+        messages: list[dict[str, Any]],
         resume: str | None = None,
-        continue_conversation: bool = None,
+        continue_conversation: bool | None = None,
         **kwargs,
     ):
+        if not messages:
+            raise ValueError("messages may not be empty")
+
         prompt = messages[-1]["content"]
-        if isinstance(prompt, dict | list):
+        if isinstance(prompt, (dict, list)):
             prompt = json.dumps(prompt)
 
-        # If resume is provided, set continue_conversation to True
-        if resume is not None and continue_conversation is None:
+        if resume and continue_conversation is None:
             continue_conversation = True
 
-        dict_ = dict(
+        data: dict[str, Any] = dict(
             prompt=prompt,
-            continue_conversation=continue_conversation,
             resume=resume,
+            continue_conversation=bool(continue_conversation),
         )
 
-        if resume is not None or continue_conversation is not None:
-            if messages[0]["role"] == "system":
-                dict_["system_prompt"] = messages[0]["content"]
+        if (messages[0]["role"] == "system") and (
+            resume or continue_conversation
+        ):
+            data["system_prompt"] = messages[0]["content"]
 
-        if (a := kwargs.get("system_prompt")) is not None:
-            dict_["append_system_prompt"] = a
+        # Merge optional system prompts
+        if kwargs.get("system_prompt"):
+            data["append_system_prompt"] = kwargs.pop("system_prompt")
 
-        if (a := kwargs.get("append_system_prompt")) is not None:
-            dict_.setdefault("append_system_prompt", "")
-            dict_["append_system_prompt"] += str(a)
-
-        dict_ = {**dict_, **kwargs}
-        dict_ = {k: v for k, v in dict_.items() if v is not None}
-        return cls(**dict_)
+        data.update(kwargs)
+        return cls.model_validate(data, strict=False)
 
 
+# --------------------------------------------------------------------------- SDK endpoint
 ENDPOINT_CONFIG = EndpointConfig(
     name="claude_code",
-    provider="anthropic",
+    provider="claude_code",
     base_url="internal",
     endpoint="query",
     api_key="dummy",
@@ -88,50 +186,25 @@ ENDPOINT_CONFIG = EndpointConfig(
 
 
 class ClaudeCodeEndpoint(Endpoint):
-    def __init__(self, config=ENDPOINT_CONFIG, **kwargs):
+    """Direct Python-SDK (non-CLI) endpoint - unchanged except for bug-fixes."""
+
+    def __init__(self, config: EndpointConfig = ENDPOINT_CONFIG, **kwargs):
         super().__init__(config=config, **kwargs)
 
-    def create_payload(
-        self,
-        request: dict | BaseModel,
-        **kwargs,
-    ):
-        request_dict = to_dict(request)
-        # Merge stored kwargs from config, then request, then additional kwargs
-        request_dict = {**self.config.kwargs, **request_dict, **kwargs}
-        messages = request_dict.pop("messages", None)
+    def create_payload(self, request: dict | BaseModel, **kwargs):
+        req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
+        messages = req_dict.pop("messages")
+        req_obj = ClaudeCodeRequest.create(messages=messages, **req_dict)
+        return {"request": req_obj}, {}
 
-        resume = request_dict.pop("resume", None)
-        continue_conversation = request_dict.pop("continue_conversation", None)
-
-        request_obj = ClaudeCodeRequest.create(
-            messages=messages,
-            resume=resume,
-            continue_conversation=continue_conversation,
-            **{
-                k: v
-                for k, v in request_dict.items()
-                if v is not None and k in ClaudeCodeRequest.model_fields
-            },
+    def _stream_claude_code(self, request: ClaudeCodeRequest):
+        return sdk_query(
+            prompt=request.prompt, options=request.as_claude_options()
         )
-        request_options = request_obj.as_claude_options()
-        payload = {
-            "prompt": request_obj.prompt,
-            "options": request_options,
-        }
-        return (payload, {})
 
-    def _stream_claude_code(self, prompt: str, options: ClaudeCodeOptions):
-        from claude_code_sdk import query
-
-        return query(prompt=prompt, options=options)
-
-    async def stream(
-        self,
-        request: dict | BaseModel,
-        **kwargs,
-    ):
-        async for chunk in self._stream_claude_code(**request, **kwargs):
+    async def stream(self, request: dict | BaseModel, **kwargs):
+        payload = self.create_payload(request, **kwargs)["request"]
+        async for chunk in self._stream_claude_code(payload):
             yield chunk
 
     def _parse_claude_code_response(self, responses: list) -> dict:
@@ -153,7 +226,6 @@ class ClaudeCodeEndpoint(Endpoint):
             "tool_results": [],
             "is_error": False,
             "num_turns": None,
-            "cost_usd": None,
             "total_cost_usd": None,
             "usage": {
                 "prompt_tokens": 0,
@@ -183,7 +255,6 @@ class ClaudeCodeEndpoint(Endpoint):
             if isinstance(response, types.ResultMessage):
                 results["result"] += response.result.strip() or ""
                 results["usage"] = response.usage
-                results["cost_usd"] = response.cost_usd
                 results["is_error"] = response.is_error
                 results["total_cost_usd"] = response.total_cost_usd
                 results["num_turns"] = response.num_turns
@@ -202,5 +273,4 @@ class ClaudeCodeEndpoint(Endpoint):
         async for chunk in self._stream_claude_code(**payload):
             responses.append(chunk)
 
-        # Parse the responses into a consistent format
         return self._parse_claude_code_response(responses)
