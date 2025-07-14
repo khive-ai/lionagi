@@ -81,15 +81,50 @@ class ClaudeCodeRequest(BaseModel):
     def cwd(self) -> Path:
         if not self.ws:
             return self.repo
-        ws = self.ws.lstrip("/")
-        return self.repo / ws
+
+        # Convert to Path object for proper validation
+        ws_path = Path(self.ws)
+
+        # Check for absolute paths or directory traversal attempts
+        if ws_path.is_absolute():
+            raise ValueError(
+                f"Workspace path must be relative, got absolute: {self.ws}"
+            )
+
+        if ".." in ws_path.parts:
+            raise ValueError(
+                f"Directory traversal detected in workspace path: {self.ws}"
+            )
+
+        # Resolve paths to handle symlinks and normalize
+        repo_resolved = self.repo.resolve()
+        result = (self.repo / ws_path).resolve()
+
+        # Ensure the resolved path is within the repository bounds
+        try:
+            result.relative_to(repo_resolved)
+        except ValueError:
+            raise ValueError(
+                f"Workspace path escapes repository bounds. "
+                f"Repository: {repo_resolved}, Workspace: {result}"
+            )
+
+        return result
 
     @model_validator(mode="after")
     def _check_perm_workspace(self):
         if self.permission_mode == "bypassPermissions":
-            if str(self.repo) not in str(self.cwd()):
+            # Use secure path validation with resolved paths
+            repo_resolved = self.repo.resolve()
+            cwd_resolved = self.cwd().resolve()
+
+            # Check if cwd is within repo bounds using proper path methods
+            try:
+                cwd_resolved.relative_to(repo_resolved)
+            except ValueError:
                 raise ValueError(
-                    "With bypassPermissions the repo must be a parent of the workspace"
+                    f"With bypassPermissions, workspace must be within repository bounds. "
+                    f"Repository: {repo_resolved}, Workspace: {cwd_resolved}"
                 )
         return self
 
