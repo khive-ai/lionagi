@@ -27,6 +27,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aiofiles"
+version = "24.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/03/a88171e277e8caa88a4c77808c20ebb04ba74cc4681bf1e9416c862de237/aiofiles-24.1.0.tar.gz", hash = "sha256:22a075c9e5a3810f0c2e48f3008c94d68c65d763b9b03857924c99e57355166c", size = 30247, upload-time = "2024-06-24T11:02:03.584Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a5/45/30bb92d442636f570cb5651bc661f52b610e2eec3f891a5dc3a4c3667db0/aiofiles-24.1.0-py3-none-any.whl", hash = "sha256:b4ec55f4195e3eb5d7abd1bf7e061763e864dd4954231fb8539a0ef8bb8260e5", size = 15896, upload-time = "2024-06-24T11:02:01.529Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -411,15 +420,15 @@ wheels = [
 
 [[package]]
 name = "claude-code-sdk"
-version = "0.0.10"
+version = "0.0.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/f5/6c69e0f26cc4dc0f473dcad3fa0138c17d620f6fd5e8019edc47a958579f/claude_code_sdk-0.0.10.tar.gz", hash = "sha256:9fb5d40089845b21de07b0f9dc6e48482c6b819ed5a7cc35dfdcd674b9592213", size = 11538, upload-time = "2025-06-12T07:30:48.054Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/50/489bd1cf9f448d9e06aa6af4a14db8e22ec5f7dbdb5fcc48821b1d8d1680/claude_code_sdk-0.0.14.tar.gz", hash = "sha256:a1c9384b6934c2b8351d7a35c0b7dcfd5fb657017fb456eb98bcf5e0b4f8eccd", size = 13403, upload-time = "2025-07-01T06:07:28.147Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/05/c719217354c8a783689cf94faecc222d725732a4cd3d285a9ee160c8449e/claude_code_sdk-0.0.10-py3-none-any.whl", hash = "sha256:cf4153b1723ff0d7c6a1c281540651c059d6c53b02654cc1ab9e9a85b7092a94", size = 10344, upload-time = "2025-06-12T07:30:46.643Z" },
+    { url = "https://files.pythonhosted.org/packages/db/a4/6eb606ccb0988054ca52b9453045b2c2f1bc6fd9c915e0f6cd1f73d6ce2c/claude_code_sdk-0.0.14-py3-none-any.whl", hash = "sha256:83a23a260954bb84e78cf2dc42aaaa0eee778ca392e56f1661276f31ba64992c", size = 10589, upload-time = "2025-07-01T06:07:27.029Z" },
 ]
 
 [[package]]
@@ -1183,6 +1192,7 @@ version = "0.12.8"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
+    { name = "aiofiles" },
     { name = "aiohttp" },
     { name = "backoff" },
     { name = "jinja2" },
@@ -1240,10 +1250,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiocache", specifier = ">=0.12.0" },
+    { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "aiohttp", specifier = ">=3.12.0" },
     { name = "backoff", specifier = ">=2.2.1" },
     { name = "black", extras = ["jupyter"], marker = "extra == 'lint'", specifier = ">=24.10.0" },
-    { name = "claude-code-sdk", marker = "extra == 'claude-code'", specifier = ">=0.0.10" },
+    { name = "claude-code-sdk", marker = "extra == 'claude-code'", specifier = ">=0.0.14" },
     { name = "docling", marker = "extra == 'reader'", specifier = ">=2.15.1" },
     { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.8.6" },
     { name = "isort", marker = "extra == 'lint'", specifier = ">=5.13.2" },
