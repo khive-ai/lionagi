@@ -19,9 +19,10 @@ import tempfile
 import textwrap
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+from typing import Any
 
 import aiofiles
 from pydantic import BaseModel, Field, model_validator
@@ -38,11 +39,17 @@ log.setLevel(logging.INFO)
 class CodeExecutionRequest(BaseModel):
     code: str = Field(..., description="Source code to execute")
     language: str = Field("python", description="Runner key in RUNNER_TABLE")
-    timeout: int = Field(30, ge=1, le=600, description="Wall‑clock timeout (s)")
+    timeout: int = Field(
+        30, ge=1, le=600, description="Wall‑clock timeout (s)"
+    )
     cpu_time: int = Field(10, ge=1, le=600, description="CPU time limit (s)")
-    memory_mb: int = Field(512, ge=64, le=8192, description="Max resident set (MB)")
-    persist_files: bool = Field(True, description="If true git‑commit modified files")
-    working_directory: Optional[str] = Field(
+    memory_mb: int = Field(
+        512, ge=64, le=8192, description="Max resident set (MB)"
+    )
+    persist_files: bool = Field(
+        True, description="If true git‑commit modified files"
+    )
+    working_directory: str | None = Field(
         None, description="Sub‑folder inside the session sandbox"
     )
 
@@ -59,10 +66,10 @@ class CodeExecutionResponse(BaseModel):
     wall_time: float
     cpu_time: float
     max_rss_mb: float
-    git_commit: Optional[str] = None
-    git_diff: Optional[str] = None
-    files_created: List[str] = []
-    files_modified: List[str] = []
+    git_commit: str | None = None
+    git_diff: str | None = None
+    files_created: list[str] = []
+    files_modified: list[str] = []
     ran_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -87,7 +94,7 @@ class GitRepository:
         except subprocess.CalledProcessError:
             return ""
 
-    def add_and_commit(self, message: str) -> Tuple[str, str]:
+    def add_and_commit(self, message: str) -> tuple[str, str]:
         """Stage all, commit if there are changes, return (commit_sha, diff)."""
         subprocess.run(["git", "-C", self.root, "add", "-A"], check=True)
         pre_tree = self.snapshot_tree()
@@ -121,7 +128,9 @@ class GitRepository:
             "user.name": "lionagi-sandbox",
             "user.email": "sandbox@lionagi.ai",
         }.items():
-            subprocess.run(["git", "-C", self.root, "config", k, v], check=True)
+            subprocess.run(
+                ["git", "-C", self.root, "config", k, v], check=True
+            )
 
     def _is_index_clean(self, pre_tree: str) -> bool:
         post_tree = self.snapshot_tree()
@@ -138,7 +147,7 @@ class CodeSandbox:
     """
 
     # ------------------------------------------------ runner table
-    RUNNER_TABLE: Dict[str, List[str]] = {
+    RUNNER_TABLE: dict[str, list[str]] = {
         "python": [sys.executable, "{file}"],  # default venv
         "bash": ["bash", "{file}"],
         "node": ["node", "{file}"],
@@ -163,7 +172,9 @@ class CodeSandbox:
             created, modified = self._file_changes_since(script_path)
             commit, diff = ("", "")
             if rc == 0 and req.persist_files:
-                commit, diff = self.repo.add_and_commit(f"Run {script_path.name}")
+                commit, diff = self.repo.add_and_commit(
+                    f"Run {script_path.name}"
+                )
 
             return CodeExecutionResponse(
                 stdout=stdout,
@@ -180,7 +191,7 @@ class CodeSandbox:
 
     async def stream(
         self, req: CodeExecutionRequest
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """
         Same contract as Endpoint.stream: yields **dict** chunks (not pydantic models
         to avoid heavy conversions). The final chunk always contains `"done": true`.
@@ -246,7 +257,9 @@ class CodeSandbox:
             created, modified = self._file_changes_since(script_path)
             commit, diff = ("", "")
             if proc.returncode == 0 and req.persist_files:
-                commit, diff = self.repo.add_and_commit(f"Run {script_path.name}")
+                commit, diff = self.repo.add_and_commit(
+                    f"Run {script_path.name}"
+                )
 
             yield {
                 "stream": "end",
@@ -263,7 +276,7 @@ class CodeSandbox:
             }
 
     # ------------------------------------------------ private helpers
-    async def _prepare_fs(self, req: CodeExecutionRequest) -> Tuple[str, Path]:
+    async def _prepare_fs(self, req: CodeExecutionRequest) -> tuple[str, Path]:
         cwd = self.root / (req.working_directory or "")
         cwd.mkdir(parents=True, exist_ok=True)
 
@@ -272,9 +285,11 @@ class CodeSandbox:
             await f.write(req.code)
         return str(cwd), script
 
-    def _file_changes_since(self, exclude: Path) -> Tuple[List[str], List[str]]:
-        created: List[str] = []
-        modified: List[str] = []
+    def _file_changes_since(
+        self, exclude: Path
+    ) -> tuple[list[str], list[str]]:
+        created: list[str] = []
+        modified: list[str] = []
         # Cheap heuristic: git status --porcelain
         res = subprocess.run(
             ["git", "-C", self.root, "status", "--porcelain"],
@@ -294,7 +309,7 @@ class CodeSandbox:
 
     async def _spawn_process(
         self, req: CodeExecutionRequest, script: Path, cwd: str
-    ) -> Tuple[str, str, int, "posix_res.struct_rusage"]:
+    ) -> tuple[str, str, int, posix_res.struct_rusage]:
         """
         Execute and collect entire output (non‑stream path).
         """
@@ -324,7 +339,12 @@ class CodeSandbox:
                     posix_res.getrusage(posix_res.RUSAGE_CHILDREN),
                 )
         except FileNotFoundError as e:
-            return "", str(e), 127, posix_res.getrusage(posix_res.RUSAGE_CHILDREN)
+            return (
+                "",
+                str(e),
+                127,
+                posix_res.getrusage(posix_res.RUSAGE_CHILDREN),
+            )
 
         usage = posix_res.getrusage(posix_res.RUSAGE_CHILDREN)
         return (
@@ -335,7 +355,7 @@ class CodeSandbox:
         )
 
     # ---------- misc
-    def _build_cmd(self, lang: str, script: Path) -> List[str]:
+    def _build_cmd(self, lang: str, script: Path) -> list[str]:
         if lang not in self.RUNNER_TABLE:
             raise ValueError(f"Unsupported language '{lang}'")
         return [a.format(file=script) for a in self.RUNNER_TABLE[lang]]
@@ -351,10 +371,14 @@ class CodeSandbox:
                 sys.platform != "darwin"
             ):  # Skip on macOS for now due to compatibility issues
                 # CPU seconds
-                posix_res.setrlimit(posix_res.RLIMIT_CPU, (req.cpu_time, req.cpu_time))
+                posix_res.setrlimit(
+                    posix_res.RLIMIT_CPU, (req.cpu_time, req.cpu_time)
+                )
                 # Address space
                 mem_bytes = req.memory_mb * 1024 * 1024
-                posix_res.setrlimit(posix_res.RLIMIT_AS, (mem_bytes, mem_bytes))
+                posix_res.setrlimit(
+                    posix_res.RLIMIT_AS, (mem_bytes, mem_bytes)
+                )
                 # Disable fork bomb
                 posix_res.setrlimit(posix_res.RLIMIT_NPROC, (50, 50))
                 # No core dumps
@@ -363,7 +387,7 @@ class CodeSandbox:
             # Windows or other systems that don't support these limits
             pass
 
-    def _sandbox_env(self) -> Dict[str, str]:
+    def _sandbox_env(self) -> dict[str, str]:
         env = {"PYTHONUNBUFFERED": "1"}
         safe = ["PATH", "LANG", "LC_ALL"]
         env.update({k: v for k, v in os.environ.items() if k in safe})
@@ -405,22 +429,24 @@ class CodeSandboxEndpoint(Endpoint):
     def __init__(
         self,
         config: EndpointConfig = SANDBOX_CONFIG,
-        sandbox_base_dir: Optional[str | Path] = None,
+        sandbox_base_dir: str | Path | None = None,
         **kwargs,
     ):
         super().__init__(config, **kwargs)
-        self.base = Path(sandbox_base_dir or tempfile.mkdtemp(prefix="lionagi_sbx_"))
+        self.base = Path(
+            sandbox_base_dir or tempfile.mkdtemp(prefix="lionagi_sbx_")
+        )
         self.base.mkdir(parents=True, exist_ok=True)
-        self._sandboxes: Dict[str, CodeSandbox] = {}
+        self._sandboxes: dict[str, CodeSandbox] = {}
         log.info("Sandbox root: %s", self.base)
 
     # -------------- public API
     async def call(
         self,
-        request: CodeExecutionRequest | Dict[str, Any],
+        request: CodeExecutionRequest | dict[str, Any],
         session_id: str = "default",
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         req = (
             request
             if isinstance(request, CodeExecutionRequest)
@@ -432,7 +458,7 @@ class CodeSandboxEndpoint(Endpoint):
 
     async def stream(
         self,
-        request: CodeExecutionRequest | Dict[str, Any],
+        request: CodeExecutionRequest | dict[str, Any],
         session_id: str = "default",
         **kwargs,
     ):
