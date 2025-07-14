@@ -121,7 +121,7 @@ class TokenCalculator:
         return num_tokens  # buffer for chat
 
     @staticmethod
-    def calcualte_embed_token(inputs: list[str], /, **kwargs) -> int:
+    def calculate_embed_token(inputs: list[str], /, **kwargs) -> int:
         try:
             if not "inputs" in kwargs:
                 raise ValueError("Missing 'inputs' field in payload")

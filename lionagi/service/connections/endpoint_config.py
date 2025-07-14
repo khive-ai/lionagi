@@ -53,7 +53,6 @@ class EndpointConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_api_key(self):
-
         if self.api_key is not None:
             if isinstance(self.api_key, SecretStr):
                 self._api_key = self.api_key.get_secret_value()
@@ -61,6 +60,9 @@ class EndpointConfig(BaseModel):
                 # Skip settings lookup for ollama special case
                 if self.provider == "ollama" and self.api_key == "ollama_key":
                     self._api_key = "ollama_key"
+                if self.provider == "claude_code":
+                    self._api_key = "dummy"
+
                 else:
                     from lionagi.config import settings
 
@@ -89,9 +91,11 @@ class EndpointConfig(BaseModel):
             if isinstance(v, BaseModel):
                 return v.__class__
             if isinstance(v, dict | str):
-                from lionagi.libs.schema import SchemaUtil
+                from lionagi.libs.schema.load_pydantic_model_from_schema import (
+                    load_pydantic_model_from_schema,
+                )
 
-                return SchemaUtil.load_pydantic_model_from_schema(v)
+                return load_pydantic_model_from_schema(v)
         except Exception as e:
             raise ValueError("Invalid request options") from e
         raise ValueError(

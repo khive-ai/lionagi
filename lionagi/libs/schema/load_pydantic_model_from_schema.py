@@ -151,9 +151,6 @@ def load_pydantic_model_from_schema(
                 base_class="pydantic.BaseModel",
             )
         except Exception as e:
-            # Optional: Print generated code on failure for debugging
-            # if output_file.exists():
-            #     print(f"--- Generated Code (Error) ---\n{output_file.read_text()}\n--------------------------")
             error_msg = "Failed to generate model code"
             raise RuntimeError(error_msg) from e
 
@@ -175,15 +172,9 @@ def load_pydantic_model_from_schema(
         # --- 3. Import the Generated Module Dynamically ---
         try:
             spec, generated_module = get_modules()
-            # Important: Make pydantic available within the executed module's globals
-            # if it's not explicitly imported by the generated code for some reason.
-            # Usually, datamodel-code-generator handles imports well.
-            # generated_module.__dict__['BaseModel'] = BaseModel
             spec.loader.exec_module(generated_module)
 
         except Exception as e:
-            # Optional: Print generated code on failure for debugging
-            # print(f"--- Generated Code (Import Error) ---\n{output_file.read_text()}\n--------------------------")
             error_msg = f"Failed to load generated module ({output_file})"
             raise RuntimeError(error_msg) from e
 

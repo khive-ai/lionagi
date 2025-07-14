@@ -46,6 +46,7 @@ class iModel:
         limit_tokens: int = None,
         concurrency_limit: int | None = None,
         streaming_process_func: Callable = None,
+        provider_metadata: dict | None = None,
         **kwargs,
     ) -> None:
         """Initializes the iModel instance.
@@ -79,6 +80,8 @@ class iModel:
             concurrency_limit (int | None, optional):
                 Maximum number of streaming concurrent requests allowed.
                 only applies to streaming requests.
+            provider_metadata (dict | None, optional):
+                Provider-specific metadata, such as session IDs for
             **kwargs:
                 Additional keyword arguments, such as `model`, or any other
                 provider-specific fields.
@@ -121,7 +124,7 @@ class iModel:
         self.streaming_process_func = streaming_process_func
 
         # Provider-specific metadata storage (e.g., session_id for Claude Code)
-        self._provider_metadata = {}
+        self.provider_metadata = provider_metadata or {}
 
     def create_api_calling(
         self, include_token_usage_to_model: bool = False, **kwargs
@@ -142,9 +145,9 @@ class iModel:
             self.endpoint.config.provider == "claude_code"
             and "resume" not in kwargs
             and "session_id" not in kwargs
-            and self._provider_metadata.get("session_id")
+            and self.provider_metadata.get("session_id")
         ):
-            kwargs["resume"] = self._provider_metadata["session_id"]
+            kwargs["resume"] = self.provider_metadata["session_id"]
 
         # The new Endpoint.create_payload returns (payload, headers)
         payload, headers = self.endpoint.create_payload(request=kwargs)
@@ -280,7 +283,7 @@ class iModel:
             ):
                 response = completed_call.response
                 if isinstance(response, dict) and "session_id" in response:
-                    self._provider_metadata["session_id"] = response[
+                    self.provider_metadata["session_id"] = response[
                         "session_id"
                     ]
 
@@ -322,6 +325,7 @@ class iModel:
         return {
             "endpoint": self.endpoint.to_dict(),
             "processor_config": self.executor.config,
+            "provider_metadata": self.provider_metadata,
         }
 
     @classmethod
@@ -338,5 +342,6 @@ class iModel:
 
         return cls(
             endpoint=e1,
+            provider_metadata=data.get("provider_metadata"),
             **data.get("processor_config", {}),
         )

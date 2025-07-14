@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.12.8"
+version = "0.13.0"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -78,7 +78,7 @@ ollama = [
 ]
 
 claude-code = [
-    "claude-code-sdk>=0.0.10"
+    "claude-code-sdk>=0.0.14"
 ]
 
 all = [
