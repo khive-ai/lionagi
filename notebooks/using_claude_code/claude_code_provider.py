@@ -8,7 +8,8 @@ async def main():
             endpoint="code",
             model="claude-sonnet-4-20250514",
             api_key="dummy_api_key",
-            allowed_tools=["Write", "Read", "Edit"],
+            allowed_tools=["Read"],
+            permission_mode="bypassPermissions",
         )
 
         branch = Branch(chat_model=imodel)
@@ -29,9 +30,8 @@ async def main():
         )
         print("Second response:", res2.response if res2 else None)
 
-        # Check if session was resumed
         print(
-            "\nStored session_id:", imodel._provider_metadata.get("session_id")
+            "\nStored session_id:", imodel.provider_metadata.get("session_id")
         )
     except Exception as e:
         print(f"Error: {e}")
