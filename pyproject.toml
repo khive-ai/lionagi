@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.13.0"
+version = "0.13.1"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -81,10 +81,16 @@ claude-code = [
     "claude-code-sdk>=0.0.14"
 ]
 
+mcp = [
+    "fastmcp>=2.10.5",
+]
+
+
 all = [
     "lionagi[reader]",
     "lionagi[ollama]",
-    "lionagi[claude-code]"
+    "lionagi[claude-code]",
+    "lionagi[mcp]",
 ]
 
 
