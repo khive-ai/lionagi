@@ -70,7 +70,9 @@ class TraitCycleError(Exception):
     def __init__(self, path: list[Trait]) -> None:
         self.path = path
         cycle_str = " -> ".join(t.name for t in path)
-        super().__init__(f"Circular dependency detected in traits: {cycle_str}")
+        super().__init__(
+            f"Circular dependency detected in traits: {cycle_str}"
+        )
 
 
 class SealedTraitError(Exception):
@@ -159,7 +161,9 @@ class TraitRegistry:
         ] = {}
 
         # Performance optimization: Cache TraitDefinition objects
-        self._definition_cache: dict[tuple[Trait, type[Any]], TraitDefinition] = {}
+        self._definition_cache: dict[
+            tuple[Trait, type[Any]], TraitDefinition
+        ] = {}
 
         # Performance optimization: Pre-compute default dependencies
         self._default_dependencies: dict[Trait, frozenset[Trait]] = {}
@@ -221,7 +225,9 @@ class TraitRegistry:
             self._trait_implementations[implementation_type] = set()
 
         self._trait_implementations[implementation_type].add(trait)
-        self._implementation_registry[(trait, implementation_type)] = impl_definition
+        self._implementation_registry[(trait, implementation_type)] = (
+            impl_definition
+        )
 
         # Set up weak reference only if not already present
         type_id = self._type_id_mapping.get(implementation_type)
@@ -278,8 +284,10 @@ class TraitRegistry:
                     return result
 
                 # Validate trait implementation with detailed error capture
-                validation_details = self._validate_trait_implementation_detailed(
-                    implementation_type, trait
+                validation_details = (
+                    self._validate_trait_implementation_detailed(
+                        implementation_type, trait
+                    )
                 )
                 if not validation_details["valid"]:
                     result.error_type = "implementation"
@@ -291,7 +299,9 @@ class TraitRegistry:
                     else:
                         result.error_message = "Invalid trait implementation"
 
-                    missing_attrs = validation_details.get("missing_attributes", [])
+                    missing_attrs = validation_details.get(
+                        "missing_attributes", []
+                    )
                     if isinstance(missing_attrs, list):
                         result.missing_attributes = missing_attrs
                     return result
@@ -327,10 +337,14 @@ class TraitRegistry:
                 self._perform_registration(
                     implementation_type, trait, definition, start_time
                 )
-                registration_time = (time.perf_counter() - start_time) * 1_000_000  # μs
+                registration_time = (
+                    time.perf_counter() - start_time
+                ) * 1_000_000  # μs
 
                 # Validate performance target (relaxed for current implementation)
-                PERFORMANCE_THRESHOLD_US = 100.0  # 100μs target (raised from 50μs)
+                PERFORMANCE_THRESHOLD_US = (
+                    100.0  # 100μs target (raised from 50μs)
+                )
                 if registration_time > PERFORMANCE_THRESHOLD_US:
                     result.performance_warning = (
                         f"Trait registration took {registration_time:.1f}μs, "
@@ -384,7 +398,9 @@ class TraitRegistry:
         if result.performance_warning:
             import warnings
 
-            warnings.warn(result.performance_warning, PerformanceWarning, stacklevel=2)
+            warnings.warn(
+                result.performance_warning, PerformanceWarning, stacklevel=2
+            )
 
         return result.success
 
@@ -400,7 +416,9 @@ class TraitRegistry:
         """
         with self._registry_lock:
             self._lookup_count += 1
-            return self._trait_implementations.get(implementation_type, set()).copy()
+            return self._trait_implementations.get(
+                implementation_type, set()
+            ).copy()
 
     def has_trait(
         self,
@@ -436,7 +454,9 @@ class TraitRegistry:
 
             elif source == "protocol":
                 # Fast path: check registry first for performance
-                if trait in self._trait_implementations.get(implementation_type, set()):
+                if trait in self._trait_implementations.get(
+                    implementation_type, set()
+                ):
                     return True
 
                 # Fallback: Protocol isinstance check
@@ -444,7 +464,9 @@ class TraitRegistry:
                 if trait_def and trait_def.protocol_type:
                     # Use Protocol isinstance for runtime checking
                     try:
-                        return isinstance(implementation_type, trait_def.protocol_type)
+                        return isinstance(
+                            implementation_type, trait_def.protocol_type
+                        )
                     except (TypeError, AttributeError):
                         return False
 
@@ -460,7 +482,9 @@ class TraitRegistry:
     ) -> TraitDefinition | None:
         """Get the definition for a specific trait implementation."""
         with self._registry_lock:
-            return self._implementation_registry.get((trait, implementation_type))
+            return self._implementation_registry.get(
+                (trait, implementation_type)
+            )
 
     def validate_dependencies(
         self, implementation_type: type[Any], required_traits: set[Trait]
@@ -493,7 +517,8 @@ class TraitRegistry:
         """Get the complete trait dependency graph."""
         with self._registry_lock:
             return {
-                trait: deps.copy() for trait, deps in self._dependency_graph.items()
+                trait: deps.copy()
+                for trait, deps in self._dependency_graph.items()
             }
 
     def get_performance_stats(self) -> dict[str, Any]:
@@ -598,7 +623,9 @@ class TraitRegistry:
             return result
 
         if not trait_def.protocol_type:
-            result["error"] = f"No protocol type defined for trait {trait.name}"
+            result["error"] = (
+                f"No protocol type defined for trait {trait.name}"
+            )
             return result
 
         try:
@@ -614,7 +641,9 @@ class TraitRegistry:
                 ]
                 if missing:
                     result["missing_attributes"] = missing
-                    attr_type = "methods" if trait == Trait.HASHABLE else "attributes"
+                    attr_type = (
+                        "methods" if trait == Trait.HASHABLE else "attributes"
+                    )
                     result["error"] = (
                         f"Missing required {attr_type} for {trait.name}: {', '.join(missing)}"
                     )
@@ -1009,13 +1038,17 @@ def as_trait(*traits: Trait) -> Callable[[type[Any]], type[Any]]:
                             f"{trait.name}: {result.error_message}"
                         )
                     else:
-                        detailed_errors.append(f"{trait.name}: {result.error_message}")
+                        detailed_errors.append(
+                            f"{trait.name}: {result.error_message}"
+                        )
             except OrphanRuleViolation as e:
                 orphan_violations.append(f"{trait.name}: {e}")
                 failed_traits.append(trait.name)
             except Exception as e:  # noqa: BLE001
                 failed_traits.append(f"{trait.name}")
-                detailed_errors.append(f"{trait.name}: unexpected error - {e!s}")
+                detailed_errors.append(
+                    f"{trait.name}: unexpected error - {e!s}"
+                )
 
         # If there are any failures, aggregate and report all of them
         if failed_traits or orphan_violations:

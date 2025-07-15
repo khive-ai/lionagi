@@ -45,11 +45,15 @@ class TestRegistryValidation:
                 return "test"
 
         # First registration
-        result1 = self.registry.register_trait(MyIdentifiable, Trait.IDENTIFIABLE)
+        result1 = self.registry.register_trait(
+            MyIdentifiable, Trait.IDENTIFIABLE
+        )
         assert result1 is True
 
         # Second registration (should succeed but not duplicate)
-        result2 = self.registry.register_trait(MyIdentifiable, Trait.IDENTIFIABLE)
+        result2 = self.registry.register_trait(
+            MyIdentifiable, Trait.IDENTIFIABLE
+        )
         assert result2 is True
 
         # Verify only one registration exists
@@ -139,7 +143,9 @@ class TestRegistryValidation:
                 return "test"
 
         # Register first implementation
-        result1 = self.registry.register_trait(FirstImplementation, Trait.IDENTIFIABLE)
+        result1 = self.registry.register_trait(
+            FirstImplementation, Trait.IDENTIFIABLE
+        )
         assert result1 is True
 
         # Seal the trait
@@ -162,7 +168,9 @@ class TestRegistryValidation:
         # Verify first implementation is registered, second is not
         assert self.registry.has_trait(FirstImplementation, Trait.IDENTIFIABLE)
         # Sealing correctly prevented the second registration
-        assert not self.registry.has_trait(SecondImplementation, Trait.IDENTIFIABLE)
+        assert not self.registry.has_trait(
+            SecondImplementation, Trait.IDENTIFIABLE
+        )
 
     def test_concurrent_trait_registration(self):
         """Test thread-safe concurrent trait registration."""
@@ -187,7 +195,9 @@ class TestRegistryValidation:
                     cls = type(class_name, (), cls_dict)
 
                     # Register the trait
-                    result = self.registry.register_trait(cls, Trait.IDENTIFIABLE)
+                    result = self.registry.register_trait(
+                        cls, Trait.IDENTIFIABLE
+                    )
 
                     if not result:
                         registration_errors.append(f"Failed: {class_name}")
@@ -196,17 +206,25 @@ class TestRegistryValidation:
                     time.sleep(0.0001)
 
             except (TypeError, AttributeError, ValueError) as e:
-                registration_errors.append(f"Exception in thread {thread_id}: {e}")
+                registration_errors.append(
+                    f"Exception in thread {thread_id}: {e}"
+                )
 
         # Run concurrent registrations
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = [executor.submit(register_traits, i) for i in range(num_threads)]
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=num_threads
+        ) as executor:
+            futures = [
+                executor.submit(register_traits, i) for i in range(num_threads)
+            ]
 
             # Wait for all threads to complete
             concurrent.futures.wait(futures)
 
         # Verify no errors occurred
-        assert len(registration_errors) == 0, f"Errors occurred: {registration_errors}"
+        assert (
+            len(registration_errors) == 0
+        ), f"Errors occurred: {registration_errors}"
 
         # Verify correct number of registrations
         stats = self.registry.get_performance_stats()
@@ -283,7 +301,9 @@ class TestRegistryValidation:
         # Try to register AUDITABLE without its dependencies (IDENTIFIABLE, TEMPORAL)
         # The warning message is about missing attributes, not dependencies
         with pytest.warns(UserWarning, match="Missing required attributes"):
-            result = self.registry.register_trait(AuditableClass, Trait.AUDITABLE)
+            result = self.registry.register_trait(
+                AuditableClass, Trait.AUDITABLE
+            )
 
         assert result is False
 
@@ -300,7 +320,9 @@ class TestRegistryValidation:
 
         # Mock slow validation inside _validate_trait_implementation_detailed
         # which is called within the timing window
-        original_validate = self.registry._validate_trait_implementation_detailed
+        original_validate = (
+            self.registry._validate_trait_implementation_detailed
+        )
 
         def slow_validate(
             impl_type: type[Any], trait: Trait
@@ -330,11 +352,15 @@ class TestRegistryValidation:
             assert result.success is True
             assert result.performance_warning is not None
             assert "exceeding" in result.performance_warning
-            assert "100" in result.performance_warning  # Should mention the threshold
+            assert (
+                "100" in result.performance_warning
+            )  # Should mention the threshold
 
             # Also verify the warning is emitted when using register_trait
             with pytest.warns(PerformanceWarning, match="exceeding"):
                 self.registry.register_trait(SlowClass, Trait.IDENTIFIABLE)
         finally:
             # Restore original
-            self.registry._validate_trait_implementation_detailed = original_validate
+            self.registry._validate_trait_implementation_detailed = (
+                original_validate
+            )

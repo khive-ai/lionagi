@@ -189,7 +189,9 @@ class Observable(Protocol):
     """
 
     @abstractmethod
-    def subscribe(self, observer: Any, event_types: list[str] | None = None) -> str:
+    def subscribe(
+        self, observer: Any, event_types: list[str] | None = None
+    ) -> str:
         """Subscribe to events. Returns subscription ID."""
         ...
 

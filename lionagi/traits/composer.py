@@ -169,7 +169,9 @@ class TraitComposer:
     _EMPTY_MIXIN = type("EmptyMixin", (), {"__slots__": ()})
 
     @functools.lru_cache(maxsize=512)  # noqa: B019
-    def _generate_model_cached(self, trait_tuple: tuple[Trait, ...]) -> type[Any]:
+    def _generate_model_cached(
+        self, trait_tuple: tuple[Trait, ...]
+    ) -> type[Any]:
         """Generate model class with LRU caching (internal method)."""
         # Only lock for the actual composition logic, not the entire method
         with TraitComposer._compose_lock:
@@ -189,7 +191,9 @@ class TraitComposer:
             sorted_names = sorted(trait.name for trait in traits)
             # Use hash of the frozenset to ensure uniqueness even with different trait orders
             trait_hash = abs(hash(traits)) % 10000  # 4-digit hash suffix
-            class_name = f"Generated{''.join(sorted_names)}Model_{trait_hash:04d}"
+            class_name = (
+                f"Generated{''.join(sorted_names)}Model_{trait_hash:04d}"
+            )
 
             # Performance optimization 2: Cache protocol lookups
             registry = get_global_registry()
@@ -200,7 +204,9 @@ class TraitComposer:
                 if trait not in TraitComposer._protocol_cache:
                     trait_def = registry.get_trait_definition(trait)
                     if trait_def and trait_def.protocol_type:
-                        TraitComposer._protocol_cache[trait] = trait_def.protocol_type
+                        TraitComposer._protocol_cache[trait] = (
+                            trait_def.protocol_type
+                        )
 
                 protocol_type = TraitComposer._protocol_cache.get(trait)
                 if protocol_type:
@@ -234,9 +240,9 @@ class TraitComposer:
             # Performance optimization 4: Batch register traits
             for trait in traits:
                 # Skip validation since we already validated composition
-                registry._trait_implementations.setdefault(model_class, set()).add(
-                    trait
-                )
+                registry._trait_implementations.setdefault(
+                    model_class, set()
+                ).add(trait)
 
             return model_class
 
@@ -263,11 +269,15 @@ class TraitComposer:
             model_class = self._generate_model_cached(trait_tuple)
 
             # Track performance
-            generation_time = (time.perf_counter() - start_time) * 1_000_000  # μs
+            generation_time = (
+                time.perf_counter() - start_time
+            ) * 1_000_000  # μs
             self._generation_count += 1
 
             # Updated performance target to realistic value
-            PERFORMANCE_TARGET_US = 25.0  # Relaxed from 10μs for cold generation
+            PERFORMANCE_TARGET_US = (
+                25.0  # Relaxed from 10μs for cold generation
+            )
             if generation_time > PERFORMANCE_TARGET_US and __debug__:
                 import warnings
 

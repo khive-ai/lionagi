@@ -54,8 +54,12 @@ class TestTraitComposition:
 
     def test_composition_intersection(self):
         """Test trait composition intersection (&) operation."""
-        comp1 = TraitComposition(traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL]))
-        comp2 = TraitComposition(traits=frozenset([Trait.IDENTIFIABLE, Trait.HASHABLE]))
+        comp1 = TraitComposition(
+            traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL])
+        )
+        comp2 = TraitComposition(
+            traits=frozenset([Trait.IDENTIFIABLE, Trait.HASHABLE])
+        )
 
         result = comp1 & comp2
 
@@ -77,8 +81,12 @@ class TestTraitComposition:
 
     def test_composition_hash_and_equality(self):
         """Test composition hashing for caching."""
-        comp1 = TraitComposition(traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL]))
-        comp2 = TraitComposition(traits=frozenset([Trait.TEMPORAL, Trait.IDENTIFIABLE]))
+        comp1 = TraitComposition(
+            traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL])
+        )
+        comp2 = TraitComposition(
+            traits=frozenset([Trait.TEMPORAL, Trait.IDENTIFIABLE])
+        )
 
         # Same traits in different order should have same hash
         assert hash(comp1) == hash(comp2)
@@ -89,14 +97,18 @@ class TestTraitComposition:
 
     def test_composition_id_generation(self):
         """Test deterministic composition ID generation."""
-        comp = TraitComposition(traits=frozenset([Trait.TEMPORAL, Trait.IDENTIFIABLE]))
+        comp = TraitComposition(
+            traits=frozenset([Trait.TEMPORAL, Trait.IDENTIFIABLE])
+        )
 
         # Should be sorted alphabetically
         assert comp.composition_id == "IDENTIFIABLE+TEMPORAL"
 
     def test_composition_string_representation(self):
         """Test composition string representation."""
-        comp = TraitComposition(traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL]))
+        comp = TraitComposition(
+            traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL])
+        )
 
         repr_str = repr(comp)
         assert "TraitComposition" in repr_str
@@ -249,7 +261,9 @@ class TestConvenienceFunctions:
 
     def test_create_trait_composition_function(self):
         """Test create_trait_composition function."""
-        composition = create_trait_composition(Trait.IDENTIFIABLE, Trait.TEMPORAL)
+        composition = create_trait_composition(
+            Trait.IDENTIFIABLE, Trait.TEMPORAL
+        )
 
         assert isinstance(composition, TraitComposition)
         assert Trait.IDENTIFIABLE in composition.traits
@@ -277,7 +291,9 @@ class TestCompositionPerformance:
         compositions = [
             TraitComposition(traits=frozenset([Trait.IDENTIFIABLE])),
             TraitComposition(traits=frozenset([Trait.TEMPORAL])),
-            TraitComposition(traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL])),
+            TraitComposition(
+                traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL])
+            ),
         ]
 
         # Generate models multiple times
@@ -367,7 +383,9 @@ class TestCompositionErrors:
 
     def test_composition_string_representation(self):
         """Test composition string representation."""
-        comp = TraitComposition(traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL]))
+        comp = TraitComposition(
+            traits=frozenset([Trait.IDENTIFIABLE, Trait.TEMPORAL])
+        )
 
         repr_str = repr(comp)
         assert "TraitComposition" in repr_str

@@ -7,7 +7,11 @@ TraitDefinition functionality.
 
 import pytest
 
-from lionagi.traits.base import DEFAULT_TRAIT_DEFINITIONS, Trait, TraitDefinition
+from lionagi.traits.base import (
+    DEFAULT_TRAIT_DEFINITIONS,
+    Trait,
+    TraitDefinition,
+)
 from lionagi.traits.protocols import Identifiable, Temporal
 
 
@@ -43,12 +47,14 @@ class TestTraitEnum:
         """Test that trait enum values are unique and stable."""
         values = [trait.value for trait in Trait]
         assert len(values) == len(set(values))  # All unique
-        assert all(isinstance(val, str) for val in values)  # All strings for stability
+        assert all(
+            isinstance(val, str) for val in values
+        )  # All strings for stability
         # Verify string values match lowercase names for consistency
         for trait in Trait:
-            assert trait.value == trait.name.lower(), (
-                f"{trait.name} value should be '{trait.name.lower()}'"
-            )
+            assert (
+                trait.value == trait.name.lower()
+            ), f"{trait.name} value should be '{trait.name.lower()}'"
 
     def test_trait_enum_ordering(self):
         """Test that core traits are properly defined."""
@@ -84,9 +90,9 @@ class TestTraitEnum:
         )
         all_actual = set(Trait)
 
-        assert all_expected == all_actual, (
-            f"Missing traits: {all_expected - all_actual}"
-        )
+        assert (
+            all_expected == all_actual
+        ), f"Missing traits: {all_expected - all_actual}"
 
         # Core traits should be distinct from others
         assert core_traits.isdisjoint(behavior_traits)

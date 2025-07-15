@@ -60,7 +60,9 @@ class Trait(str, Enum):
 
     # Security and capability traits
     SECURED = "secured"  # Has security policies and access control
-    CAPABILITY_AWARE = "capability_aware"  # Participates in capability-based security
+    CAPABILITY_AWARE = (
+        "capability_aware"  # Participates in capability-based security
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +86,9 @@ class TraitDefinition:
     validation_checks: int = field(default=0)
 
     # Weak reference to avoid circular dependencies
-    _weak_impl_ref: weakref.ReferenceType[type[Any]] = field(init=False, repr=False)
+    _weak_impl_ref: weakref.ReferenceType[type[Any]] = field(
+        init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         """Initialize weak reference to implementation."""
@@ -173,7 +177,6 @@ def _initialize_default_definitions() -> None:
         Trait.CAPABILITY_AWARE: CapabilityAware,
     }
 
-
     _trait_dependencies = {
         # Core traits - no dependencies
         Trait.IDENTIFIABLE: frozenset(),
@@ -208,5 +211,6 @@ def _initialize_default_definitions() -> None:
             dependencies=_trait_dependencies.get(trait, frozenset()),
             description=f"Default definition for {trait.name} trait",
         )
+
 
 _initialize_default_definitions()

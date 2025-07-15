@@ -201,7 +201,9 @@ class TestRegistryEdgeCases:
 
             with warnings.catch_warnings(record=True) as w:
                 warnings.simplefilter("always")
-                result = self.registry.register_trait(SlowClass, Trait.IDENTIFIABLE)
+                result = self.registry.register_trait(
+                    SlowClass, Trait.IDENTIFIABLE
+                )
 
                 assert result is True
                 # Check if performance warning was issued
@@ -374,7 +376,9 @@ class TestRegistryEdgeCases:
         result_protocol = self.registry.has_trait(
             FaultyType, Trait.IDENTIFIABLE, source="protocol"
         )
-        assert result_protocol is False  # Doesn't satisfy Identifiable protocol
+        assert (
+            result_protocol is False
+        )  # Doesn't satisfy Identifiable protocol
 
     def test_cleanup_failed_registration_partial_state(self):
         """Test _cleanup_failed_registration with partial registration."""
@@ -385,14 +389,16 @@ class TestRegistryEdgeCases:
         # Simulate partial registration
         type_id = id(TestClass)
         self.registry._trait_implementations[TestClass] = {Trait.IDENTIFIABLE}
-        self.registry._implementation_registry[(Trait.IDENTIFIABLE, TestClass)] = (
-            MagicMock()
-        )
+        self.registry._implementation_registry[
+            (Trait.IDENTIFIABLE, TestClass)
+        ] = MagicMock()
         self.registry._type_id_mapping[TestClass] = type_id
         self.registry._weak_references[type_id] = MagicMock()
 
         # Cleanup
-        self.registry._cleanup_failed_registration(TestClass, Trait.IDENTIFIABLE)
+        self.registry._cleanup_failed_registration(
+            TestClass, Trait.IDENTIFIABLE
+        )
 
         # Verify cleanup
         assert TestClass not in self.registry._trait_implementations

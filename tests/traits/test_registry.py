@@ -39,7 +39,9 @@ class TestTraitRegistry:
                 return "test"
 
         # Registration should succeed
-        result = self.registry.register_trait(TestIdentifiable, Trait.IDENTIFIABLE)
+        result = self.registry.register_trait(
+            TestIdentifiable, Trait.IDENTIFIABLE
+        )
         assert result is True
 
         # Should be able to retrieve the trait
@@ -57,7 +59,9 @@ class TestTraitRegistry:
             pass
 
         # Registration should fail
-        result = self.registry.register_trait(InvalidIdentifiable, Trait.IDENTIFIABLE)
+        result = self.registry.register_trait(
+            InvalidIdentifiable, Trait.IDENTIFIABLE
+        )
         assert result is False
 
         # Should not be in registry
@@ -77,7 +81,9 @@ class TestTraitRegistry:
                 return "fast"
 
         # Registration should succeed without performance assertions in unit tests
-        result = self.registry.register_trait(FastIdentifiable, Trait.IDENTIFIABLE)
+        result = self.registry.register_trait(
+            FastIdentifiable, Trait.IDENTIFIABLE
+        )
         assert result is True
 
     def test_has_trait_performance(self):
@@ -124,7 +130,9 @@ class TestTraitRegistry:
                 return time.time()
 
         # Register multiple traits
-        assert self.registry.register_trait(MultiTraitClass, Trait.IDENTIFIABLE)
+        assert self.registry.register_trait(
+            MultiTraitClass, Trait.IDENTIFIABLE
+        )
         assert self.registry.register_trait(MultiTraitClass, Trait.TEMPORAL)
 
         # Check both traits are registered
@@ -190,7 +198,9 @@ class TestTraitRegistry:
         self.registry.register_trait(IdentifiableClass, Trait.IDENTIFIABLE)
 
         # Test validation with no requirements
-        is_valid, missing = self.registry.validate_dependencies(NoTraitsClass, set())
+        is_valid, missing = self.registry.validate_dependencies(
+            NoTraitsClass, set()
+        )
         assert is_valid is True
         assert len(missing) == 0
 
@@ -299,7 +309,9 @@ class TestTraitRegistry:
 
         # The orphan rule validation logic exists
         # Since our traits are always local, this will pass
-        result = self.registry._validate_orphan_rule(ExternalType, Trait.IDENTIFIABLE)
+        result = self.registry._validate_orphan_rule(
+            ExternalType, Trait.IDENTIFIABLE
+        )
         assert result is True  # Passes because trait is local
 
     def test_negative_orphan_rule_external_trait_external_type(self):
@@ -325,7 +337,9 @@ class TestTraitRegistry:
         # The current implementation correctly allows local trait on external type
         # (because our traits are always local)
         assert (
-            self.registry._validate_orphan_rule(ExternalType, Trait.IDENTIFIABLE)
+            self.registry._validate_orphan_rule(
+                ExternalType, Trait.IDENTIFIABLE
+            )
             is True
         )
 
@@ -335,17 +349,19 @@ class TestTraitRegistry:
         external_trait_is_local = False  # Hypothetical external trait
 
         # Orphan rule: at least one of (type, trait) must be local
-        orphan_rule_would_pass = external_type_is_local or external_trait_is_local
-        assert not orphan_rule_would_pass, (
-            "Orphan rule should prevent external trait on external type"
+        orphan_rule_would_pass = (
+            external_type_is_local or external_trait_is_local
         )
+        assert (
+            not orphan_rule_would_pass
+        ), "Orphan rule should prevent external trait on external type"
 
         # Verify that local trait + external type is allowed (current behavior)
         local_trait_is_local = True
         orphan_rule_passes = external_type_is_local or local_trait_is_local
-        assert orphan_rule_passes, (
-            "Orphan rule should allow local trait on external type"
-        )
+        assert (
+            orphan_rule_passes
+        ), "Orphan rule should allow local trait on external type"
 
     def test_failed_registration_cleanup(self):
         """Test cleanup after failed registration."""
@@ -377,12 +393,15 @@ class TestTraitRegistry:
 
         # Local type with local trait should pass
         assert (
-            self.registry._validate_orphan_rule(LocalType, Trait.IDENTIFIABLE) is True
+            self.registry._validate_orphan_rule(LocalType, Trait.IDENTIFIABLE)
+            is True
         )
 
         # External type with local trait should also pass (trait is local)
         assert (
-            self.registry._validate_orphan_rule(ExternalType, Trait.IDENTIFIABLE)
+            self.registry._validate_orphan_rule(
+                ExternalType, Trait.IDENTIFIABLE
+            )
             is True
         )
 
@@ -424,7 +443,9 @@ class TestTraitRegistry:
             pass
 
         assert (
-            self.registry._validate_trait_implementation(ValidTemporal, Trait.TEMPORAL)
+            self.registry._validate_trait_implementation(
+                ValidTemporal, Trait.TEMPORAL
+            )
             is True
         )
         assert (
@@ -448,7 +469,11 @@ class TestTraitRegistry:
 
     def test_convenience_functions(self):
         """Test module-level convenience functions."""
-        from lionagi.traits.registry import has_trait, implement, register_trait
+        from lionagi.traits.registry import (
+            has_trait,
+            implement,
+            register_trait,
+        )
 
         class ConvenienceTest:
             @property
@@ -678,7 +703,9 @@ class TestTraitRegistry:
             def compute_hash(self) -> int:
                 return 42
 
-        result = self.registry.register_trait_with_validation(TestClass, Trait.HASHABLE)
+        result = self.registry.register_trait_with_validation(
+            TestClass, Trait.HASHABLE
+        )
         assert not result.success
         assert result.error_type == "implementation"
         assert "No definition found" in result.error_message
@@ -791,7 +818,9 @@ class TestTraitRegistry:
         # Capture warnings
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            result = self.registry.register_trait(SlowClass, Trait.IDENTIFIABLE)
+            result = self.registry.register_trait(
+                SlowClass, Trait.IDENTIFIABLE
+            )
 
             # Should succeed but with warning
             assert result is True

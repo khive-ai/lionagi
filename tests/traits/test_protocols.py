@@ -100,7 +100,9 @@ class TestIdentifiable:
                 """Check if this entity has the same identity as another."""
                 if not hasattr(other, "id") or not hasattr(other, "id_type"):
                     return False
-                return bool(self.id == other.id and self.id_type == other.id_type)
+                return bool(
+                    self.id == other.id and self.id_type == other.id_type
+                )
 
         return TestIdentifiable(id_val, type_val)
 
@@ -182,7 +184,11 @@ class TestAuditable:
 
             def emit_audit_event(self, event_type: str, **kwargs: Any) -> None:
                 self._audit_log.append(
-                    {"event_type": event_type, "version": self._version, **kwargs}
+                    {
+                        "event_type": event_type,
+                        "version": self._version,
+                        **kwargs,
+                    }
                 )
                 self._version += 1
 
@@ -300,7 +306,9 @@ class TestSecurityProtocols:
             def __init__(self):
                 self._security_level = "public"
 
-            def check_access(self, operation: str, context: dict[str, Any]) -> bool:
+            def check_access(
+                self, operation: str, context: dict[str, Any]
+            ) -> bool:
                 return operation in ["read", "list"]
 
             def get_security_policy(self) -> dict[str, Any]:
@@ -400,7 +408,10 @@ class TestOperable:
 
         class ValidOperable:
             def __init__(self):
-                self._operations = {"uppercase": str.upper, "lowercase": str.lower}
+                self._operations = {
+                    "uppercase": str.upper,
+                    "lowercase": str.lower,
+                }
 
             def apply_operation(self, operation: str, **kwargs: Any) -> Any:
                 if operation not in self._operations:
@@ -419,7 +430,10 @@ class TestOperable:
         assert obj.supports_operation("uppercase")
         assert not obj.supports_operation("invalid")
         assert obj.apply_operation("uppercase", text="hello") == "HELLO"
-        assert set(obj.get_supported_operations()) == {"uppercase", "lowercase"}
+        assert set(obj.get_supported_operations()) == {
+            "uppercase",
+            "lowercase",
+        }
 
 
 class TestObservable:
@@ -631,7 +645,9 @@ class TestIndexable:
         """Test a valid implementation of Indexable."""
 
         class ValidIndexable:
-            def __init__(self, title: str, content: str, priority: float = 1.0):
+            def __init__(
+                self, title: str, content: str, priority: float = 1.0
+            ):
                 self.title = title
                 self.content = content
                 self._priority = priority
@@ -641,9 +657,15 @@ class TestIndexable:
 
             def matches_query(self, query: dict[str, Any]) -> bool:
                 for field, value in query.items():
-                    if field == "title" and value.lower() not in self.title.lower():
+                    if (
+                        field == "title"
+                        and value.lower() not in self.title.lower()
+                    ):
                         return False
-                    if field == "content" and value.lower() not in self.content.lower():
+                    if (
+                        field == "content"
+                        and value.lower() not in self.content.lower()
+                    ):
                         return False
                 return True
 
@@ -656,7 +678,10 @@ class TestIndexable:
 
         # Test search fields
         fields = obj.get_search_fields()
-        assert fields == {"title": "Test Title", "content": "Test content here"}
+        assert fields == {
+            "title": "Test Title",
+            "content": "Test content here",
+        }
 
         # Test query matching
         assert obj.matches_query({"title": "Test"})
@@ -729,7 +754,8 @@ class TestPartial:
 
             def is_complete(self) -> bool:
                 return all(
-                    getattr(self, field, None) is not None for field in self._required
+                    getattr(self, field, None) is not None
+                    for field in self._required
                 )
 
             def get_missing_fields(self) -> list[str]:
@@ -741,7 +767,9 @@ class TestPartial:
 
             def finalize(self) -> Any:
                 if not self.is_complete():
-                    raise ValueError(f"Missing fields: {self.get_missing_fields()}")
+                    raise ValueError(
+                        f"Missing fields: {self.get_missing_fields()}"
+                    )
                 return {"name": self.name, "email": self.email}
 
         obj = ValidPartial()

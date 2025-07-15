@@ -90,7 +90,11 @@ class TestProtocolMethods:
     def test_operable_supports_operation(self):
         """Test Operable.supports_operation method."""
         obj = Mock()
-        obj.get_supported_operations.return_value = ["create", "update", "delete"]
+        obj.get_supported_operations.return_value = [
+            "create",
+            "update",
+            "delete",
+        ]
 
         assert Operable.supports_operation(obj, "create")
         assert not Operable.supports_operation(obj, "invalid")
