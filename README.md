@@ -8,7 +8,7 @@
 
 # LION - Language InterOperable Network
 
-## An Intelligence Operating System
+## An Intelligence Operating System SDK
 
 LionAGI is a robust framework for orchestrating multi-step AI operations with
 precise control. Bring together multiple models, advanced ReAct reasoning, tool
