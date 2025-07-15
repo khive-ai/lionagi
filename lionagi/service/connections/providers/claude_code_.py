@@ -200,9 +200,9 @@ class ClaudeCodeRequest(BaseModel):
         ):
             data["system_prompt"] = messages[0]["content"]
 
-        # Merge optional system prompts
-        if kwargs.get("system_prompt"):
-            data["append_system_prompt"] = kwargs.pop("system_prompt")
+        if (a := kwargs.get("append_system_prompt")) is not None:
+            data.setdefault("append_system_prompt", "")
+            data["append_system_prompt"] += str(a)
 
         data.update(kwargs)
         return cls.model_validate(data, strict=False)
