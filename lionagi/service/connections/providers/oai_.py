@@ -53,24 +53,12 @@ OPENROUTER_CHAT_ENDPOINT_CONFIG = EndpointConfig(
     provider="openrouter",
     base_url="https://openrouter.ai/api/v1",
     endpoint="chat/completions",
-    kwargs={"model": "google/gemini-2.5-flash-preview-05-20"},
+    kwargs={"model": "google/gemini-2.5-flash"},
     api_key=settings.OPENROUTER_API_KEY or "dummy-key-for-testing",
     auth_type="bearer",
     content_type="application/json",
     method="POST",
     request_options=CreateChatCompletionRequest,
-)
-
-OPENROUTER_GEMINI_ENDPOINT_CONFIG = EndpointConfig(
-    name="openrouter_gemini",
-    provider="openrouter",
-    base_url="https://openrouter.ai/api/v1",
-    endpoint="chat/completions",
-    kwargs={"model": "google/gemini-2.5-flash-preview-05-20"},
-    api_key=settings.OPENROUTER_API_KEY or "dummy-key-for-testing",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
 )
 
 OPENAI_EMBEDDING_ENDPOINT_CONFIG = EndpointConfig(
