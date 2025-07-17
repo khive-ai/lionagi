@@ -230,7 +230,8 @@ class Step:
             field_models.extend([REASON_FIELD])
 
         exclude_fields = exclude_fields or []
-        exclude_fields.extend(operative.request_params.exclude_fields)
+        # Note: We no longer have access to request_params.exclude_fields
+        # since Operative doesn't store ModelParams anymore
 
         operative.create_response_type(
             response_params=response_params,

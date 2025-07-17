@@ -202,9 +202,10 @@ class OperableModel(HashableModel):
 
         if (
             field_name in self.extra_field_models
-            and self.extra_field_models[field_name].validator is not UNDEFINED
+            and self.extra_field_models[field_name].has_validator()
         ):
-            value = self.extra_field_models[field_name].validator(None, value)
+            # Use the validate method to check value - let validation errors propagate
+            self.extra_field_models[field_name].validate(value, field_name)
         if field_name in self.extra_fields:
             object.__setattr__(self, field_name, value)
         else:
@@ -264,6 +265,7 @@ class OperableModel(HashableModel):
         """
         a = {**self.model_fields, **self.extra_fields}
         a.pop("extra_fields", None)
+        a.pop("extra_field_models", None)  # Exclude internal field tracking
         return a
 
     def add_field(

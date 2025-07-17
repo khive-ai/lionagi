@@ -122,13 +122,13 @@ class ModelParams(SchemaModel):
             for k, v in self.parameter_fields.items()
             if k in self._use_keys
         }
-        params.update(
-            {
-                f.name: f.field_info
-                for f in self.field_models
-                if f.name in self._use_keys
-            }
-        )
+        # Add field_models with proper type annotations
+        for f in self.field_models:
+            if f.name in self._use_keys:
+                params[f.name] = f.field_info
+                # Set the annotation from the FieldModel's base_type
+                params[f.name].annotation = f.base_type
+
         return {k: (v.annotation, v) for k, v in params.items()}
 
     @field_validator("parameter_fields", mode="before")
@@ -281,9 +281,18 @@ class ModelParams(SchemaModel):
         self._validators = validators
 
         if self.field_descriptions:
+            # Update field_models with descriptions (create new instances since they're immutable)
+            updated_field_models = []
             for i in self.field_models:
                 if i.name in self.field_descriptions:
-                    i.description = self.field_descriptions[i.name]
+                    # Create new FieldModel with updated description
+                    updated_field_model = i.with_description(
+                        self.field_descriptions[i.name]
+                    )
+                    updated_field_models.append(updated_field_model)
+                else:
+                    updated_field_models.append(i)
+            self.field_models = updated_field_models
 
         if not isinstance(self.name, str):
             if hasattr(self.base_type, "class_name"):
