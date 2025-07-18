@@ -3,9 +3,89 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import sys
 from typing import Any
 
 from lionagi.utils import to_dict
+
+# Try to import rich for enhanced console output
+try:
+    from rich.align import Align
+    from rich.box import ROUNDED
+    from rich.console import Console
+    from rich.padding import Padding
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+    from rich.theme import Theme
+
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
+# Custom themes for dark and light modes
+DARK_THEME = Theme(
+    {
+        "info": "bright_cyan",
+        "warning": "bright_yellow",
+        "error": "bold bright_red",
+        "success": "bold bright_green",
+        "panel.border": "bright_blue",
+        "panel.title": "bold bright_cyan",
+        "markdown.h1": "bold bright_magenta",
+        "markdown.h2": "bold bright_blue",
+        "markdown.h3": "bold bright_cyan",
+        "markdown.h4": "bold bright_green",
+        "markdown.code": "bright_yellow on grey23",
+        "markdown.code_block": "bright_white on grey15",
+        "markdown.paragraph": "bright_white",
+        "markdown.text": "bright_white",
+        "markdown.emph": "italic bright_yellow",
+        "markdown.strong": "bold bright_white",
+        "markdown.item": "bright_cyan",
+        "markdown.item.bullet": "bright_blue",
+        "json.key": "bright_cyan",
+        "json.string": "bright_green",
+        "json.number": "bright_yellow",
+        "json.boolean": "bright_magenta",
+        "json.null": "bright_red",
+        "yaml.key": "bright_cyan",
+        "yaml.string": "bright_green",
+        "yaml.number": "bright_yellow",
+        "yaml.boolean": "bright_magenta",
+    }
+)
+
+LIGHT_THEME = Theme(
+    {
+        "info": "blue",
+        "warning": "dark_orange",
+        "error": "bold red",
+        "success": "bold green4",
+        "panel.border": "blue",
+        "panel.title": "bold blue",
+        "markdown.h1": "bold dark_magenta",
+        "markdown.h2": "bold dark_blue",
+        "markdown.h3": "bold dark_cyan",
+        "markdown.h4": "bold dark_green",
+        "markdown.code": "dark_orange on grey93",
+        "markdown.code_block": "black on grey82",
+        "markdown.paragraph": "black",
+        "markdown.text": "black",
+        "markdown.emph": "italic dark_orange",
+        "markdown.strong": "bold black",
+        "markdown.item": "dark_blue",
+        "markdown.item.bullet": "blue",
+        "json.key": "dark_blue",
+        "json.string": "dark_green",
+        "json.number": "dark_orange",
+        "json.boolean": "dark_magenta",
+        "json.null": "dark_red",
+        "yaml.key": "dark_blue",
+        "yaml.string": "dark_green",
+        "yaml.number": "dark_orange",
+        "yaml.boolean": "dark_magenta",
+    }
+)
 
 
 def in_notebook() -> bool:
@@ -20,6 +100,18 @@ def in_notebook() -> bool:
         return "ZMQInteractiveShell" in shell
     except Exception:
         return False
+
+
+def in_console() -> bool:
+    """
+    Checks if we're running in a console/terminal environment.
+    Returns True if stdout is a TTY and not in a notebook.
+    """
+    return (
+        hasattr(sys.stdout, "isatty")
+        and sys.stdout.isatty()
+        and not in_notebook()
+    )
 
 
 def format_dict(data: Any, indent: int = 0) -> str:
@@ -77,6 +169,9 @@ def as_readable(
     format_curly: bool = False,
     display_str: bool = False,
     max_chars: int | None = None,
+    use_rich: bool = True,
+    theme: str = "dark",
+    max_panel_width: int = 140,
 ) -> str:
     """
     Convert `input_` into a human-readable string. If `format_curly=True`, uses
@@ -84,14 +179,21 @@ def as_readable(
 
     - For Pydantic models or nested data, uses `to_dict` to get a dictionary.
     - If the result is a list of items, each is processed and concatenated.
+    - When in console and rich is available, provides syntax highlighting.
 
     Args:
         input_: The data to convert (could be a single item or list).
         md: If True, wraps the final output in code fences for Markdown display.
         format_curly: If True, use `format_dict`. Otherwise, produce JSON text.
+        display_str: If True, prints the output instead of returning it.
+        max_chars: If set, truncates output to this many characters.
+        use_rich: If True and rich is available, uses rich for console output.
+        theme: Color theme - "dark" (default) or "light". Dark uses GitHub Dark Dimmed,
+               light uses Solarized Light inspired colors.
+        max_panel_width: Maximum width for panels and code blocks in characters.
 
     Returns:
-        A formatted string representation of `input_`.
+        A formatted string representation of `input_` (unless display_str=True).
     """
 
     # 1) Convert the input to a Python dict/list structure
@@ -108,6 +210,7 @@ def as_readable(
         return to_dict(obj, **to_dict_kwargs)
 
     def _inner(i_: Any) -> Any:
+        items = []
         try:
             if isinstance(i_, list):
                 # Already a list. Convert each item
@@ -167,8 +270,127 @@ def as_readable(
             from IPython.display import Markdown, display
 
             display(Markdown(str_))
+        elif RICH_AVAILABLE and in_console() and use_rich:
+            # Use rich for enhanced console output
+            # Select theme and syntax highlighting based on user preference
+            console_theme = DARK_THEME if theme == "dark" else LIGHT_THEME
+            syntax_theme = (
+                "github-dark" if theme == "dark" else "solarized-light"
+            )
+            panel_style = "bright_blue" if theme == "dark" else "blue"
+
+            console = Console(theme=console_theme)
+
+            # Check if content looks like markdown prose (not code)
+            is_markdown_prose = isinstance(str_, str) and (
+                str_.startswith("#")
+                or str_.startswith("**")
+                or str_.startswith("- ")
+                or str_.startswith("1.")
+                or "<multi_reasoning>" in str_
+                or "\n### " in str_
+                or "\n## " in str_
+                or "\n# " in str_
+                or "│" in str_  # Rich table content
+            )
+
+            if md and is_markdown_prose:
+                # Display as formatted markdown
+                # Create markdown with max width
+                from rich.markdown import Markdown as RichMarkdown
+
+                md_content = RichMarkdown(str_, code_theme=syntax_theme)
+
+                # Calculate appropriate width
+                console_width = console.width
+                panel_width = min(console_width - 4, max_panel_width)
+
+                # Add left margin padding for better alignment
+                panel = Panel(
+                    Padding(md_content, (0, 2)),
+                    border_style=panel_style,
+                    box=ROUNDED,
+                    width=panel_width,
+                    expand=False,
+                )
+
+                # Left align with margin
+                aligned_panel = Align.left(panel, pad=True)
+                console.print(Padding(aligned_panel, (0, 0, 0, 4)))
+
+            elif md:
+                # Extract content from markdown code blocks if present
+                content = str_
+                if content.startswith("```") and content.endswith("```"):
+                    # Remove code fences
+                    lines = content.split("\n")
+                    if len(lines) > 2:
+                        lang = lines[0][3:].strip() or "json"
+                        content = "\n".join(lines[1:-1])
+                    else:
+                        lang = "json"
+                else:
+                    lang = "yaml" if format_curly else "json"
+
+                # Calculate appropriate width
+                console_width = console.width
+                panel_width = min(console_width - 4, max_panel_width)
+
+                # Create syntax highlighted output
+                syntax = Syntax(
+                    content,
+                    lang,
+                    theme=syntax_theme,
+                    line_numbers=True,
+                    background_color="default",
+                    word_wrap=True,
+                )
+
+                # Add left margin padding for better alignment
+                panel = Panel(
+                    syntax,
+                    border_style=panel_style,
+                    box=ROUNDED,
+                    width=panel_width,
+                    expand=False,
+                )
+
+                # Left align with margin
+                aligned_panel = Align.left(panel, pad=True)
+                console.print(Padding(aligned_panel, (0, 0, 0, 4)))
+
+            else:
+                # Plain text output with rich formatting
+                if format_curly:
+                    syntax = Syntax(
+                        str_,
+                        "yaml",
+                        theme=syntax_theme,
+                        background_color="default",
+                        word_wrap=True,
+                    )
+                else:
+                    syntax = Syntax(
+                        str_,
+                        "json",
+                        theme=syntax_theme,
+                        background_color="default",
+                        word_wrap=True,
+                    )
+
+                # For plain syntax, add left margin
+                # Create a constrained width container if console is too wide
+                if console.width > max_panel_width:
+                    content = Align.left(
+                        syntax, width=max_panel_width, pad=False
+                    )
+                    # Add left margin
+                    console.print(Padding(content, (0, 0, 0, 4)))
+                else:
+                    # Just add left margin
+                    console.print(Padding(syntax, (0, 0, 0, 4)))
         else:
-            # Otherwise, just print the string
+            # Fallback to regular print
             print(str_)
     else:
         return str_
