@@ -53,5 +53,9 @@ def match_endpoint(
         )
 
         return ClaudeCodeEndpoint(**kwargs)
+    if provider == "mcp" and ("tool" in endpoint or "mcp" in endpoint):
+        from lionagi.service.connections.providers.mcp_ import MCPEndpoint
+
+        return MCPEndpoint(**kwargs)
 
     return None
