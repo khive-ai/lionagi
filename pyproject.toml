@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.13.1"
+version = "0.13.2"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -86,12 +86,16 @@ mcp = [
     "fastmcp>=2.10.5",
 ]
 
+rich = [
+    "rich>=13.0.0",
+]
 
 all = [
     "lionagi[reader]",
     "lionagi[ollama]",
     "lionagi[claude-code]",
     "lionagi[mcp]",
+    "lionagi[rich]",
 ]
 
 

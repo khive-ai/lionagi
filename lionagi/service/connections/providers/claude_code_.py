@@ -10,11 +10,13 @@ from typing import Any, Literal
 
 from claude_code_sdk import ClaudeCodeOptions
 from claude_code_sdk import query as sdk_query
+from claude_code_sdk import types as cc_types
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from lionagi.libs.schema.as_readable import as_readable
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.utils import to_dict
+from lionagi.utils import to_dict, to_list
 
 # --------------------------------------------------------------------------- constants
 ClaudePermission = Literal[
@@ -66,6 +68,14 @@ class ClaudeCodeRequest(BaseModel):
     permission_mode: ClaudePermission | None = None
     permission_prompt_tool_name: str | None = None
     disallowed_tools: list[str] = Field(default_factory=list)
+
+    # -- internal use --------------------------------------------------------
+    auto_finish: bool = Field(
+        default=True,
+        exclude=True,
+        description="Automatically finish the conversation after the first response",
+    )
+    verbose_output: bool = Field(default=False, exclude=True)
 
     # ------------------------ validators & helpers --------------------------
     @field_validator("permission_mode", mode="before")
@@ -182,27 +192,46 @@ class ClaudeCodeRequest(BaseModel):
         if not messages:
             raise ValueError("messages may not be empty")
 
-        prompt = messages[-1]["content"]
-        if isinstance(prompt, (dict, list)):
-            prompt = json.dumps(prompt)
+        prompt = ""
 
-        if resume and continue_conversation is None:
+        # 1. if resume or continue_conversation, use the last message
+        if resume or continue_conversation:
             continue_conversation = True
+            prompt = messages[-1]["content"]
+            if isinstance(prompt, (dict, list)):
+                prompt = json.dumps(prompt)
 
+        # 2. else, use entire messages except system message
+        else:
+            prompts = []
+            continue_conversation = False
+            for message in messages:
+                if message["role"] != "system":
+                    content = message["content"]
+                    prompts.append(
+                        json.dumps(content)
+                        if isinstance(content, (dict, list))
+                        else content
+                    )
+
+            prompt = "\n".join(prompts)
+
+        # 3. assemble the request data
         data: dict[str, Any] = dict(
             prompt=prompt,
             resume=resume,
             continue_conversation=bool(continue_conversation),
         )
 
+        # 4. extract system prompt if available
         if (messages[0]["role"] == "system") and (
             resume or continue_conversation
         ):
             data["system_prompt"] = messages[0]["content"]
-
-        if (a := kwargs.get("append_system_prompt")) is not None:
-            data.setdefault("append_system_prompt", "")
-            data["append_system_prompt"] += str(a)
+        if kwargs.get("append_system_prompt"):
+            data["append_system_prompt"] = str(
+                kwargs.get("append_system_prompt")
+            )
 
         data.update(kwargs)
         return cls.model_validate(data, strict=False)
@@ -238,7 +267,7 @@ class ClaudeCodeEndpoint(Endpoint):
         )
 
     async def stream(self, request: dict | BaseModel, **kwargs):
-        payload = self.create_payload(request, **kwargs)["request"]
+        payload, _ = self.create_payload(request, **kwargs)["request"]
         async for chunk in self._stream_claude_code(payload):
             yield chunk
 
@@ -258,6 +287,7 @@ class ClaudeCodeEndpoint(Endpoint):
             "session_id": None,
             "model": "claude-code",
             "result": "",
+            "tool_uses": [],
             "tool_results": [],
             "is_error": False,
             "num_turns": None,
@@ -269,17 +299,31 @@ class ClaudeCodeEndpoint(Endpoint):
             },
         }
 
-        from claude_code_sdk import types
-
         for response in responses:
-            if isinstance(response, types.SystemMessage):
+            if isinstance(response, cc_types.SystemMessage):
                 results["session_id"] = response.data.get("session_id")
                 results["model"] = response.data.get("model", "claude-code")
-            if isinstance(response, types.AssistantMessage):
-                for block in response.content:
-                    if isinstance(block, types.TextBlock):
+            if isinstance(
+                response, cc_types.AssistantMessage | cc_types.UserMessage
+            ):
+                for block in to_list(
+                    response.content,
+                    flatten=True,
+                    flatten_tuple_set=True,
+                    dropna=True,
+                ):
+                    if isinstance(block, cc_types.TextBlock):
                         results["result"] += block.text.strip() + "\n"
-                    if isinstance(block, types.ToolResultBlock):
+
+                    if isinstance(block, cc_types.ToolUseBlock):
+                        entry = {
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input,
+                        }
+                        results["tool_uses"].append(entry)
+
+                    if isinstance(block, cc_types.ToolResultBlock):
                         results["tool_results"].append(
                             {
                                 "tool_use_id": block.tool_use_id,
@@ -287,8 +331,10 @@ class ClaudeCodeEndpoint(Endpoint):
                                 "is_error": block.is_error,
                             }
                         )
-            if isinstance(response, types.ResultMessage):
-                results["result"] += response.result.strip() or ""
+
+            if isinstance(response, cc_types.ResultMessage):
+                if response.result:
+                    results["result"] = str(response.result).strip()
                 results["usage"] = response.usage
                 results["is_error"] = response.is_error
                 results["total_cost_usd"] = response.total_cost_usd
@@ -305,7 +351,135 @@ class ClaudeCodeEndpoint(Endpoint):
         **kwargs,
     ):
         responses = []
+        request: ClaudeCodeRequest = payload["request"]
+        system: cc_types.SystemMessage = None
+
+        # 1. stream the Claude Code response
         async for chunk in self._stream_claude_code(**payload):
+
+            if request.verbose_output:
+                _display_message(chunk)
+
+            if isinstance(chunk, cc_types.SystemMessage):
+                system = chunk
             responses.append(chunk)
 
+        # 2. If the last response is not a ResultMessage and auto_finish is True,
+        #   we need to query Claude Code again to get the final result message.
+        if request.auto_finish and not isinstance(
+            responses[-1], cc_types.ResultMessage
+        ):
+            options = request.as_claude_options()
+            options.continue_conversation = True
+            options.max_turns = 1
+            if system:
+                options.resume = (
+                    system.data.get("session_id", None) if system else None
+                )
+
+            async for chunk in sdk_query(
+                prompt="Please provide a the final result message only",
+                options=options,
+            ):
+                if isinstance(chunk, cc_types.ResultMessage):
+                    if request.verbose_output:
+                        str_ = _verbose_output(chunk)
+                        if str_:
+                            as_readable(
+                                str_,
+                                md=True,
+                                display_str=True,
+                                format_curly=True,
+                                max_panel_width=100,
+                                theme="light",
+                            )
+
+                    responses.append(chunk)
+
+        # 3. Parse the responses into a clean format
         return self._parse_claude_code_response(responses)
+
+
+def _display_message(chunk):
+    if isinstance(
+        chunk,
+        cc_types.SystemMessage
+        | cc_types.AssistantMessage
+        | cc_types.UserMessage,
+    ):
+        str_ = _verbose_output(chunk)
+        if str_:
+            if str_.startswith("Claude:"):
+                as_readable(
+                    str_,
+                    md=True,
+                    display_str=True,
+                    max_panel_width=100,
+                    theme="light",
+                )
+            else:
+                as_readable(
+                    str_,
+                    format_curly=True,
+                    display_str=True,
+                    max_panel_width=100,
+                    theme="light",
+                )
+
+    if isinstance(chunk, cc_types.ResultMessage):
+        str_ = _verbose_output(chunk)
+        as_readable(
+            str_,
+            md=True,
+            display_str=True,
+            format_curly=True,
+            max_panel_width=100,
+            theme="light",
+        )
+
+
+def _verbose_output(res: cc_types.Message) -> str:
+    str_ = ""
+    if isinstance(res, cc_types.SystemMessage):
+        str_ = f"Claude Code Session Started: {res.data.get('session_id', 'unknown')}"
+        str_ += f"\nModel: {res.data.get('model', 'claude-code')}\n---"
+        return str_
+
+    if isinstance(res, cc_types.AssistantMessage | cc_types.UserMessage):
+        for block in to_list(
+            res.content, flatten=True, flatten_tuple_set=True, dropna=True
+        ):
+            if isinstance(block, cc_types.TextBlock):
+                text = (
+                    block.text.strip() if isinstance(block.text, str) else ""
+                )
+                str_ += f"Claude:\n{text}"
+
+            if isinstance(block, cc_types.ToolUseBlock):
+                input = (
+                    json.dumps(block.input, indent=2)
+                    if isinstance(block.input, dict)
+                    else str(block.input)
+                )
+                input = input[:200] + "..." if len(input) > 200 else input
+                str_ += (
+                    f"Tool Use: {block.name} - {block.id}\n  - Input: {input}"
+                )
+
+            if isinstance(block, cc_types.ToolResultBlock):
+                content = str(block.content)
+                content = (
+                    content[:200] + "..." if len(content) > 200 else content
+                )
+                str_ += (
+                    f"Tool Result: {block.tool_use_id}\n  - Content: {content}"
+                )
+        return str_
+
+    if isinstance(res, cc_types.ResultMessage):
+        str_ += f"Session Completion - {res.session_id}"
+        str_ += f"\nResult: {res.result or 'No result'}"
+        str_ += f"\n- Cost: ${res.total_cost_usd:.4f} USD"
+        str_ += f"\n- Duration: {res.duration_ms} ms (API: {res.duration_api_ms} ms)"
+        str_ += f"\n- Turns: {res.num_turns}"
+        return str_
