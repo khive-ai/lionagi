@@ -141,8 +141,7 @@ class ClaudeCodeRequest(BaseModel):
     # ------------------------ CLI helpers -----------------------------------
     def as_cmd_args(self) -> list[str]:
         """Build argument list for the *Node* `claude` CLI."""
-        full_prompt = f"Human User: {self.prompt}\n\nAssistant:"
-        args: list[str] = ["-p", full_prompt, "--output-format", "stream-json"]
+        args: list[str] = ["-p", self.prompt, "--output-format", "stream-json"]
         if self.allowed_tools:
             args.append("--allowedTools")
             for tool in self.allowed_tools:
@@ -356,7 +355,6 @@ class ClaudeCodeEndpoint(Endpoint):
 
         # 1. stream the Claude Code response
         async for chunk in self._stream_claude_code(**payload):
-
             if request.verbose_output:
                 _display_message(chunk)
 
