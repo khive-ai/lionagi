@@ -76,6 +76,7 @@ class ClaudeCodeRequest(BaseModel):
         description="Automatically finish the conversation after the first response",
     )
     verbose_output: bool = Field(default=False, exclude=True)
+    cli_display_theme: Literal["light", "dark"] = "light"
 
     # ------------------------ validators & helpers --------------------------
     @field_validator("permission_mode", mode="before")
@@ -356,7 +357,7 @@ class ClaudeCodeEndpoint(Endpoint):
         # 1. stream the Claude Code response
         async for chunk in self._stream_claude_code(**payload):
             if request.verbose_output:
-                _display_message(chunk)
+                _display_message(chunk, theme=request.cli_display_theme)
 
             if isinstance(chunk, cc_types.SystemMessage):
                 system = chunk
@@ -389,7 +390,7 @@ class ClaudeCodeEndpoint(Endpoint):
                                 display_str=True,
                                 format_curly=True,
                                 max_panel_width=100,
-                                theme="light",
+                                theme=request.cli_display_theme,
                             )
 
                     responses.append(chunk)
@@ -398,7 +399,7 @@ class ClaudeCodeEndpoint(Endpoint):
         return self._parse_claude_code_response(responses)
 
 
-def _display_message(chunk):
+def _display_message(chunk, theme):
     if isinstance(
         chunk,
         cc_types.SystemMessage
@@ -413,7 +414,7 @@ def _display_message(chunk):
                     md=True,
                     display_str=True,
                     max_panel_width=100,
-                    theme="light",
+                    theme=theme,
                 )
             else:
                 as_readable(
@@ -421,7 +422,7 @@ def _display_message(chunk):
                     format_curly=True,
                     display_str=True,
                     max_panel_width=100,
-                    theme="light",
+                    theme=theme,
                 )
 
     if isinstance(chunk, cc_types.ResultMessage):
@@ -432,7 +433,7 @@ def _display_message(chunk):
             display_str=True,
             format_curly=True,
             max_panel_width=100,
-            theme="light",
+            theme=theme,
         )
 
 

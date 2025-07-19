@@ -157,10 +157,10 @@ async def stream_events(request: ClaudeCodeRequest):
     yield {"type": "done"}
 
 
-print_readable = partial(as_readable, md=True, display_str=True, theme="light")
+print_readable = partial(as_readable, md=True, display_str=True)
 
 
-def _pp_system(sys_obj: dict[str, Any]) -> None:
+def _pp_system(sys_obj: dict[str, Any], theme) -> None:
     txt = (
         f"◼️  **Claude Code Session**  \n"
         f"- id: `{sys_obj.get('session_id', '?')}`  \n"
@@ -168,42 +168,42 @@ def _pp_system(sys_obj: dict[str, Any]) -> None:
         f"- tools: {', '.join(sys_obj.get('tools', [])[:8])}"
         + ("…" if len(sys_obj.get("tools", [])) > 8 else "")
     )
-    print_readable(txt, border=False)
+    print_readable(txt, border=False, theme=theme)
 
 
-def _pp_thinking(thought: str) -> None:
+def _pp_thinking(thought: str, theme) -> None:
     text = f"""
     🧠 Thinking:
     {thought}
     """
-    print_readable(text, border=True)
+    print_readable(text, border=True, theme=theme)
 
 
-def _pp_assistant_text(text: str) -> None:
+def _pp_assistant_text(text: str, theme) -> None:
     txt = f"""
     > 🗣️ Claude:
     {text}
     """
-    print_readable(txt)
+    print_readable(txt, theme=theme)
 
 
-def _pp_tool_use(tu: dict[str, Any]) -> None:
+def _pp_tool_use(tu: dict[str, Any], theme) -> None:
     preview = shorten(str(tu["input"]).replace("\n", " "), 130)
     body = f"- 🔧 Tool Use — {tu['name']}({tu['id']}) - input: {preview}"
-    print_readable(body, border=False, panel=False)
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_tool_result(tr: dict[str, Any]) -> None:
+def _pp_tool_result(tr: dict[str, Any], theme) -> None:
     body_preview = shorten(str(tr["content"]).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
     body = (
         f"- 📄 Tool Result({tr['tool_use_id']}) - {status}\n\n"
         f"\tcontent: {body_preview}"
     )
-    print_readable(body, border=False, panel=False)
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_final(sess: ClaudeSession) -> None:
+def _pp_final(sess: ClaudeSession, theme) -> None:
     usage = sess.usage or {}
     txt = (
         f"### ✅ Session complete - {datetime.utcnow().isoformat(timespec='seconds')} UTC\n"
@@ -213,7 +213,7 @@ def _pp_final(sess: ClaudeSession) -> None:
         f"- duration: **{sess.duration_ms} ms** (API {sess.duration_api_ms} ms)  \n"
         f"- tokens in/out: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
     )
-    print_readable(txt)
+    print_readable(txt, theme=theme)
 
 
 # --------------------------------------------------------------------------- internal utils
@@ -247,6 +247,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
     If callbacks are omitted a default pretty‑print is emitted.
     """
     stream = ndjson_from_cli(request)
+    theme = request.cli_display_theme or "light"
 
     async for obj in stream:
         typ = obj.get("type", "unknown")
@@ -260,7 +261,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
             session.model = data.get("model", session.model)
             await _maybe_await(on_system, data)
             if request.verbose_output and on_system is None:
-                _pp_system(data)
+                _pp_system(data, theme)
             yield data
 
         # ------------------------ ASSISTANT --------------------------------
@@ -276,14 +277,14 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.thinking_log.append(thought)
                     await _maybe_await(on_thinking, thought)
                     if request.verbose_output and on_thinking is None:
-                        _pp_thinking(thought)
+                        _pp_thinking(thought, theme)
 
                 elif btype == "text":
                     text = blk.get("text", "")
                     chunk.text = text
                     await _maybe_await(on_text, text)
                     if request.verbose_output and on_text is None:
-                        _pp_assistant_text(text)
+                        _pp_assistant_text(text, theme)
 
                 elif btype == "tool_use":
                     tu = {
@@ -295,7 +296,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.tool_uses.append(tu)
                     await _maybe_await(on_tool_use, tu)
                     if request.verbose_output and on_tool_use is None:
-                        _pp_tool_use(tu)
+                        _pp_tool_use(tu, theme)
 
                 elif btype == "tool_result":
                     tr = {
@@ -307,7 +308,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.tool_results.append(tr)
                     await _maybe_await(on_tool_result, tr)
                     if request.verbose_output and on_tool_result is None:
-                        _pp_tool_result(tr)
+                        _pp_tool_result(tr, theme)
             yield chunk
 
         # ------------------------ USER (tool_result containers) ------------
@@ -325,7 +326,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.tool_results.append(tr)
                     await _maybe_await(on_tool_result, tr)
                     if request.verbose_output and on_tool_result is None:
-                        _pp_tool_result(tr)
+                        _pp_tool_result(tr, theme)
             yield chunk
 
         # ------------------------ RESULT -----------------------------------
@@ -345,7 +346,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
     # final pretty print
     await _maybe_await(on_final, session)
     if request.verbose_output and on_final is None:
-        _pp_final(session)
+        _pp_final(session, theme)
 
     yield session
 
