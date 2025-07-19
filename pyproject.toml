@@ -78,7 +78,7 @@ tools = [
 ]
 
 ollama = [
-    "ollama>=0.5.0",
+    "ollama>=0.4.0",
 ]
 
 claude-code = [
