@@ -172,38 +172,46 @@ def _pp_system(sys_obj: dict[str, Any]) -> None:
 
 
 def _pp_thinking(thought: str) -> None:
-    print_readable(f"🧠 {thought}", border=False)
+    text = f"""
+    🧠 Thinking:
+    {thought}
+    """
+    print_readable(text, border=True)
 
 
 def _pp_assistant_text(text: str) -> None:
-    print_readable(text)
+    txt = f"""
+    > 🗣️ Claude:
+    {text}
+    """
+    print_readable(txt)
 
 
 def _pp_tool_use(tu: dict[str, Any]) -> None:
-    preview = shorten(str(tu["input"]).replace("\n", " "), 120)
-    body = f"🔧 Tool Use — {tu['name']}  \nid: {tu['id']}  \ninput: {preview}"
-    print_readable(body, border=False)
+    preview = shorten(str(tu["input"]).replace("\n", " "), 130)
+    body = f"- 🔧 Tool Use — {tu['name']}({tu['id']}) - input: {preview}"
+    print_readable(body, border=False, panel=False)
 
 
 def _pp_tool_result(tr: dict[str, Any]) -> None:
-    body_preview = shorten(str(tr["content"]).replace("\n", " "), 120)
+    body_preview = shorten(str(tr["content"]).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
     body = (
-        f"📄 Tool Result ({status}) — for {tr['tool_use_id']}  \n"
-        f"content: `{body_preview}`"
+        f"- 📄 Tool Result({tr['tool_use_id']}) - {status}\n\n"
+        f"\tcontent: {body_preview}"
     )
-    print_readable(body, border=False)
+    print_readable(body, border=False, panel=False)
 
 
 def _pp_final(sess: ClaudeSession) -> None:
     usage = sess.usage or {}
     txt = (
-        f"### ✅ Session complete – {datetime.utcnow().isoformat(timespec='seconds')} UTC\n"
-        f"**Result (truncated):**\n\n{sess.result[:800]}{'…' if len(sess.result) > 800 else ''}\n\n"
+        f"### ✅ Session complete - {datetime.utcnow().isoformat(timespec='seconds')} UTC\n"
+        f"**Result:**\n\n{sess.result or ''}\n\n"
         f"- cost: **${sess.total_cost_usd:.4f}**  \n"
         f"- turns: **{sess.num_turns}**  \n"
-        f"- duration: **{sess.duration_ms} ms** (API {sess.duration_api_ms} ms)  \n"
-        f"- tokens in/out: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
+        f"- duration: **{sess.duration_ms} ms** (API {sess.duration_api_ms} ms)  \n"
+        f"- tokens in/out: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
     )
     print_readable(txt)
 
@@ -302,7 +310,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                         _pp_tool_result(tr)
             yield chunk
 
-        # ------------------------ USER (tool_result containers) ------------
+        # ------------------------ USER (tool_result containers) ------------
         elif typ == "user":
             msg = obj["message"]
             session.messages.append(msg)
@@ -371,7 +379,7 @@ class ClaudeCodeCLIEndpoint(Endpoint):
     async def _call(
         self,
         payload: dict,
-        headers: dict,
+        headers: dict,  # type: ignore[unused-argument]
         **kwargs,
     ):
         responses = []
@@ -402,15 +410,4 @@ class ClaudeCodeCLIEndpoint(Endpoint):
             f"Session {session.session_id} finished with {len(responses)} chunks"
         )
 
-        return {
-            "session_id": session.session_id,
-            "model": session.model or "claude-code",
-            "result": session.result,
-            "tool_uses": session.tool_uses,
-            "tool_results": session.tool_results,
-            "is_error": session.is_error,
-            "num_turns": session.num_turns,
-            "total_cost_usd": session.total_cost_usd,
-            "usage": session.usage,
-            "chunks": [dataclasses.asdict(c) for c in session.chunks],
-        }
+        return to_dict(session, recursive=True)
