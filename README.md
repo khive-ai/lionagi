@@ -144,19 +144,21 @@ LionAGI now supports Anthropic's [Claude Code SDK](https://github.com/anthropics
 from lionagi import iModel, Branch
 
 # Create a Claude Code model
-coder = iModel(
+model = iModel(
     provider="claude_code",
-    endpoint="code",
-    model="claude-sonnet-4-20250514",
+    endpoint="query_cli",
+    model="sonnet",
     allowed_tools=["Write", "Read", "Edit"],  # Control which tools Claude can use
+    permission_mode = "bypassPermissions", # Bypass tool permission checks (use with caution!),
+    verbose_output=True,  # Enable detailed output for debugging
 )
 
 # Start a coding session
-branch = Branch(chat_model=coder)
-response = await branch.chat("Create a Python function to calculate fibonacci numbers")
+branch = Branch(chat_model=model)
+response = await branch.communicate("Explain the architecture of protocols, operations, and branch")
 
 # Claude Code maintains session context automatically
-response2 = await branch.chat("Now optimize it for performance")
+response2 = await branch.communicate("how do these parts form lionagi system")
 ```
 
 Key features:
