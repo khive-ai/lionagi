@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from lionagi.service.connections.endpoint_config import EndpointConfig
+
 from .endpoint import Endpoint
 
 
@@ -58,8 +60,16 @@ def match_endpoint(
 
             return ClaudeCodeEndpoint(**kwargs)
 
-    from .providers.oai_ import OpenaiCompatibleEndpoint
+    from .providers.oai_ import OpenaiChatEndpoint
 
-    return OpenaiCompatibleEndpoint(
-        provider=provider, endpoint=endpoint, **kwargs
+    config = EndpointConfig(
+        provider=provider,
+        endpoint=endpoint or "chat/completions",
+        name="openai_compatible_chat",
+        auth_type="bearer",
+        content_type="application/json",
+        method="POST",
+        requires_tokens=True,
     )
+
+    return OpenaiChatEndpoint(config, **kwargs)

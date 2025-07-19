@@ -34,16 +34,6 @@ OPENAI_CHAT_ENDPOINT_CONFIG = EndpointConfig(
     request_options=CreateChatCompletionRequest,
 )
 
-OPENAI_COMPATIBLE_CHAT_ENDPOINT_CONFIG = EndpointConfig(
-    name="openai_compatible_chat",
-    endpoint="chat/completions",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
-    requires_tokens=True,
-    request_options=CreateChatCompletionRequest,
-)
-
 OPENAI_RESPONSE_ENDPOINT_CONFIG = EndpointConfig(
     name="openai_response",
     provider="openai",
@@ -122,13 +112,6 @@ REASONING_NOT_SUPPORT_PARAMS = (
 )
 
 
-class OpenaiCompatibleEndpoint(Endpoint):
-    def __init__(
-        self, config=OPENAI_COMPATIBLE_CHAT_ENDPOINT_CONFIG, **kwargs
-    ):
-        super().__init__(config, **kwargs)
-
-
 class OpenaiChatEndpoint(Endpoint):
     def __init__(self, config=OPENAI_CHAT_ENDPOINT_CONFIG, **kwargs):
         super().__init__(config, **kwargs)
@@ -140,9 +123,7 @@ class OpenaiChatEndpoint(Endpoint):
         **kwargs,
     ):
         """Override to handle model-specific parameter filtering."""
-        payload, headers = super().create_payload(
-            request, extra_headers, **kwargs
-        )
+        payload, headers = super().create_payload(request, extra_headers, **kwargs)
 
         # Handle reasoning models
         model = payload.get("model")

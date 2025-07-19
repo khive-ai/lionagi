@@ -7,11 +7,11 @@ import dataclasses
 import json
 import logging
 import shutil
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from functools import partial
 from textwrap import shorten
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 
 from json_repair import repair_json
 from pydantic import BaseModel
@@ -35,40 +35,40 @@ log = logging.getLogger("claude-cli")
 class ClaudeChunk:
     """Low-level wrapper around every NDJSON object coming from the CLI."""
 
-    raw: Dict[str, Any]
+    raw: dict[str, Any]
     type: str
     # convenience views
-    thinking: Optional[str] = None
-    text: Optional[str] = None
-    tool_use: Optional[Dict[str, Any]] = None
-    tool_result: Optional[Dict[str, Any]] = None
+    thinking: str | None = None
+    text: str | None = None
+    tool_use: dict[str, Any] | None = None
+    tool_result: dict[str, Any] | None = None
 
 
 @dataclasses.dataclass
 class ClaudeSession:
     """Aggregated view of a whole CLI conversation."""
 
-    session_id: Optional[str] = None
-    model: Optional[str] = None
+    session_id: str | None = None
+    model: str | None = None
 
     # chronological log
-    chunks: List[ClaudeChunk] = dataclasses.field(default_factory=list)
+    chunks: list[ClaudeChunk] = dataclasses.field(default_factory=list)
 
     # materialised views
-    thinking_log: List[str] = dataclasses.field(default_factory=list)
-    messages: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
-    tool_uses: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
-    tool_results: List[Dict[str, Any]] = dataclasses.field(
+    thinking_log: list[str] = dataclasses.field(default_factory=list)
+    messages: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    tool_uses: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    tool_results: list[dict[str, Any]] = dataclasses.field(
         default_factory=list
     )
 
     # final summary
     result: str = ""
-    usage: Dict[str, Any] = dataclasses.field(default_factory=dict)
-    total_cost_usd: Optional[float] = None
-    num_turns: Optional[int] = None
-    duration_ms: Optional[int] = None
-    duration_api_ms: Optional[int] = None
+    usage: dict[str, Any] = dataclasses.field(default_factory=dict)
+    total_cost_usd: float | None = None
+    num_turns: int | None = None
+    duration_ms: int | None = None
+    duration_api_ms: int | None = None
     is_error: bool = False
 
 
@@ -160,7 +160,7 @@ async def stream_events(request: ClaudeCodeRequest):
 print_readable = partial(as_readable, md=True, display_str=True, theme="light")
 
 
-def _pp_system(sys_obj: Dict[str, Any]) -> None:
+def _pp_system(sys_obj: dict[str, Any]) -> None:
     txt = (
         f"◼️  **Claude Code Session**  \n"
         f"- id: `{sys_obj.get('session_id', '?')}`  \n"
@@ -179,13 +179,13 @@ def _pp_assistant_text(text: str) -> None:
     print_readable(text)
 
 
-def _pp_tool_use(tu: Dict[str, Any]) -> None:
+def _pp_tool_use(tu: dict[str, Any]) -> None:
     preview = shorten(str(tu["input"]).replace("\n", " "), 120)
     body = f"🔧 Tool Use — {tu['name']}  \nid: {tu['id']}  \ninput: {preview}"
     print_readable(body, border=False)
 
 
-def _pp_tool_result(tr: Dict[str, Any]) -> None:
+def _pp_tool_result(tr: dict[str, Any]) -> None:
     body_preview = shorten(str(tr["content"]).replace("\n", " "), 120)
     status = "ERR" if tr.get("is_error") else "OK"
     body = (
@@ -225,11 +225,11 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
     request: ClaudeCodeRequest,
     session: ClaudeSession = ClaudeSession(),
     *,
-    on_system: Callable[[Dict[str, Any]], None] | None = None,
+    on_system: Callable[[dict[str, Any]], None] | None = None,
     on_thinking: Callable[[str], None] | None = None,
     on_text: Callable[[str], None] | None = None,
-    on_tool_use: Callable[[Dict[str, Any]], None] | None = None,
-    on_tool_result: Callable[[Dict[str, Any]], None] | None = None,
+    on_tool_use: Callable[[dict[str, Any]], None] | None = None,
+    on_tool_result: Callable[[dict[str, Any]], None] | None = None,
     on_final: Callable[[ClaudeSession], None] | None = None,
 ) -> AsyncIterator[ClaudeChunk | dict | ClaudeSession]:
     """
