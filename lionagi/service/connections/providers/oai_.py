@@ -25,8 +25,18 @@ OPENAI_CHAT_ENDPOINT_CONFIG = EndpointConfig(
     provider="openai",
     base_url="https://api.openai.com/v1",
     endpoint="chat/completions",
-    kwargs={"model": "gpt-4o"},
+    kwargs={"model": "gpt-4.1-nano"},
     api_key=settings.OPENAI_API_KEY or "dummy-key-for-testing",
+    auth_type="bearer",
+    content_type="application/json",
+    method="POST",
+    requires_tokens=True,
+    request_options=CreateChatCompletionRequest,
+)
+
+OPENAI_COMPATIBLE_CHAT_ENDPOINT_CONFIG = EndpointConfig(
+    name="openai_compatible_chat",
+    endpoint="chat/completions",
     auth_type="bearer",
     content_type="application/json",
     method="POST",
@@ -110,6 +120,13 @@ REASONING_NOT_SUPPORT_PARAMS = (
     "logprobs",
     "top_logprobs",
 )
+
+
+class OpenaiCompatibleEndpoint(Endpoint):
+    def __init__(
+        self, config=OPENAI_COMPATIBLE_CHAT_ENDPOINT_CONFIG, **kwargs
+    ):
+        super().__init__(config, **kwargs)
 
 
 class OpenaiChatEndpoint(Endpoint):
