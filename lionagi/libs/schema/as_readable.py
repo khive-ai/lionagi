@@ -11,7 +11,7 @@ from lionagi.utils import to_dict
 # Try to import rich for enhanced console output
 try:
     from rich.align import Align
-    from rich.box import ROUNDED
+    from rich.box import MINIMAL, ROUNDED
     from rich.console import Console
     from rich.markdown import Markdown
     from rich.padding import Padding
@@ -175,6 +175,8 @@ def as_readable(
     use_rich: bool = True,
     theme: str = "dark",
     max_panel_width: int = 140,
+    panel: bool = True,
+    border: bool = True,
 ) -> str:
     """
     Convert `input_` into a human-readable string. If `format_curly=True`, uses
@@ -194,6 +196,7 @@ def as_readable(
         theme: Color theme - "dark" (default) or "light". Dark uses GitHub Dark Dimmed,
                light uses Solarized Light inspired colors.
         max_panel_width: Maximum width for panels and code blocks in characters.
+        panel: If True, wraps the output in a panel for better visibility.
 
     Returns:
         A formatted string representation of `input_` (unless display_str=True).
@@ -252,7 +255,6 @@ def as_readable(
         final_str = "\n\n".join(rendered).strip()
 
         # 4) If Markdown requested, wrap with code fences
-        #    - If we used format_curly, we might do "```yaml" instead. But user specifically asked for JSON code blocks previously
         if md:
             if format_curly:
                 return f"```yaml\n{final_str}\n```"
@@ -263,137 +265,78 @@ def as_readable(
 
     str_ = _inner(input_).strip()
     if max_chars is not None and len(str_) > max_chars:
-        str1 = str_[:max_chars] + "...\n\n[Truncated output]\n\n"
-        if str_.endswith("\n```"):
-            str1 += "```"
-        str_ = str1
-    if display_str:
-        if md and in_notebook():
-            # If in IPython environment, display Markdown
-            from IPython.display import Markdown, display
+        trunc = str_[:max_chars] + "...\n\n[Truncated output]"
+        str_ = trunc + ("\n```" if str_.endswith("\n```") else "")
 
-            display(Markdown(str_))
-        elif RICH_AVAILABLE and in_console() and use_rich:
-            # Use rich for enhanced console output
-            # Select theme and syntax highlighting based on user preference
-            console_theme = DARK_THEME if theme == "dark" else LIGHT_THEME
-            syntax_theme = (
-                "github-dark" if theme == "dark" else "solarized-light"
+    # -------------------- PRINT / DISPLAY LOGIC ---------------------------
+    if not display_str:
+        return str_  # caller will handle printing
+
+    # (1) IPython notebook --------------------------------------------------
+    if md and in_notebook():
+        from IPython.display import Markdown, display
+
+        display(Markdown(str_))
+        return
+
+    # (2) Rich console ------------------------------------------------------
+    if RICH_AVAILABLE and in_console() and use_rich:
+        console_theme = DARK_THEME if theme == "dark" else LIGHT_THEME
+        syntax_theme = "github-dark" if theme == "dark" else "solarized-light"
+        console = Console(theme=console_theme)
+
+        # determine prose / fenced code
+        is_fenced_code = (
+            md and str_.startswith("```") and str_.rstrip().endswith("```")
+        )
+        is_prose_md = md and not is_fenced_code
+        panel_width = min(console.width - 4, max_panel_width)
+
+        def _out(rich_obj):
+            if not panel:
+                console.print(Padding(rich_obj, (0, 0, 0, 2)))
+                return
+
+            console.print(
+                Padding(
+                    Panel(
+                        Align.left(rich_obj, pad=False),
+                        border_style="panel.border" if border else "",
+                        box=ROUNDED if border else MINIMAL,
+                        width=panel_width,
+                        expand=False,
+                    ),
+                    (0, 0, 0, 4),
+                )
             )
-            panel_style = "bright_blue" if theme == "dark" else "blue"
 
-            console = Console(theme=console_theme)
+        # 2‑a prose markdown ------------------------------------------------
+        if is_prose_md:
+            from rich.markdown import Markdown as RichMarkdown
 
-            # Check if content looks like markdown prose (not code)
-            is_markdown_prose = isinstance(str_, str) and (
-                str_.startswith("#")
-                or str_.startswith("**")
-                or str_.startswith("- ")
-                or str_.startswith("1.")
-                or "<multi_reasoning>" in str_
-                or "\n### " in str_
-                or "\n## " in str_
-                or "\n# " in str_
-                or "│" in str_  # Rich table content
+            _out(RichMarkdown(str_, code_theme=syntax_theme))
+            return
+
+        # 2‑b code (fenced or explicit) -------------------------------------
+        if is_fenced_code:
+            lines = str_.splitlines()
+            lang, code = (
+                (lines[0][3:].strip() or ("yaml" if format_curly else "json")),
+                "\n".join(lines[1:-1]),
             )
-
-            if md and is_markdown_prose:
-                # Display as formatted markdown
-                # Create markdown with max width
-                from rich.markdown import Markdown as RichMarkdown
-
-                md_content = RichMarkdown(str_, code_theme=syntax_theme)
-
-                # Calculate appropriate width
-                console_width = console.width
-                panel_width = min(console_width - 4, max_panel_width)
-
-                # Add left margin padding for better alignment
-                panel = Panel(
-                    Padding(md_content, (0, 2)),
-                    border_style=panel_style,
-                    box=ROUNDED,
-                    width=panel_width,
-                    expand=False,
-                )
-
-                # Left align with margin
-                aligned_panel = Align.left(panel, pad=True)
-                console.print(Padding(aligned_panel, (0, 0, 0, 4)))
-
-            elif md:
-                # Extract content from markdown code blocks if present
-                content = str_
-                if content.startswith("```") and content.endswith("```"):
-                    # Remove code fences
-                    lines = content.split("\n")
-                    if len(lines) > 2:
-                        lang = lines[0][3:].strip() or "json"
-                        content = "\n".join(lines[1:-1])
-                    else:
-                        lang = "json"
-                else:
-                    lang = "yaml" if format_curly else "json"
-
-                # Calculate appropriate width
-                console_width = console.width
-                panel_width = min(console_width - 4, max_panel_width)
-
-                # Create syntax highlighted output
-                syntax = Syntax(
-                    content,
-                    lang,
-                    theme=syntax_theme,
-                    line_numbers=True,
-                    background_color="default",
-                    word_wrap=True,
-                )
-
-                # Add left margin padding for better alignment
-                panel = Panel(
-                    syntax,
-                    border_style=panel_style,
-                    box=ROUNDED,
-                    width=panel_width,
-                    expand=False,
-                )
-
-                # Left align with margin
-                aligned_panel = Align.left(panel, pad=True)
-                console.print(Padding(aligned_panel, (0, 0, 0, 4)))
-
-            else:
-                # Plain text output with rich formatting
-                if format_curly:
-                    syntax = Syntax(
-                        str_,
-                        "yaml",
-                        theme=syntax_theme,
-                        background_color="default",
-                        word_wrap=True,
-                    )
-                else:
-                    syntax = Syntax(
-                        str_,
-                        "json",
-                        theme=syntax_theme,
-                        background_color="default",
-                        word_wrap=True,
-                    )
-
-                # For plain syntax, add left margin
-                # Create a constrained width container if console is too wide
-                if console.width > max_panel_width:
-                    content = Align.left(
-                        syntax, width=max_panel_width, pad=False
-                    )
-                    # Add left margin
-                    console.print(Padding(content, (0, 0, 0, 4)))
-                else:
-                    # Just add left margin
-                    console.print(Padding(syntax, (0, 0, 0, 4)))
         else:
-            # Fallback to regular print
-            print(str_)
-    else:
-        return str_
+            lang, code = ("yaml" if format_curly else "json"), str_
+
+        syntax = Syntax(
+            code,
+            lang,
+            theme=syntax_theme,
+            line_numbers=False,
+            word_wrap=True,
+            background_color="default",
+        )
+        _out(syntax)
+        return
+
+    # (3) Plain fallback ----------------------------------------------------
+    print(str_)
