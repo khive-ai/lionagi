@@ -2,7 +2,7 @@ from lionagi import Branch, iModel
 
 BASE_CONFIG = {
     "provider": "claude_code",
-    "endpoint": "code",
+    "endpoint": "query_cli",
     "model": "sonnet",
     "api_key": "dummy_api_key",
     "allowed_tools": ["Read"],
@@ -19,7 +19,6 @@ Read into lionagi, explain to me the
 
 
 async def main():
-
     try:
         k_model = iModel(cwd="lionagi", **BASE_CONFIG)
         investigator = Branch(
