@@ -91,7 +91,6 @@ class Package(Observable):
         item: Any,
         request_source: ID[Communicatable] = None,
     ):
-
         super().__init__()
         self.id = IDType.create()
         self.created_at = time(type_="timestamp")

@@ -104,10 +104,8 @@ def get_image_pricing(model: str) -> dict:
 
 
 class TokenCalculator:
-
     @staticmethod
     def calculate_message_tokens(messages: list[dict], /, **kwargs) -> int:
-
         model = kwargs.get("model", "gpt-4o")
         tokenizer = tiktoken.get_encoding(get_encoding_name(model)).encode
 
@@ -149,7 +147,6 @@ class TokenCalculator:
         return_tokens: bool = False,
         return_decoded: bool = False,
     ) -> int | list[int]:
-
         if not s_:
             return 0
 

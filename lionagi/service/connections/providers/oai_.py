@@ -34,16 +34,6 @@ OPENAI_CHAT_ENDPOINT_CONFIG = EndpointConfig(
     request_options=CreateChatCompletionRequest,
 )
 
-OPENAI_COMPATIBLE_CHAT_ENDPOINT_CONFIG = EndpointConfig(
-    name="openai_compatible_chat",
-    endpoint="chat/completions",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
-    requires_tokens=True,
-    request_options=CreateChatCompletionRequest,
-)
-
 OPENAI_RESPONSE_ENDPOINT_CONFIG = EndpointConfig(
     name="openai_response",
     provider="openai",
@@ -120,13 +110,6 @@ REASONING_NOT_SUPPORT_PARAMS = (
     "logprobs",
     "top_logprobs",
 )
-
-
-class OpenaiCompatibleEndpoint(Endpoint):
-    def __init__(
-        self, config=OPENAI_COMPATIBLE_CHAT_ENDPOINT_CONFIG, **kwargs
-    ):
-        super().__init__(config, **kwargs)
 
 
 class OpenaiChatEndpoint(Endpoint):

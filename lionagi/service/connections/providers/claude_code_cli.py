@@ -7,11 +7,11 @@ import dataclasses
 import json
 import logging
 import shutil
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from functools import partial
 from textwrap import shorten
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 
 from json_repair import repair_json
 from pydantic import BaseModel
@@ -35,40 +35,40 @@ log = logging.getLogger("claude-cli")
 class ClaudeChunk:
     """Low-level wrapper around every NDJSON object coming from the CLI."""
 
-    raw: Dict[str, Any]
+    raw: dict[str, Any]
     type: str
     # convenience views
-    thinking: Optional[str] = None
-    text: Optional[str] = None
-    tool_use: Optional[Dict[str, Any]] = None
-    tool_result: Optional[Dict[str, Any]] = None
+    thinking: str | None = None
+    text: str | None = None
+    tool_use: dict[str, Any] | None = None
+    tool_result: dict[str, Any] | None = None
 
 
 @dataclasses.dataclass
 class ClaudeSession:
     """Aggregated view of a whole CLI conversation."""
 
-    session_id: Optional[str] = None
-    model: Optional[str] = None
+    session_id: str | None = None
+    model: str | None = None
 
     # chronological log
-    chunks: List[ClaudeChunk] = dataclasses.field(default_factory=list)
+    chunks: list[ClaudeChunk] = dataclasses.field(default_factory=list)
 
     # materialised views
-    thinking_log: List[str] = dataclasses.field(default_factory=list)
-    messages: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
-    tool_uses: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
-    tool_results: List[Dict[str, Any]] = dataclasses.field(
+    thinking_log: list[str] = dataclasses.field(default_factory=list)
+    messages: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    tool_uses: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    tool_results: list[dict[str, Any]] = dataclasses.field(
         default_factory=list
     )
 
     # final summary
     result: str = ""
-    usage: Dict[str, Any] = dataclasses.field(default_factory=dict)
-    total_cost_usd: Optional[float] = None
-    num_turns: Optional[int] = None
-    duration_ms: Optional[int] = None
-    duration_api_ms: Optional[int] = None
+    usage: dict[str, Any] = dataclasses.field(default_factory=dict)
+    total_cost_usd: float | None = None
+    num_turns: int | None = None
+    duration_ms: int | None = None
+    duration_api_ms: int | None = None
     is_error: bool = False
 
 
@@ -157,10 +157,10 @@ async def stream_events(request: ClaudeCodeRequest):
     yield {"type": "done"}
 
 
-print_readable = partial(as_readable, md=True, display_str=True, theme="light")
+print_readable = partial(as_readable, md=True, display_str=True)
 
 
-def _pp_system(sys_obj: Dict[str, Any]) -> None:
+def _pp_system(sys_obj: dict[str, Any], theme) -> None:
     txt = (
         f"◼️  **Claude Code Session**  \n"
         f"- id: `{sys_obj.get('session_id', '?')}`  \n"
@@ -168,44 +168,52 @@ def _pp_system(sys_obj: Dict[str, Any]) -> None:
         f"- tools: {', '.join(sys_obj.get('tools', [])[:8])}"
         + ("…" if len(sys_obj.get("tools", [])) > 8 else "")
     )
-    print_readable(txt, border=False)
+    print_readable(txt, border=False, theme=theme)
 
 
-def _pp_thinking(thought: str) -> None:
-    print_readable(f"🧠 {thought}", border=False)
+def _pp_thinking(thought: str, theme) -> None:
+    text = f"""
+    🧠 Thinking:
+    {thought}
+    """
+    print_readable(text, border=True, theme=theme)
 
 
-def _pp_assistant_text(text: str) -> None:
-    print_readable(text)
+def _pp_assistant_text(text: str, theme) -> None:
+    txt = f"""
+    > 🗣️ Claude:
+    {text}
+    """
+    print_readable(txt, theme=theme)
 
 
-def _pp_tool_use(tu: Dict[str, Any]) -> None:
-    preview = shorten(str(tu["input"]).replace("\n", " "), 120)
-    body = f"🔧 Tool Use — {tu['name']}  \nid: {tu['id']}  \ninput: {preview}"
-    print_readable(body, border=False)
+def _pp_tool_use(tu: dict[str, Any], theme) -> None:
+    preview = shorten(str(tu["input"]).replace("\n", " "), 130)
+    body = f"- 🔧 Tool Use — {tu['name']}({tu['id']}) - input: {preview}"
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_tool_result(tr: Dict[str, Any]) -> None:
-    body_preview = shorten(str(tr["content"]).replace("\n", " "), 120)
+def _pp_tool_result(tr: dict[str, Any], theme) -> None:
+    body_preview = shorten(str(tr["content"]).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
     body = (
-        f"📄 Tool Result ({status}) — for {tr['tool_use_id']}  \n"
-        f"content: `{body_preview}`"
+        f"- 📄 Tool Result({tr['tool_use_id']}) - {status}\n\n"
+        f"\tcontent: {body_preview}"
     )
-    print_readable(body, border=False)
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_final(sess: ClaudeSession) -> None:
+def _pp_final(sess: ClaudeSession, theme) -> None:
     usage = sess.usage or {}
     txt = (
-        f"### ✅ Session complete – {datetime.utcnow().isoformat(timespec='seconds')} UTC\n"
-        f"**Result (truncated):**\n\n{sess.result[:800]}{'…' if len(sess.result) > 800 else ''}\n\n"
+        f"### ✅ Session complete - {datetime.utcnow().isoformat(timespec='seconds')} UTC\n"
+        f"**Result:**\n\n{sess.result or ''}\n\n"
         f"- cost: **${sess.total_cost_usd:.4f}**  \n"
         f"- turns: **{sess.num_turns}**  \n"
-        f"- duration: **{sess.duration_ms} ms** (API {sess.duration_api_ms} ms)  \n"
-        f"- tokens in/out: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
+        f"- duration: **{sess.duration_ms} ms** (API {sess.duration_api_ms} ms)  \n"
+        f"- tokens in/out: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
     )
-    print_readable(txt)
+    print_readable(txt, theme=theme)
 
 
 # --------------------------------------------------------------------------- internal utils
@@ -225,11 +233,11 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
     request: ClaudeCodeRequest,
     session: ClaudeSession = ClaudeSession(),
     *,
-    on_system: Callable[[Dict[str, Any]], None] | None = None,
+    on_system: Callable[[dict[str, Any]], None] | None = None,
     on_thinking: Callable[[str], None] | None = None,
     on_text: Callable[[str], None] | None = None,
-    on_tool_use: Callable[[Dict[str, Any]], None] | None = None,
-    on_tool_result: Callable[[Dict[str, Any]], None] | None = None,
+    on_tool_use: Callable[[dict[str, Any]], None] | None = None,
+    on_tool_result: Callable[[dict[str, Any]], None] | None = None,
     on_final: Callable[[ClaudeSession], None] | None = None,
 ) -> AsyncIterator[ClaudeChunk | dict | ClaudeSession]:
     """
@@ -239,6 +247,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
     If callbacks are omitted a default pretty‑print is emitted.
     """
     stream = ndjson_from_cli(request)
+    theme = request.cli_display_theme or "light"
 
     async for obj in stream:
         typ = obj.get("type", "unknown")
@@ -252,7 +261,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
             session.model = data.get("model", session.model)
             await _maybe_await(on_system, data)
             if request.verbose_output and on_system is None:
-                _pp_system(data)
+                _pp_system(data, theme)
             yield data
 
         # ------------------------ ASSISTANT --------------------------------
@@ -268,14 +277,14 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.thinking_log.append(thought)
                     await _maybe_await(on_thinking, thought)
                     if request.verbose_output and on_thinking is None:
-                        _pp_thinking(thought)
+                        _pp_thinking(thought, theme)
 
                 elif btype == "text":
                     text = blk.get("text", "")
                     chunk.text = text
                     await _maybe_await(on_text, text)
                     if request.verbose_output and on_text is None:
-                        _pp_assistant_text(text)
+                        _pp_assistant_text(text, theme)
 
                 elif btype == "tool_use":
                     tu = {
@@ -287,7 +296,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.tool_uses.append(tu)
                     await _maybe_await(on_tool_use, tu)
                     if request.verbose_output and on_tool_use is None:
-                        _pp_tool_use(tu)
+                        _pp_tool_use(tu, theme)
 
                 elif btype == "tool_result":
                     tr = {
@@ -299,10 +308,10 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.tool_results.append(tr)
                     await _maybe_await(on_tool_result, tr)
                     if request.verbose_output and on_tool_result is None:
-                        _pp_tool_result(tr)
+                        _pp_tool_result(tr, theme)
             yield chunk
 
-        # ------------------------ USER (tool_result containers) ------------
+        # ------------------------ USER (tool_result containers) ------------
         elif typ == "user":
             msg = obj["message"]
             session.messages.append(msg)
@@ -317,7 +326,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
                     session.tool_results.append(tr)
                     await _maybe_await(on_tool_result, tr)
                     if request.verbose_output and on_tool_result is None:
-                        _pp_tool_result(tr)
+                        _pp_tool_result(tr, theme)
             yield chunk
 
         # ------------------------ RESULT -----------------------------------
@@ -337,7 +346,7 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
     # final pretty print
     await _maybe_await(on_final, session)
     if request.verbose_output and on_final is None:
-        _pp_final(session)
+        _pp_final(session, theme)
 
     yield session
 
@@ -371,7 +380,7 @@ class ClaudeCodeCLIEndpoint(Endpoint):
     async def _call(
         self,
         payload: dict,
-        headers: dict,
+        headers: dict,  # type: ignore[unused-argument]
         **kwargs,
     ):
         responses = []
@@ -402,15 +411,4 @@ class ClaudeCodeCLIEndpoint(Endpoint):
             f"Session {session.session_id} finished with {len(responses)} chunks"
         )
 
-        return {
-            "session_id": session.session_id,
-            "model": session.model or "claude-code",
-            "result": session.result,
-            "tool_uses": session.tool_uses,
-            "tool_results": session.tool_results,
-            "is_error": session.is_error,
-            "num_turns": session.num_turns,
-            "total_cost_usd": session.total_cost_usd,
-            "usage": session.usage,
-            "chunks": [dataclasses.asdict(c) for c in session.chunks],
-        }
+        return to_dict(session, recursive=True)
