@@ -56,7 +56,6 @@ LOG_CONFIG = {
 
 
 class Settings:
-
     class Config:
         TIMEZONE: timezone = timezone.utc
         LOG: dict = LOG_CONFIG

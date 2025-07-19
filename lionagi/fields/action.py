@@ -21,7 +21,6 @@ __all__ = (
 
 
 def parse_action_request(content: str | dict) -> list[dict]:
-
     json_blocks = []
 
     if isinstance(content, BaseModel):
