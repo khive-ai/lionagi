@@ -8,6 +8,7 @@ BASE_CONFIG = {
     "allowed_tools": ["Read"],
     "permission_mode": "bypassPermissions",
     "verbose_output": True,
+    "cli_display_theme": "dark",
 }
 
 prompt = """
@@ -28,7 +29,7 @@ async def main():
         )
 
         print(f"User:\n{prompt}\n")
-        await investigator.communicate(prompt)
+        response = await investigator.communicate(prompt)
 
     except Exception as e:
         print(f"Error: {e}")

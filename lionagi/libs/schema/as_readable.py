@@ -21,74 +21,74 @@ try:
     from rich.text import Text
     from rich.theme import Theme
 
+    DARK_THEME = Theme(
+        {
+            "info": "bright_cyan",
+            "warning": "bright_yellow",
+            "error": "bold bright_red",
+            "success": "bold bright_green",
+            "panel.border": "bright_blue",
+            "panel.title": "bold bright_cyan",
+            "markdown.h1": "bold bright_magenta",
+            "markdown.h2": "bold bright_blue",
+            "markdown.h3": "bold bright_cyan",
+            "markdown.h4": "bold bright_green",
+            "markdown.code": "bright_yellow on grey23",
+            "markdown.code_block": "bright_white on grey15",
+            "markdown.paragraph": "bright_white",
+            "markdown.text": "bright_white",
+            "markdown.emph": "italic bright_yellow",
+            "markdown.strong": "bold bright_white",
+            "markdown.item": "bright_cyan",
+            "markdown.item.bullet": "bright_blue",
+            "json.key": "bright_cyan",
+            "json.string": "bright_green",
+            "json.number": "bright_yellow",
+            "json.boolean": "bright_magenta",
+            "json.null": "bright_red",
+            "yaml.key": "bright_cyan",
+            "yaml.string": "bright_green",
+            "yaml.number": "bright_yellow",
+            "yaml.boolean": "bright_magenta",
+        }
+    )
+
+    LIGHT_THEME = Theme(
+        {
+            "info": "blue",
+            "warning": "dark_orange",
+            "error": "bold red",
+            "success": "bold green4",
+            "panel.border": "blue",
+            "panel.title": "bold blue",
+            "markdown.h1": "bold dark_magenta",
+            "markdown.h2": "bold dark_blue",
+            "markdown.h3": "bold dark_cyan",
+            "markdown.h4": "bold dark_green",
+            "markdown.code": "dark_orange on grey93",
+            "markdown.code_block": "black on grey82",
+            "markdown.paragraph": "black",
+            "markdown.text": "black",
+            "markdown.emph": "italic dark_orange",
+            "markdown.strong": "bold black",
+            "markdown.item": "dark_blue",
+            "markdown.item.bullet": "blue",
+            "json.key": "dark_blue",
+            "json.string": "dark_green",
+            "json.number": "dark_orange",
+            "json.boolean": "dark_magenta",
+            "json.null": "dark_red",
+            "yaml.key": "dark_blue",
+            "yaml.string": "dark_green",
+            "yaml.number": "dark_orange",
+            "yaml.boolean": "dark_magenta",
+        }
+    )
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
-
-# Custom themes for dark and light modes
-DARK_THEME = Theme(
-    {
-        "info": "bright_cyan",
-        "warning": "bright_yellow",
-        "error": "bold bright_red",
-        "success": "bold bright_green",
-        "panel.border": "bright_blue",
-        "panel.title": "bold bright_cyan",
-        "markdown.h1": "bold bright_magenta",
-        "markdown.h2": "bold bright_blue",
-        "markdown.h3": "bold bright_cyan",
-        "markdown.h4": "bold bright_green",
-        "markdown.code": "bright_yellow on grey23",
-        "markdown.code_block": "bright_white on grey15",
-        "markdown.paragraph": "bright_white",
-        "markdown.text": "bright_white",
-        "markdown.emph": "italic bright_yellow",
-        "markdown.strong": "bold bright_white",
-        "markdown.item": "bright_cyan",
-        "markdown.item.bullet": "bright_blue",
-        "json.key": "bright_cyan",
-        "json.string": "bright_green",
-        "json.number": "bright_yellow",
-        "json.boolean": "bright_magenta",
-        "json.null": "bright_red",
-        "yaml.key": "bright_cyan",
-        "yaml.string": "bright_green",
-        "yaml.number": "bright_yellow",
-        "yaml.boolean": "bright_magenta",
-    }
-)
-
-LIGHT_THEME = Theme(
-    {
-        "info": "blue",
-        "warning": "dark_orange",
-        "error": "bold red",
-        "success": "bold green4",
-        "panel.border": "blue",
-        "panel.title": "bold blue",
-        "markdown.h1": "bold dark_magenta",
-        "markdown.h2": "bold dark_blue",
-        "markdown.h3": "bold dark_cyan",
-        "markdown.h4": "bold dark_green",
-        "markdown.code": "dark_orange on grey93",
-        "markdown.code_block": "black on grey82",
-        "markdown.paragraph": "black",
-        "markdown.text": "black",
-        "markdown.emph": "italic dark_orange",
-        "markdown.strong": "bold black",
-        "markdown.item": "dark_blue",
-        "markdown.item.bullet": "blue",
-        "json.key": "dark_blue",
-        "json.string": "dark_green",
-        "json.number": "dark_orange",
-        "json.boolean": "dark_magenta",
-        "json.null": "dark_red",
-        "yaml.key": "dark_blue",
-        "yaml.string": "dark_green",
-        "yaml.number": "dark_orange",
-        "yaml.boolean": "dark_magenta",
-    }
-)
+    DARK_THEME = None
+    LIGHT_THEME = None
 
 
 def in_notebook() -> bool:
