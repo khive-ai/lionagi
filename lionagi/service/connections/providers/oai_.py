@@ -123,7 +123,9 @@ class OpenaiChatEndpoint(Endpoint):
         **kwargs,
     ):
         """Override to handle model-specific parameter filtering."""
-        payload, headers = super().create_payload(request, extra_headers, **kwargs)
+        payload, headers = super().create_payload(
+            request, extra_headers, **kwargs
+        )
 
         # Handle reasoning models
         model = payload.get("model")

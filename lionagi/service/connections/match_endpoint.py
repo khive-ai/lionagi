@@ -72,4 +72,4 @@ def match_endpoint(
         requires_tokens=True,
     )
 
-    return OpenaiChatEndpoint(config, **kwargs)
+    return Endpoint(config, **kwargs)

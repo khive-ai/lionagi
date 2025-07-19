@@ -73,6 +73,12 @@ class EndpointConfig(BaseModel):
 
         return self
 
+    @field_validator("provider", mode="before")
+    def _validate_provider(cls, v: str):
+        if not v:
+            raise ValueError("Provider must be specified")
+        return v.strip().lower()
+
     @property
     def full_url(self):
         if not self.endpoint_params:
