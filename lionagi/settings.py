@@ -18,7 +18,7 @@ CACHED_CONFIG = {
 
 CHAT_IMODEL_CONFIG = {
     "provider": "openai",
-    "model": "gpt-4o",
+    "model": "gpt-4.1-nano",
     "base_url": "https://api.openai.com/v1",
     "endpoint": "chat/completions",
     "api_key": "OPENAI_API_KEY",
@@ -31,7 +31,7 @@ CHAT_IMODEL_CONFIG = {
 
 PARSE_IMODEL_CONFIG = {
     "provider": "openai",
-    "model": "gpt-4o-mini",
+    "model": "gpt-4.1-nano",
     "base_url": "https://api.openai.com/v1",
     "endpoint": "chat/completions",
     "api_key": "OPENAI_API_KEY",
