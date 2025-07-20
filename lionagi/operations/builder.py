@@ -65,16 +65,16 @@ class OperationGraphBuilder:
         self.graph = Graph()
 
         # Track state
-        self._operations: Dict[str, Operation] = {}  # All operations by ID
-        self._executed: Set[str] = set()  # IDs of executed operations
-        self._current_heads: List[str] = []  # Current head nodes for linking
-        self.last_operation_id: Optional[str] = None
+        self._operations: dict[str, Operation] = {}  # All operations by ID
+        self._executed: set[str] = set()  # IDs of executed operations
+        self._current_heads: list[str] = []  # Current head nodes for linking
+        self.last_operation_id: str | None = None
 
     def add_operation(
         self,
         operation: BranchOperations,
-        node_id: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        node_id: str | None = None,
+        depends_on: list[str] | None = None,
         **parameters,
     ) -> str:
         """
@@ -122,12 +122,12 @@ class OperationGraphBuilder:
 
     def expand_from_result(
         self,
-        items: List[Any],
+        items: list[Any],
         source_node_id: str,
         operation: BranchOperations,
         strategy: ExpansionStrategy = ExpansionStrategy.CONCURRENT,
         **shared_params,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Expand the graph based on execution results.
 
@@ -195,7 +195,7 @@ class OperationGraphBuilder:
     def add_aggregation(
         self,
         operation: BranchOperations,
-        source_node_ids: Optional[List[str]] = None,
+        source_node_ids: list[str] | None = None,
         **parameters,
     ) -> str:
         """
@@ -240,7 +240,7 @@ class OperationGraphBuilder:
 
         return node.id
 
-    def mark_executed(self, node_ids: List[str]):
+    def mark_executed(self, node_ids: list[str]):
         """
         Mark nodes as executed.
 
@@ -251,7 +251,7 @@ class OperationGraphBuilder:
         """
         self._executed.update(node_ids)
 
-    def get_unexecuted_nodes(self) -> List[Operation]:
+    def get_unexecuted_nodes(self) -> list[Operation]:
         """
         Get nodes that haven't been executed yet.
 
@@ -268,9 +268,9 @@ class OperationGraphBuilder:
         self,
         condition_check_op: BranchOperations,
         true_op: BranchOperations,
-        false_op: Optional[BranchOperations] = None,
+        false_op: BranchOperations | None = None,
         **check_params,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         Add a conditional branch structure.
 
@@ -341,7 +341,7 @@ class OperationGraphBuilder:
         """
         return self.graph
 
-    def get_node_by_reference(self, reference_id: str) -> Optional[Operation]:
+    def get_node_by_reference(self, reference_id: str) -> Operation | None:
         """
         Get a node by its reference ID.
 
@@ -356,7 +356,7 @@ class OperationGraphBuilder:
                 return op
         return None
 
-    def visualize_state(self) -> Dict[str, Any]:
+    def visualize_state(self) -> dict[str, Any]:
         """
         Get visualization of current graph state.
 
