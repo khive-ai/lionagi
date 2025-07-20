@@ -2,4 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from .flow import flow
+from .node import BranchOperations, Operation
 from .types import *
