@@ -1,4 +1,10 @@
-from .action import ActionRequestModel, ActionResponseModel
+from .action import (
+    ACTION_REQUESTS_FIELD,
+    ACTION_REQUIRED_FIELD,
+    ACTION_RESPONSES_FIELD,
+    ActionRequestModel,
+    ActionResponseModel,
+)
 from .base import (
     CodeSnippet,
     Outline,
@@ -8,8 +14,13 @@ from .base import (
     TextSnippet,
 )
 from .file import Documentation, File, Module, ResearchSummary
-from .instruct import Instruct, InstructResponse
-from .reason import Reason
+from .instruct import (
+    INSTRUCT_FIELD,
+    LIST_INSTRUCT_FIELD_MODEL,
+    Instruct,
+    InstructResponse,
+)
+from .reason import REASON_FIELD, Reason
 
 __all__ = (
     "ActionRequestModel",
@@ -27,4 +38,10 @@ __all__ = (
     "Instruct",
     "InstructResponse",
     "Reason",
+    "LIST_INSTRUCT_FIELD_MODEL",
+    "INSTRUCT_FIELD",
+    "ACTION_REQUESTS_FIELD",
+    "ACTION_RESPONSES_FIELD",
+    "ACTION_REQUIRED_FIELD",
+    "REASON_FIELD",
 )
