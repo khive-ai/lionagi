@@ -166,7 +166,7 @@ async def _execute_parallel(
                 worker_branches.append(session.split(session.default_branch))
 
         # Process nodes in dependency order
-        remaining_nodes = set(node.id for node in operation_nodes)
+        remaining_nodes = {node.id for node in operation_nodes}
         executing_tasks = {}  # node_id -> asyncio.Task
         blocked_nodes = set()  # Nodes that have been checked and found blocked
 
@@ -434,39 +434,3 @@ async def _dependencies_satisfied_async(
             at_least_one_satisfied = True
 
     return at_least_one_satisfied
-
-
-def _has_only_conditional_deps(
-    node: Node, graph: Graph, completed: set[str]
-) -> bool:
-    """Check if a node has only conditional dependencies that might not be satisfied."""
-    predecessors = graph.get_predecessors(node)
-
-    # No dependencies means it can run
-    if not predecessors:
-        return True
-
-    # Check if all incomplete predecessors have conditional edges to this node
-    for pred in predecessors:
-        if pred.id not in completed:
-            # Check if there's a conditional edge from pred to node
-            edges = graph.find_node_edge(pred, direction="out")
-            has_conditional = False
-            for edge in edges:
-                if edge.tail == node.id and edge.condition:
-                    has_conditional = True
-                    break
-
-            # If there's an unconditional dependency that's not complete, can't run
-            if not has_conditional:
-                return False
-
-    return True
-
-
-def _batch_nodes(nodes: list[Node], batch_size: int) -> list[list[Node]]:
-    """Split nodes into batches for parallel execution."""
-    batches = []
-    for i in range(0, len(nodes), batch_size):
-        batches.append(nodes[i : i + batch_size])
-    return batches
