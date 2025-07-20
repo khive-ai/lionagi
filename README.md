@@ -156,8 +156,6 @@ model = iModel(
 # Start a coding session
 branch = Branch(chat_model=model)
 response = await branch.communicate("Explain the architecture of protocols, operations, and branch")
-
-# Claude Code maintains session context automatically
 response2 = await branch.communicate("how do these parts form lionagi system")
 ```
 
