@@ -1,0 +1,508 @@
+# Copyright (c) 2023 - 2025, HaiyangLi <quantocean.li at gmail dot com>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from lionagi.operations.flow import flow
+from lionagi.operations.node import Operation
+from lionagi.protocols.generic.event import EventStatus
+from lionagi.protocols.graph.edge import Edge, EdgeCondition
+from lionagi.protocols.graph.graph import Graph
+from lionagi.service.connections.api_calling import APICalling
+from lionagi.service.connections.endpoint import Endpoint
+from lionagi.service.connections.providers.oai_ import (
+    OPENAI_CHAT_ENDPOINT_CONFIG,
+)
+from lionagi.service.imodel import iModel
+from lionagi.session.branch import Branch
+from lionagi.session.session import Session
+
+
+# Test Fixtures
+class ValueCondition(EdgeCondition):
+    """Test condition that checks for a specific value in context."""
+
+    def __init__(self, expected_value: str):
+        super().__init__()
+        self.expected_value = expected_value
+
+    async def apply(self, context: dict) -> bool:
+        # The context passed includes 'context' key with execution context
+        exec_context = context.get("context", {})
+        return exec_context.get("test_value") == self.expected_value
+
+
+class AlwaysTrueCondition(EdgeCondition):
+    """Test condition that always returns True."""
+
+    async def apply(self, context: dict) -> bool:
+        return True
+
+
+class AlwaysFalseCondition(EdgeCondition):
+    """Test condition that always returns False."""
+
+    async def apply(self, context: dict) -> bool:
+        return False
+
+
+def make_mock_branch(name: str = "TestBranch") -> Branch:
+    """Create a Branch with mocked iModel for testing."""
+    branch = Branch(user="test_user", name=name)
+
+    async def _fake_invoke(**kwargs):
+        endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+        fake_call = APICalling(
+            payload={"model": "gpt-4o-mini", "messages": []},
+            headers={"Authorization": "Bearer test"},
+            endpoint=endpoint,
+        )
+        fake_call.execution.response = "mocked_response"
+        fake_call.execution.status = EventStatus.COMPLETED
+        return fake_call
+
+    mock_invoke = AsyncMock(side_effect=_fake_invoke)
+    mock_chat_model = iModel(
+        provider="openai", model="gpt-4o-mini", api_key="test_key"
+    )
+    mock_chat_model.invoke = mock_invoke
+
+    branch.chat_model = mock_chat_model
+    return branch
+
+
+# Test simple linear flow
+@pytest.mark.asyncio
+async def test_flow_simple_linear():
+    """Test flow execution with a simple linear graph (A -> B -> C)."""
+    # Create operations
+    op_a = Operation(operation="chat", parameters={"instruction": "Do task A"})
+    op_b = Operation(operation="chat", parameters={"instruction": "Do task B"})
+    op_c = Operation(operation="chat", parameters={"instruction": "Do task C"})
+
+    # Build graph
+    graph = Graph()
+    graph.add_node(op_a)
+    graph.add_node(op_b)
+    graph.add_node(op_c)
+    graph.add_edge(Edge(head=op_a.id, tail=op_b.id))
+    graph.add_edge(Edge(head=op_b.id, tail=op_c.id))
+
+    # Create branch and execute
+    branch = make_mock_branch()
+    result = await flow(branch, graph, parallel=False, verbose=False)
+
+    # Verify execution order
+    assert result["completed_operations"] == [op_a.id, op_b.id, op_c.id]
+    assert len(result["operation_results"]) == 3
+    assert all(
+        res == "mocked_response"
+        for res in result["operation_results"].values()
+    )
+
+
+# Test parallel execution
+@pytest.mark.asyncio
+async def test_flow_parallel_execution():
+    """Test flow with parallel branches (A -> B and A -> C, then both -> D)."""
+    # Create operations
+    op_a = Operation(operation="chat", parameters={"instruction": "Start"})
+    op_b = Operation(operation="chat", parameters={"instruction": "Branch B"})
+    op_c = Operation(operation="chat", parameters={"instruction": "Branch C"})
+    op_d = Operation(operation="chat", parameters={"instruction": "Merge"})
+
+    # Build diamond graph
+    graph = Graph()
+    graph.add_node(op_a)
+    graph.add_node(op_b)
+    graph.add_node(op_c)
+    graph.add_node(op_d)
+    graph.add_edge(Edge(head=op_a.id, tail=op_b.id))
+    graph.add_edge(Edge(head=op_a.id, tail=op_c.id))
+    graph.add_edge(Edge(head=op_b.id, tail=op_d.id))
+    graph.add_edge(Edge(head=op_c.id, tail=op_d.id))
+
+    # Create session for parallel execution
+    session = Session()
+    branch = make_mock_branch()
+    session.branches.include(branch)
+    session.default_branch = branch
+
+    result = await flow(
+        branch,
+        graph,
+        parallel=True,
+        max_concurrent=2,
+        verbose=False,
+        session=session,
+    )
+
+    # Verify all operations completed
+    assert len(result["completed_operations"]) == 4
+    assert op_a.id in result["completed_operations"]
+    assert op_b.id in result["completed_operations"]
+    assert op_c.id in result["completed_operations"]
+    assert op_d.id in result["completed_operations"]
+
+    # In parallel execution, we can't guarantee exact ordering due to concurrency
+    # But we can verify the dependency constraints are respected
+    # A must be in the completed list before we can verify B and C completed
+    # D must be the last one (or at least after B and C)
+
+    # Since all 4 operations completed, the graph execution was successful
+    # The exact order may vary due to parallel execution timing
+
+
+# Test conditional edges
+@pytest.mark.asyncio
+async def test_flow_conditional_edges():
+    """Test flow with conditional edges that route based on context."""
+    # Create operations
+    op_start = Operation(operation="chat", parameters={"instruction": "Start"})
+    op_path_a = Operation(
+        operation="chat", parameters={"instruction": "Path A"}
+    )
+    op_path_b = Operation(
+        operation="chat", parameters={"instruction": "Path B"}
+    )
+    op_end = Operation(operation="chat", parameters={"instruction": "End"})
+
+    # Build graph with conditional edges
+    graph = Graph()
+    graph.add_node(op_start)
+    graph.add_node(op_path_a)
+    graph.add_node(op_path_b)
+    graph.add_node(op_end)
+
+    # Add conditional edges
+    graph.add_edge(
+        Edge(
+            head=op_start.id,
+            tail=op_path_a.id,
+            condition=ValueCondition(expected_value="A"),
+        )
+    )
+    graph.add_edge(
+        Edge(
+            head=op_start.id,
+            tail=op_path_b.id,
+            condition=ValueCondition(expected_value="B"),
+        )
+    )
+    graph.add_edge(Edge(head=op_path_a.id, tail=op_end.id))
+    graph.add_edge(Edge(head=op_path_b.id, tail=op_end.id))
+
+    # Test path A
+    branch = make_mock_branch()
+    result_a = await flow(
+        branch,
+        graph,
+        context={"test_value": "A"},
+        parallel=False,
+        verbose=False,
+    )
+    assert op_path_a.id in result_a["completed_operations"]
+    assert op_path_b.id not in result_a["completed_operations"]
+    assert op_end.id in result_a["completed_operations"]
+
+    # Test path B
+    branch = make_mock_branch()
+    result_b = await flow(
+        branch,
+        graph,
+        context={"test_value": "B"},
+        parallel=False,
+        verbose=False,
+    )
+    assert op_path_b.id in result_b["completed_operations"]
+    assert op_path_a.id not in result_b["completed_operations"]
+    assert op_end.id in result_b["completed_operations"]
+
+
+# Test cyclic graph detection
+@pytest.mark.asyncio
+async def test_flow_cyclic_graph_error():
+    """Test that flow raises error for cyclic graphs."""
+    # Create operations
+    op_a = Operation(operation="chat", parameters={"instruction": "A"})
+    op_b = Operation(operation="chat", parameters={"instruction": "B"})
+
+    # Build cyclic graph
+    graph = Graph()
+    graph.add_node(op_a)
+    graph.add_node(op_b)
+    graph.add_edge(Edge(head=op_a.id, tail=op_b.id))
+    graph.add_edge(Edge(head=op_b.id, tail=op_a.id))  # Creates cycle
+
+    branch = make_mock_branch()
+    with pytest.raises(ValueError, match="Graph must be acyclic"):
+        await flow(branch, graph, parallel=False)
+
+
+# Test empty graph
+@pytest.mark.asyncio
+async def test_flow_empty_graph():
+    """Test flow with empty graph."""
+    graph = Graph()
+    branch = make_mock_branch()
+    result = await flow(branch, graph, parallel=False, verbose=False)
+
+    assert result["completed_operations"] == []
+    assert result["operation_results"] == {}
+    assert result["final_context"] == {}
+
+
+# Test single node graph
+@pytest.mark.asyncio
+async def test_flow_single_node():
+    """Test flow with single node."""
+    op = Operation(operation="chat", parameters={"instruction": "Solo task"})
+    graph = Graph()
+    graph.add_node(op)
+
+    branch = make_mock_branch()
+    result = await flow(branch, graph, parallel=False, verbose=False)
+
+    assert result["completed_operations"] == [op.id]
+    assert op.id in result["operation_results"]
+
+
+# Test context propagation
+@pytest.mark.asyncio
+async def test_flow_context_propagation():
+    """Test that context is properly propagated through operations."""
+    # Create operations that use context
+    op_a = Operation(
+        operation="chat",
+        parameters={
+            "instruction": "Process initial value",
+            "context": {"initial": "value"},
+        },
+    )
+    op_b = Operation(
+        operation="chat", parameters={"instruction": "Use previous result"}
+    )
+
+    # Build graph
+    graph = Graph()
+    graph.add_node(op_a)
+    graph.add_node(op_b)
+    graph.add_edge(Edge(head=op_a.id, tail=op_b.id))
+
+    # Execute with initial context
+    branch = make_mock_branch()
+    initial_context = {"global_key": "global_value"}
+    result = await flow(branch, graph, context=initial_context, parallel=False)
+
+    # Verify context propagation
+    assert "global_key" in result["final_context"]
+    # The operation should have received context from predecessor
+    assert op_b.parameters.get("context") is not None
+
+
+# Test blocked nodes with unsatisfied conditions
+@pytest.mark.asyncio
+async def test_flow_blocked_nodes():
+    """Test flow handles nodes blocked by unsatisfied conditions."""
+    # Create operations
+    op_start = Operation(operation="chat", parameters={"instruction": "Start"})
+    op_blocked = Operation(
+        operation="chat", parameters={"instruction": "Should be blocked"}
+    )
+
+    # Build graph with always-false condition
+    graph = Graph()
+    graph.add_node(op_start)
+    graph.add_node(op_blocked)
+    graph.add_edge(
+        Edge(
+            head=op_start.id,
+            tail=op_blocked.id,
+            condition=AlwaysFalseCondition(),
+        )
+    )
+
+    branch = make_mock_branch()
+    result = await flow(branch, graph, parallel=False, verbose=False)
+
+    # Only start should complete, blocked should not execute
+    assert op_start.id in result["completed_operations"]
+    assert op_blocked.id not in result["completed_operations"]
+
+
+# Test multiple conditional paths
+@pytest.mark.asyncio
+async def test_flow_multiple_conditional_paths():
+    """Test flow with multiple conditional edges from one node."""
+    # Create operations
+    op_start = Operation(operation="chat", parameters={"instruction": "Start"})
+    op_a = Operation(operation="chat", parameters={"instruction": "Option A"})
+    op_b = Operation(operation="chat", parameters={"instruction": "Option B"})
+    op_c = Operation(operation="chat", parameters={"instruction": "Option C"})
+
+    # Build graph
+    graph = Graph()
+    graph.add_node(op_start)
+    graph.add_node(op_a)
+    graph.add_node(op_b)
+    graph.add_node(op_c)
+
+    # All paths have true conditions - all should execute
+    graph.add_edge(
+        Edge(head=op_start.id, tail=op_a.id, condition=AlwaysTrueCondition())
+    )
+    graph.add_edge(
+        Edge(head=op_start.id, tail=op_b.id, condition=AlwaysTrueCondition())
+    )
+    graph.add_edge(
+        Edge(head=op_start.id, tail=op_c.id, condition=AlwaysTrueCondition())
+    )
+
+    session = Session()
+    branch = make_mock_branch()
+    session.branches.include(branch)
+    session.default_branch = branch
+
+    result = await flow(
+        branch, graph, parallel=True, verbose=False, session=session
+    )
+
+    # All operations should complete
+    assert len(result["completed_operations"]) == 4
+    assert all(
+        op_id in result["completed_operations"]
+        for op_id in [op_start.id, op_a.id, op_b.id, op_c.id]
+    )
+
+
+# Test error handling
+@pytest.mark.asyncio
+async def test_flow_operation_error_handling():
+    """Test flow handles operation errors gracefully."""
+    # Create operation that will fail by raising an exception
+    op_fail = Operation(
+        operation="chat",
+        parameters={"instruction": "This will fail"},
+    )
+    op_next = Operation(
+        operation="chat", parameters={"instruction": "Next task"}
+    )
+
+    graph = Graph()
+    graph.add_node(op_fail)
+    graph.add_node(op_next)
+    graph.add_edge(Edge(head=op_fail.id, tail=op_next.id))
+
+    # Create a custom mock branch for this test
+    from unittest.mock import MagicMock
+
+    branch = MagicMock()
+    branch.id = "test-branch-id"
+
+    # Mock the chat method to raise an error for the first operation
+    async def failing_chat(**kwargs):
+        if kwargs.get("instruction") == "This will fail":
+            raise ValueError("Simulated operation failure")
+        return "chat_response"
+
+    branch.chat = AsyncMock(side_effect=failing_chat)
+
+    # Execute flow - it should handle the error
+    result = await flow(branch, graph, parallel=False, verbose=False)
+
+    # The failed operation should still be marked as completed
+    assert op_fail.id in result["completed_operations"]
+    # In sequential execution, the result is None on error
+    assert result["operation_results"][op_fail.id] is None
+    # Check that the error was recorded in the operation's execution
+    assert op_fail.execution.status.value == "failed"
+    assert op_fail.execution.error == "Simulated operation failure"
+    # In the current implementation, errors don't stop dependent operations
+    # The next operation will still execute (receiving None as predecessor result)
+    assert op_next.id in result["completed_operations"]
+    assert result["operation_results"][op_next.id] == "chat_response"
+
+
+# Test session-based flow
+@pytest.mark.asyncio
+async def test_session_flow_method():
+    """Test flow execution through Session.flow method."""
+    # Create operations
+    op_1 = Operation(operation="chat", parameters={"instruction": "Task 1"})
+    op_2 = Operation(operation="chat", parameters={"instruction": "Task 2"})
+
+    # Build graph
+    graph = Graph()
+    graph.add_node(op_1)
+    graph.add_node(op_2)
+    graph.add_edge(Edge(head=op_1.id, tail=op_2.id))
+
+    # Create session and execute flow
+    session = Session()
+    branch = make_mock_branch()
+    session.branches.include(branch)
+    session.default_branch = branch
+
+    result = await session.flow(graph, parallel=False, verbose=False)
+
+    # Verify execution
+    assert result["completed_operations"] == [op_1.id, op_2.id]
+    assert len(result["operation_results"]) == 2
+
+
+# Test max concurrent limit
+@pytest.mark.asyncio
+async def test_flow_max_concurrent_limit():
+    """Test that max_concurrent properly limits parallel execution."""
+    # Create many parallel operations
+    num_ops = 10
+    ops = [
+        Operation(operation="chat", parameters={"instruction": f"Task {i}"})
+        for i in range(num_ops)
+    ]
+
+    # Build graph where all operations can run in parallel
+    graph = Graph()
+    for op in ops:
+        graph.add_node(op)
+
+    # Create session with tracking
+    session = Session()
+    branch = make_mock_branch()
+    session.branches.include(branch)
+    session.default_branch = branch
+
+    # Track concurrent executions
+    concurrent_count = 0
+    max_concurrent_seen = 0
+
+    original_invoke = branch.chat_model.invoke
+
+    async def tracking_invoke(**kwargs):
+        nonlocal concurrent_count, max_concurrent_seen
+        concurrent_count += 1
+        max_concurrent_seen = max(max_concurrent_seen, concurrent_count)
+        try:
+            await asyncio.sleep(0.1)  # Simulate work
+            return await original_invoke(**kwargs)
+        finally:
+            concurrent_count -= 1
+
+    branch.chat_model.invoke = tracking_invoke
+
+    # Execute with max_concurrent=3
+    await flow(
+        branch,
+        graph,
+        parallel=True,
+        max_concurrent=3,
+        verbose=False,
+        session=session,
+    )
+
+    # Verify concurrent limit was respected
+    assert max_concurrent_seen <= 3

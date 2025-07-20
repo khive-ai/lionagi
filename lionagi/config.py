@@ -68,7 +68,7 @@ class AppSettings(BaseSettings, frozen=True):
     LIONAGI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
     LIONAGI_CHAT_PROVIDER: str = "openai"
-    LIONAGI_CHAT_MODEL: str = "gpt-4o"
+    LIONAGI_CHAT_MODEL: str = "gpt-4.1-nano"
 
     # default storage
     LIONAGI_AUTO_STORE_EVENT: bool = False

@@ -196,10 +196,7 @@ def _pp_tool_use(tu: dict[str, Any], theme) -> None:
 def _pp_tool_result(tr: dict[str, Any], theme) -> None:
     body_preview = shorten(str(tr["content"]).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
-    body = (
-        f"- 📄 Tool Result({tr['tool_use_id']}) - {status}\n\n"
-        f"\tcontent: {body_preview}"
-    )
+    body = f"- 📄 Tool Result({tr['tool_use_id']}) - {status}\n\n\tcontent: {body_preview}"
     print_readable(body, border=False, panel=False, theme=theme)
 
 

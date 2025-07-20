@@ -16,6 +16,8 @@ from lionagi.protocols.types import (
     ActionManager,
     Communicatable,
     Exchange,
+    Graph,
+    IDType,
     MailManager,
     MessageFlag,
     Node,
@@ -302,6 +304,51 @@ class Session(Node, Communicatable, Relational):
                 )
             except Exception as e:
                 raise ValueError(f"Failed to collect mail. Error: {e}")
+
+    async def flow(
+        self,
+        graph: Graph,
+        *,
+        context: dict[str, Any] | None = None,
+        parallel: bool = True,
+        max_concurrent: int = 5,
+        verbose: bool = False,
+        default_branch: Branch | ID.Ref | None = None,
+    ) -> dict[str, Any]:
+        """
+        Execute a graph-based workflow using multi-branch orchestration.
+
+        This is a Session-native operation that coordinates execution across
+        multiple branches for parallel processing.
+
+        Args:
+            graph: The workflow graph containing Operation nodes
+            context: Initial context for the workflow
+            parallel: Whether to execute independent operations in parallel
+            max_concurrent: Maximum concurrent operations (branches)
+            verbose: Enable verbose logging
+            default_branch: Branch to use as default (defaults to self.default_branch)
+            **kwargs: Additional arguments passed to operations
+
+        Returns:
+            Execution results with completed operations and final context
+        """
+        from lionagi.operations.flow import flow
+
+        # Use specified branch or session's default
+        branch = default_branch or self.default_branch
+        if isinstance(branch, (str, IDType)):
+            branch = self.branches[branch]
+
+        return await flow(
+            branch=branch,
+            graph=graph,
+            context=context,
+            parallel=parallel,
+            max_concurrent=max_concurrent,
+            verbose=verbose,
+            session=self,
+        )
 
 
 __all__ = ["Session"]
