@@ -7,6 +7,9 @@ import logging
 from pydantic import BaseModel, Field
 
 from . import _types as types
+from .operations import Operation
+from .operations import OperationGraphBuilder as Builder
+from .operations import brainstorm, flow, plan
 from .service.imodel import iModel
 from .session.session import Branch, Session
 from .version import __version__
@@ -23,4 +26,9 @@ __all__ = (
     "BaseModel",
     "Field",
     "logger",
+    "Builder",
+    "Operation",
+    "brainstorm",
+    "flow",
+    "plan",
 )
