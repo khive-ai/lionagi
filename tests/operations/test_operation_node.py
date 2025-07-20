@@ -29,7 +29,8 @@ def test_operation_creation():
     """Test creating an Operation with various parameter types."""
     # Test with dict parameters
     op1 = Operation(
-        operation="chat", parameters={"instruction": "Hello", "temperature": 0.7}
+        operation="chat",
+        parameters={"instruction": "Hello", "temperature": 0.7},
     )
     assert op1.operation == "chat"
     assert op1.parameters["instruction"] == "Hello"
@@ -128,17 +129,17 @@ async def test_operation_invoke_chat():
     op = Operation(
         operation="chat", parameters={"instruction": "Hello, how are you?"}
     )
-    
+
     # Create a mock branch
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
-    
+
     # Mock the chat method
     async def mock_chat(**kwargs):
         return f"chat_response: {kwargs.get('instruction', 'default')}"
-    
+
     branch.chat = AsyncMock(side_effect=mock_chat)
-    
+
     await op.invoke(branch)
 
     # Verify operation was called
@@ -156,16 +157,16 @@ async def test_operation_invoke_with_basemodel_params():
     """Test invoking an operation with BaseModel parameters."""
     params = OpParams(instruction="Complex task", count=3, enabled=False)
     op = Operation(operation="operate", parameters=params)
-    
+
     # Create a mock branch
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
-    
+
     async def mock_operate(**kwargs):
         return {"operation": "operate", "result": "success"}
-    
+
     branch.operate = AsyncMock(side_effect=mock_operate)
-    
+
     await op.invoke(branch)
 
     # Verify the method was called with unpacked parameters
@@ -180,23 +181,29 @@ async def test_operation_invoke_with_basemodel_params():
 @pytest.mark.asyncio
 async def test_operation_invoke_streaming():
     """Test invoking a streaming operation (ReActStream)."""
-    op = Operation(operation="ReActStream", parameters={"query": "stream test"})
-    
+    op = Operation(
+        operation="ReActStream", parameters={"query": "stream test"}
+    )
+
     # Create a mock branch
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
-    
+
     async def mock_stream(**kwargs):
         """Mock streaming operation."""
         for i in range(3):
             yield f"stream_chunk_{i}"
-    
+
     branch.ReActStream = mock_stream
-    
+
     await op.invoke(branch)
 
     # Verify response is a list of streamed chunks
-    assert op.response == ["stream_chunk_0", "stream_chunk_1", "stream_chunk_2"]
+    assert op.response == [
+        "stream_chunk_0",
+        "stream_chunk_1",
+        "stream_chunk_2",
+    ]
     assert op.execution.status == EventStatus.COMPLETED
 
 
@@ -206,10 +213,12 @@ async def test_operation_invoke_all_operations():
     # Create a mock branch
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
-    
+
     # Set up all mock methods
     branch.chat = AsyncMock(return_value="chat_response: test")
-    branch.operate = AsyncMock(return_value={"operation": "operate", "result": "success"})
+    branch.operate = AsyncMock(
+        return_value={"operation": "operate", "result": "success"}
+    )
     branch.communicate = AsyncMock(return_value="communicate_response")
     branch.parse = AsyncMock(return_value={"parsed": True})
     branch.ReAct = AsyncMock(return_value={"react": "result"})
@@ -244,7 +253,7 @@ async def test_operation_invoke_invalid_operation():
     """Test invoking an operation with invalid operation type."""
     # Create a proper Branch instance so getattr works correctly
     branch = Branch(user="test_user", name="TestBranch")
-    
+
     # Create operation with valid type first
     op = Operation(operation="chat")
     # Then change to invalid type (bypassing validation)
@@ -261,14 +270,16 @@ async def test_operation_invoke_exception_handling():
     # Create a mock branch
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
-    
+
     # Mock method to raise exception
     async def failing_method(**kwargs):
         raise RuntimeError("Test error occurred")
 
     branch.chat = AsyncMock(side_effect=failing_method)
 
-    op = Operation(operation="chat", parameters={"instruction": "This will fail"})
+    op = Operation(
+        operation="chat", parameters={"instruction": "This will fail"}
+    )
     await op.invoke(branch)
 
     # Verify error handling
@@ -283,7 +294,7 @@ async def test_operation_invoke_cancellation():
     # Create a mock branch
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
-    
+
     # Mock method that will be cancelled
     async def slow_method(**kwargs):
         await asyncio.sleep(10)  # Long running operation
@@ -315,6 +326,7 @@ def test_operation_inheritance():
     assert hasattr(op, "metadata")
     # op.id is an IDType object
     from lionagi.protocols.generic.element import IDType
+
     assert isinstance(op.id, IDType)
 
     # Test Event properties
@@ -328,7 +340,8 @@ def test_operation_serialization():
     """Test serialization of Operation with different parameter types."""
     # Test with dict parameters
     op1 = Operation(
-        operation="chat", parameters={"instruction": "Hello", "temperature": 0.7}
+        operation="chat",
+        parameters={"instruction": "Hello", "temperature": 0.7},
     )
     data1 = op1.model_dump()
     assert data1["operation"] == "chat"
@@ -361,12 +374,12 @@ async def test_operation_concurrent_invocations():
     # Create a mock branch
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
-    
+
     # Mock chat method
     async def mock_chat(**kwargs):
         await asyncio.sleep(0.01)  # Small delay
         return f"chat_response: {kwargs.get('instruction', 'default')}"
-    
+
     branch.chat = AsyncMock(side_effect=mock_chat)
 
     # Create multiple operations

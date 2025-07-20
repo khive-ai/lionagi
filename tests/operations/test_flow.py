@@ -14,7 +14,9 @@ from lionagi.protocols.graph.edge import Edge, EdgeCondition
 from lionagi.protocols.graph.graph import Graph
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.providers.oai_ import OPENAI_CHAT_ENDPOINT_CONFIG
+from lionagi.service.connections.providers.oai_ import (
+    OPENAI_CHAT_ENDPOINT_CONFIG,
+)
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
@@ -78,15 +80,9 @@ def make_mock_branch(name: str = "TestBranch") -> Branch:
 async def test_flow_simple_linear():
     """Test flow execution with a simple linear graph (A -> B -> C)."""
     # Create operations
-    op_a = Operation(
-        operation="chat", parameters={"instruction": "Do task A"}
-    )
-    op_b = Operation(
-        operation="chat", parameters={"instruction": "Do task B"}
-    )
-    op_c = Operation(
-        operation="chat", parameters={"instruction": "Do task C"}
-    )
+    op_a = Operation(operation="chat", parameters={"instruction": "Do task A"})
+    op_b = Operation(operation="chat", parameters={"instruction": "Do task B"})
+    op_c = Operation(operation="chat", parameters={"instruction": "Do task C"})
 
     # Build graph
     graph = Graph()
@@ -103,7 +99,10 @@ async def test_flow_simple_linear():
     # Verify execution order
     assert result["completed_operations"] == [op_a.id, op_b.id, op_c.id]
     assert len(result["operation_results"]) == 3
-    assert all(res == "mocked_response" for res in result["operation_results"].values())
+    assert all(
+        res == "mocked_response"
+        for res in result["operation_results"].values()
+    )
 
 
 # Test parallel execution
@@ -134,7 +133,12 @@ async def test_flow_parallel_execution():
     session.default_branch = branch
 
     result = await flow(
-        branch, graph, parallel=True, max_concurrent=2, verbose=False, session=session
+        branch,
+        graph,
+        parallel=True,
+        max_concurrent=2,
+        verbose=False,
+        session=session,
     )
 
     # Verify all operations completed
@@ -148,7 +152,7 @@ async def test_flow_parallel_execution():
     # But we can verify the dependency constraints are respected
     # A must be in the completed list before we can verify B and C completed
     # D must be the last one (or at least after B and C)
-    
+
     # Since all 4 operations completed, the graph execution was successful
     # The exact order may vary due to parallel execution timing
 
@@ -158,18 +162,14 @@ async def test_flow_parallel_execution():
 async def test_flow_conditional_edges():
     """Test flow with conditional edges that route based on context."""
     # Create operations
-    op_start = Operation(
-        operation="chat", parameters={"instruction": "Start"}
-    )
+    op_start = Operation(operation="chat", parameters={"instruction": "Start"})
     op_path_a = Operation(
         operation="chat", parameters={"instruction": "Path A"}
     )
     op_path_b = Operation(
         operation="chat", parameters={"instruction": "Path B"}
     )
-    op_end = Operation(
-        operation="chat", parameters={"instruction": "End"}
-    )
+    op_end = Operation(operation="chat", parameters={"instruction": "End"})
 
     # Build graph with conditional edges
     graph = Graph()
@@ -199,7 +199,11 @@ async def test_flow_conditional_edges():
     # Test path A
     branch = make_mock_branch()
     result_a = await flow(
-        branch, graph, context={"test_value": "A"}, parallel=False, verbose=False
+        branch,
+        graph,
+        context={"test_value": "A"},
+        parallel=False,
+        verbose=False,
     )
     assert op_path_a.id in result_a["completed_operations"]
     assert op_path_b.id not in result_a["completed_operations"]
@@ -208,7 +212,11 @@ async def test_flow_conditional_edges():
     # Test path B
     branch = make_mock_branch()
     result_b = await flow(
-        branch, graph, context={"test_value": "B"}, parallel=False, verbose=False
+        branch,
+        graph,
+        context={"test_value": "B"},
+        parallel=False,
+        verbose=False,
     )
     assert op_path_b.id in result_b["completed_operations"]
     assert op_path_a.id not in result_b["completed_operations"]
@@ -311,7 +319,11 @@ async def test_flow_blocked_nodes():
     graph.add_node(op_start)
     graph.add_node(op_blocked)
     graph.add_edge(
-        Edge(head=op_start.id, tail=op_blocked.id, condition=AlwaysFalseCondition())
+        Edge(
+            head=op_start.id,
+            tail=op_blocked.id,
+            condition=AlwaysFalseCondition(),
+        )
     )
 
     branch = make_mock_branch()
@@ -355,7 +367,9 @@ async def test_flow_multiple_conditional_paths():
     session.branches.include(branch)
     session.default_branch = branch
 
-    result = await flow(branch, graph, parallel=True, verbose=False, session=session)
+    result = await flow(
+        branch, graph, parallel=True, verbose=False, session=session
+    )
 
     # All operations should complete
     assert len(result["completed_operations"]) == 4
@@ -374,7 +388,9 @@ async def test_flow_operation_error_handling():
         operation="chat",
         parameters={"instruction": "This will fail"},
     )
-    op_next = Operation(operation="chat", parameters={"instruction": "Next task"})
+    op_next = Operation(
+        operation="chat", parameters={"instruction": "Next task"}
+    )
 
     graph = Graph()
     graph.add_node(op_fail)
@@ -383,10 +399,10 @@ async def test_flow_operation_error_handling():
 
     # Create a custom mock branch for this test
     from unittest.mock import MagicMock
-    
+
     branch = MagicMock()
     branch.id = "test-branch-id"
-    
+
     # Mock the chat method to raise an error for the first operation
     async def failing_chat(**kwargs):
         if kwargs.get("instruction") == "This will fail":
@@ -480,7 +496,12 @@ async def test_flow_max_concurrent_limit():
 
     # Execute with max_concurrent=3
     await flow(
-        branch, graph, parallel=True, max_concurrent=3, verbose=False, session=session
+        branch,
+        graph,
+        parallel=True,
+        max_concurrent=3,
+        verbose=False,
+        session=session,
     )
 
     # Verify concurrent limit was respected
