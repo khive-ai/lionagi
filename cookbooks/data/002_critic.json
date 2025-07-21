@@ -1,0 +1,3834 @@
+{
+    "id": "5f8e67e3-2242-43c2-a106-eb86819d3012",
+    "created_at": 1753071248.604208,
+    "metadata": {},
+    "user": null,
+    "name": null,
+    "messages": {
+        "id": "a57aff7c-49fc-4476-bbc0-9ec76e67cf8a",
+        "created_at": 1753071248.60453,
+        "metadata": {
+            "lion_class": "lionagi.protocols.generic.pile.Pile"
+        },
+        "collections": [
+            {
+                "id": "ba667b0f-203d-4ede-af0d-139746f91318",
+                "created_at": 1753071248.604594,
+                "metadata": {
+                    "lion_class": "lionagi.protocols.messages.system.System"
+                },
+                "content": {
+                    "system_message": "you are a respected commentator, you are artistically logical"
+                },
+                "embedding": null,
+                "role": "system",
+                "template": null,
+                "sender": "system",
+                "recipient": "5f8e67e3-2242-43c2-a106-eb86819d3012"
+            },
+            {
+                "id": "9a5e6cca-9d54-414d-ab4d-04d43063581d",
+                "created_at": 1753071248.60514,
+                "metadata": {
+                    "lion_class": "lionagi.protocols.messages.instruction.Instruction"
+                },
+                "content": {
+                    "context": [
+                        {
+                            "joke1": {
+                                "prompt": "short joke: a blue whale and a big shark meet at the bar and start dancing",
+                                "response": "So this blue whale and a big shark walk into a bar, see each other, and just start dancing. I guess even sea monsters know it\u2019s time to shake a fin\u2014because nothing says \u201cgenuine connection\u201d like synchronized swimming in a speakeasy!"
+                            },
+                            "joke2": {
+                                "prompt": "continue the joke: and then they stopped",
+                                "response": "And then they stopped\u2014turns out even giants and predators have their limits. Apparently, the dance floor wasn\u2019t big enough for a whale-sized twirl and a shark-sized splash!"
+                            }
+                        }
+                    ],
+                    "instruction": "short comments, what do you think about the first joke?",
+                    "guidance": "you are a respected commentator, you are artistically logical\n\n\n"
+                },
+                "embedding": null,
+                "role": "user",
+                "template": null,
+                "sender": "user",
+                "recipient": "5f8e67e3-2242-43c2-a106-eb86819d3012"
+            },
+            {
+                "id": "3bc27fc1-5a90-4fc0-aa9e-28cda5892ca1",
+                "created_at": 1753071249.204597,
+                "metadata": {
+                    "model_response": {
+                        "id": "chatcmpl-BvcCelVG2JKppX47d06TExgr5EZUW",
+                        "object": "chat.completion",
+                        "created": 1753071248,
+                        "model": "gpt-4.1-nano-2025-04-14",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "The first joke cleverly paints a whimsical underwater scene, anthropomorphizing sea creatures in a human setting. It delights with its playful imagery and sets a light, humorous tone\u2014showing that even the ocean\u2019s giants can join in the rhythm of fun.",
+                                    "refusal": null,
+                                    "annotations": []
+                                },
+                                "logprobs": null,
+                                "finish_reason": "stop"
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 190,
+                            "completion_tokens": 51,
+                            "total_tokens": 241,
+                            "prompt_tokens_details": {
+                                "cached_tokens": 0,
+                                "audio_tokens": 0
+                            },
+                            "completion_tokens_details": {
+                                "reasoning_tokens": 0,
+                                "audio_tokens": 0,
+                                "accepted_prediction_tokens": 0,
+                                "rejected_prediction_tokens": 0
+                            }
+                        },
+                        "service_tier": "default",
+                        "system_fingerprint": null
+                    },
+                    "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
+                },
+                "content": {
+                    "assistant_response": "The first joke cleverly paints a whimsical underwater scene, anthropomorphizing sea creatures in a human setting. It delights with its playful imagery and sets a light, humorous tone\u2014showing that even the ocean\u2019s giants can join in the rhythm of fun."
+                },
+                "embedding": null,
+                "role": "assistant",
+                "template": null,
+                "sender": "5f8e67e3-2242-43c2-a106-eb86819d3012",
+                "recipient": "user"
+            },
+            {
+                "id": "25413925-eda6-4938-bb23-716dfac047e3",
+                "created_at": 1753071249.205307,
+                "metadata": {
+                    "lion_class": "lionagi.protocols.messages.instruction.Instruction"
+                },
+                "content": {
+                    "context": [],
+                    "instruction": "provide a concise artistic critique on both jokes, and rate from 1-10"
+                },
+                "embedding": null,
+                "role": "user",
+                "template": null,
+                "sender": "user",
+                "recipient": "5f8e67e3-2242-43c2-a106-eb86819d3012"
+            },
+            {
+                "id": "340ef3d9-195d-48d2-aecb-b326d279dd20",
+                "created_at": 1753071250.788519,
+                "metadata": {
+                    "model_response": {
+                        "id": "chatcmpl-BvcCfKvuj6pqmAroMzqZ0lSz2MJNG",
+                        "object": "chat.completion",
+                        "created": 1753071249,
+                        "model": "gpt-4.1-nano-2025-04-14",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "**First joke critique and rating:**  \nThe joke's charm lies in its imaginative scenario, blending marine life with human social habits. Its playful tone and vivid imagery create a delightful, visual humor that engages the audience. I\u2019d rate it an 8 for creativity and lightheartedness.\n\n**Second joke critique and rating:**  \nThis continuation offers a clever, humorous twist that adds depth to the initial scene. The punchline\u2019s surprise highlights the limitations of even fantastical characters, grounding the whimsy with a touch of realism. I\u2019d rate it a 7 for wit and effective timing.",
+                                    "refusal": null,
+                                    "annotations": []
+                                },
+                                "logprobs": null,
+                                "finish_reason": "stop"
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 291,
+                            "completion_tokens": 118,
+                            "total_tokens": 409,
+                            "prompt_tokens_details": {
+                                "cached_tokens": 0,
+                                "audio_tokens": 0
+                            },
+                            "completion_tokens_details": {
+                                "reasoning_tokens": 0,
+                                "audio_tokens": 0,
+                                "accepted_prediction_tokens": 0,
+                                "rejected_prediction_tokens": 0
+                            }
+                        },
+                        "service_tier": "default",
+                        "system_fingerprint": null
+                    },
+                    "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
+                },
+                "content": {
+                    "assistant_response": "**First joke critique and rating:**  \nThe joke's charm lies in its imaginative scenario, blending marine life with human social habits. Its playful tone and vivid imagery create a delightful, visual humor that engages the audience. I\u2019d rate it an 8 for creativity and lightheartedness.\n\n**Second joke critique and rating:**  \nThis continuation offers a clever, humorous twist that adds depth to the initial scene. The punchline\u2019s surprise highlights the limitations of even fantastical characters, grounding the whimsy with a touch of realism. I\u2019d rate it a 7 for wit and effective timing."
+                },
+                "embedding": null,
+                "role": "assistant",
+                "template": null,
+                "sender": "5f8e67e3-2242-43c2-a106-eb86819d3012",
+                "recipient": "user"
+            }
+        ],
+        "strict_type": false
+    },
+    "logs": {
+        "id": "cd24c046-9475-4bc4-8caa-fc69f73bd29c",
+        "created_at": 1753071248.604941,
+        "metadata": {
+            "lion_class": "lionagi.protocols.generic.pile.Pile"
+        },
+        "collections": [
+            {
+                "id": "c7d1c440-6050-439e-80d4-e36d6a31761a",
+                "created_at": 1753071249.204233,
+                "metadata": {
+                    "lion_class": "lionagi.protocols.generic.log.Log"
+                },
+                "content": {
+                    "id": "98354345-ab30-47d5-8aaa-ba8060bd5e42",
+                    "created_at": 1753071248.605355,
+                    "metadata": {
+                        "lion_class": "lionagi.service.connections.api_calling.APICalling"
+                    },
+                    "execution": {
+                        "status": "completed",
+                        "duration": 0.5978616250013147,
+                        "response": {
+                            "id": "chatcmpl-BvcCelVG2JKppX47d06TExgr5EZUW",
+                            "object": "chat.completion",
+                            "created": 1753071248,
+                            "model": "gpt-4.1-nano-2025-04-14",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "The first joke cleverly paints a whimsical underwater scene, anthropomorphizing sea creatures in a human setting. It delights with its playful imagery and sets a light, humorous tone\u2014showing that even the ocean\u2019s giants can join in the rhythm of fun.",
+                                        "refusal": null,
+                                        "annotations": []
+                                    },
+                                    "logprobs": null,
+                                    "finish_reason": "stop"
+                                }
+                            ],
+                            "usage": {
+                                "prompt_tokens": 190,
+                                "completion_tokens": 51,
+                                "total_tokens": 241,
+                                "prompt_tokens_details": {
+                                    "cached_tokens": 0,
+                                    "audio_tokens": 0
+                                },
+                                "completion_tokens_details": {
+                                    "reasoning_tokens": 0,
+                                    "audio_tokens": 0,
+                                    "accepted_prediction_tokens": 0,
+                                    "rejected_prediction_tokens": 0
+                                }
+                            },
+                            "service_tier": "default",
+                            "system_fingerprint": null
+                        },
+                        "error": null
+                    },
+                    "streaming": false,
+                    "payload": {
+                        "model": "gpt-4.1-nano",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "## GUIDANCE:\n\n  you are a respected commentator, you are artistically logical\n\n## INSTRUCTION:\n\n  short comments, what do you think about the first joke?\n\n## CONTEXT:\n\n  -\n    - joke1:\n      - prompt: short joke: a blue whale and a big shark meet at the bar and start dancing\n      - response: So this blue whale and a big shark walk into a bar, see each other, and just start dancing. I guess even sea monsters know it\u2019s time to shake a fin\u2014because nothing says \u201cgenuine connection\u201d like synchronized swimming in a speakeasy!\n    - joke2:\n      - prompt: continue the joke: and then they stopped\n      - response: And then they stopped\u2014turns out even giants and predators have their limits. Apparently, the dance floor wasn\u2019t big enough for a whale-sized twirl and a shark-sized splash!"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "id": "23676dd3-685d-4f8c-bc5a-6646f1ee972d",
+                "created_at": 1753071250.788454,
+                "metadata": {
+                    "lion_class": "lionagi.protocols.generic.log.Log"
+                },
+                "content": {
+                    "id": "60034b26-6e84-4971-902b-b6e3f31abc8c",
+                    "created_at": 1753071249.206325,
+                    "metadata": {
+                        "lion_class": "lionagi.service.connections.api_calling.APICalling"
+                    },
+                    "execution": {
+                        "status": "completed",
+                        "duration": 1.5815284170002997,
+                        "response": {
+                            "id": "chatcmpl-BvcCfKvuj6pqmAroMzqZ0lSz2MJNG",
+                            "object": "chat.completion",
+                            "created": 1753071249,
+                            "model": "gpt-4.1-nano-2025-04-14",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "**First joke critique and rating:**  \nThe joke's charm lies in its imaginative scenario, blending marine life with human social habits. Its playful tone and vivid imagery create a delightful, visual humor that engages the audience. I\u2019d rate it an 8 for creativity and lightheartedness.\n\n**Second joke critique and rating:**  \nThis continuation offers a clever, humorous twist that adds depth to the initial scene. The punchline\u2019s surprise highlights the limitations of even fantastical characters, grounding the whimsy with a touch of realism. I\u2019d rate it a 7 for wit and effective timing.",
+                                        "refusal": null,
+                                        "annotations": []
+                                    },
+                                    "logprobs": null,
+                                    "finish_reason": "stop"
+                                }
+                            ],
+                            "usage": {
+                                "prompt_tokens": 291,
+                                "completion_tokens": 118,
+                                "total_tokens": 409,
+                                "prompt_tokens_details": {
+                                    "cached_tokens": 0,
+                                    "audio_tokens": 0
+                                },
+                                "completion_tokens_details": {
+                                    "reasoning_tokens": 0,
+                                    "audio_tokens": 0,
+                                    "accepted_prediction_tokens": 0,
+                                    "rejected_prediction_tokens": 0
+                                }
+                            },
+                            "service_tier": "default",
+                            "system_fingerprint": null
+                        },
+                        "error": null
+                    },
+                    "streaming": false,
+                    "payload": {
+                        "model": "gpt-4.1-nano",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "## GUIDANCE:\n\n  you are a respected commentator, you are artistically logical\n  you are a respected commentator, you are artistically logical\n\n## INSTRUCTION:\n\n  short comments, what do you think about the first joke?\n\n## CONTEXT:\n\n  -\n    - joke1:\n      - prompt: short joke: a blue whale and a big shark meet at the bar and start dancing\n      - response: So this blue whale and a big shark walk into a bar, see each other, and just start dancing. I guess even sea monsters know it\u2019s time to shake a fin\u2014because nothing says \u201cgenuine connection\u201d like synchronized swimming in a speakeasy!\n    - joke2:\n      - prompt: continue the joke: and then they stopped\n      - response: And then they stopped\u2014turns out even giants and predators have their limits. Apparently, the dance floor wasn\u2019t big enough for a whale-sized twirl and a shark-sized splash!"
+                            },
+                            {
+                                "role": "assistant",
+                                "content": "# Assistant Response\n\n**Response**:\nThe first joke cleverly paints a whimsical underwater scene, anthropomorphizing sea creatures in a human setting. It delights with its playful imagery and sets a light, humorous tone\u2014showing that even the ocean\u2019s giants can join in the rhythm of fun."
+                            },
+                            {
+                                "role": "user",
+                                "content": "## INSTRUCTION:\n\n  provide a concise artistic critique on both jokes, and rate from 1-10"
+                            }
+                        ]
+                    }
+                }
+            }
+        ],
+        "strict_type": true
+    },
+    "chat_model": {
+        "endpoint": {
+            "retry_config": null,
+            "circuit_breaker": null,
+            "config": {
+                "name": "openai_chat",
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "endpoint": "chat/completions",
+                "method": "POST",
+                "params": {},
+                "content_type": "application/json",
+                "auth_type": "bearer",
+                "default_headers": {},
+                "request_options": {
+                    "$defs": {
+                        "Audio": {
+                            "description": "Data about a previous audio response from the model.\n[Learn more](/docs/guides/audio).",
+                            "properties": {
+                                "id": {
+                                    "title": "Id",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id"
+                            ],
+                            "title": "Audio",
+                            "type": "object"
+                        },
+                        "Audio2": {
+                            "description": "Parameters for audio output. Required when audio output is requested with\n`modalities: [\"audio\"]`. [Learn more](/docs/guides/audio).",
+                            "properties": {
+                                "voice": {
+                                    "$ref": "#/$defs/VoiceIdsShared"
+                                },
+                                "format": {
+                                    "enum": [
+                                        "wav",
+                                        "aac",
+                                        "mp3",
+                                        "flac",
+                                        "opus",
+                                        "pcm16"
+                                    ],
+                                    "title": "Format",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "voice",
+                                "format"
+                            ],
+                            "title": "Audio2",
+                            "type": "object"
+                        },
+                        "ChatCompletionFunctionCallOption": {
+                            "description": "Specifying a particular function via `{\"name\": \"my_function\"}` forces the model to call that function.",
+                            "properties": {
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "ChatCompletionFunctionCallOption",
+                            "type": "object"
+                        },
+                        "ChatCompletionFunctions": {
+                            "properties": {
+                                "description": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Description"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "parameters": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/FunctionParameters"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "ChatCompletionFunctions",
+                            "type": "object"
+                        },
+                        "ChatCompletionMessageToolCall": {
+                            "properties": {
+                                "id": {
+                                    "title": "Id",
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "function": {
+                                    "$ref": "#/$defs/Function1"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "function"
+                            ],
+                            "title": "ChatCompletionMessageToolCall",
+                            "type": "object"
+                        },
+                        "ChatCompletionMessageToolCalls": {
+                            "description": "The tool calls generated by the model, such as function calls.",
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionMessageToolCall"
+                            },
+                            "title": "ChatCompletionMessageToolCalls",
+                            "type": "array"
+                        },
+                        "ChatCompletionNamedToolChoice": {
+                            "description": "Specifies a tool the model should use. Use to force the model to call a specific function.",
+                            "properties": {
+                                "type": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "function": {
+                                    "$ref": "#/$defs/Function3"
+                                }
+                            },
+                            "required": [
+                                "function"
+                            ],
+                            "title": "ChatCompletionNamedToolChoice",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestAssistantMessage": {
+                            "description": "Messages sent by the model in response to user messages.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Content"
+                                },
+                                "refusal": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Refusal"
+                                },
+                                "role": {
+                                    "const": "assistant",
+                                    "default": "assistant",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                },
+                                "audio": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/Audio"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "tool_calls": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/ChatCompletionMessageToolCalls"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "function_call": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/FunctionCall"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                }
+                            },
+                            "title": "ChatCompletionRequestAssistantMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestAssistantMessageContentPart": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartRefusal"
+                                }
+                            ],
+                            "title": "ChatCompletionRequestAssistantMessageContentPart"
+                        },
+                        "ChatCompletionRequestDeveloperMessage": {
+                            "description": "Developer-provided instructions that the model should follow, regardless of\nmessages sent by the user. With o1 models and newer, `developer` messages\nreplace the previous `system` messages.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content1"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "role": {
+                                    "const": "developer",
+                                    "default": "developer",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "ChatCompletionRequestDeveloperMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestFunctionMessage": {
+                            "properties": {
+                                "role": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "title": "Content",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "content",
+                                "name"
+                            ],
+                            "title": "ChatCompletionRequestFunctionMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessage": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestDeveloperMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestSystemMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestUserMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestAssistantMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestToolMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestFunctionMessage"
+                                }
+                            ],
+                            "title": "ChatCompletionRequestMessage"
+                        },
+                        "ChatCompletionRequestMessageContentPartAudio": {
+                            "description": "Learn about [audio inputs](/docs/guides/audio).",
+                            "properties": {
+                                "type": {
+                                    "const": "input_audio",
+                                    "default": "input_audio",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "input_audio": {
+                                    "$ref": "#/$defs/InputAudio"
+                                }
+                            },
+                            "required": [
+                                "input_audio"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartAudio",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartFile": {
+                            "description": "Learn about [file inputs](/docs/guides/text) for text generation.",
+                            "properties": {
+                                "type": {
+                                    "const": "file",
+                                    "default": "file",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "file": {
+                                    "$ref": "#/$defs/File"
+                                }
+                            },
+                            "required": [
+                                "file"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartFile",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartImage": {
+                            "description": "Learn about [image inputs](/docs/guides/vision).",
+                            "properties": {
+                                "type": {
+                                    "const": "image_url",
+                                    "default": "image_url",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "image_url": {
+                                    "$ref": "#/$defs/ImageUrl"
+                                }
+                            },
+                            "required": [
+                                "image_url"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartImage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartRefusal": {
+                            "properties": {
+                                "type": {
+                                    "const": "refusal",
+                                    "default": "refusal",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "refusal": {
+                                    "title": "Refusal",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "refusal"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartRefusal",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartText": {
+                            "description": "Learn about [text inputs](/docs/guides/text-generation).",
+                            "properties": {
+                                "type": {
+                                    "const": "text",
+                                    "default": "text",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "text": {
+                                    "title": "Text",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "text"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartText",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestSystemMessage": {
+                            "description": "Developer-provided instructions that the model should follow, regardless of\nmessages sent by the user. With o1 models and newer, use `developer` messages\nfor this purpose instead.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content2"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "role": {
+                                    "const": "system",
+                                    "default": "system",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "ChatCompletionRequestSystemMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestSystemMessageContentPart": {
+                            "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText",
+                            "title": "ChatCompletionRequestSystemMessageContentPart"
+                        },
+                        "ChatCompletionRequestToolMessage": {
+                            "properties": {
+                                "role": {
+                                    "const": "tool",
+                                    "default": "tool",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content3"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "tool_call_id": {
+                                    "title": "Tool Call Id",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "content",
+                                "tool_call_id"
+                            ],
+                            "title": "ChatCompletionRequestToolMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestToolMessageContentPart": {
+                            "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText",
+                            "title": "ChatCompletionRequestToolMessageContentPart"
+                        },
+                        "ChatCompletionRequestUserMessage": {
+                            "description": "Messages sent by an end user, containing prompts or additional context\ninformation.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content4"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "role": {
+                                    "const": "user",
+                                    "default": "user",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "ChatCompletionRequestUserMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestUserMessageContentPart": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartImage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartAudio"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartFile"
+                                }
+                            ],
+                            "title": "ChatCompletionRequestUserMessageContentPart"
+                        },
+                        "ChatCompletionStreamOptions": {
+                            "description": "Options for streaming response. Only set this when you set `stream: true`.",
+                            "properties": {
+                                "include_usage": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Include Usage"
+                                }
+                            },
+                            "title": "ChatCompletionStreamOptions",
+                            "type": "object"
+                        },
+                        "ChatCompletionTool": {
+                            "properties": {
+                                "type": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "function": {
+                                    "$ref": "#/$defs/FunctionObject"
+                                }
+                            },
+                            "required": [
+                                "function"
+                            ],
+                            "title": "ChatCompletionTool",
+                            "type": "object"
+                        },
+                        "ChatCompletionToolChoiceOption": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "none",
+                                        "auto",
+                                        "required"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionNamedToolChoice"
+                                }
+                            ],
+                            "title": "ChatCompletionToolChoiceOption"
+                        },
+                        "Content": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/$defs/ChatCompletionRequestAssistantMessageContentPart"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Content"
+                        },
+                        "Content1": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                            },
+                            "minItems": 1,
+                            "title": "Content1",
+                            "type": "array"
+                        },
+                        "Content2": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestSystemMessageContentPart"
+                            },
+                            "minItems": 1,
+                            "title": "Content2",
+                            "type": "array"
+                        },
+                        "Content3": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestToolMessageContentPart"
+                            },
+                            "minItems": 1,
+                            "title": "Content3",
+                            "type": "array"
+                        },
+                        "Content4": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestUserMessageContentPart"
+                            },
+                            "minItems": 1,
+                            "title": "Content4",
+                            "type": "array"
+                        },
+                        "Content8": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                            },
+                            "minItems": 1,
+                            "title": "Content8",
+                            "type": "array"
+                        },
+                        "File": {
+                            "properties": {
+                                "filename": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Filename"
+                                },
+                                "file_data": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "File Data"
+                                },
+                                "file_id": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "File Id"
+                                }
+                            },
+                            "title": "File",
+                            "type": "object"
+                        },
+                        "Function1": {
+                            "description": "The function that the model called.",
+                            "properties": {
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "arguments": {
+                                    "title": "Arguments",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "arguments"
+                            ],
+                            "title": "Function1",
+                            "type": "object"
+                        },
+                        "Function3": {
+                            "properties": {
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "Function3",
+                            "type": "object"
+                        },
+                        "FunctionCall": {
+                            "description": "Deprecated and replaced by `tool_calls`. The name and arguments of a function that should be called, as generated by the model.",
+                            "properties": {
+                                "arguments": {
+                                    "title": "Arguments",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "arguments",
+                                "name"
+                            ],
+                            "title": "FunctionCall",
+                            "type": "object"
+                        },
+                        "FunctionObject": {
+                            "properties": {
+                                "description": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Description"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "parameters": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/FunctionParameters"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "strict": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": false,
+                                    "title": "Strict"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "FunctionObject",
+                            "type": "object"
+                        },
+                        "FunctionParameters": {
+                            "additionalProperties": true,
+                            "description": "The parameters the functions accepts, described as a JSON Schema object. See the [guide](/docs/guides/function-calling) for examples, and the [JSON Schema reference](https://json-schema.org/understanding-json-schema/) for documentation about the format.\n\nOmitting `parameters` defines a function with an empty parameter list.",
+                            "properties": {},
+                            "title": "FunctionParameters",
+                            "type": "object"
+                        },
+                        "ImageUrl": {
+                            "properties": {
+                                "url": {
+                                    "format": "uri",
+                                    "minLength": 1,
+                                    "title": "Url",
+                                    "type": "string"
+                                },
+                                "detail": {
+                                    "anyOf": [
+                                        {
+                                            "enum": [
+                                                "auto",
+                                                "low",
+                                                "high"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": "auto",
+                                    "title": "Detail"
+                                }
+                            },
+                            "required": [
+                                "url"
+                            ],
+                            "title": "ImageUrl",
+                            "type": "object"
+                        },
+                        "InputAudio": {
+                            "properties": {
+                                "data": {
+                                    "title": "Data",
+                                    "type": "string"
+                                },
+                                "format": {
+                                    "enum": [
+                                        "wav",
+                                        "mp3"
+                                    ],
+                                    "title": "Format",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "data",
+                                "format"
+                            ],
+                            "title": "InputAudio",
+                            "type": "object"
+                        },
+                        "JsonSchema": {
+                            "description": "Structured Outputs configuration options, including a JSON Schema.",
+                            "properties": {
+                                "description": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Description"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "schema_": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/ResponseFormatJsonSchemaSchema"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "strict": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": false,
+                                    "title": "Strict"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "JsonSchema",
+                            "type": "object"
+                        },
+                        "Metadata": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "description": "Set of 16 key-value pairs that can be attached to an object. This can be\nuseful for storing additional information about the object in a structured\nformat, and querying for objects via API or the dashboard.\n\nKeys are strings with a maximum length of 64 characters. Values are strings\nwith a maximum length of 512 characters.",
+                            "title": "Metadata"
+                        },
+                        "ModelIdsShared": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "enum": [
+                                        "gpt-4.1",
+                                        "gpt-4.1-mini",
+                                        "gpt-4.1-nano",
+                                        "gpt-4.1-2025-04-14",
+                                        "gpt-4.1-mini-2025-04-14",
+                                        "gpt-4.1-nano-2025-04-14",
+                                        "o4-mini",
+                                        "o4-mini-2025-04-16",
+                                        "o3",
+                                        "o3-2025-04-16",
+                                        "o3-mini",
+                                        "o3-mini-2025-01-31",
+                                        "o1",
+                                        "o1-2024-12-17",
+                                        "o1-preview",
+                                        "o1-preview-2024-09-12",
+                                        "o1-mini",
+                                        "o1-mini-2024-09-12",
+                                        "gpt-4o",
+                                        "gpt-4o-2024-11-20",
+                                        "gpt-4o-2024-08-06",
+                                        "gpt-4o-2024-05-13",
+                                        "gpt-4o-audio-preview",
+                                        "gpt-4o-audio-preview-2024-10-01",
+                                        "gpt-4o-audio-preview-2024-12-17",
+                                        "gpt-4o-mini-audio-preview",
+                                        "gpt-4o-mini-audio-preview-2024-12-17",
+                                        "gpt-4o-search-preview",
+                                        "gpt-4o-mini-search-preview",
+                                        "gpt-4o-search-preview-2025-03-11",
+                                        "gpt-4o-mini-search-preview-2025-03-11",
+                                        "chatgpt-4o-latest",
+                                        "gpt-4o-mini",
+                                        "gpt-4o-mini-2024-07-18",
+                                        "gpt-4-turbo",
+                                        "gpt-4-turbo-2024-04-09",
+                                        "gpt-4-0125-preview",
+                                        "gpt-4-turbo-preview",
+                                        "gpt-4-1106-preview",
+                                        "gpt-4-vision-preview",
+                                        "gpt-4",
+                                        "gpt-4-0314",
+                                        "gpt-4-0613",
+                                        "gpt-4-32k",
+                                        "gpt-4-32k-0314",
+                                        "gpt-4-32k-0613",
+                                        "gpt-3.5-turbo",
+                                        "gpt-3.5-turbo-16k",
+                                        "gpt-3.5-turbo-0301",
+                                        "gpt-3.5-turbo-0613",
+                                        "gpt-3.5-turbo-1106",
+                                        "gpt-3.5-turbo-0125",
+                                        "gpt-3.5-turbo-16k-0613"
+                                    ],
+                                    "type": "string"
+                                }
+                            ],
+                            "title": "ModelIdsShared"
+                        },
+                        "ParallelToolCalls": {
+                            "title": "ParallelToolCalls",
+                            "type": "boolean"
+                        },
+                        "PredictionContent": {
+                            "description": "Static predicted output content, such as the content of a text file that is\nbeing regenerated.",
+                            "properties": {
+                                "type": {
+                                    "const": "content",
+                                    "default": "content",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content8"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "PredictionContent",
+                            "type": "object"
+                        },
+                        "ReasoningEffort": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "low",
+                                        "medium",
+                                        "high"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": "medium",
+                            "title": "ReasoningEffort"
+                        },
+                        "ResponseFormatJsonObject": {
+                            "description": "JSON object response format. An older method of generating JSON responses.\nUsing `json_schema` is recommended for models that support it. Note that the\nmodel will not generate JSON without a system or user message instructing it\nto do so.",
+                            "properties": {
+                                "type": {
+                                    "const": "json_object",
+                                    "default": "json_object",
+                                    "title": "Type",
+                                    "type": "string"
+                                }
+                            },
+                            "title": "ResponseFormatJsonObject",
+                            "type": "object"
+                        },
+                        "ResponseFormatJsonSchema": {
+                            "description": "JSON Schema response format. Used to generate structured JSON responses.\nLearn more about [Structured Outputs](/docs/guides/structured-outputs).",
+                            "properties": {
+                                "type": {
+                                    "const": "json_schema",
+                                    "default": "json_schema",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "json_schema": {
+                                    "$ref": "#/$defs/JsonSchema",
+                                    "title": "JSON schema"
+                                }
+                            },
+                            "required": [
+                                "json_schema"
+                            ],
+                            "title": "ResponseFormatJsonSchema",
+                            "type": "object"
+                        },
+                        "ResponseFormatJsonSchemaSchema": {
+                            "additionalProperties": true,
+                            "description": "The schema for the response format, described as a JSON Schema object.\nLearn how to build JSON schemas [here](https://json-schema.org/).",
+                            "properties": {},
+                            "title": "ResponseFormatJsonSchemaSchema",
+                            "type": "object"
+                        },
+                        "ResponseFormatText": {
+                            "description": "Default response format. Used to generate text responses.",
+                            "properties": {
+                                "type": {
+                                    "const": "text",
+                                    "default": "text",
+                                    "title": "Type",
+                                    "type": "string"
+                                }
+                            },
+                            "title": "ResponseFormatText",
+                            "type": "object"
+                        },
+                        "ResponseModalities": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "enum": [
+                                            "text",
+                                            "audio"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "description": "Output types that you would like the model to generate.\nMost models are capable of generating text, which is the default:\n\n`[\"text\"]`\n\nThe `gpt-4o-audio-preview` model can also be used to\n[generate audio](/docs/guides/audio). To request that this model generate\nboth text and audio responses, you can use:\n\n`[\"text\", \"audio\"]`",
+                            "title": "ResponseModalities"
+                        },
+                        "ServiceTier": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "auto",
+                                        "default",
+                                        "flex"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": "auto",
+                            "title": "ServiceTier"
+                        },
+                        "StopConfiguration": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "$ref": "#/$defs/StopConfiguration1"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "StopConfiguration"
+                        },
+                        "StopConfiguration1": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "maxItems": 4,
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "StopConfiguration1"
+                        },
+                        "UserLocation": {
+                            "description": "Approximate location parameters for the search.",
+                            "properties": {
+                                "type": {
+                                    "const": "approximate",
+                                    "default": "approximate",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "approximate": {
+                                    "$ref": "#/$defs/WebSearchLocation"
+                                }
+                            },
+                            "required": [
+                                "approximate"
+                            ],
+                            "title": "UserLocation",
+                            "type": "object"
+                        },
+                        "VoiceIdsShared": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "enum": [
+                                        "alloy",
+                                        "ash",
+                                        "ballad",
+                                        "coral",
+                                        "echo",
+                                        "fable",
+                                        "onyx",
+                                        "nova",
+                                        "sage",
+                                        "shimmer",
+                                        "verse"
+                                    ],
+                                    "type": "string"
+                                }
+                            ],
+                            "title": "VoiceIdsShared"
+                        },
+                        "WebSearchContextSize": {
+                            "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                            ],
+                            "title": "WebSearchContextSize",
+                            "type": "string"
+                        },
+                        "WebSearchLocation": {
+                            "description": "Approximate location parameters for the search.",
+                            "properties": {
+                                "country": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Country"
+                                },
+                                "region": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Region"
+                                },
+                                "city": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "City"
+                                },
+                                "timezone": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Timezone"
+                                }
+                            },
+                            "title": "WebSearchLocation",
+                            "type": "object"
+                        },
+                        "WebSearchOptions": {
+                            "description": "This tool searches the web for relevant results to use in a response.\nLearn more about the [web search tool](/docs/guides/tools-web-search?api-mode=chat).",
+                            "properties": {
+                                "user_location": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/UserLocation"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "search_context_size": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/WebSearchContextSize"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            },
+                            "title": "WebSearchOptions",
+                            "type": "object"
+                        }
+                    },
+                    "properties": {
+                        "metadata": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/Metadata"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "temperature": {
+                            "anyOf": [
+                                {
+                                    "maximum": 2.0,
+                                    "minimum": 0.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 1,
+                            "examples": [
+                                1
+                            ],
+                            "title": "Temperature"
+                        },
+                        "top_p": {
+                            "anyOf": [
+                                {
+                                    "maximum": 1.0,
+                                    "minimum": 0.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 1,
+                            "examples": [
+                                1
+                            ],
+                            "title": "Top P"
+                        },
+                        "user": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "examples": [
+                                "user-1234"
+                            ],
+                            "title": "User"
+                        },
+                        "service_tier": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ServiceTier"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "messages": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestMessage"
+                            },
+                            "minItems": 1,
+                            "title": "Messages",
+                            "type": "array"
+                        },
+                        "model": {
+                            "$ref": "#/$defs/ModelIdsShared"
+                        },
+                        "modalities": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ResponseModalities"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "reasoning_effort": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ReasoningEffort"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "max_completion_tokens": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Max Completion Tokens"
+                        },
+                        "frequency_penalty": {
+                            "anyOf": [
+                                {
+                                    "maximum": 2.0,
+                                    "minimum": -2.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 0,
+                            "title": "Frequency Penalty"
+                        },
+                        "presence_penalty": {
+                            "anyOf": [
+                                {
+                                    "maximum": 2.0,
+                                    "minimum": -2.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 0,
+                            "title": "Presence Penalty"
+                        },
+                        "web_search_options": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/WebSearchOptions"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Web search"
+                        },
+                        "top_logprobs": {
+                            "anyOf": [
+                                {
+                                    "maximum": 20,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Top Logprobs"
+                        },
+                        "response_format": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ResponseFormatText"
+                                },
+                                {
+                                    "$ref": "#/$defs/ResponseFormatJsonSchema"
+                                },
+                                {
+                                    "$ref": "#/$defs/ResponseFormatJsonObject"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Response Format"
+                        },
+                        "audio": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/Audio2"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "store": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": false,
+                            "title": "Store"
+                        },
+                        "stream": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": false,
+                            "title": "Stream"
+                        },
+                        "stop": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/StopConfiguration"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "logit_bias": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": {
+                                        "type": "integer"
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Logit Bias"
+                        },
+                        "logprobs": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": false,
+                            "title": "Logprobs"
+                        },
+                        "max_tokens": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Max Tokens"
+                        },
+                        "n": {
+                            "anyOf": [
+                                {
+                                    "maximum": 128,
+                                    "minimum": 1,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 1,
+                            "examples": [
+                                1
+                            ],
+                            "title": "N"
+                        },
+                        "prediction": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/PredictionContent"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "seed": {
+                            "anyOf": [
+                                {
+                                    "maximum": 9223372036854776000,
+                                    "minimum": -9223372036854776000,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Seed"
+                        },
+                        "stream_options": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionStreamOptions"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "tools": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/$defs/ChatCompletionTool"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Tools"
+                        },
+                        "tool_choice": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionToolChoiceOption"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "parallel_tool_calls": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ParallelToolCalls"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "function_call": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "none",
+                                        "auto"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionFunctionCallOption"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Function Call"
+                        },
+                        "functions": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/$defs/ChatCompletionFunctions"
+                                    },
+                                    "maxItems": 128,
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Functions"
+                        }
+                    },
+                    "required": [
+                        "messages",
+                        "model"
+                    ],
+                    "title": "CreateChatCompletionRequest",
+                    "type": "object"
+                },
+                "timeout": 300,
+                "max_retries": 3,
+                "openai_compatible": false,
+                "requires_tokens": true,
+                "kwargs": {
+                    "model": "gpt-4.1-nano"
+                },
+                "client_kwargs": {}
+            }
+        },
+        "processor_config": {
+            "queue_capacity": 100,
+            "capacity_refresh_time": 60,
+            "interval": null,
+            "limit_requests": null,
+            "limit_tokens": null,
+            "concurrency_limit": null
+        },
+        "provider_metadata": {}
+    },
+    "parse_model": {
+        "endpoint": {
+            "retry_config": null,
+            "circuit_breaker": null,
+            "config": {
+                "name": "openai_chat",
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "endpoint": "chat/completions",
+                "method": "POST",
+                "params": {},
+                "content_type": "application/json",
+                "auth_type": "bearer",
+                "default_headers": {},
+                "request_options": {
+                    "$defs": {
+                        "Audio": {
+                            "description": "Data about a previous audio response from the model.\n[Learn more](/docs/guides/audio).",
+                            "properties": {
+                                "id": {
+                                    "title": "Id",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id"
+                            ],
+                            "title": "Audio",
+                            "type": "object"
+                        },
+                        "Audio2": {
+                            "description": "Parameters for audio output. Required when audio output is requested with\n`modalities: [\"audio\"]`. [Learn more](/docs/guides/audio).",
+                            "properties": {
+                                "voice": {
+                                    "$ref": "#/$defs/VoiceIdsShared"
+                                },
+                                "format": {
+                                    "enum": [
+                                        "wav",
+                                        "aac",
+                                        "mp3",
+                                        "flac",
+                                        "opus",
+                                        "pcm16"
+                                    ],
+                                    "title": "Format",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "voice",
+                                "format"
+                            ],
+                            "title": "Audio2",
+                            "type": "object"
+                        },
+                        "ChatCompletionFunctionCallOption": {
+                            "description": "Specifying a particular function via `{\"name\": \"my_function\"}` forces the model to call that function.",
+                            "properties": {
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "ChatCompletionFunctionCallOption",
+                            "type": "object"
+                        },
+                        "ChatCompletionFunctions": {
+                            "properties": {
+                                "description": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Description"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "parameters": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/FunctionParameters"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "ChatCompletionFunctions",
+                            "type": "object"
+                        },
+                        "ChatCompletionMessageToolCall": {
+                            "properties": {
+                                "id": {
+                                    "title": "Id",
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "function": {
+                                    "$ref": "#/$defs/Function1"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "function"
+                            ],
+                            "title": "ChatCompletionMessageToolCall",
+                            "type": "object"
+                        },
+                        "ChatCompletionMessageToolCalls": {
+                            "description": "The tool calls generated by the model, such as function calls.",
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionMessageToolCall"
+                            },
+                            "title": "ChatCompletionMessageToolCalls",
+                            "type": "array"
+                        },
+                        "ChatCompletionNamedToolChoice": {
+                            "description": "Specifies a tool the model should use. Use to force the model to call a specific function.",
+                            "properties": {
+                                "type": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "function": {
+                                    "$ref": "#/$defs/Function3"
+                                }
+                            },
+                            "required": [
+                                "function"
+                            ],
+                            "title": "ChatCompletionNamedToolChoice",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestAssistantMessage": {
+                            "description": "Messages sent by the model in response to user messages.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Content"
+                                },
+                                "refusal": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Refusal"
+                                },
+                                "role": {
+                                    "const": "assistant",
+                                    "default": "assistant",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                },
+                                "audio": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/Audio"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "tool_calls": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/ChatCompletionMessageToolCalls"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "function_call": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/FunctionCall"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                }
+                            },
+                            "title": "ChatCompletionRequestAssistantMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestAssistantMessageContentPart": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartRefusal"
+                                }
+                            ],
+                            "title": "ChatCompletionRequestAssistantMessageContentPart"
+                        },
+                        "ChatCompletionRequestDeveloperMessage": {
+                            "description": "Developer-provided instructions that the model should follow, regardless of\nmessages sent by the user. With o1 models and newer, `developer` messages\nreplace the previous `system` messages.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content1"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "role": {
+                                    "const": "developer",
+                                    "default": "developer",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "ChatCompletionRequestDeveloperMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestFunctionMessage": {
+                            "properties": {
+                                "role": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "title": "Content",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "content",
+                                "name"
+                            ],
+                            "title": "ChatCompletionRequestFunctionMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessage": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestDeveloperMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestSystemMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestUserMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestAssistantMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestToolMessage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestFunctionMessage"
+                                }
+                            ],
+                            "title": "ChatCompletionRequestMessage"
+                        },
+                        "ChatCompletionRequestMessageContentPartAudio": {
+                            "description": "Learn about [audio inputs](/docs/guides/audio).",
+                            "properties": {
+                                "type": {
+                                    "const": "input_audio",
+                                    "default": "input_audio",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "input_audio": {
+                                    "$ref": "#/$defs/InputAudio"
+                                }
+                            },
+                            "required": [
+                                "input_audio"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartAudio",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartFile": {
+                            "description": "Learn about [file inputs](/docs/guides/text) for text generation.",
+                            "properties": {
+                                "type": {
+                                    "const": "file",
+                                    "default": "file",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "file": {
+                                    "$ref": "#/$defs/File"
+                                }
+                            },
+                            "required": [
+                                "file"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartFile",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartImage": {
+                            "description": "Learn about [image inputs](/docs/guides/vision).",
+                            "properties": {
+                                "type": {
+                                    "const": "image_url",
+                                    "default": "image_url",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "image_url": {
+                                    "$ref": "#/$defs/ImageUrl"
+                                }
+                            },
+                            "required": [
+                                "image_url"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartImage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartRefusal": {
+                            "properties": {
+                                "type": {
+                                    "const": "refusal",
+                                    "default": "refusal",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "refusal": {
+                                    "title": "Refusal",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "refusal"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartRefusal",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestMessageContentPartText": {
+                            "description": "Learn about [text inputs](/docs/guides/text-generation).",
+                            "properties": {
+                                "type": {
+                                    "const": "text",
+                                    "default": "text",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "text": {
+                                    "title": "Text",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "text"
+                            ],
+                            "title": "ChatCompletionRequestMessageContentPartText",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestSystemMessage": {
+                            "description": "Developer-provided instructions that the model should follow, regardless of\nmessages sent by the user. With o1 models and newer, use `developer` messages\nfor this purpose instead.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content2"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "role": {
+                                    "const": "system",
+                                    "default": "system",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "ChatCompletionRequestSystemMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestSystemMessageContentPart": {
+                            "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText",
+                            "title": "ChatCompletionRequestSystemMessageContentPart"
+                        },
+                        "ChatCompletionRequestToolMessage": {
+                            "properties": {
+                                "role": {
+                                    "const": "tool",
+                                    "default": "tool",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content3"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "tool_call_id": {
+                                    "title": "Tool Call Id",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "content",
+                                "tool_call_id"
+                            ],
+                            "title": "ChatCompletionRequestToolMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestToolMessageContentPart": {
+                            "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText",
+                            "title": "ChatCompletionRequestToolMessageContentPart"
+                        },
+                        "ChatCompletionRequestUserMessage": {
+                            "description": "Messages sent by an end user, containing prompts or additional context\ninformation.",
+                            "properties": {
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content4"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                },
+                                "role": {
+                                    "const": "user",
+                                    "default": "user",
+                                    "title": "Role",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Name"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "ChatCompletionRequestUserMessage",
+                            "type": "object"
+                        },
+                        "ChatCompletionRequestUserMessageContentPart": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartImage"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartAudio"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionRequestMessageContentPartFile"
+                                }
+                            ],
+                            "title": "ChatCompletionRequestUserMessageContentPart"
+                        },
+                        "ChatCompletionStreamOptions": {
+                            "description": "Options for streaming response. Only set this when you set `stream: true`.",
+                            "properties": {
+                                "include_usage": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Include Usage"
+                                }
+                            },
+                            "title": "ChatCompletionStreamOptions",
+                            "type": "object"
+                        },
+                        "ChatCompletionTool": {
+                            "properties": {
+                                "type": {
+                                    "const": "function",
+                                    "default": "function",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "function": {
+                                    "$ref": "#/$defs/FunctionObject"
+                                }
+                            },
+                            "required": [
+                                "function"
+                            ],
+                            "title": "ChatCompletionTool",
+                            "type": "object"
+                        },
+                        "ChatCompletionToolChoiceOption": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "none",
+                                        "auto",
+                                        "required"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionNamedToolChoice"
+                                }
+                            ],
+                            "title": "ChatCompletionToolChoiceOption"
+                        },
+                        "Content": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/$defs/ChatCompletionRequestAssistantMessageContentPart"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Content"
+                        },
+                        "Content1": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                            },
+                            "minItems": 1,
+                            "title": "Content1",
+                            "type": "array"
+                        },
+                        "Content2": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestSystemMessageContentPart"
+                            },
+                            "minItems": 1,
+                            "title": "Content2",
+                            "type": "array"
+                        },
+                        "Content3": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestToolMessageContentPart"
+                            },
+                            "minItems": 1,
+                            "title": "Content3",
+                            "type": "array"
+                        },
+                        "Content4": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestUserMessageContentPart"
+                            },
+                            "minItems": 1,
+                            "title": "Content4",
+                            "type": "array"
+                        },
+                        "Content8": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestMessageContentPartText"
+                            },
+                            "minItems": 1,
+                            "title": "Content8",
+                            "type": "array"
+                        },
+                        "File": {
+                            "properties": {
+                                "filename": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Filename"
+                                },
+                                "file_data": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "File Data"
+                                },
+                                "file_id": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "File Id"
+                                }
+                            },
+                            "title": "File",
+                            "type": "object"
+                        },
+                        "Function1": {
+                            "description": "The function that the model called.",
+                            "properties": {
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "arguments": {
+                                    "title": "Arguments",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "arguments"
+                            ],
+                            "title": "Function1",
+                            "type": "object"
+                        },
+                        "Function3": {
+                            "properties": {
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "Function3",
+                            "type": "object"
+                        },
+                        "FunctionCall": {
+                            "description": "Deprecated and replaced by `tool_calls`. The name and arguments of a function that should be called, as generated by the model.",
+                            "properties": {
+                                "arguments": {
+                                    "title": "Arguments",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "arguments",
+                                "name"
+                            ],
+                            "title": "FunctionCall",
+                            "type": "object"
+                        },
+                        "FunctionObject": {
+                            "properties": {
+                                "description": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Description"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "parameters": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/FunctionParameters"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "strict": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": false,
+                                    "title": "Strict"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "FunctionObject",
+                            "type": "object"
+                        },
+                        "FunctionParameters": {
+                            "additionalProperties": true,
+                            "description": "The parameters the functions accepts, described as a JSON Schema object. See the [guide](/docs/guides/function-calling) for examples, and the [JSON Schema reference](https://json-schema.org/understanding-json-schema/) for documentation about the format.\n\nOmitting `parameters` defines a function with an empty parameter list.",
+                            "properties": {},
+                            "title": "FunctionParameters",
+                            "type": "object"
+                        },
+                        "ImageUrl": {
+                            "properties": {
+                                "url": {
+                                    "format": "uri",
+                                    "minLength": 1,
+                                    "title": "Url",
+                                    "type": "string"
+                                },
+                                "detail": {
+                                    "anyOf": [
+                                        {
+                                            "enum": [
+                                                "auto",
+                                                "low",
+                                                "high"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": "auto",
+                                    "title": "Detail"
+                                }
+                            },
+                            "required": [
+                                "url"
+                            ],
+                            "title": "ImageUrl",
+                            "type": "object"
+                        },
+                        "InputAudio": {
+                            "properties": {
+                                "data": {
+                                    "title": "Data",
+                                    "type": "string"
+                                },
+                                "format": {
+                                    "enum": [
+                                        "wav",
+                                        "mp3"
+                                    ],
+                                    "title": "Format",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "data",
+                                "format"
+                            ],
+                            "title": "InputAudio",
+                            "type": "object"
+                        },
+                        "JsonSchema": {
+                            "description": "Structured Outputs configuration options, including a JSON Schema.",
+                            "properties": {
+                                "description": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Description"
+                                },
+                                "name": {
+                                    "title": "Name",
+                                    "type": "string"
+                                },
+                                "schema_": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/ResponseFormatJsonSchemaSchema"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "strict": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": false,
+                                    "title": "Strict"
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "title": "JsonSchema",
+                            "type": "object"
+                        },
+                        "Metadata": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "description": "Set of 16 key-value pairs that can be attached to an object. This can be\nuseful for storing additional information about the object in a structured\nformat, and querying for objects via API or the dashboard.\n\nKeys are strings with a maximum length of 64 characters. Values are strings\nwith a maximum length of 512 characters.",
+                            "title": "Metadata"
+                        },
+                        "ModelIdsShared": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "enum": [
+                                        "gpt-4.1",
+                                        "gpt-4.1-mini",
+                                        "gpt-4.1-nano",
+                                        "gpt-4.1-2025-04-14",
+                                        "gpt-4.1-mini-2025-04-14",
+                                        "gpt-4.1-nano-2025-04-14",
+                                        "o4-mini",
+                                        "o4-mini-2025-04-16",
+                                        "o3",
+                                        "o3-2025-04-16",
+                                        "o3-mini",
+                                        "o3-mini-2025-01-31",
+                                        "o1",
+                                        "o1-2024-12-17",
+                                        "o1-preview",
+                                        "o1-preview-2024-09-12",
+                                        "o1-mini",
+                                        "o1-mini-2024-09-12",
+                                        "gpt-4o",
+                                        "gpt-4o-2024-11-20",
+                                        "gpt-4o-2024-08-06",
+                                        "gpt-4o-2024-05-13",
+                                        "gpt-4o-audio-preview",
+                                        "gpt-4o-audio-preview-2024-10-01",
+                                        "gpt-4o-audio-preview-2024-12-17",
+                                        "gpt-4o-mini-audio-preview",
+                                        "gpt-4o-mini-audio-preview-2024-12-17",
+                                        "gpt-4o-search-preview",
+                                        "gpt-4o-mini-search-preview",
+                                        "gpt-4o-search-preview-2025-03-11",
+                                        "gpt-4o-mini-search-preview-2025-03-11",
+                                        "chatgpt-4o-latest",
+                                        "gpt-4o-mini",
+                                        "gpt-4o-mini-2024-07-18",
+                                        "gpt-4-turbo",
+                                        "gpt-4-turbo-2024-04-09",
+                                        "gpt-4-0125-preview",
+                                        "gpt-4-turbo-preview",
+                                        "gpt-4-1106-preview",
+                                        "gpt-4-vision-preview",
+                                        "gpt-4",
+                                        "gpt-4-0314",
+                                        "gpt-4-0613",
+                                        "gpt-4-32k",
+                                        "gpt-4-32k-0314",
+                                        "gpt-4-32k-0613",
+                                        "gpt-3.5-turbo",
+                                        "gpt-3.5-turbo-16k",
+                                        "gpt-3.5-turbo-0301",
+                                        "gpt-3.5-turbo-0613",
+                                        "gpt-3.5-turbo-1106",
+                                        "gpt-3.5-turbo-0125",
+                                        "gpt-3.5-turbo-16k-0613"
+                                    ],
+                                    "type": "string"
+                                }
+                            ],
+                            "title": "ModelIdsShared"
+                        },
+                        "ParallelToolCalls": {
+                            "title": "ParallelToolCalls",
+                            "type": "boolean"
+                        },
+                        "PredictionContent": {
+                            "description": "Static predicted output content, such as the content of a text file that is\nbeing regenerated.",
+                            "properties": {
+                                "type": {
+                                    "const": "content",
+                                    "default": "content",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/Content8"
+                                        }
+                                    ],
+                                    "title": "Content"
+                                }
+                            },
+                            "required": [
+                                "content"
+                            ],
+                            "title": "PredictionContent",
+                            "type": "object"
+                        },
+                        "ReasoningEffort": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "low",
+                                        "medium",
+                                        "high"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": "medium",
+                            "title": "ReasoningEffort"
+                        },
+                        "ResponseFormatJsonObject": {
+                            "description": "JSON object response format. An older method of generating JSON responses.\nUsing `json_schema` is recommended for models that support it. Note that the\nmodel will not generate JSON without a system or user message instructing it\nto do so.",
+                            "properties": {
+                                "type": {
+                                    "const": "json_object",
+                                    "default": "json_object",
+                                    "title": "Type",
+                                    "type": "string"
+                                }
+                            },
+                            "title": "ResponseFormatJsonObject",
+                            "type": "object"
+                        },
+                        "ResponseFormatJsonSchema": {
+                            "description": "JSON Schema response format. Used to generate structured JSON responses.\nLearn more about [Structured Outputs](/docs/guides/structured-outputs).",
+                            "properties": {
+                                "type": {
+                                    "const": "json_schema",
+                                    "default": "json_schema",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "json_schema": {
+                                    "$ref": "#/$defs/JsonSchema",
+                                    "title": "JSON schema"
+                                }
+                            },
+                            "required": [
+                                "json_schema"
+                            ],
+                            "title": "ResponseFormatJsonSchema",
+                            "type": "object"
+                        },
+                        "ResponseFormatJsonSchemaSchema": {
+                            "additionalProperties": true,
+                            "description": "The schema for the response format, described as a JSON Schema object.\nLearn how to build JSON schemas [here](https://json-schema.org/).",
+                            "properties": {},
+                            "title": "ResponseFormatJsonSchemaSchema",
+                            "type": "object"
+                        },
+                        "ResponseFormatText": {
+                            "description": "Default response format. Used to generate text responses.",
+                            "properties": {
+                                "type": {
+                                    "const": "text",
+                                    "default": "text",
+                                    "title": "Type",
+                                    "type": "string"
+                                }
+                            },
+                            "title": "ResponseFormatText",
+                            "type": "object"
+                        },
+                        "ResponseModalities": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "enum": [
+                                            "text",
+                                            "audio"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "description": "Output types that you would like the model to generate.\nMost models are capable of generating text, which is the default:\n\n`[\"text\"]`\n\nThe `gpt-4o-audio-preview` model can also be used to\n[generate audio](/docs/guides/audio). To request that this model generate\nboth text and audio responses, you can use:\n\n`[\"text\", \"audio\"]`",
+                            "title": "ResponseModalities"
+                        },
+                        "ServiceTier": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "auto",
+                                        "default",
+                                        "flex"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": "auto",
+                            "title": "ServiceTier"
+                        },
+                        "StopConfiguration": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "$ref": "#/$defs/StopConfiguration1"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "StopConfiguration"
+                        },
+                        "StopConfiguration1": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "maxItems": 4,
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "StopConfiguration1"
+                        },
+                        "UserLocation": {
+                            "description": "Approximate location parameters for the search.",
+                            "properties": {
+                                "type": {
+                                    "const": "approximate",
+                                    "default": "approximate",
+                                    "title": "Type",
+                                    "type": "string"
+                                },
+                                "approximate": {
+                                    "$ref": "#/$defs/WebSearchLocation"
+                                }
+                            },
+                            "required": [
+                                "approximate"
+                            ],
+                            "title": "UserLocation",
+                            "type": "object"
+                        },
+                        "VoiceIdsShared": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "enum": [
+                                        "alloy",
+                                        "ash",
+                                        "ballad",
+                                        "coral",
+                                        "echo",
+                                        "fable",
+                                        "onyx",
+                                        "nova",
+                                        "sage",
+                                        "shimmer",
+                                        "verse"
+                                    ],
+                                    "type": "string"
+                                }
+                            ],
+                            "title": "VoiceIdsShared"
+                        },
+                        "WebSearchContextSize": {
+                            "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                            ],
+                            "title": "WebSearchContextSize",
+                            "type": "string"
+                        },
+                        "WebSearchLocation": {
+                            "description": "Approximate location parameters for the search.",
+                            "properties": {
+                                "country": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Country"
+                                },
+                                "region": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Region"
+                                },
+                                "city": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "City"
+                                },
+                                "timezone": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null,
+                                    "title": "Timezone"
+                                }
+                            },
+                            "title": "WebSearchLocation",
+                            "type": "object"
+                        },
+                        "WebSearchOptions": {
+                            "description": "This tool searches the web for relevant results to use in a response.\nLearn more about the [web search tool](/docs/guides/tools-web-search?api-mode=chat).",
+                            "properties": {
+                                "user_location": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/UserLocation"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": null
+                                },
+                                "search_context_size": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/$defs/WebSearchContextSize"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            },
+                            "title": "WebSearchOptions",
+                            "type": "object"
+                        }
+                    },
+                    "properties": {
+                        "metadata": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/Metadata"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "temperature": {
+                            "anyOf": [
+                                {
+                                    "maximum": 2.0,
+                                    "minimum": 0.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 1,
+                            "examples": [
+                                1
+                            ],
+                            "title": "Temperature"
+                        },
+                        "top_p": {
+                            "anyOf": [
+                                {
+                                    "maximum": 1.0,
+                                    "minimum": 0.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 1,
+                            "examples": [
+                                1
+                            ],
+                            "title": "Top P"
+                        },
+                        "user": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "examples": [
+                                "user-1234"
+                            ],
+                            "title": "User"
+                        },
+                        "service_tier": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ServiceTier"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "messages": {
+                            "items": {
+                                "$ref": "#/$defs/ChatCompletionRequestMessage"
+                            },
+                            "minItems": 1,
+                            "title": "Messages",
+                            "type": "array"
+                        },
+                        "model": {
+                            "$ref": "#/$defs/ModelIdsShared"
+                        },
+                        "modalities": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ResponseModalities"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "reasoning_effort": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ReasoningEffort"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "max_completion_tokens": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Max Completion Tokens"
+                        },
+                        "frequency_penalty": {
+                            "anyOf": [
+                                {
+                                    "maximum": 2.0,
+                                    "minimum": -2.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 0,
+                            "title": "Frequency Penalty"
+                        },
+                        "presence_penalty": {
+                            "anyOf": [
+                                {
+                                    "maximum": 2.0,
+                                    "minimum": -2.0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 0,
+                            "title": "Presence Penalty"
+                        },
+                        "web_search_options": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/WebSearchOptions"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Web search"
+                        },
+                        "top_logprobs": {
+                            "anyOf": [
+                                {
+                                    "maximum": 20,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Top Logprobs"
+                        },
+                        "response_format": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ResponseFormatText"
+                                },
+                                {
+                                    "$ref": "#/$defs/ResponseFormatJsonSchema"
+                                },
+                                {
+                                    "$ref": "#/$defs/ResponseFormatJsonObject"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Response Format"
+                        },
+                        "audio": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/Audio2"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "store": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": false,
+                            "title": "Store"
+                        },
+                        "stream": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": false,
+                            "title": "Stream"
+                        },
+                        "stop": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/StopConfiguration"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "logit_bias": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": {
+                                        "type": "integer"
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Logit Bias"
+                        },
+                        "logprobs": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": false,
+                            "title": "Logprobs"
+                        },
+                        "max_tokens": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Max Tokens"
+                        },
+                        "n": {
+                            "anyOf": [
+                                {
+                                    "maximum": 128,
+                                    "minimum": 1,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": 1,
+                            "examples": [
+                                1
+                            ],
+                            "title": "N"
+                        },
+                        "prediction": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/PredictionContent"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "seed": {
+                            "anyOf": [
+                                {
+                                    "maximum": 9223372036854776000,
+                                    "minimum": -9223372036854776000,
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Seed"
+                        },
+                        "stream_options": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionStreamOptions"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "tools": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/$defs/ChatCompletionTool"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Tools"
+                        },
+                        "tool_choice": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ChatCompletionToolChoiceOption"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "parallel_tool_calls": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/$defs/ParallelToolCalls"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "function_call": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "none",
+                                        "auto"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "$ref": "#/$defs/ChatCompletionFunctionCallOption"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Function Call"
+                        },
+                        "functions": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/$defs/ChatCompletionFunctions"
+                                    },
+                                    "maxItems": 128,
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "title": "Functions"
+                        }
+                    },
+                    "required": [
+                        "messages",
+                        "model"
+                    ],
+                    "title": "CreateChatCompletionRequest",
+                    "type": "object"
+                },
+                "timeout": 300,
+                "max_retries": 3,
+                "openai_compatible": false,
+                "requires_tokens": true,
+                "kwargs": {
+                    "model": "gpt-4o-mini"
+                },
+                "client_kwargs": {}
+            }
+        },
+        "processor_config": {
+            "queue_capacity": 100,
+            "capacity_refresh_time": 60,
+            "interval": null,
+            "limit_requests": null,
+            "limit_tokens": null,
+            "concurrency_limit": null
+        },
+        "provider_metadata": {}
+    },
+    "system": {
+        "id": "ba667b0f-203d-4ede-af0d-139746f91318",
+        "created_at": 1753071248.604594,
+        "metadata": {
+            "lion_class": "lionagi.protocols.messages.system.System"
+        },
+        "content": {
+            "system_message": "you are a respected commentator, you are artistically logical"
+        },
+        "embedding": null,
+        "role": "system",
+        "template": null,
+        "sender": "system",
+        "recipient": "5f8e67e3-2242-43c2-a106-eb86819d3012"
+    },
+    "log_config": {
+        "persist_dir": "./data/logs",
+        "subfolder": null,
+        "file_prefix": "log",
+        "capacity": 50,
+        "extension": ".json",
+        "use_timestamp": true,
+        "hash_digits": 5,
+        "auto_save_on_exit": true,
+        "clear_after_dump": true
+    }
+}
