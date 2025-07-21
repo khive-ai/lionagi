@@ -94,20 +94,12 @@ class ReActAnalysis(HashableModel):
         ),
     )
 
-    action_strategy: Literal["sequential", "concurrent", "batch"] = Field(
+    action_strategy: Literal["sequential", "concurrent"] = Field(
         "concurrent",
         description=(
             "Specifies how to invoke the planned actions:\n"
             "'sequential' => Each action is run in order, \n"
             "'concurrent' => All actions run in parallel, \n"
-            "'batch' => Divide actions into async batches of N (if reasonable)."
-        ),
-    )
-
-    action_batch_size: int | None = Field(
-        None,
-        description=(
-            "provide if and only if action_strategy is 'batch', this specifies the number of actions to run in parallel per batch."
         ),
     )
 

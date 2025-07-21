@@ -285,8 +285,6 @@ async def ReActStream(
         operate_kwargs["include_token_usage_to_model"] = (
             include_token_usage_to_model
         )
-        if analysis.action_batch_size:
-            operate_kwargs["action_batch_size"] = analysis.action_batch_size
         if irfm:
             operate_kwargs["field_models"] = operate_kwargs.get(
                 "field_models", []

@@ -135,7 +135,6 @@ class OutlineItem(HashableModel):
 class Outline(HashableModel):
     """
     A top-level outline for a document or article.
-    Usually used in early planning stages.
     """
 
     topic: str = Field(

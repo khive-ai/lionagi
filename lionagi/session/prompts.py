@@ -42,7 +42,6 @@ Actions are invoked by providing the tool function name and the required paramet
 and choose the appropriate action strategy.
 - 'sequential': execute actions in sequence
 - 'concurrent': execute all actions concurrently
-- 'batch': execute all actions in batch, each batch is concurrent
 
 ---
 ## Note:

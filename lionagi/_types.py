@@ -1,4 +1,5 @@
 from .fields import *
+from .models import *
 from .operations import (
     BrainstormOperation,
     ExpansionStrategy,
