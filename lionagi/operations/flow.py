@@ -3,10 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import contextlib
 from typing import Any
 
 from lionagi.operations.node import Operation
-from lionagi.protocols.types import Graph, Node
+from lionagi.operations.utils import prepare_session
+from lionagi.protocols.types import ID, Edge, Graph, Node
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 from lionagi.utils import to_dict
@@ -44,18 +46,9 @@ async def flow(
     if not graph.is_acyclic():
         raise ValueError("Graph must be acyclic for flow execution")
 
-    # Simple sequential execution on single branch
+    session, branch = prepare_session(session, branch)
     if not parallel or max_concurrent == 1:
         return await _execute_sequential(branch, graph, context, verbose)
-
-    # Parallel execution using session
-    if session is None:
-        # Create temporary session for this flow
-        from lionagi.session.session import Session
-
-        session = Session()
-        session.branches.include(branch)
-        session.default_branch = branch
 
     return await _execute_parallel(
         session, graph, context, max_concurrent, verbose
@@ -167,7 +160,7 @@ async def _execute_parallel(
 
         # Process nodes in dependency order
         remaining_nodes = {node.id for node in operation_nodes}
-        executing_tasks = {}  # node_id -> asyncio.Task
+        executing_tasks: dict[ID[Operation], asyncio.Task] = {}
         blocked_nodes = set()  # Nodes that have been checked and found blocked
 
         max_iterations = 1000  # Prevent infinite loops
@@ -392,7 +385,7 @@ async def _dependencies_satisfied_async(
 ) -> bool:
     """Check if node dependencies are satisfied and edge conditions pass."""
     # Get all incoming edges to this node
-    incoming_edges = []
+    incoming_edges: list[Edge] = []
     for edge in graph.internal_edges:
         if edge.tail == node.id:
             incoming_edges.append(edge)
@@ -406,10 +399,6 @@ async def _dependencies_satisfied_async(
     for edge in incoming_edges:
         # Check if predecessor is completed
         if edge.head not in completed:
-            # If edge has no condition, we need to wait for predecessor
-            if not edge.condition:
-                continue
-            # If edge has condition but predecessor not complete, skip
             continue
 
         # Predecessor is completed
@@ -423,12 +412,9 @@ async def _dependencies_satisfied_async(
                 result_value = to_dict(result_value, recursive=True)
 
             ctx = {"result": result_value, "context": execution_context or {}}
-            try:
+            with contextlib.suppress(Exception):
                 if await edge.condition.apply(ctx):
                     at_least_one_satisfied = True
-            except Exception as e:
-                # Condition evaluation failed
-                continue
         else:
             # No condition, edge is satisfied
             at_least_one_satisfied = True
