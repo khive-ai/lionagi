@@ -7,7 +7,9 @@ from lionagi.session.session import Branch, Session
 
 
 def prepare_session(
-    session=None, branch=None, branch_kwargs=None
+    session: Session | None = None,
+    branch: Branch | None = None,
+    branch_kwargs=None,
 ) -> tuple[Session, Branch]:
     if session is not None:
         if branch is not None:
