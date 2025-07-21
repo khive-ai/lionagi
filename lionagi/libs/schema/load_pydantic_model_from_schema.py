@@ -13,18 +13,16 @@ from pydantic import BaseModel, PydanticUserError
 
 from lionagi.utils import is_import_installed
 
-_HAS_DATAMODEL_CODE_GENERATOR = is_import_installed("datamodel-code-generator")
+_HAS_DATAMODEL_CODE_GENERATOR = is_import_installed("datamodel_code_generator")
 
-# Import at module level for easier mocking in tests
-if _HAS_DATAMODEL_CODE_GENERATOR:
-    from datamodel_code_generator import (
+try:
+    from datamodel_code_generator import (  # type: ignore[import]
         DataModelType,
         InputFileType,
         PythonVersion,
         generate,
     )
-else:
-    # Create dummy objects for when package is not installed
+except ImportError:
     DataModelType = None
     InputFileType = None
     PythonVersion = None

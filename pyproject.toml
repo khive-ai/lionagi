@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.13.5"
+version = "0.13.6"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -94,14 +94,18 @@ rich = [
     "rich>=13.0.0",
 ]
 
+schema = [
+    "datamodel-code-generator>=0.31.2",
+]
+
 all = [
     "lionagi[reader]",
     "lionagi[ollama]",
     "lionagi[claude-code]",
     "lionagi[mcp]",
     "lionagi[rich]",
+    "lionagi[schema]",
 ]
-
 
 
 [tool.black]
