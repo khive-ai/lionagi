@@ -920,7 +920,6 @@ class Branch(Element, Communicatable, Relational):
         action_strategy: Literal[
             "sequential", "concurrent", "batch"
         ] = "concurrent",
-        action_batch_size: int = None,
         verbose_action: bool = False,
         field_models: list[FieldModel] = None,
         exclude_fields: list | dict | None = None,
@@ -990,8 +989,6 @@ class Branch(Element, Communicatable, Relational):
                 Additional parameters for the `branch.act()` call if tools are invoked.
             action_strategy (Literal["sequential","concurrent","batch"], optional):
                 The strategy for invoking tools (default: "concurrent").
-            action_batch_size (int, optional):
-                The batch size for concurrent tool invocation if `action_strategy="batch"`.
             verbose_action (bool, optional):
                 If `True`, logs detailed information about tool invocation.
             field_models (list[FieldModel] | None, optional):
@@ -1041,7 +1038,6 @@ class Branch(Element, Communicatable, Relational):
             reason=reason,
             action_kwargs=action_kwargs,
             action_strategy=action_strategy,
-            action_batch_size=action_batch_size,
             verbose_action=verbose_action,
             field_models=field_models,
             exclude_fields=exclude_fields,
