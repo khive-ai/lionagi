@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 import os
 from typing import Any, TypeVar
 
@@ -16,6 +17,9 @@ from pydantic import (
 )
 
 from .header_factory import AUTH_TYPES
+
+logger = logging.getLogger(__name__)
+
 
 B = TypeVar("B", bound=type[BaseModel])
 
@@ -32,7 +36,7 @@ class EndpointConfig(BaseModel):
     auth_type: AUTH_TYPES = "bearer"
     default_headers: dict = {}
     request_options: B | None = None
-    api_key: str | SecretStr | None = None
+    api_key: str | SecretStr | None = Field(None, exclude=True)
     timeout: int = 300
     max_retries: int = 3
     openai_compatible: bool = False
@@ -98,9 +102,16 @@ class EndpointConfig(BaseModel):
                 return v.__class__
             if isinstance(v, dict | str):
                 from lionagi.libs.schema.load_pydantic_model_from_schema import (
+                    _HAS_DATAMODEL_CODE_GENERATOR,
                     load_pydantic_model_from_schema,
                 )
 
+                if not _HAS_DATAMODEL_CODE_GENERATOR:
+                    logger.warning(
+                        "datamodel-code-generator is not installed, "
+                        "request_options will not be validated"
+                    )
+                    return None
                 return load_pydantic_model_from_schema(v)
         except Exception as e:
             raise ValueError("Invalid request options") from e
