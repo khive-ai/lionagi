@@ -74,15 +74,16 @@ def test_operation_graph_id():
     """Test graph_id property getter and setter."""
     op = Operation(operation="chat")
 
-    # Test setting with string
-    op.graph_id = "test-graph-id"
-    assert op.graph_id == "test-graph-id"
-    assert op.metadata["graph_id"] == "test-graph-id"
+    # Test setting with valid UUID string
+    test_graph_uuid = "12345678-1234-4678-9234-567812345678"
+    op.graph_id = test_graph_uuid
+    assert str(op.graph_id) == test_graph_uuid
+    assert op.metadata["graph_id"] == test_graph_uuid
 
     # Test setting with UUID
-    test_uuid = UUID("87654321-4321-8765-4321-876543218765")
+    test_uuid = UUID("87654321-4321-4765-8321-876543218765")
     op.graph_id = test_uuid
-    assert op.graph_id == str(test_uuid)
+    assert str(op.graph_id) == str(test_uuid)
 
     # Test setting to None
     op.graph_id = None
