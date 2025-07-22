@@ -45,7 +45,8 @@ class Operation(Node, Event):
 
     @property
     def graph_id(self) -> str | None:
-        return self.metadata.get("graph_id")
+        if a := self.metadata.get("graph_id"):
+            return ID.get_id(a)
 
     @graph_id.setter
     def graph_id(self, value: str | UUID | IDType | None):
