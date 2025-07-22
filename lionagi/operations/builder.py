@@ -75,6 +75,7 @@ class OperationGraphBuilder:
         operation: BranchOperations,
         node_id: str | None = None,
         depends_on: list[str] | None = None,
+        inherit_context: bool = False,
         **parameters,
     ) -> str:
         """
@@ -84,6 +85,8 @@ class OperationGraphBuilder:
             operation: The branch operation
             node_id: Optional ID reference for this node
             depends_on: List of node IDs this depends on
+            inherit_context: If True and has dependencies, inherit conversation
+                           context from primary (first) dependency
             **parameters: Operation parameters
 
         Returns:
@@ -91,6 +94,11 @@ class OperationGraphBuilder:
         """
         # Create operation node
         node = Operation(operation=operation, parameters=parameters)
+
+        # Store context inheritance strategy
+        if inherit_context and depends_on:
+            node.metadata["inherit_context"] = True
+            node.metadata["primary_dependency"] = depends_on[0]
 
         self.graph.add_node(node)
         self._operations[node.id] = node
@@ -126,6 +134,8 @@ class OperationGraphBuilder:
         source_node_id: str,
         operation: BranchOperations,
         strategy: ExpansionStrategy = ExpansionStrategy.CONCURRENT,
+        inherit_context: bool = False,
+        chain_context: bool = False,
         **shared_params,
     ) -> list[str]:
         """
@@ -139,6 +149,9 @@ class OperationGraphBuilder:
             source_node_id: ID of node that produced these items
             operation: Operation to apply to each item
             strategy: How to organize the expanded operations
+            inherit_context: If True, expanded operations inherit context from source
+            chain_context: If True and strategy is SEQUENTIAL, each operation
+                          inherits from the previous (only applies to SEQUENTIAL)
             **shared_params: Shared parameters for all operations
 
         Returns:
@@ -171,6 +184,21 @@ class OperationGraphBuilder:
                 },
             )
 
+            # Handle context inheritance for expanded operations
+            if inherit_context:
+                if (
+                    chain_context
+                    and strategy == ExpansionStrategy.SEQUENTIAL
+                    and i > 0
+                ):
+                    # Chain context: inherit from previous expanded operation
+                    node.metadata["inherit_context"] = True
+                    node.metadata["primary_dependency"] = new_node_ids[i - 1]
+                else:
+                    # Inherit from source node
+                    node.metadata["inherit_context"] = True
+                    node.metadata["primary_dependency"] = source_node_id
+
             self.graph.add_node(node)
             self._operations[node.id] = node
             new_node_ids.append(node.id)
@@ -195,7 +223,10 @@ class OperationGraphBuilder:
     def add_aggregation(
         self,
         operation: BranchOperations,
+        node_id: str | None = None,
         source_node_ids: list[str] | None = None,
+        inherit_context: bool = False,
+        inherit_from_source: int = 0,
         **parameters,
     ) -> str:
         """
@@ -203,7 +234,10 @@ class OperationGraphBuilder:
 
         Args:
             operation: Aggregation operation
+            node_id: Optional ID reference for this node
             source_node_ids: Nodes to aggregate from (defaults to current heads)
+            inherit_context: If True, inherit conversation context from one source
+            inherit_from_source: Index of source to inherit context from (default: 0)
             **parameters: Operation parameters
 
         Returns:
@@ -225,6 +259,18 @@ class OperationGraphBuilder:
             parameters=agg_params,
             metadata={"aggregation": True},
         )
+
+        # Store node reference if provided
+        if node_id:
+            node.metadata["reference_id"] = node_id
+
+        # Store context inheritance for aggregations
+        if inherit_context and sources:
+            node.metadata["inherit_context"] = True
+            # Use the specified source index (bounded by available sources)
+            source_idx = min(inherit_from_source, len(sources) - 1)
+            node.metadata["primary_dependency"] = sources[source_idx]
+            node.metadata["inherit_from_source"] = source_idx
 
         self.graph.add_node(node)
         self._operations[node.id] = node

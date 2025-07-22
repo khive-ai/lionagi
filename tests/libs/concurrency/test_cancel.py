@@ -5,7 +5,11 @@ import time
 import anyio
 import pytest
 
-from lionagi.libs.concurrency.cancel import CancelScope, fail_after, move_on_after
+from lionagi.libs.concurrency.cancel import (
+    CancelScope,
+    fail_after,
+    move_on_after,
+)
 from lionagi.libs.concurrency.errors import get_cancelled_exc_class, shield
 
 

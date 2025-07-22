@@ -1,8 +1,8 @@
 """Task group implementation for structured concurrency."""
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from types import TracebackType
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Optional, TypeVar
 
 import anyio
 
@@ -21,7 +21,7 @@ class TaskGroup:
         self,
         func: Callable[..., Awaitable[Any]],
         *args: Any,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """Start a new task in this task group.
 
@@ -41,7 +41,7 @@ class TaskGroup:
         self,
         func: Callable[..., Awaitable[R]],
         *args: Any,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> R:
         """Start a new task and wait for it to initialize.
 
@@ -73,9 +73,9 @@ class TaskGroup:
 
     async def __aexit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> bool:
         """Exit the task group context.
 

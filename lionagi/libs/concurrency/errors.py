@@ -1,7 +1,7 @@
 """Error handling utilities for structured concurrency."""
 
-from collections.abc import Awaitable
-from typing import Any, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 import anyio
 
@@ -18,7 +18,9 @@ def get_cancelled_exc_class() -> type[BaseException]:
     return anyio.get_cancelled_exc_class()
 
 
-async def shield(func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
+async def shield(
+    func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
+) -> T:
     """Run a coroutine function with protection from cancellation.
 
     Args:
