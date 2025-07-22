@@ -341,13 +341,13 @@ class Session(Node, Communicatable, Relational):
             branch = self.branches[branch]
 
         return await flow(
-            branch=branch,
+            session=self,
             graph=graph,
+            branch=branch,
             context=context,
             parallel=parallel,
             max_concurrent=max_concurrent,
             verbose=verbose,
-            session=self,
         )
 
 

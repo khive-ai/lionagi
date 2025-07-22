@@ -148,7 +148,7 @@ class Edge(Element):
         Returns:
             bool: True if condition is met or if no condition exists.
         """
-        if self.condition:
+        if self.condition is not None:
             return await self.condition.apply(*args, **kwargs)
         return True
 
