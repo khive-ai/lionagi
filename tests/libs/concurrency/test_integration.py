@@ -72,7 +72,9 @@ async def test_resource_primitives_integration():
         event.set()
 
     # Check that the semaphore limited concurrency
-    semaphore_acquired = [i for i, r in enumerate(results) if "semaphore-acquired" in r]
+    semaphore_acquired = [
+        i for i, r in enumerate(results) if "semaphore-acquired" in r
+    ]
     assert len(semaphore_acquired) == 5
 
     # Check that the lock ensured mutual exclusion
@@ -82,7 +84,9 @@ async def test_resource_primitives_integration():
         assert lock_released[i] < lock_acquired[i + 1]
 
     # Check that all workers received the event
-    event_received = [i for i, r in enumerate(results) if "event-received" in r]
+    event_received = [
+        i for i, r in enumerate(results) if "event-received" in r
+    ]
     assert len(event_received) == 5
 
 
@@ -126,7 +130,9 @@ async def test_patterns_integration():
                 await pool.release(conn)
 
     # Create the pools
-    pool = ConnectionPool(max_connections=2, connection_factory=connection_factory)
+    pool = ConnectionPool(
+        max_connections=2, connection_factory=connection_factory
+    )
     worker_pool = WorkerPool(num_workers=3, worker_func=worker_func)
 
     # Start the worker pool

@@ -6,13 +6,7 @@ which allows for consistent behavior across asyncio and trio backends.
 
 from .cancel import CancelScope, fail_after, move_on_after
 from .errors import get_cancelled_exc_class, shield
-from .primitives import (
-    CapacityLimiter,
-    Condition,
-    Event,
-    Lock,
-    Semaphore,
-)
+from .primitives import CapacityLimiter, Condition, Event, Lock, Semaphore
 from .task import TaskGroup, create_task_group
 
 __all__ = [

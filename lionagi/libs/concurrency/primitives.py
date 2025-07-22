@@ -26,9 +26,9 @@ class Lock:
 
     async def __aexit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Release the lock."""
         self.release()
@@ -73,9 +73,9 @@ class Semaphore:
 
     async def __aexit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Release the semaphore."""
         self.release()
@@ -114,9 +114,9 @@ class CapacityLimiter:
 
     async def __aexit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Release the token."""
         self.release()
@@ -194,7 +194,7 @@ class Event:
 class Condition:
     """A condition variable for task synchronization."""
 
-    def __init__(self, lock: Optional[Lock] = None):
+    def __init__(self, lock: Lock | None = None):
         """Initialize a new condition.
 
         Args:
@@ -214,9 +214,9 @@ class Condition:
 
     async def __aexit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Release the underlying lock."""
         self._lock.release()

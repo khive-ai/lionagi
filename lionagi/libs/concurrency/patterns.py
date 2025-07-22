@@ -1,9 +1,9 @@
 """Common concurrency patterns for structured concurrency."""
 
 import math
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from types import TracebackType
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Optional, TypeVar
 
 import anyio
 
@@ -68,9 +68,9 @@ class ConnectionPool:
 
     async def __aexit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Exit the connection pool context, closing all connections."""
         async with self._lock:
@@ -98,8 +98,8 @@ async def parallel_requests(
         A list of responses in the same order as the URLs
     """
     limiter = CapacityLimiter(max_concurrency)
-    results: list[Optional[Response]] = [None] * len(urls)
-    exceptions: list[Optional[Exception]] = [None] * len(urls)
+    results: list[Response | None] = [None] * len(urls)
+    exceptions: list[Exception | None] = [None] * len(urls)
 
     async def fetch_with_limit(index: int, url: str) -> None:
         async with limiter:
@@ -125,7 +125,7 @@ async def retry_with_timeout(
     *args: Any,
     max_retries: int = 3,
     timeout: float = 5.0,
-    retry_exceptions: Optional[list[type[Exception]]] = None,
+    retry_exceptions: list[type[Exception]] | None = None,
     **kwargs: Any,
 ) -> T:
     """Execute a function with retry logic and timeout.
@@ -184,7 +184,9 @@ async def retry_with_timeout(
 class WorkerPool:
     """A pool of worker tasks that process items from a queue."""
 
-    def __init__(self, num_workers: int, worker_func: Callable[[Any], Awaitable[None]]):
+    def __init__(
+        self, num_workers: int, worker_func: Callable[[Any], Awaitable[None]]
+    ):
         """Initialize a new worker pool.
 
         Args:

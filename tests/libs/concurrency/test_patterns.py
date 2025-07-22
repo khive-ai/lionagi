@@ -30,7 +30,9 @@ async def test_connection_pool_basic():
         connections_created += 1
         return MockConnection(connections_created)
 
-    pool = ConnectionPool(max_connections=2, connection_factory=connection_factory)
+    pool = ConnectionPool(
+        max_connections=2, connection_factory=connection_factory
+    )
 
     # Test acquiring connections
     conn1 = await pool.acquire()
@@ -79,7 +81,9 @@ async def test_connection_pool_contention():
         await anyio.sleep(0.05)  # Simulate connection time
         return MockConnection(connections_created)
 
-    pool = ConnectionPool(max_connections=2, connection_factory=connection_factory)
+    pool = ConnectionPool(
+        max_connections=2, connection_factory=connection_factory
+    )
     results = []
 
     async def worker(worker_id):
@@ -102,7 +106,9 @@ async def test_connection_pool_contention():
     assert len(results) == 10
 
     # Check that connections were acquired and released
-    conn_ids = [int(r.split("-")[-1]) for r in results if r.startswith("acquired")]
+    conn_ids = [
+        int(r.split("-")[-1]) for r in results if r.startswith("acquired")
+    ]
     assert len(conn_ids) == 5
     # In the current implementation, we can't guarantee connection reuse
 

@@ -14,7 +14,7 @@ T = TypeVar("T")
 class CancelScope:
     """A context manager for controlling cancellation of tasks."""
 
-    def __init__(self, deadline: Optional[float] = None, shield: bool = False):
+    def __init__(self, deadline: float | None = None, shield: bool = False):
         """Initialize a new cancel scope.
 
         Args:
@@ -54,9 +54,9 @@ class CancelScope:
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> bool:
         """Exit the cancel scope context.
 
@@ -75,7 +75,7 @@ class CancelScope:
 
 
 @contextmanager
-def move_on_after(seconds: Optional[float]) -> Iterator[CancelScope]:
+def move_on_after(seconds: float | None) -> Iterator[CancelScope]:
     """Return a context manager that cancels its contents after the given number of seconds.
 
     Args:
@@ -97,7 +97,7 @@ def move_on_after(seconds: Optional[float]) -> Iterator[CancelScope]:
 
 
 @contextmanager
-def fail_after(seconds: Optional[float]) -> Iterator[CancelScope]:
+def fail_after(seconds: float | None) -> Iterator[CancelScope]:
     """Return a context manager that raises TimeoutError if its contents take longer than the given time.
 
     Args:
@@ -129,4 +129,6 @@ def fail_after(seconds: Optional[float]) -> Iterator[CancelScope]:
                 yield scope
         finally:
             if scope.cancelled_caught:
-                raise TimeoutError(f"Operation took longer than {seconds} seconds")
+                raise TimeoutError(
+                    f"Operation took longer than {seconds} seconds"
+                )
