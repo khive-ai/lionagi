@@ -12,7 +12,8 @@ using Events for synchronization and CapacityLimiter for concurrency control.
 import os
 from typing import Any
 
-from lionagi.libs.concurrency.primitives import CapacityLimiter, Event
+from lionagi.libs.concurrency.primitives import CapacityLimiter
+from lionagi.libs.concurrency.primitives import Event as ConcurrencyEvent
 from lionagi.libs.concurrency.task import create_task_group
 from lionagi.operations.node import Operation
 from lionagi.protocols.types import EventStatus, Graph
@@ -61,7 +62,7 @@ class DependencyAwareExecutor:
         # Initialize completion events for all operations
         for node in graph.internal_nodes.values():
             if isinstance(node, Operation):
-                self.completion_events[node.id] = Event()
+                self.completion_events[node.id] = ConcurrencyEvent()
 
     async def execute(self) -> dict[str, Any]:
         """Execute the operation graph."""
