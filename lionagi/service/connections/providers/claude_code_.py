@@ -5,18 +5,18 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import Any, Literal
 
-from claude_code_sdk import ClaudeCodeOptions
-from claude_code_sdk import query as sdk_query
-from claude_code_sdk import types as cc_types
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.utils import to_dict, to_list
+from lionagi.utils import is_import_installed, to_dict, to_list
+
+HAS_CLAUDE_CODE_SDK = is_import_installed("claude_code_sdk")
 
 # --------------------------------------------------------------------------- constants
 ClaudePermission = Literal[
@@ -172,7 +172,9 @@ class ClaudeCodeRequest(BaseModel):
         return args
 
     # ------------------------ SDK helpers -----------------------------------
-    def as_claude_options(self) -> ClaudeCodeOptions:
+    def as_claude_options(self):
+        from claude_code_sdk import ClaudeCodeOptions
+
         data = {
             k: v
             for k, v in self.model_dump(exclude_none=True).items()
@@ -253,6 +255,17 @@ class ClaudeCodeEndpoint(Endpoint):
     """Direct Python-SDK (non-CLI) endpoint - unchanged except for bug-fixes."""
 
     def __init__(self, config: EndpointConfig = ENDPOINT_CONFIG, **kwargs):
+        if not HAS_CLAUDE_CODE_SDK:
+            raise ImportError(
+                "claude_code_sdk is not installed. "
+                "Please install it with `uv pip install lionagi[claude_code_sdk]`."
+            )
+        warnings.warn(
+            "The claude_code `query` endpoint is deprecated. "
+            "Use `query_cli` endpoint instead.",
+            DeprecationWarning,
+        )
+
         super().__init__(config=config, **kwargs)
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
@@ -262,13 +275,15 @@ class ClaudeCodeEndpoint(Endpoint):
         return {"request": req_obj}, {}
 
     def _stream_claude_code(self, request: ClaudeCodeRequest):
+        from claude_code_sdk import query as sdk_query
+
         return sdk_query(
             prompt=request.prompt, options=request.as_claude_options()
         )
 
     async def stream(self, request: dict | BaseModel, **kwargs):
-        payload, _ = self.create_payload(request, **kwargs)["request"]
-        async for chunk in self._stream_claude_code(payload):
+        payload, _ = self.create_payload(request, **kwargs)
+        async for chunk in self._stream_claude_code(payload["request"]):
             yield chunk
 
     def _parse_claude_code_response(self, responses: list) -> dict:
@@ -298,6 +313,7 @@ class ClaudeCodeEndpoint(Endpoint):
                 "total_tokens": 0,
             },
         }
+        from claude_code_sdk import types as cc_types
 
         for response in responses:
             if isinstance(response, cc_types.SystemMessage):
@@ -350,6 +366,9 @@ class ClaudeCodeEndpoint(Endpoint):
         headers: dict,
         **kwargs,
     ):
+        from claude_code_sdk import query as sdk_query
+        from claude_code_sdk import types as cc_types
+
         responses = []
         request: ClaudeCodeRequest = payload["request"]
         system: cc_types.SystemMessage = None
@@ -400,6 +419,8 @@ class ClaudeCodeEndpoint(Endpoint):
 
 
 def _display_message(chunk, theme):
+    from claude_code_sdk import types as cc_types
+
     if isinstance(
         chunk,
         cc_types.SystemMessage
@@ -437,7 +458,9 @@ def _display_message(chunk, theme):
         )
 
 
-def _verbose_output(res: cc_types.Message) -> str:
+def _verbose_output(res) -> str:
+    from claude_code_sdk import types as cc_types
+
     str_ = ""
     if isinstance(res, cc_types.SystemMessage):
         str_ = f"Claude Code Session Started: {res.data.get('session_id', 'unknown')}"
