@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.14.0"
+version = "0.14.1"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -19,7 +19,7 @@ dependencies = [
     "pillow>=11.0.0",
     "psutil>=7.0.0",
     "pydantic-settings>=2.8.0",
-    "pydapter[pandas]>=0.3.2",
+    "pydapter[pandas]>=1.0.0",
     "python-dotenv>=1.1.0",
     "tiktoken>=0.8.0",
     "toml>=0.9.0",
