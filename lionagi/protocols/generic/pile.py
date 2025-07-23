@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 from collections import deque
 from collections.abc import (
@@ -17,15 +16,12 @@ from collections.abc import (
 )
 from functools import wraps
 from pathlib import Path
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import pandas as pd
 from pydantic import Field
 from pydantic.fields import FieldInfo
-from pydapter import Adapter, AdapterRegistry
-from pydapter.adapters import CsvAdapter, JsonAdapter
-from pydapter.extras.excel_ import ExcelAdapter
-from pydapter.extras.pandas_ import DataFrameAdapter
+from pydapter import Adaptable, AsyncAdaptable
 from typing_extensions import Self, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError
@@ -39,27 +35,7 @@ D = TypeVar("D")
 T = TypeVar("T", bound=E)
 
 
-PILE_DEFAULT_ADAPTERS = (
-    JsonAdapter,
-    CsvAdapter,
-    ExcelAdapter,
-    DataFrameAdapter,
-)
-
-
-class PileAdapterRegistry(AdapterRegistry):
-    pass
-
-
-pile_adapter_registry = PileAdapterRegistry()
-for i in PILE_DEFAULT_ADAPTERS:
-    pile_adapter_registry.register(i)
-
-
-__all__ = (
-    "Pile",
-    "pile",
-)
+__all__ = ("Pile",)
 
 
 def synchronized(func: Callable):
@@ -80,7 +56,7 @@ def async_synchronized(func: Callable):
     return wrapper
 
 
-class Pile(Element, Collective[E], Generic[E]):
+class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
     """Thread-safe async-compatible, ordered collection of elements.
 
     The Pile class provides a thread-safe, async-compatible collection with:
@@ -112,8 +88,6 @@ class Pile(Element, Collective[E], Generic[E]):
         description="Specify if enforce a strict type check",
         frozen=True,
     )
-
-    _adapter_registry: ClassVar[AdapterRegistry] = pile_adapter_registry
 
     def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
@@ -959,48 +933,30 @@ class Pile(Element, Collective[E], Generic[E]):
             is_same_dtype(self.collections.values())
         )
 
-    def adapt_to(self, obj_key: str, /, **kwargs: Any) -> Any:
-        """Convert to another format."""
-        # For JSON adapter, we need to pass the dict representation
-        if obj_key in ["json", "csv", "toml"]:
-            data = self.to_dict()
-
-            # Create a simple object that has model_dump method
-            class _Wrapper:
-                def __init__(self, data):
-                    self._data = data
-
-                def model_dump(self):
-                    return self._data
-
-            wrapper = _Wrapper(data)
-            return self._get_adapter_registry().adapt_to(
-                wrapper, obj_key=obj_key, **kwargs
-            )
-        return self._get_adapter_registry().adapt_to(
-            self, obj_key=obj_key, **kwargs
-        )
+    def adapt_to(self, obj_key: str, many=False, **kwargs: Any) -> Any:
+        kwargs["adapt_meth"] = "to_dict"
+        return super().adapt_to(obj_key, many=many, **kwargs)
 
     @classmethod
-    def register_adapter(cls, adapter: type[Adapter]):
-        """Register new adapter."""
-        cls._get_adapter_registry().register(adapter)
-
-    @classmethod
-    def _get_adapter_registry(cls) -> AdapterRegistry:
-        if isinstance(cls._adapter_registry, type):
-            cls._adapter_registry = cls._adapter_registry()
-        return cls._adapter_registry
-
-    @classmethod
-    def adapt_from(cls, obj: Any, obj_key: str, /, **kwargs: Any):
+    def adapt_from(cls, obj: Any, obj_key: str, many=False, **kwargs: Any):
         """Create from another format."""
-        dict_ = cls._get_adapter_registry().adapt_from(
-            cls, obj, obj_key=obj_key, **kwargs
+        kwargs["adapt_meth"] = "from_dict"
+        return super().adapt_from(obj, obj_key, many=many, **kwargs)
+
+    async def adapt_to_async(
+        self, obj_key: str, many=False, **kwargs: Any
+    ) -> Any:
+        kwargs["adapt_meth"] = "to_dict"
+        return await super().adapt_to_async(obj_key, many=many, **kwargs)
+
+    @classmethod
+    async def adapt_from_async(
+        cls, obj: Any, obj_key: str, many=False, **kwargs: Any
+    ):
+        kwargs["adapt_meth"] = "from_dict"
+        return await super().adapt_from_async(
+            obj, obj_key, many=many, **kwargs
         )
-        if isinstance(dict_, list):
-            dict_ = {"collections": dict_}
-        return cls.from_dict(dict_)
 
     def to_df(
         self,
@@ -1008,114 +964,43 @@ class Pile(Element, Collective[E], Generic[E]):
         **kwargs: Any,
     ) -> pd.DataFrame:
         """Convert to DataFrame."""
-        # For DataFrame, we need to pass a list of dicts
-        data = [item.to_dict() for item in self.collections.values()]
+        from pydapter.extras.pandas_ import DataFrameAdapter
 
-        # Create wrapper objects for each item
-        class _ItemWrapper:
-            def __init__(self, data):
-                self._data = data
-
-            def model_dump(self):
-                return self._data
-
-        wrappers = [_ItemWrapper(d) for d in data]
-        df = self._get_adapter_registry().adapt_to(
-            wrappers, obj_key="pd.DataFrame", many=True, **kwargs
+        df = DataFrameAdapter.to_obj(
+            list(self.collections.values()), adapt_meth="to_dict", **kwargs
         )
-
         if columns:
             return df[columns]
         return df
 
     def to_csv_file(self, fp: str | Path, **kwargs: Any) -> None:
         """Save to CSV file."""
-        # Convert to DataFrame first, then save as CSV
-        df = self.to_df()
-        df.to_csv(fp, index=False, **kwargs)
+        from pydapter.adapters import CsvAdapter
+
+        csv_str = CsvAdapter.to_obj(
+            list(self.collections.values()), adapt_meth="to_dict", **kwargs
+        )
+        with open(fp, "w") as f:
+            f.write(csv_str)
 
     def to_json_file(
-        self,
-        path_or_buf,
-        *,
-        use_pd: bool = False,
-        many: bool = False,
-        mode="w",
-        **kwargs,
+        self, fp: str | Path, mode: str = "w", many: bool = False, **kwargs
     ):
         """Export collection to JSON file.
 
         Args:
-            path_or_buf: File path or buffer to write to.
-            use_pd: Use pandas JSON export if True.
-            mode: File open mode.
-            verbose: Print confirmation message.
+            fp: File path or buffer to write to.
+            many: If True, export as a list of items.
+            mode: File mode ('w' for write, 'a' for append).
             **kwargs: Additional arguments for json.dump() or DataFrame.to_json().
         """
-        if use_pd:
-            return self.to_df().to_json(path_or_buf, mode=mode, **kwargs)
+        from pydapter.adapters import JsonAdapter
 
-        # Get JSON string from adapter
-        json_str = self.adapt_to("json", many=many, **kwargs)
-
-        # Write to file
-        with open(path_or_buf, mode, encoding="utf-8") as f:
+        json_str = JsonAdapter.to_obj(
+            self, many=many, adapt_meth="to_dict", **kwargs
+        )
+        with open(fp, mode) as f:
             f.write(json_str)
-
-
-def pile(
-    collections: Any = None,
-    /,
-    item_type: type[T] | set[type[T]] | None = None,
-    progression: list[str] | None = None,
-    strict_type: bool = False,
-    df: pd.DataFrame | None = None,  # priority 1
-    fp: str | Path | None = None,  # priority 2
-    **kwargs,
-) -> Pile:
-    """Create a new Pile instance.
-
-    Args:
-        items: Initial items for the pile.
-        item_type: Allowed types for items in the pile.
-        order: Initial order of items.
-        strict: If True, enforce strict type checking.
-
-    Returns:
-        Pile: A new Pile instance.
-    """
-
-    if df:
-        return Pile.adapt_from(df, "pd.DataFrame", **kwargs)
-
-    if fp:
-        fp = Path(fp)
-        if fp.suffix == ".csv":
-            # Read CSV to DataFrame first
-            df = pd.read_csv(fp, **kwargs)
-            return Pile.adapt_from(df, "pd.DataFrame")
-        if fp.suffix == ".xlsx":
-            # Read Excel to DataFrame first
-            df = pd.read_excel(fp, **kwargs)
-            return Pile.adapt_from(df, "pd.DataFrame")
-        if fp.suffix in [".json", ".jsonl"]:
-            # Read JSON file
-            with open(fp, encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                return Pile.from_dict(data)
-            elif isinstance(data, list):
-                return Pile.from_dict({"collections": data})
-            else:
-                raise ValueError(f"Invalid JSON data structure in {fp}")
-
-    return Pile(
-        collections,
-        item_type=item_type,
-        order=progression,
-        strict=strict_type,
-        **kwargs,
-    )
 
 
 def to_list_type(value: Any, /) -> list[Any]:
