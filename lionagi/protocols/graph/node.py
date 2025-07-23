@@ -68,34 +68,38 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             "Invalid embedding type; must be list or JSON-encoded string."
         )
 
-    async def adapt_to_async(self, obj_key: str, **kwargs: Any) -> Any:
+    async def adapt_to_async(
+        self, obj_key: str, many=False, **kwargs: Any
+    ) -> Any:
         kwargs["adapt_meth"] = "to_dict"
-        return super().adapt_to_async(obj_key, many=False, **kwargs)
+        return super().adapt_to_async(obj_key, many=many, **kwargs)
 
     @classmethod
     def adapt_from_async(
         cls,
         obj: Any,
         obj_key: str,
+        many=False,
         **kwargs: Any,
     ) -> Node:
         kwargs["adapt_meth"] = "from_dict"
         return super().adapt_from_async(
-            obj, obj_key=obj_key, many=False, **kwargs
+            obj, obj_key=obj_key, many=many, **kwargs
         )
 
-    def adapt_to(self, obj_key: str, **kwargs: Any) -> Any:
+    def adapt_to(self, obj_key: str, many=False, **kwargs: Any) -> Any:
         """
         Convert this Node to another format using a registered adapter.
         """
         kwargs["adapt_meth"] = "to_dict"
-        return super().adapt_to(obj_key, many=False, **kwargs)
+        return super().adapt_to(obj_key, many=many, **kwargs)
 
     @classmethod
     def adapt_from(
         cls,
         obj: Any,
         obj_key: str,
+        many=False,
         **kwargs: Any,
     ) -> Node:
         """
@@ -104,7 +108,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         auto-delegate to the correct subclass via from_dict.
         """
         kwargs["adapt_meth"] = "from_dict"
-        return super().adapt_from(obj, obj_key=obj_key, many=False, **kwargs)
+        return super().adapt_from(obj, obj_key=obj_key, many=many, **kwargs)
 
 
 # File: lionagi/protocols/graph/node.py
