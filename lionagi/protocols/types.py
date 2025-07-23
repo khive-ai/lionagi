@@ -19,7 +19,7 @@ from .forms.report import BaseForm, Form, Report
 from .generic.element import ID, Element, IDError, IDType, validate_order
 from .generic.event import Event, EventStatus, Execution
 from .generic.log import Log, LogManager, LogManagerConfig
-from .generic.pile import Pile, pile, to_list_type
+from .generic.pile import Pile, to_list_type
 from .generic.processor import Executor, Processor
 from .generic.progression import Progression, prog
 from .graph.edge import EdgeCondition
@@ -67,7 +67,6 @@ __all__ = (
     "LogManager",
     "LogManagerConfig",
     "Pile",
-    "pile",
     "to_list_type",
     "Executor",
     "Processor",

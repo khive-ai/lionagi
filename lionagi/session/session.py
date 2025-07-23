@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import Callable
-from functools import partial
 from typing import Any
 
 import pandas as pd
@@ -28,15 +27,12 @@ from lionagi.protocols.types import (
     SenderRecipient,
     System,
     Tool,
-    pile,
 )
 
 from .._errors import ItemNotFoundError
 from ..service.imodel import iModel
 from ..utils import lcall
 from .branch import Branch
-
-msg_pile = partial(pile, item_type={RoledMessage}, strict_type=False)
 
 
 class Session(Node, Communicatable, Relational):
@@ -50,7 +46,9 @@ class Session(Node, Communicatable, Relational):
         mail_manager (MailManager | None): Manages mail operations.
     """
 
-    branches: Pile[Any] = Field(default_factory=pile)
+    branches: Pile[Any] = Field(
+        default_factory=lambda: Pile(item_type={Branch}, strict_type=False)
+    )
     default_branch: Any = Field(default=None, exclude=True)
     mail_transfer: Exchange = Field(default_factory=Exchange)
     mail_manager: MailManager = Field(
@@ -219,7 +217,9 @@ class Session(Node, Communicatable, Relational):
             unique_input=True,
             unique_output=True,
         )
-        return msg_pile(messages)
+        return Pile(
+            collections=messages, item_type={RoledMessage}, strict_type=False
+        )
 
     def to_df(
         self,

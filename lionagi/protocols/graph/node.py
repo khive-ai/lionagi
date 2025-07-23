@@ -2,11 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import json
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import field_validator
-from pydapter import AdapterRegistry
+from pydapter import Adaptable, AsyncAdaptable
 from pydapter.adapters import JsonAdapter, TomlAdapter
 from pydapter.extras.pandas_ import SeriesAdapter
 
@@ -22,18 +24,10 @@ NODE_DEFAULT_ADAPTERS = (
 )
 
 
-class NodeAdapterRegistry(AdapterRegistry):
-    pass
-
-
-node_adapter_registry = NodeAdapterRegistry()
-for i in NODE_DEFAULT_ADAPTERS:
-    node_adapter_registry.register(i)
-
 __all__ = ("Node",)
 
 
-class Node(Element, Relational):
+class Node(Element, Relational, AsyncAdaptable, Adaptable):
     """
     A base class for all Nodes in a graph, storing:
       - Arbitrary content
@@ -41,8 +35,6 @@ class Node(Element, Relational):
       - An optional numeric embedding (list of floats)
       - Automatic subclass registration
     """
-
-    _adapter_registry: ClassVar[AdapterRegistry] = node_adapter_registry
 
     content: Any = None
     embedding: list[float] | None = None
@@ -76,63 +68,43 @@ class Node(Element, Relational):
             "Invalid embedding type; must be list or JSON-encoded string."
         )
 
-    def adapt_to(
-        self, obj_key: str, /, many: bool = False, **kwargs: Any
-    ) -> Any:
+    async def adapt_to_async(self, obj_key: str, **kwargs: Any) -> Any:
+        kwargs["adapt_meth"] = "to_dict"
+        return super().adapt_to_async(obj_key, many=False, **kwargs)
+
+    @classmethod
+    def adapt_from_async(
+        cls,
+        obj: Any,
+        obj_key: str,
+        **kwargs: Any,
+    ) -> Node:
+        kwargs["adapt_meth"] = "from_dict"
+        return super().adapt_from_async(
+            obj, obj_key=obj_key, many=False, **kwargs
+        )
+
+    def adapt_to(self, obj_key: str, **kwargs: Any) -> Any:
         """
         Convert this Node to another format using a registered adapter.
         """
-        # For JSON/TOML adapters, we need to pass the dict representation
-        if obj_key in ["json", "toml"]:
-            data = self.to_dict()
-
-            # Create a simple object that has model_dump method
-            class _Wrapper:
-                def __init__(self, data):
-                    self._data = data
-
-                def model_dump(self):
-                    return self._data
-
-            wrapper = _Wrapper(data)
-            return self._get_adapter_registry().adapt_to(
-                wrapper, obj_key=obj_key, many=many, **kwargs
-            )
-        return self._get_adapter_registry().adapt_to(
-            self, obj_key=obj_key, many=many, **kwargs
-        )
+        kwargs["adapt_meth"] = "to_dict"
+        return super().adapt_to(obj_key, many=False, **kwargs)
 
     @classmethod
     def adapt_from(
         cls,
         obj: Any,
         obj_key: str,
-        /,
-        many: bool = False,
         **kwargs: Any,
-    ) -> "Node":
+    ) -> Node:
         """
         Construct a Node from an external format using a registered adapter.
         If the adapter returns a dictionary with 'lion_class', we can
         auto-delegate to the correct subclass via from_dict.
         """
-        result = cls._get_adapter_registry().adapt_from(
-            cls, obj, obj_key=obj_key, many=many, **kwargs
-        )
-        # If adapter returned multiple items, choose the first or handle as needed.
-        if isinstance(result, list):
-            result = result[0]
-        return cls.from_dict(result)
-
-    @classmethod
-    def _get_adapter_registry(cls) -> AdapterRegistry:
-        if isinstance(cls._adapter_registry, type):
-            cls._adapter_registry = cls._adapter_registry()
-        return cls._adapter_registry
-
-    @classmethod
-    def register_adapter(cls, adapter: Any) -> None:
-        cls._get_adapter_registry().register(adapter)
+        kwargs["adapt_meth"] = "from_dict"
+        return super().adapt_from(obj, obj_key=obj_key, many=False, **kwargs)
 
 
 # File: lionagi/protocols/graph/node.py

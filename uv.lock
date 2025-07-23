@@ -1581,7 +1581,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.14.0"
+version = "0.14.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -1684,7 +1684,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'lint'", specifier = ">=4.0.1" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=0.3.2" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.4" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.0.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
@@ -2988,16 +2988,16 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "0.3.2"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "pydantic" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bc/e2/e17270acd4e7cba084705bc2e80c8ef24615cd6611236510b3fd6c3e6116/pydapter-0.3.2.tar.gz", hash = "sha256:28882820a3512299a3a0340a58f31623d20bbb7f8964afa2ae597468d77546b7", size = 422929, upload-time = "2025-06-11T19:48:35.438Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/eb/8c/eb67316611541091ab2a25dbf85a0a2df01dfd50a13d517e4e3f6cc05ba8/pydapter-1.0.0.tar.gz", hash = "sha256:d0d326a5ce58e9e6404ddd39d54ed24c1c66cb2c40718a019a2765f41a84efa6", size = 399720, upload-time = "2025-07-23T20:09:37.868Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/54/cb3d9f65706770778155eded29476efc3a8501623ec72a6e26d5f380aca0/pydapter-0.3.2-py3-none-any.whl", hash = "sha256:2e9773580957d1bd22ebb60e37830276c26cce9139f1af77d7a69fe333700f56", size = 126581, upload-time = "2025-06-11T19:48:34.091Z" },
+    { url = "https://files.pythonhosted.org/packages/21/86/f98cebec0b3fac042791c45e1f4943637904324194721d684743915d8f92/pydapter-1.0.0-py3-none-any.whl", hash = "sha256:b8e673689572252a849e1b6e969e9354047729e1691c36a015b26bd1e63273e5", size = 91874, upload-time = "2025-07-23T20:09:36.201Z" },
 ]
 
 [package.optional-dependencies]
