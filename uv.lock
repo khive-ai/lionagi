@@ -1581,7 +1581,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.14.0"
+version = "0.14.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -1591,7 +1591,6 @@ dependencies = [
     { name = "jinja2" },
     { name = "json-repair" },
     { name = "matplotlib" },
-    { name = "pillow" },
     { name = "psutil" },
     { name = "pydantic-settings" },
     { name = "pydapter", extra = ["pandas"] },
@@ -1607,6 +1606,7 @@ all = [
     { name = "docling" },
     { name = "fastmcp" },
     { name = "ollama" },
+    { name = "pillow" },
     { name = "rich" },
 ]
 claude-code = [
@@ -1627,6 +1627,9 @@ mcp = [
 ]
 ollama = [
     { name = "ollama" },
+]
+pillow = [
+    { name = "pillow" },
 ]
 reader = [
     { name = "docling" },
@@ -1674,13 +1677,14 @@ requires-dist = [
     { name = "lionagi", extras = ["claude-code"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["mcp"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["ollama"], marker = "extra == 'all'" },
+    { name = "lionagi", extras = ["pillow"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["reader"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["reader"], marker = "extra == 'tools'" },
     { name = "lionagi", extras = ["rich"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["schema"], marker = "extra == 'all'" },
     { name = "matplotlib", specifier = ">=3.9.0" },
     { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
-    { name = "pillow", specifier = ">=11.0.0" },
+    { name = "pillow", marker = "extra == 'pillow'", specifier = ">=11.0.0" },
     { name = "pre-commit", marker = "extra == 'lint'", specifier = ">=4.0.1" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
@@ -1694,7 +1698,7 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.8.0" },
     { name = "toml", specifier = ">=0.9.0" },
 ]
-provides-extras = ["lint", "test", "docs", "reader", "tools", "ollama", "claude-code", "mcp", "rich", "schema", "all"]
+provides-extras = ["lint", "test", "docs", "reader", "tools", "ollama", "claude-code", "mcp", "rich", "schema", "pillow", "all"]
 
 [package.metadata.requires-dev]
 dev = [
