@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from lionagi._errors import ItemNotFoundError
-from lionagi.protocols.types import ID, Element, Node, Pile, Progression, pile
+from lionagi.protocols.types import ID, Element, Node, Pile, Progression
 
 
 class MockElement(Element):
@@ -283,14 +283,6 @@ def test_pile_exception_handling():
 
     with pytest.raises(ValueError):
         p.update(5)  # Invalid update input
-
-
-def test_pile_function():
-    elements = [MockElement(value=i) for i in range(5)]
-    p = pile(elements, item_type=MockElement)
-    assert isinstance(p, Pile)
-    assert len(p) == 5
-    assert p.item_type == {MockElement}
 
 
 class ComplexElement(Element):
