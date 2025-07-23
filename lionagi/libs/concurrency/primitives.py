@@ -1,7 +1,6 @@
 """Resource management primitives for structured concurrency."""
 
 from types import TracebackType
-from typing import Optional
 
 import anyio
 
