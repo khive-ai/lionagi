@@ -404,8 +404,7 @@ class ClaudeCodeCLIEndpoint(Endpoint):
                 responses.append(chunk)
                 if isinstance(chunk, ClaudeSession):
                     break
-        print(
+        log.info(
             f"Session {session.session_id} finished with {len(responses)} chunks"
         )
-
         return to_dict(session, recursive=True)

@@ -1,19 +1,19 @@
 {
-    "id": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6",
-    "created_at": 1753196358.329017,
+    "id": "f0f863f0-85c2-46d9-bd88-3f688868dcb3",
+    "created_at": 1753204577.702758,
     "metadata": {},
     "user": null,
     "name": null,
     "messages": {
-        "id": "f0b2679b-9509-48c6-8932-2565e9dace14",
-        "created_at": 1753196358.329288,
+        "id": "47b3132c-67f9-45fb-8493-e4adb1b26b45",
+        "created_at": 1753204577.703155,
         "metadata": {
             "lion_class": "lionagi.protocols.generic.pile.Pile"
         },
         "collections": [
             {
-                "id": "3b518c53-5bbc-4d38-8cec-7601af2cda68",
-                "created_at": 1753196358.329367,
+                "id": "08e464d9-788b-404b-a1b5-53dece5937c2",
+                "created_at": 1753204577.703339,
                 "metadata": {
                     "lion_class": "lionagi.protocols.messages.system.System"
                 },
@@ -24,11 +24,11 @@
                 "role": "system",
                 "template": null,
                 "sender": "system",
-                "recipient": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6"
+                "recipient": "f0f863f0-85c2-46d9-bd88-3f688868dcb3"
             },
             {
-                "id": "58120383-0218-4cc2-b0d1-848020d660cf",
-                "created_at": 1753196358.64311,
+                "id": "c43d3633-c451-4442-883c-2298f342e0b6",
+                "created_at": 1753204578.023664,
                 "metadata": {
                     "lion_class": "lionagi.protocols.messages.instruction.Instruction"
                 },
@@ -41,23 +41,23 @@
                 "role": "user",
                 "template": null,
                 "sender": "user",
-                "recipient": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6"
+                "recipient": "f0f863f0-85c2-46d9-bd88-3f688868dcb3"
             },
             {
-                "id": "e312733a-c22f-4996-9b0f-57c76127bbc4",
-                "created_at": 1753196360.174403,
+                "id": "d30ce508-37aa-4760-994b-22c2333ef589",
+                "created_at": 1753204579.029498,
                 "metadata": {
                     "model_response": {
-                        "id": "chatcmpl-Bw8kZu6vZcp967mLT1xRhdz4KHMqj",
+                        "id": "chatcmpl-BwAt805cxmpMJxEwmwvRuvsuVNzuJ",
                         "object": "chat.completion",
-                        "created": 1753196359,
+                        "created": 1753204578,
                         "model": "gpt-4.1-nano-2025-04-14",
                         "choices": [
                             {
                                 "index": 0,
                                 "message": {
                                     "role": "assistant",
-                                    "content": "A blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one's just there to whale out, and the other's just looking to fin-ish the night on a high note!",
+                                    "content": "A blue whale and a big shark meet at the bar, see each other and start dancing. Guess they thought it was the perfect way to **\"sink\" the competition**.",
                                     "refusal": null,
                                     "annotations": []
                                 },
@@ -67,8 +67,8 @@
                         ],
                         "usage": {
                             "prompt_tokens": 44,
-                            "completion_tokens": 45,
-                            "total_tokens": 89,
+                            "completion_tokens": 36,
+                            "total_tokens": 80,
                             "prompt_tokens_details": {
                                 "cached_tokens": 0,
                                 "audio_tokens": 0
@@ -86,17 +86,17 @@
                     "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
                 },
                 "content": {
-                    "assistant_response": "A blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one's just there to whale out, and the other's just looking to fin-ish the night on a high note!"
+                    "assistant_response": "A blue whale and a big shark meet at the bar, see each other and start dancing. Guess they thought it was the perfect way to **\"sink\" the competition**."
                 },
                 "embedding": null,
                 "role": "assistant",
                 "template": null,
-                "sender": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6",
+                "sender": "f0f863f0-85c2-46d9-bd88-3f688868dcb3",
                 "recipient": "user"
             },
             {
-                "id": "c7699d50-20f8-4ea1-8ac6-afa68d8ae10e",
-                "created_at": 1753196360.175156,
+                "id": "6e9a5903-a6ac-49c2-b154-b6f8de95f548",
+                "created_at": 1753204579.029882,
                 "metadata": {
                     "lion_class": "lionagi.protocols.messages.instruction.Instruction"
                 },
@@ -108,23 +108,23 @@
                 "role": "user",
                 "template": null,
                 "sender": "user",
-                "recipient": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6"
+                "recipient": "f0f863f0-85c2-46d9-bd88-3f688868dcb3"
             },
             {
-                "id": "602c39b2-436f-4027-8d2a-2db25930dcd7",
-                "created_at": 1753196361.019877,
+                "id": "9849dd79-8ba9-40df-8efd-e1e954ea0ef6",
+                "created_at": 1753204579.738832,
                 "metadata": {
                     "model_response": {
-                        "id": "chatcmpl-Bw8ka5TX4tTKO6pnX9A6ttwKT80lK",
+                        "id": "chatcmpl-BwAt90c3bicHIHuv205IwsrExyNF4",
                         "object": "chat.completion",
-                        "created": 1753196360,
+                        "created": 1753204579,
                         "model": "gpt-4.1-nano-2025-04-14",
                         "choices": [
                             {
                                 "index": 0,
                                 "message": {
                                     "role": "assistant",
-                                    "content": "And then they stopped... because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fin*-tastic.",
+                                    "content": "And then they stopped, realizing the only thing bigger than their dance moves was the tab\u2014guess even giants get sea-sick from paying the bill!",
                                     "refusal": null,
                                     "annotations": []
                                 },
@@ -133,9 +133,9 @@
                             }
                         ],
                         "usage": {
-                            "prompt_tokens": 129,
-                            "completion_tokens": 35,
-                            "total_tokens": 164,
+                            "prompt_tokens": 120,
+                            "completion_tokens": 30,
+                            "total_tokens": 150,
                             "prompt_tokens_details": {
                                 "cached_tokens": 0,
                                 "audio_tokens": 0
@@ -153,24 +153,24 @@
                     "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
                 },
                 "content": {
-                    "assistant_response": "And then they stopped... because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fin*-tastic."
+                    "assistant_response": "And then they stopped, realizing the only thing bigger than their dance moves was the tab\u2014guess even giants get sea-sick from paying the bill!"
                 },
                 "embedding": null,
                 "role": "assistant",
                 "template": null,
-                "sender": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6",
+                "sender": "f0f863f0-85c2-46d9-bd88-3f688868dcb3",
                 "recipient": "user"
             },
             {
-                "id": "510f6958-cb4e-428a-9cbb-c0cc100cd059",
-                "created_at": 1753196365.410512,
+                "id": "5e8c4255-1648-407c-b10d-c27c8ed9fc9f",
+                "created_at": 1753204582.229809,
                 "metadata": {
                     "lion_class": "lionagi.protocols.messages.instruction.Instruction"
                 },
                 "content": {
                     "context": [
-                        "The first joke charmingly plays with oceanic imagery and puns, giving the animals human-like social traits. It's a whimsical, light-hearted setup that invites a fun visual\u2014two giant sea creatures dancing in a bar\u2014highlighting humor through clever wordplay. A delightful way to animate the marine world with playful humor!",
-                        "The first joke creatively merges marine life with barroom social scene, using puns like \"whale out\" and \"fin-ish\" to evoke humor through wordplay. Its vivid imagery and light tone make it engaging.  \n**Rating: 7/10**\n\nThe second joke extends the pun theme, ending with a clever twist on the difficulty of dancing to \"fintastic\" music. It employs a nice callback while maintaining playful language.  \n**Rating: 6.5/10**"
+                        "This joke cleverly fuses maritime grandeur with humor, creating a playful visual of giant sea creatures dancing. The punchline's pun on \"sink\" adds a clever twist, making it both amusing and imaginatively vivid. A delightful blend of whimsy and wit!",
+                        "**Joke 1:**  \nThe imagery of a blue whale and a shark dancing at a bar is charming and surreal, effectively blending humor with visual grandeur. The pun on \"sink the competition\" adds a clever layer, though it relies somewhat on familiarity with idiomatic expressions.  \n**Rating:** 7/10\n\n**Joke 2:**  \nThe continuation humorously depicts the aftermath with a relatable twist about the bill, cleverly tying the sea theme to everyday humor. The punchline is playful and maintains the whimsical tone, though it slightly diminishes the visual impact of the first.  \n**Rating:** 6.5/10"
                     ],
                     "instruction": "your jokes were evaluated by a critic, does it make sense to you? why?"
                 },
@@ -178,23 +178,23 @@
                 "role": "user",
                 "template": null,
                 "sender": "user",
-                "recipient": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6"
+                "recipient": "f0f863f0-85c2-46d9-bd88-3f688868dcb3"
             },
             {
-                "id": "f9383621-c009-4ece-843c-b64261703938",
-                "created_at": 1753196367.429797,
+                "id": "0c134280-fb58-469c-bf1d-1d63458e2b90",
+                "created_at": 1753204583.863553,
                 "metadata": {
                     "model_response": {
-                        "id": "chatcmpl-Bw8kfGGPtr4ZWSgLouEloqjh677RK",
+                        "id": "chatcmpl-BwAtCnvvLGoEoY6k5LJlNJpulqIT0",
                         "object": "chat.completion",
-                        "created": 1753196365,
+                        "created": 1753204582,
                         "model": "gpt-4.1-nano-2025-04-14",
                         "choices": [
                             {
                                 "index": 0,
                                 "message": {
                                     "role": "assistant",
-                                    "content": "Yes, it makes sense to me. The jokes rely on vivid oceanic imagery and clever puns\u2014\"whale out,\" \"fin-ish,\" \"fintastic\"\u2014which create a fun, playful mental picture. They work because they anthropomorphize marine creatures in an unexpected social setting, making the humor accessible and entertaining. The punchlines cleverly twist the situation, reinforcing the humor through wordplay. Given the ratings and the critic\u2019s positive remarks about the visual and pun-based humor, it seems thoughtfully crafted to amuse an audience familiar with marine themes and puns.",
+                                    "content": "Yes, it makes sense to me. The critic appreciates the vivid imagery and the clever pun in the original joke, noting that it blends humor with a playful visual of giant sea creatures dancing. The humor relies on whimsical absurdity and a pun, which are effective in comedy. The continuation maintains this whimsical tone while adding a relatable twist, keeping the humor flowing. Overall, both jokes follow a logical comedic progression\u2014establishing a funny scene and then delivering a clever punchline. So, yes, I believe the critique\u2019s assessments and ratings align well with the humor\u2019s coherence and wit.",
                                     "refusal": null,
                                     "annotations": []
                                 },
@@ -203,9 +203,9 @@
                             }
                         ],
                         "usage": {
-                            "prompt_tokens": 378,
-                            "completion_tokens": 116,
-                            "total_tokens": 494,
+                            "prompt_tokens": 383,
+                            "completion_tokens": 118,
+                            "total_tokens": 501,
                             "prompt_tokens_details": {
                                 "cached_tokens": 0,
                                 "audio_tokens": 0
@@ -223,17 +223,17 @@
                     "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
                 },
                 "content": {
-                    "assistant_response": "Yes, it makes sense to me. The jokes rely on vivid oceanic imagery and clever puns\u2014\"whale out,\" \"fin-ish,\" \"fintastic\"\u2014which create a fun, playful mental picture. They work because they anthropomorphize marine creatures in an unexpected social setting, making the humor accessible and entertaining. The punchlines cleverly twist the situation, reinforcing the humor through wordplay. Given the ratings and the critic\u2019s positive remarks about the visual and pun-based humor, it seems thoughtfully crafted to amuse an audience familiar with marine themes and puns."
+                    "assistant_response": "Yes, it makes sense to me. The critic appreciates the vivid imagery and the clever pun in the original joke, noting that it blends humor with a playful visual of giant sea creatures dancing. The humor relies on whimsical absurdity and a pun, which are effective in comedy. The continuation maintains this whimsical tone while adding a relatable twist, keeping the humor flowing. Overall, both jokes follow a logical comedic progression\u2014establishing a funny scene and then delivering a clever punchline. So, yes, I believe the critique\u2019s assessments and ratings align well with the humor\u2019s coherence and wit."
                 },
                 "embedding": null,
                 "role": "assistant",
                 "template": null,
-                "sender": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6",
+                "sender": "f0f863f0-85c2-46d9-bd88-3f688868dcb3",
                 "recipient": "user"
             },
             {
-                "id": "e580bf5e-8c97-450f-b4ff-efd5b2f85133",
-                "created_at": 1753196367.430012,
+                "id": "3db4143f-bfe8-489c-be32-f75edc245b8c",
+                "created_at": 1753204583.863722,
                 "metadata": {
                     "lion_class": "lionagi.protocols.messages.instruction.Instruction"
                 },
@@ -245,23 +245,23 @@
                 "role": "user",
                 "template": null,
                 "sender": "user",
-                "recipient": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6"
+                "recipient": "f0f863f0-85c2-46d9-bd88-3f688868dcb3"
             },
             {
-                "id": "4f09a1b2-2741-4859-a885-55c1ca835fa3",
-                "created_at": 1753196368.879625,
+                "id": "c4dab3ca-1a04-48fc-86cf-df8375fb5faa",
+                "created_at": 1753204584.946231,
                 "metadata": {
                     "model_response": {
-                        "id": "chatcmpl-Bw8khpuvxOAHPQThbi08nwLzlyhVg",
+                        "id": "chatcmpl-BwAtEOamxb9XxJDGbQjXMEfgHN7Xq",
                         "object": "chat.completion",
-                        "created": 1753196367,
+                        "created": 1753204584,
                         "model": "gpt-4.1-nano-2025-04-14",
                         "choices": [
                             {
                                 "index": 0,
                                 "message": {
                                     "role": "assistant",
-                                    "content": "Sure! Here's a refreshed version of Joke 1, keeping in line with the witty oceanic imagery and wordplay:\n\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one just wants to whale out, and the other\u2019s ready to fin-ish the night with a splash!",
+                                    "content": "# Assistant Response\n\n**Joke 1 Revised**:  \nA blue whale and a shark walk into a bar, start dancing like nobody\u2019s watching\u2014probably because no one can see either of them over the appetizers. Guess they wanted to \"sink\" into the groove!",
                                     "refusal": null,
                                     "annotations": []
                                 },
@@ -270,9 +270,9 @@
                             }
                         ],
                         "usage": {
-                            "prompt_tokens": 525,
-                            "completion_tokens": 68,
-                            "total_tokens": 593,
+                            "prompt_tokens": 532,
+                            "completion_tokens": 55,
+                            "total_tokens": 587,
                             "prompt_tokens_details": {
                                 "cached_tokens": 0,
                                 "audio_tokens": 0
@@ -290,17 +290,17 @@
                     "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
                 },
                 "content": {
-                    "assistant_response": "Sure! Here's a refreshed version of Joke 1, keeping in line with the witty oceanic imagery and wordplay:\n\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one just wants to whale out, and the other\u2019s ready to fin-ish the night with a splash!"
+                    "assistant_response": "# Assistant Response\n\n**Joke 1 Revised**:  \nA blue whale and a shark walk into a bar, start dancing like nobody\u2019s watching\u2014probably because no one can see either of them over the appetizers. Guess they wanted to \"sink\" into the groove!"
                 },
                 "embedding": null,
                 "role": "assistant",
                 "template": null,
-                "sender": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6",
+                "sender": "f0f863f0-85c2-46d9-bd88-3f688868dcb3",
                 "recipient": "user"
             },
             {
-                "id": "fa52197b-086b-446d-b77b-5bcc94768698",
-                "created_at": 1753196368.880333,
+                "id": "e61d0f71-bb8a-4b7d-b53d-606949ef3b1f",
+                "created_at": 1753204584.946471,
                 "metadata": {
                     "lion_class": "lionagi.protocols.messages.instruction.Instruction"
                 },
@@ -312,23 +312,23 @@
                 "role": "user",
                 "template": null,
                 "sender": "user",
-                "recipient": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6"
+                "recipient": "f0f863f0-85c2-46d9-bd88-3f688868dcb3"
             },
             {
-                "id": "41ada2a3-5637-4b2f-a9d5-5b5e00207e81",
-                "created_at": 1753196369.989822,
+                "id": "d9ee859e-efff-4063-a672-6c22398e29d1",
+                "created_at": 1753204585.734418,
                 "metadata": {
                     "model_response": {
-                        "id": "chatcmpl-Bw8kjYVXsacpgQWqGXSgG0OClhXqF",
+                        "id": "chatcmpl-BwAtFcuIBgXmllcSjFfeIGx0eXDmz",
                         "object": "chat.completion",
-                        "created": 1753196369,
+                        "created": 1753204585,
                         "model": "gpt-4.1-nano-2025-04-14",
                         "choices": [
                             {
                                 "index": 0,
                                 "message": {
                                     "role": "assistant",
-                                    "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped\u2014because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fintastic*.",
+                                    "content": "# Assistant Response\n\n**Joke 2 Revised**:  \nAfter a wild dance, they stopped \u2014 turns out even giants can't handle the tab when they\u2019re swimming in bills. Guess they finally realized they can't \"sea\" the end of that check!",
                                     "refusal": null,
                                     "annotations": []
                                 },
@@ -337,9 +337,9 @@
                             }
                         ],
                         "usage": {
-                            "prompt_tokens": 618,
-                            "completion_tokens": 42,
-                            "total_tokens": 660,
+                            "prompt_tokens": 612,
+                            "completion_tokens": 51,
+                            "total_tokens": 663,
                             "prompt_tokens_details": {
                                 "cached_tokens": 0,
                                 "audio_tokens": 0
@@ -357,50 +357,50 @@
                     "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
                 },
                 "content": {
-                    "assistant_response": "# Assistant Response\n\n**Response**:\nAnd then they stopped\u2014because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fintastic*."
+                    "assistant_response": "# Assistant Response\n\n**Joke 2 Revised**:  \nAfter a wild dance, they stopped \u2014 turns out even giants can't handle the tab when they\u2019re swimming in bills. Guess they finally realized they can't \"sea\" the end of that check!"
                 },
                 "embedding": null,
                 "role": "assistant",
                 "template": null,
-                "sender": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6",
+                "sender": "f0f863f0-85c2-46d9-bd88-3f688868dcb3",
                 "recipient": "user"
             }
         ],
         "strict_type": false
     },
     "logs": {
-        "id": "14612fbb-33da-4d2a-ad91-4937258672a1",
-        "created_at": 1753196358.640321,
+        "id": "75851ab0-26ec-486a-b82f-bd623518fe05",
+        "created_at": 1753204578.020417,
         "metadata": {
             "lion_class": "lionagi.protocols.generic.pile.Pile"
         },
         "collections": [
             {
-                "id": "0af77d88-ca6c-43e0-97d6-f43aa298ee3b",
-                "created_at": 1753196360.173878,
+                "id": "e0f901ec-4b05-4b3f-b317-91a050e84bb1",
+                "created_at": 1753204579.029346,
                 "metadata": {
                     "lion_class": "lionagi.protocols.generic.log.Log"
                 },
                 "content": {
-                    "id": "9dd90aeb-e988-4f44-a9c8-950d8f4e2842",
-                    "created_at": 1753196358.643275,
+                    "id": "9710b231-ea94-4aec-9ae7-adb25094297d",
+                    "created_at": 1753204578.023814,
                     "metadata": {
                         "lion_class": "lionagi.service.connections.api_calling.APICalling"
                     },
                     "execution": {
                         "status": "completed",
-                        "duration": 1.3618999579921365,
+                        "duration": 0.802566416998161,
                         "response": {
-                            "id": "chatcmpl-Bw8kZu6vZcp967mLT1xRhdz4KHMqj",
+                            "id": "chatcmpl-BwAt805cxmpMJxEwmwvRuvsuVNzuJ",
                             "object": "chat.completion",
-                            "created": 1753196359,
+                            "created": 1753204578,
                             "model": "gpt-4.1-nano-2025-04-14",
                             "choices": [
                                 {
                                     "index": 0,
                                     "message": {
                                         "role": "assistant",
-                                        "content": "A blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one's just there to whale out, and the other's just looking to fin-ish the night on a high note!",
+                                        "content": "A blue whale and a big shark meet at the bar, see each other and start dancing. Guess they thought it was the perfect way to **\"sink\" the competition**.",
                                         "refusal": null,
                                         "annotations": []
                                     },
@@ -410,8 +410,8 @@
                             ],
                             "usage": {
                                 "prompt_tokens": 44,
-                                "completion_tokens": 45,
-                                "total_tokens": 89,
+                                "completion_tokens": 36,
+                                "total_tokens": 80,
                                 "prompt_tokens_details": {
                                     "cached_tokens": 0,
                                     "audio_tokens": 0
@@ -441,31 +441,31 @@
                 }
             },
             {
-                "id": "1e2a8f7e-8cf9-4d90-89db-40c5ea05df5f",
-                "created_at": 1753196361.019758,
+                "id": "61e1a4e4-2277-4cef-a6e5-5a4ac912bffc",
+                "created_at": 1753204579.73878,
                 "metadata": {
                     "lion_class": "lionagi.protocols.generic.log.Log"
                 },
                 "content": {
-                    "id": "756da74d-074b-440f-aae0-f5d3cd849a20",
-                    "created_at": 1753196360.176106,
+                    "id": "1b6f5eec-8fa2-4056-9130-8f3162c86ed2",
+                    "created_at": 1753204579.03047,
                     "metadata": {
                         "lion_class": "lionagi.service.connections.api_calling.APICalling"
                     },
                     "execution": {
                         "status": "completed",
-                        "duration": 0.8428987079969374,
+                        "duration": 0.7078595000057248,
                         "response": {
-                            "id": "chatcmpl-Bw8ka5TX4tTKO6pnX9A6ttwKT80lK",
+                            "id": "chatcmpl-BwAt90c3bicHIHuv205IwsrExyNF4",
                             "object": "chat.completion",
-                            "created": 1753196360,
+                            "created": 1753204579,
                             "model": "gpt-4.1-nano-2025-04-14",
                             "choices": [
                                 {
                                     "index": 0,
                                     "message": {
                                         "role": "assistant",
-                                        "content": "And then they stopped... because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fin*-tastic.",
+                                        "content": "And then they stopped, realizing the only thing bigger than their dance moves was the tab\u2014guess even giants get sea-sick from paying the bill!",
                                         "refusal": null,
                                         "annotations": []
                                     },
@@ -474,9 +474,9 @@
                                 }
                             ],
                             "usage": {
-                                "prompt_tokens": 129,
-                                "completion_tokens": 35,
-                                "total_tokens": 164,
+                                "prompt_tokens": 120,
+                                "completion_tokens": 30,
+                                "total_tokens": 150,
                                 "prompt_tokens_details": {
                                     "cached_tokens": 0,
                                     "audio_tokens": 0
@@ -503,7 +503,7 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one's just there to whale out, and the other's just looking to fin-ish the night on a high note!"
+                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark meet at the bar, see each other and start dancing. Guess they thought it was the perfect way to **\"sink\" the competition**."
                             },
                             {
                                 "role": "user",
@@ -514,31 +514,31 @@
                 }
             },
             {
-                "id": "9f4d4f99-9804-489f-aea2-2a4af6b02e6c",
-                "created_at": 1753196367.429726,
+                "id": "53ddf207-9e61-4848-971e-6a83c16abbc5",
+                "created_at": 1753204583.86343,
                 "metadata": {
                     "lion_class": "lionagi.protocols.generic.log.Log"
                 },
                 "content": {
-                    "id": "9f376139-e0e3-4645-946e-7189f6cdf7f6",
-                    "created_at": 1753196365.410914,
+                    "id": "7077c5e2-8212-4674-a0b2-9d9c02a22db5",
+                    "created_at": 1753204582.230574,
                     "metadata": {
                         "lion_class": "lionagi.service.connections.api_calling.APICalling"
                     },
                     "execution": {
                         "status": "completed",
-                        "duration": 2.0184740840049926,
+                        "duration": 1.6324113750015385,
                         "response": {
-                            "id": "chatcmpl-Bw8kfGGPtr4ZWSgLouEloqjh677RK",
+                            "id": "chatcmpl-BwAtCnvvLGoEoY6k5LJlNJpulqIT0",
                             "object": "chat.completion",
-                            "created": 1753196365,
+                            "created": 1753204582,
                             "model": "gpt-4.1-nano-2025-04-14",
                             "choices": [
                                 {
                                     "index": 0,
                                     "message": {
                                         "role": "assistant",
-                                        "content": "Yes, it makes sense to me. The jokes rely on vivid oceanic imagery and clever puns\u2014\"whale out,\" \"fin-ish,\" \"fintastic\"\u2014which create a fun, playful mental picture. They work because they anthropomorphize marine creatures in an unexpected social setting, making the humor accessible and entertaining. The punchlines cleverly twist the situation, reinforcing the humor through wordplay. Given the ratings and the critic\u2019s positive remarks about the visual and pun-based humor, it seems thoughtfully crafted to amuse an audience familiar with marine themes and puns.",
+                                        "content": "Yes, it makes sense to me. The critic appreciates the vivid imagery and the clever pun in the original joke, noting that it blends humor with a playful visual of giant sea creatures dancing. The humor relies on whimsical absurdity and a pun, which are effective in comedy. The continuation maintains this whimsical tone while adding a relatable twist, keeping the humor flowing. Overall, both jokes follow a logical comedic progression\u2014establishing a funny scene and then delivering a clever punchline. So, yes, I believe the critique\u2019s assessments and ratings align well with the humor\u2019s coherence and wit.",
                                         "refusal": null,
                                         "annotations": []
                                     },
@@ -547,9 +547,9 @@
                                 }
                             ],
                             "usage": {
-                                "prompt_tokens": 378,
-                                "completion_tokens": 116,
-                                "total_tokens": 494,
+                                "prompt_tokens": 383,
+                                "completion_tokens": 118,
+                                "total_tokens": 501,
                                 "prompt_tokens_details": {
                                     "cached_tokens": 0,
                                     "audio_tokens": 0
@@ -576,7 +576,7 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one's just there to whale out, and the other's just looking to fin-ish the night on a high note!"
+                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark meet at the bar, see each other and start dancing. Guess they thought it was the perfect way to **\"sink\" the competition**."
                             },
                             {
                                 "role": "user",
@@ -584,42 +584,42 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped... because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fin*-tastic."
+                                "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped, realizing the only thing bigger than their dance moves was the tab\u2014guess even giants get sea-sick from paying the bill!"
                             },
                             {
                                 "role": "user",
-                                "content": "## INSTRUCTION:\n\n  your jokes were evaluated by a critic, does it make sense to you? why?\n\n## CONTEXT:\n\n  - The first joke charmingly plays with oceanic imagery and puns, giving the animals human-like social traits. It's a whimsical, light-hearted setup that invites a fun visual\u2014two giant sea creatures dancing in a bar\u2014highlighting humor through clever wordplay. A delightful way to animate the marine world with playful humor!\n  -\n    The first joke creatively merges marine life with barroom social scene, using puns like \"whale out\" and \"fin-ish\" to evoke humor through wordplay. Its vivid imagery and light tone make it engaging.  \n    **Rating: 7/10**\n    The second joke extends the pun theme, ending with a clever twist on the difficulty of dancing to \"fintastic\" music. It employs a nice callback while maintaining playful language.  \n    **Rating: 6.5/10**"
+                                "content": "## INSTRUCTION:\n\n  your jokes were evaluated by a critic, does it make sense to you? why?\n\n## CONTEXT:\n\n  - This joke cleverly fuses maritime grandeur with humor, creating a playful visual of giant sea creatures dancing. The punchline's pun on \"sink\" adds a clever twist, making it both amusing and imaginatively vivid. A delightful blend of whimsy and wit!\n  -\n    **Joke 1:**  \n    The imagery of a blue whale and a shark dancing at a bar is charming and surreal, effectively blending humor with visual grandeur. The pun on \"sink the competition\" adds a clever layer, though it relies somewhat on familiarity with idiomatic expressions.  \n    **Rating:** 7/10\n    **Joke 2:**  \n    The continuation humorously depicts the aftermath with a relatable twist about the bill, cleverly tying the sea theme to everyday humor. The punchline is playful and maintains the whimsical tone, though it slightly diminishes the visual impact of the first.  \n    **Rating:** 6.5/10"
                             }
                         ]
                     }
                 }
             },
             {
-                "id": "02d2eecc-e65a-4ad3-950c-63f515ba8397",
-                "created_at": 1753196368.879412,
+                "id": "4d4fb70b-a3f4-45bc-993e-bd4395851be4",
+                "created_at": 1753204584.946172,
                 "metadata": {
                     "lion_class": "lionagi.protocols.generic.log.Log"
                 },
                 "content": {
-                    "id": "888a24bd-281d-4b51-918a-107ddddc6b74",
-                    "created_at": 1753196367.43045,
+                    "id": "dbfadbb8-41e3-4226-82d1-748d8a9c41e6",
+                    "created_at": 1753204583.864041,
                     "metadata": {
                         "lion_class": "lionagi.service.connections.api_calling.APICalling"
                     },
                     "execution": {
                         "status": "completed",
-                        "duration": 1.448238416996901,
+                        "duration": 1.0817999580031028,
                         "response": {
-                            "id": "chatcmpl-Bw8khpuvxOAHPQThbi08nwLzlyhVg",
+                            "id": "chatcmpl-BwAtEOamxb9XxJDGbQjXMEfgHN7Xq",
                             "object": "chat.completion",
-                            "created": 1753196367,
+                            "created": 1753204584,
                             "model": "gpt-4.1-nano-2025-04-14",
                             "choices": [
                                 {
                                     "index": 0,
                                     "message": {
                                         "role": "assistant",
-                                        "content": "Sure! Here's a refreshed version of Joke 1, keeping in line with the witty oceanic imagery and wordplay:\n\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one just wants to whale out, and the other\u2019s ready to fin-ish the night with a splash!",
+                                        "content": "# Assistant Response\n\n**Joke 1 Revised**:  \nA blue whale and a shark walk into a bar, start dancing like nobody\u2019s watching\u2014probably because no one can see either of them over the appetizers. Guess they wanted to \"sink\" into the groove!",
                                         "refusal": null,
                                         "annotations": []
                                     },
@@ -628,9 +628,9 @@
                                 }
                             ],
                             "usage": {
-                                "prompt_tokens": 525,
-                                "completion_tokens": 68,
-                                "total_tokens": 593,
+                                "prompt_tokens": 532,
+                                "completion_tokens": 55,
+                                "total_tokens": 587,
                                 "prompt_tokens_details": {
                                     "cached_tokens": 0,
                                     "audio_tokens": 0
@@ -657,7 +657,7 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one's just there to whale out, and the other's just looking to fin-ish the night on a high note!"
+                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark meet at the bar, see each other and start dancing. Guess they thought it was the perfect way to **\"sink\" the competition**."
                             },
                             {
                                 "role": "user",
@@ -665,15 +665,15 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped... because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fin*-tastic."
+                                "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped, realizing the only thing bigger than their dance moves was the tab\u2014guess even giants get sea-sick from paying the bill!"
                             },
                             {
                                 "role": "user",
-                                "content": "## INSTRUCTION:\n\n  your jokes were evaluated by a critic, does it make sense to you? why?\n\n## CONTEXT:\n\n  - The first joke charmingly plays with oceanic imagery and puns, giving the animals human-like social traits. It's a whimsical, light-hearted setup that invites a fun visual\u2014two giant sea creatures dancing in a bar\u2014highlighting humor through clever wordplay. A delightful way to animate the marine world with playful humor!\n  -\n    The first joke creatively merges marine life with barroom social scene, using puns like \"whale out\" and \"fin-ish\" to evoke humor through wordplay. Its vivid imagery and light tone make it engaging.  \n    **Rating: 7/10**\n    The second joke extends the pun theme, ending with a clever twist on the difficulty of dancing to \"fintastic\" music. It employs a nice callback while maintaining playful language.  \n    **Rating: 6.5/10**"
+                                "content": "## INSTRUCTION:\n\n  your jokes were evaluated by a critic, does it make sense to you? why?\n\n## CONTEXT:\n\n  - This joke cleverly fuses maritime grandeur with humor, creating a playful visual of giant sea creatures dancing. The punchline's pun on \"sink\" adds a clever twist, making it both amusing and imaginatively vivid. A delightful blend of whimsy and wit!\n  -\n    **Joke 1:**  \n    The imagery of a blue whale and a shark dancing at a bar is charming and surreal, effectively blending humor with visual grandeur. The pun on \"sink the competition\" adds a clever layer, though it relies somewhat on familiarity with idiomatic expressions.  \n    **Rating:** 7/10\n    **Joke 2:**  \n    The continuation humorously depicts the aftermath with a relatable twist about the bill, cleverly tying the sea theme to everyday humor. The punchline is playful and maintains the whimsical tone, though it slightly diminishes the visual impact of the first.  \n    **Rating:** 6.5/10"
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nYes, it makes sense to me. The jokes rely on vivid oceanic imagery and clever puns\u2014\"whale out,\" \"fin-ish,\" \"fintastic\"\u2014which create a fun, playful mental picture. They work because they anthropomorphize marine creatures in an unexpected social setting, making the humor accessible and entertaining. The punchlines cleverly twist the situation, reinforcing the humor through wordplay. Given the ratings and the critic\u2019s positive remarks about the visual and pun-based humor, it seems thoughtfully crafted to amuse an audience familiar with marine themes and puns."
+                                "content": "# Assistant Response\n\n**Response**:\nYes, it makes sense to me. The critic appreciates the vivid imagery and the clever pun in the original joke, noting that it blends humor with a playful visual of giant sea creatures dancing. The humor relies on whimsical absurdity and a pun, which are effective in comedy. The continuation maintains this whimsical tone while adding a relatable twist, keeping the humor flowing. Overall, both jokes follow a logical comedic progression\u2014establishing a funny scene and then delivering a clever punchline. So, yes, I believe the critique\u2019s assessments and ratings align well with the humor\u2019s coherence and wit."
                             },
                             {
                                 "role": "user",
@@ -684,31 +684,31 @@
                 }
             },
             {
-                "id": "48aacc46-cbcf-4837-a4c3-c450fc91e9d4",
-                "created_at": 1753196369.98969,
+                "id": "f33a24d9-d184-4e3a-8bb6-ebf90f4f4a2e",
+                "created_at": 1753204585.734273,
                 "metadata": {
                     "lion_class": "lionagi.protocols.generic.log.Log"
                 },
                 "content": {
-                    "id": "f0c01c8e-16f3-4d9e-9f53-3444ffcf6a32",
-                    "created_at": 1753196368.881293,
+                    "id": "72e15912-c3e7-49e2-b393-d07ccbda52af",
+                    "created_at": 1753204584.946889,
                     "metadata": {
                         "lion_class": "lionagi.service.connections.api_calling.APICalling"
                     },
                     "execution": {
                         "status": "completed",
-                        "duration": 1.1075181670021266,
+                        "duration": 0.7870320840011118,
                         "response": {
-                            "id": "chatcmpl-Bw8kjYVXsacpgQWqGXSgG0OClhXqF",
+                            "id": "chatcmpl-BwAtFcuIBgXmllcSjFfeIGx0eXDmz",
                             "object": "chat.completion",
-                            "created": 1753196369,
+                            "created": 1753204585,
                             "model": "gpt-4.1-nano-2025-04-14",
                             "choices": [
                                 {
                                     "index": 0,
                                     "message": {
                                         "role": "assistant",
-                                        "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped\u2014because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fintastic*.",
+                                        "content": "# Assistant Response\n\n**Joke 2 Revised**:  \nAfter a wild dance, they stopped \u2014 turns out even giants can't handle the tab when they\u2019re swimming in bills. Guess they finally realized they can't \"sea\" the end of that check!",
                                         "refusal": null,
                                         "annotations": []
                                     },
@@ -717,9 +717,9 @@
                                 }
                             ],
                             "usage": {
-                                "prompt_tokens": 618,
-                                "completion_tokens": 42,
-                                "total_tokens": 660,
+                                "prompt_tokens": 612,
+                                "completion_tokens": 51,
+                                "total_tokens": 663,
                                 "prompt_tokens_details": {
                                     "cached_tokens": 0,
                                     "audio_tokens": 0
@@ -746,7 +746,7 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one's just there to whale out, and the other's just looking to fin-ish the night on a high note!"
+                                "content": "# Assistant Response\n\n**Response**:\nA blue whale and a big shark meet at the bar, see each other and start dancing. Guess they thought it was the perfect way to **\"sink\" the competition**."
                             },
                             {
                                 "role": "user",
@@ -754,15 +754,15 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped... because even a giant whale and a massive shark knew it\u2019s hard to keep dancing when the music\u2019s just a little too *fin*-tastic."
+                                "content": "# Assistant Response\n\n**Response**:\nAnd then they stopped, realizing the only thing bigger than their dance moves was the tab\u2014guess even giants get sea-sick from paying the bill!"
                             },
                             {
                                 "role": "user",
-                                "content": "## INSTRUCTION:\n\n  your jokes were evaluated by a critic, does it make sense to you? why?\n\n## CONTEXT:\n\n  - The first joke charmingly plays with oceanic imagery and puns, giving the animals human-like social traits. It's a whimsical, light-hearted setup that invites a fun visual\u2014two giant sea creatures dancing in a bar\u2014highlighting humor through clever wordplay. A delightful way to animate the marine world with playful humor!\n  -\n    The first joke creatively merges marine life with barroom social scene, using puns like \"whale out\" and \"fin-ish\" to evoke humor through wordplay. Its vivid imagery and light tone make it engaging.  \n    **Rating: 7/10**\n    The second joke extends the pun theme, ending with a clever twist on the difficulty of dancing to \"fintastic\" music. It employs a nice callback while maintaining playful language.  \n    **Rating: 6.5/10**"
+                                "content": "## INSTRUCTION:\n\n  your jokes were evaluated by a critic, does it make sense to you? why?\n\n## CONTEXT:\n\n  - This joke cleverly fuses maritime grandeur with humor, creating a playful visual of giant sea creatures dancing. The punchline's pun on \"sink\" adds a clever twist, making it both amusing and imaginatively vivid. A delightful blend of whimsy and wit!\n  -\n    **Joke 1:**  \n    The imagery of a blue whale and a shark dancing at a bar is charming and surreal, effectively blending humor with visual grandeur. The pun on \"sink the competition\" adds a clever layer, though it relies somewhat on familiarity with idiomatic expressions.  \n    **Rating:** 7/10\n    **Joke 2:**  \n    The continuation humorously depicts the aftermath with a relatable twist about the bill, cleverly tying the sea theme to everyday humor. The punchline is playful and maintains the whimsical tone, though it slightly diminishes the visual impact of the first.  \n    **Rating:** 6.5/10"
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nYes, it makes sense to me. The jokes rely on vivid oceanic imagery and clever puns\u2014\"whale out,\" \"fin-ish,\" \"fintastic\"\u2014which create a fun, playful mental picture. They work because they anthropomorphize marine creatures in an unexpected social setting, making the humor accessible and entertaining. The punchlines cleverly twist the situation, reinforcing the humor through wordplay. Given the ratings and the critic\u2019s positive remarks about the visual and pun-based humor, it seems thoughtfully crafted to amuse an audience familiar with marine themes and puns."
+                                "content": "# Assistant Response\n\n**Response**:\nYes, it makes sense to me. The critic appreciates the vivid imagery and the clever pun in the original joke, noting that it blends humor with a playful visual of giant sea creatures dancing. The humor relies on whimsical absurdity and a pun, which are effective in comedy. The continuation maintains this whimsical tone while adding a relatable twist, keeping the humor flowing. Overall, both jokes follow a logical comedic progression\u2014establishing a funny scene and then delivering a clever punchline. So, yes, I believe the critique\u2019s assessments and ratings align well with the humor\u2019s coherence and wit."
                             },
                             {
                                 "role": "user",
@@ -770,7 +770,7 @@
                             },
                             {
                                 "role": "assistant",
-                                "content": "# Assistant Response\n\n**Response**:\nSure! Here's a refreshed version of Joke 1, keeping in line with the witty oceanic imagery and wordplay:\n\nA blue whale and a big shark walk into a bar, spot each other, and start dancing. Turns out, one just wants to whale out, and the other\u2019s ready to fin-ish the night with a splash!"
+                                "content": "# Assistant Response\n\n**Response**:\n# Assistant Response\n\n**Joke 1 Revised**:  \nA blue whale and a shark walk into a bar, start dancing like nobody\u2019s watching\u2014probably because no one can see either of them over the appetizers. Guess they wanted to \"sink\" into the groove!"
                             },
                             {
                                 "role": "user",
@@ -4266,8 +4266,8 @@
         "provider_metadata": {}
     },
     "system": {
-        "id": "3b518c53-5bbc-4d38-8cec-7601af2cda68",
-        "created_at": 1753196358.329367,
+        "id": "08e464d9-788b-404b-a1b5-53dece5937c2",
+        "created_at": 1753204577.703339,
         "metadata": {
             "lion_class": "lionagi.protocols.messages.system.System"
         },
@@ -4278,7 +4278,7 @@
         "role": "system",
         "template": null,
         "sender": "system",
-        "recipient": "466fec09-0bfa-46bc-9c6d-5e00c6390ae6"
+        "recipient": "f0f863f0-85c2-46d9-bd88-3f688868dcb3"
     },
     "log_config": {
         "persist_dir": "./data/logs",
