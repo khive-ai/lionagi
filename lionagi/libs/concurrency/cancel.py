@@ -4,7 +4,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from types import TracebackType
-from typing import Optional, TypeVar
+from typing import TypeVar
 
 import anyio
 

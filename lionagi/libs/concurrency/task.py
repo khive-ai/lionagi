@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 from types import TracebackType
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar
 
 import anyio
 

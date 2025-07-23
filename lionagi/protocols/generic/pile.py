@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import threading
 from collections import deque
@@ -19,6 +18,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, ClassVar, Generic, TypeVar
 
+import anyio
 import pandas as pd
 from pydantic import Field
 from pydantic.fields import FieldInfo
@@ -29,6 +29,7 @@ from pydapter.extras.pandas_ import DataFrameAdapter
 from typing_extensions import Self, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError
+from lionagi.libs.concurrency.primitives import Lock as AsyncLock
 from lionagi.utils import UNDEFINED, is_same_dtype, to_list
 
 from .._concepts import Observable
@@ -118,7 +119,7 @@ class Pile(Element, Collective[E], Generic[E]):
     def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
             "_lock": Field(default_factory=threading.Lock),
-            "_async": Field(default_factory=asyncio.Lock),
+            "_async_lock": Field(default_factory=AsyncLock),
         }
 
     def __pydantic_private__(self) -> dict[str, FieldInfo]:
@@ -511,7 +512,7 @@ class Pile(Element, Collective[E], Generic[E]):
         """Restore after unpickling."""
         self.__dict__.update(state)
         self._lock = threading.Lock()
-        self._async_lock = asyncio.Lock()
+        self._async_lock = AsyncLock()
 
     @property
     def lock(self):
@@ -524,7 +525,7 @@ class Pile(Element, Collective[E], Generic[E]):
     def async_lock(self):
         """Async lock."""
         if not hasattr(self, "_async_lock") or self._async_lock is None:
-            self._async_lock = asyncio.Lock()
+            self._async_lock = AsyncLock()
         return self._async_lock
 
     # Async Interface methods
@@ -608,7 +609,7 @@ class Pile(Element, Collective[E], Generic[E]):
 
         for key in current_order:
             yield self.collections[key]
-            await asyncio.sleep(0)  # Yield control to the event loop
+            await anyio.sleep(0)  # Yield control to the event loop
 
     async def __anext__(self) -> T:
         """Async get next item."""
@@ -936,7 +937,7 @@ class Pile(Element, Collective[E], Generic[E]):
                 raise StopAsyncIteration
             item = self.pile[self.pile.progression[self.index]]
             self.index += 1
-            await asyncio.sleep(0)  # Yield control to the event loop
+            await anyio.sleep(0)  # Yield control to the event loop
             return item
 
     async def __aenter__(self) -> Self:

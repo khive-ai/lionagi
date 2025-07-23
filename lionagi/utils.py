@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import contextlib
 import copy as _copy
 import dataclasses
 import functools
 import importlib.metadata
 import importlib.util
+import inspect
 import json
 import logging
 import re
@@ -26,7 +26,6 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
@@ -43,9 +42,13 @@ from typing import (
     overload,
 )
 
+import anyio
 from pydantic import BaseModel, model_validator
 from pydantic_core import PydanticUndefinedType
 
+from .libs.concurrency.patterns import retry_with_timeout
+from .libs.concurrency.primitives import CapacityLimiter
+from .libs.concurrency.task import create_task_group
 from .settings import Settings
 
 R = TypeVar("R")
@@ -250,7 +253,7 @@ def is_same_dtype(
 
 @lru_cache(maxsize=None)
 def is_coro_func(func: Callable[..., Any]) -> bool:
-    return asyncio.iscoroutinefunction(func)
+    return inspect.iscoroutinefunction(func)
 
 
 async def custom_error_handler(
@@ -734,83 +737,104 @@ async def alcall(
 
     # Optional initial delay before processing
     if initial_delay:
-        await asyncio.sleep(initial_delay)
+        await anyio.sleep(initial_delay)
 
-    semaphore = asyncio.Semaphore(max_concurrent) if max_concurrent else None
-    throttle_delay = throttle_period or 0
+    # Setup concurrency control
+    limiter = CapacityLimiter(max_concurrent) if max_concurrent else None
     coro_func = is_coro_func(func)
 
-    async def call_func(item: Any) -> T:
+    # Create a wrapper that handles both sync and async functions
+    async def wrapped_func(item: Any) -> T:
         if coro_func:
-            # Async function
-            if retry_timeout is not None:
-                return await asyncio.wait_for(
-                    func(item, **kwargs), timeout=retry_timeout
-                )
-            else:
-                return await func(item, **kwargs)
+            return await func(item, **kwargs)
         else:
-            # Sync function
-            if retry_timeout is not None:
-                return await asyncio.wait_for(
-                    asyncio.to_thread(func, item, **kwargs),
-                    timeout=retry_timeout,
-                )
-            else:
-                return func(item, **kwargs)
+            return await anyio.to_thread.run_sync(func, item, **kwargs)
 
-    async def execute_task(i: Any, index: int) -> Any:
-        start_time = asyncio.get_running_loop().time()
-        attempts = 0
-        current_delay = retry_delay
-        while True:
+    # Process single item with retries using our concurrency patterns
+    async def process_item(
+        index: int, item: Any
+    ) -> tuple[int, Any, float | None]:
+        start_time = anyio.current_time() if retry_timing else None
+
+        # Use retry_with_timeout pattern if retries are requested
+        if num_retries > 0 and retry_timeout:
+            # Use the retry_with_timeout pattern from concurrency library
             try:
-                result = await call_func(i)
-                if retry_timing:
-                    end_time = asyncio.get_running_loop().time()
-                    return index, result, end_time - start_time
-                else:
-                    return index, result
-            except asyncio.CancelledError as e:
-                raise e
-
+                result = await retry_with_timeout(
+                    wrapped_func,
+                    item,
+                    max_retries=num_retries,
+                    timeout=retry_timeout,
+                    retry_exceptions=[Exception],  # Retry on any exception
+                )
             except Exception:
-                attempts += 1
-                if attempts <= num_retries:
-                    if current_delay:
-                        await asyncio.sleep(current_delay)
-                        current_delay *= backoff_factor
-                    # Retry loop continues
+                if retry_default is not UNDEFINED:
+                    result = retry_default
                 else:
-                    # Exhausted retries
-                    if retry_default is not UNDEFINED:
-                        # Return default if provided
-                        if retry_timing:
-                            end_time = asyncio.get_running_loop().time()
-                            duration = end_time - (start_time or end_time)
-                            return index, retry_default, duration
-                        else:
-                            return index, retry_default
-                    # No default, re-raise
                     raise
-
-    async def task_wrapper(item: Any, idx: int) -> Any:
-        if semaphore:
-            async with semaphore:
-                return await execute_task(item, idx)
+        elif num_retries > 0:
+            # Manual retry without timeout using exponential backoff
+            attempts = 0
+            current_delay = retry_delay
+            while True:
+                try:
+                    result = await wrapped_func(item)
+                    break
+                except anyio.get_cancelled_exc_class():
+                    raise
+                except Exception:
+                    attempts += 1
+                    if attempts <= num_retries:
+                        if current_delay:
+                            await anyio.sleep(current_delay)
+                            current_delay *= backoff_factor
+                        # Continue retry loop
+                    else:
+                        if retry_default is not UNDEFINED:
+                            result = retry_default
+                            break
+                        else:
+                            raise
         else:
-            return await execute_task(item, idx)
+            # No retries, just execute with optional timeout using anyio.fail_after
+            if retry_timeout:
+                try:
+                    with anyio.fail_after(retry_timeout):
+                        result = await wrapped_func(item)
+                except TimeoutError:
+                    if retry_default is not UNDEFINED:
+                        result = retry_default
+                    else:
+                        raise
+            else:
+                result = await wrapped_func(item)
 
-    # Create tasks
-    tasks = [task_wrapper(item, idx) for idx, item in enumerate(input_)]
+        duration = anyio.current_time() - start_time if retry_timing else None
+        return index, result, duration
 
-    # Collect results as they complete
-    results = []
-    for coro in asyncio.as_completed(tasks):
-        res = await coro
-        results.append(res)
-        if throttle_delay:
-            await asyncio.sleep(throttle_delay)
+    # Process items using task group with proper structure
+    results: list[tuple[int, Any, float | None]] = []
+
+    async with create_task_group() as tg:
+
+        async def process_with_limit(index: int, item: Any):
+            """Process item with optional capacity limiting and throttling"""
+            if limiter:
+                async with limiter:
+                    result = await process_item(index, item)
+            else:
+                result = await process_item(index, item)
+
+            # Add to results
+            results.append(result)
+
+            # Apply throttle delay if specified
+            if throttle_period:
+                await anyio.sleep(throttle_period)
+
+        # Start all tasks
+        for idx, item in enumerate(input_):
+            await tg.start_soon(process_with_limit, idx, item)
 
     # Sort by original index
     results.sort(key=lambda x: x[0])
@@ -1850,7 +1874,7 @@ class Throttle:
         async def wrapper(*args, **kwargs) -> Any:
             elapsed = time() - self.last_called
             if elapsed < self.period:
-                await asyncio.sleep(self.period - elapsed)
+                await anyio.sleep(self.period - elapsed)
             self.last_called = time()
             return await func(*args, **kwargs)
 
@@ -1868,12 +1892,10 @@ def force_async(fn: Callable[..., T]) -> Callable[..., Callable[..., T]]:
     Returns:
         The asynchronous version of the function.
     """
-    pool = ThreadPoolExecutor()
 
     @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        future = pool.submit(fn, *args, **kwargs)
-        return asyncio.wrap_future(future)  # Make it awaitable
+    async def wrapper(*args, **kwargs):
+        return await anyio.to_thread.run_sync(fn, *args, **kwargs)
 
     return wrapper
 
@@ -1918,11 +1940,11 @@ def max_concurrent(
     """
     if not is_coro_func(func):
         func = force_async(func)
-    semaphore = asyncio.Semaphore(limit)
+    limiter = CapacityLimiter(limit)
 
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
-        async with semaphore:
+        async with limiter:
             return await func(*args, **kwargs)
 
     return wrapper

@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.14.0"
+version = "0.14.1"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -16,7 +16,6 @@ dependencies = [
     "jinja2>=3.1.0",
     "json-repair>=0.47.8",
     "matplotlib>=3.9.0",
-    "pillow>=11.0.0",
     "psutil>=7.0.0",
     "pydantic-settings>=2.8.0",
     "pydapter[pandas]>=0.3.2",
@@ -98,6 +97,10 @@ schema = [
     "datamodel-code-generator>=0.31.2",
 ]
 
+pillow = [
+    "pillow>=11.0.0",
+]
+
 all = [
     "lionagi[reader]",
     "lionagi[ollama]",
@@ -105,6 +108,7 @@ all = [
     "lionagi[mcp]",
     "lionagi[rich]",
     "lionagi[schema]",
+    "lionagi[pillow]",
 ]
 
 
