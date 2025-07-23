@@ -355,7 +355,7 @@ ENDPOINT_CONFIG = EndpointConfig(
     endpoint="query_cli",
     api_key="dummy",
     request_options=ClaudeCodeRequest,
-    timeout=12000,  # 20 mins
+    timeout=18000,  # 30 mins
 )
 
 
