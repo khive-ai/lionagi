@@ -1,8 +1,8 @@
-import asyncio
 import logging
 from typing import Any, Literal
 from uuid import UUID
 
+import anyio
 from pydantic import BaseModel, Field
 
 from lionagi.protocols.types import ID, Event, EventStatus, IDType, Node
@@ -76,7 +76,7 @@ class Operation(Node, Event):
         if meth is None:
             raise ValueError(f"Unsupported operation type: {self.operation}")
 
-        start = asyncio.get_event_loop().time()
+        start = anyio.current_time()
 
         try:
             self.execution.status = EventStatus.PROCESSING
@@ -86,7 +86,7 @@ class Operation(Node, Event):
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
 
-        except asyncio.CancelledError:
+        except anyio.get_cancelled_exc_class():
             self.execution.error = "Operation cancelled"
             self.execution.status = EventStatus.FAILED
             raise
@@ -97,7 +97,7 @@ class Operation(Node, Event):
             logger.error(f"Operation failed: {e}")
 
         finally:
-            self.execution.duration = asyncio.get_event_loop().time() - start
+            self.execution.duration = anyio.current_time() - start
 
     async def _invoke(self, meth):
         if self.operation == "ReActStream":
