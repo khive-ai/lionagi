@@ -52,7 +52,7 @@ class APICalling(Event):
     )
 
     @model_validator(mode="after")
-    def _validate_streaming(self) -> Self:
+    def _validate_config_options(self) -> Self:
         """Validate streaming configuration and add token usage if requested."""
         if self.payload.get("stream") is True:
             self.streaming = True
@@ -93,8 +93,7 @@ class APICalling(Event):
                 )
 
                 # Find matching token limit
-                if "model" in self.payload:
-                    model = self.payload["model"]
+                if (model := self.payload.get("model")) is not None:
                     for model_prefix, limit in TOKEN_LIMITS.items():
                         if model_prefix in model.lower():
                             token_msg += f"/{limit:,}"
@@ -103,8 +102,12 @@ class APICalling(Event):
                 # Update content based on its type
                 if isinstance(content, str):
                     content += token_msg
+
+                # {"text": "..."}
                 elif isinstance(content, dict) and "text" in content:
                     content["text"] += token_msg
+
+                # [{"text": "..."}]
                 elif isinstance(content, list):
                     for item in reversed(content):
                         if isinstance(item, dict) and "text" in item:
