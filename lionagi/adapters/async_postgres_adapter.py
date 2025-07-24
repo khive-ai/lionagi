@@ -301,7 +301,7 @@ class LionAGIAsyncPostgresAdapter(AsyncPostgresAdapter[T]):
                 if return_many:
                     return nodes
                 else:
-                    return nodes[0] if nodes else None
+                    return nodes[-1] if nodes else None
 
         except Exception as e:
             raise QueryError(
