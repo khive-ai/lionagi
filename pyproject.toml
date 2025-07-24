@@ -110,6 +110,7 @@ all = [
     "lionagi[mcp]",
     "lionagi[rich]",
     "lionagi[schema]",
+    "lionagi[postgres]",
 ]
 
 

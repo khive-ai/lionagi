@@ -1708,11 +1708,13 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "aiosqlite" },
     { name = "claude-code-sdk" },
     { name = "datamodel-code-generator" },
     { name = "docling" },
     { name = "fastmcp" },
     { name = "ollama" },
+    { name = "pydapter", extra = ["postgres"] },
     { name = "rich" },
 ]
 claude-code = [
@@ -1785,6 +1787,7 @@ requires-dist = [
     { name = "lionagi", extras = ["claude-code"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["mcp"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["ollama"], marker = "extra == 'all'" },
+    { name = "lionagi", extras = ["postgres"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["reader"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["reader"], marker = "extra == 'tools'" },
     { name = "lionagi", extras = ["rich"], marker = "extra == 'all'" },
