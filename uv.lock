@@ -1783,7 +1783,7 @@ requires-dist = [
     { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.8.6" },
     { name = "isort", marker = "extra == 'lint'", specifier = ">=5.13.2" },
     { name = "jinja2", specifier = ">=3.1.0" },
-    { name = "json-repair", specifier = ">=0.47.8" },
+    { name = "json-repair", specifier = ">=0.40.0" },
     { name = "lionagi", extras = ["claude-code"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["mcp"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["ollama"], marker = "extra == 'all'" },
