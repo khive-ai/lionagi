@@ -188,3 +188,175 @@ class LionAGIAsyncPostgresAdapter(AsyncPostgresAdapter[T]):
             return [cls._serialize_datetime_recursive(item) for item in obj]
         else:
             return obj
+
+    @classmethod
+    async def from_obj(
+        cls,
+        node_cls: type[T],
+        obj: Any,
+        /,
+        *,
+        adapt_meth: str = "from_dict",
+        many: bool = True,
+        **kw,
+    ) -> T | list[T] | None:
+        """
+        Read lionagi Node(s) from database with automatic data reconstruction.
+
+        Handles:
+        1. Database querying with filters
+        2. Reverse metadata field mapping (node_metadata → metadata)
+        3. Reverse data serialization (ISO strings → datetime objects)
+        4. Node object reconstruction
+
+        Args:
+            node_cls: The Node class to instantiate
+            obj: Database connection parameters (dict with dsn, table, etc.)
+            adapt_meth: Adaptation method (unused but required by pydapter)
+            many: Whether to return list or single object
+            **kw: Additional query parameters (where, limit, order_by)
+
+        Returns:
+            Single Node, list of Nodes, or None if no results found
+        """
+        try:
+            # Merge obj parameters with kw parameters
+            if isinstance(obj, dict):
+                params = {**obj, **kw}
+            else:
+                params = kw
+
+            # Validate required parameters
+            engine_url = params.get("dsn") or params.get("engine_url")
+            table = params.get("table")
+
+            if not engine_url or not table:
+                raise ValueError(
+                    "Missing required 'dsn' and 'table' parameters"
+                )
+
+            # Build query
+            engine = create_async_engine(engine_url, future=True)
+            async with engine.begin() as conn:
+                meta = sa.MetaData()
+                meta.bind = conn
+                table_obj = cls._table(meta, table)
+
+                # Build SELECT query
+                query = sa.select(table_obj)
+
+                # Add WHERE conditions if provided
+                where_conditions = params.get("where")
+                if where_conditions:
+                    if isinstance(where_conditions, dict):
+                        # Convert dict to column conditions
+                        for col_name, value in where_conditions.items():
+                            if hasattr(table_obj.c, col_name):
+                                query = query.where(
+                                    getattr(table_obj.c, col_name) == value
+                                )
+                    else:
+                        # Assume it's already a SQLAlchemy condition
+                        query = query.where(where_conditions)
+
+                # Add ordering if provided
+                order_by = params.get("order_by")
+                if order_by:
+                    if isinstance(order_by, str):
+                        if hasattr(table_obj.c, order_by):
+                            query = query.order_by(
+                                getattr(table_obj.c, order_by)
+                            )
+                    else:
+                        query = query.order_by(order_by)
+
+                # Add limit if provided
+                limit = params.get("limit")
+                if limit:
+                    query = query.limit(limit)
+
+                # Execute query
+                result = await conn.execute(query)
+                rows = result.fetchall()
+
+                # Use many parameter from params if provided, otherwise use method parameter
+                return_many = params.get("many", many)
+
+                if not rows:
+                    return [] if return_many else None
+
+                # Convert database rows back to Node objects
+                nodes = []
+                for row in rows:
+                    # Convert row to dict
+                    row_dict = dict(row._mapping)
+
+                    # Apply reverse lionagi data transformations
+                    node_data = cls._reverse_lionagi_data(row_dict)
+
+                    # Create Node instance
+                    node = node_cls(**node_data)
+                    nodes.append(node)
+
+                if return_many:
+                    return nodes
+                else:
+                    return nodes[-1] if nodes else None
+
+        except Exception as e:
+            raise QueryError(
+                f"Error reading from lionagi async adapter: {e}",
+                adapter="lionagi_async_pg",
+            ) from e
+
+    @classmethod
+    def _reverse_lionagi_data(cls, row_data: dict) -> dict:
+        """
+        Reverse lionagi data transformations from database storage.
+
+        Handles:
+        1. Database field mapping (node_metadata → metadata)
+        2. ISO string → datetime objects in content
+        3. Proper lionagi Node field structure
+        """
+        # Create a copy to avoid modifying original
+        data = row_data.copy()
+
+        # Reverse field mapping: node_metadata → metadata
+        if "node_metadata" in data:
+            data["metadata"] = data.pop("node_metadata")
+
+        # Reverse datetime serialization in content
+        if "content" in data and isinstance(data["content"], dict):
+            data["content"] = cls._deserialize_datetime_recursive(
+                data["content"]
+            )
+
+        return data
+
+    @classmethod
+    def _deserialize_datetime_recursive(cls, obj: Any) -> Any:
+        """Recursively convert ISO datetime strings back to datetime objects."""
+        if isinstance(obj, str):
+            # Try to parse as ISO datetime string
+            try:
+                # Check if it looks like an ISO datetime string
+                if "T" in obj and (
+                    obj.endswith("Z")
+                    or "+" in obj[-10:]
+                    or obj.count(":") >= 2
+                ):
+                    return datetime.fromisoformat(obj.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                # Not a datetime string, return as-is
+                pass
+            return obj
+        elif isinstance(obj, dict):
+            return {
+                k: cls._deserialize_datetime_recursive(v)
+                for k, v in obj.items()
+            }
+        elif isinstance(obj, list):
+            return [cls._deserialize_datetime_recursive(item) for item in obj]
+        else:
+            return obj

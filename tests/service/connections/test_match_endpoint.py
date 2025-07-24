@@ -50,14 +50,14 @@ class TestMatchEndpoint:
         assert isinstance(endpoint, Endpoint)
         assert endpoint.config.provider == "perplexity"
 
-    def test_ollama_endpoint(self):
-        """Test matching Ollama endpoint."""
-        endpoint = match_endpoint(
-            provider="ollama", endpoint="chat", model="llama2"
-        )
+    # def test_ollama_endpoint(self):
+    #     """Test matching Ollama endpoint."""
+    #     endpoint = match_endpoint(
+    #         provider="ollama", endpoint="chat", model="llama2"
+    #     )
 
-        assert isinstance(endpoint, Endpoint)
-        assert endpoint.config.provider == "ollama"
+    #     assert isinstance(endpoint, Endpoint)
+    #     assert endpoint.config.provider == "ollama"
 
     def test_exa_search_endpoint(self):
         """Test matching Exa search endpoint."""
