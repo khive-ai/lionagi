@@ -72,10 +72,12 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         self, obj_key: str, many=False, **kwargs: Any
     ) -> Any:
         kwargs["adapt_meth"] = "to_dict"
-        return super().adapt_to_async(obj_key, many=many, **kwargs)
+        return await super().adapt_to_async(
+            obj_key=obj_key, many=many, **kwargs
+        )
 
     @classmethod
-    def adapt_from_async(
+    async def adapt_from_async(
         cls,
         obj: Any,
         obj_key: str,
@@ -83,7 +85,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         **kwargs: Any,
     ) -> Node:
         kwargs["adapt_meth"] = "from_dict"
-        return super().adapt_from_async(
+        return await super().adapt_from_async(
             obj, obj_key=obj_key, many=many, **kwargs
         )
 
@@ -92,7 +94,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         Convert this Node to another format using a registered adapter.
         """
         kwargs["adapt_meth"] = "to_dict"
-        return super().adapt_to(obj_key, many=many, **kwargs)
+        return super().adapt_to(obj_key=obj_key, many=many, **kwargs)
 
     @classmethod
     def adapt_from(

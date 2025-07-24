@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.14.2"
+version = "0.14.3"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -98,6 +98,11 @@ schema = [
     "datamodel-code-generator>=0.31.2",
 ]
 
+postgres = [
+    "pydapter[postgres]",
+    "aiosqlite>=0.21.0",
+]
+
 all = [
     "lionagi[reader]",
     "lionagi[ollama]",
@@ -105,6 +110,7 @@ all = [
     "lionagi[mcp]",
     "lionagi[rich]",
     "lionagi[schema]",
+    "lionagi[postgres]",
 ]
 
 
