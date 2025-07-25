@@ -122,7 +122,7 @@ async def parallel_requests(
                 await tg.start_soon(bounded_fetch, semaphore, i, inp)
     except BaseException as e:
         # Re-raise the first exception directly instead of ExceptionGroup
-        if hasattr(e, "exceptions") and e.exceptions:
+        if hasattr(e, 'exceptions') and e.exceptions:
             raise e.exceptions[0]
         else:
             raise

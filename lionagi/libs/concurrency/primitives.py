@@ -169,7 +169,7 @@ class CapacityLimiter:
         if not self._active_borrowers:
             raise RuntimeError("No tokens to release")
 
-        borrower = next(iter(self._active_borrowers.keys()))
+        borrower = next(iter(self._active_borrowers))
         self._limiter.release_on_behalf_of(borrower)
         del self._active_borrowers[borrower]
 
