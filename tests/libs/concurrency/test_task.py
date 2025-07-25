@@ -38,7 +38,7 @@ async def test_task_group_start():
         return "done"
 
     async with create_task_group() as tg:
-        tg.start_soon(simple_task)
+        await tg.start_soon(simple_task)
         # Just verify that the task group can be used
 
 
@@ -66,7 +66,7 @@ async def test_task_group_error_propagation():
         return "done"
 
     async with create_task_group() as tg:
-        tg.start_soon(simple_task)
+        await tg.start_soon(simple_task)
         # Just verify that the task group can be used
 
 

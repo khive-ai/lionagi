@@ -1,8 +1,10 @@
 """Task group implementation for structured concurrency."""
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
 from types import TracebackType
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar
 
 import anyio
 
@@ -61,7 +63,7 @@ class TaskGroup:
             raise RuntimeError("Task group is not active")
         return await self._task_group.start(func, *args, name=name)
 
-    async def __aenter__(self) -> "TaskGroup":
+    async def __aenter__(self) -> TaskGroup:
         """Enter the task group context.
 
         Returns:

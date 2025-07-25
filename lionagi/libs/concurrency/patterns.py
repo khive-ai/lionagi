@@ -1,15 +1,20 @@
 """Common concurrency patterns for structured concurrency."""
 
-import math
+from __future__ import annotations
+
+import logging
 from collections.abc import Awaitable, Callable
 from types import TracebackType
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar
 
 import anyio
 
 from .cancel import move_on_after
 from .primitives import CapacityLimiter, Lock
+from .resource_tracker import track_resource, untrack_resource
 from .task import create_task_group
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -24,46 +29,51 @@ class ConnectionPool:
         max_connections: int,
         connection_factory: Callable[[], Awaitable[T]],
     ):
-        """Initialize a new connection pool.
+        """Initialize a new connection pool."""
+        if max_connections < 1:
+            raise ValueError("max_connections must be >= 1")
+        if not callable(connection_factory):
+            raise ValueError("connection_factory must be callable")
 
-        Args:
-            max_connections: The maximum number of connections in the pool
-            connection_factory: A factory function that creates new connections
-        """
         self._connection_factory = connection_factory
         self._limiter = CapacityLimiter(max_connections)
         self._connections: list[T] = []
         self._lock = Lock()
 
-    async def acquire(self) -> T:
-        """Acquire a connection from the pool.
+        track_resource(self, f"ConnectionPool-{id(self)}", "ConnectionPool")
 
-        Returns:
-            A connection from the pool, or a new connection if the pool is empty.
-        """
-        async with self._limiter:
+    def __del__(self):
+        """Clean up resource tracking."""
+        try:
+            untrack_resource(self)
+        except Exception:
+            pass
+
+    async def acquire(self) -> T:
+        """Acquire a connection from the pool."""
+        await self._limiter.acquire()
+
+        try:
             async with self._lock:
                 if self._connections:
                     return self._connections.pop()
 
-            # No connections available, create a new one
+            # No pooled connection available, create new one
             return await self._connection_factory()
+        except Exception:
+            self._limiter.release()
+            raise
 
     async def release(self, connection: T) -> None:
-        """Release a connection back to the pool.
+        """Release a connection back to the pool."""
+        try:
+            async with self._lock:
+                self._connections.append(connection)
+        finally:
+            self._limiter.release()
 
-        Args:
-            connection: The connection to release
-        """
-        async with self._lock:
-            self._connections.append(connection)
-
-    async def __aenter__(self) -> "ConnectionPool":
-        """Enter the connection pool context.
-
-        Returns:
-            The connection pool instance.
-        """
+    async def __aenter__(self) -> ConnectionPool[T]:
+        """Enter the connection pool context."""
         return self
 
     async def __aexit__(
@@ -72,113 +82,95 @@ class ConnectionPool:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        """Exit the connection pool context, closing all connections."""
+        """Exit the connection pool context."""
+        # Clean up any remaining connections
         async with self._lock:
-            for connection in self._connections:
-                if hasattr(connection, "close"):
-                    await connection.close()
-                elif hasattr(connection, "disconnect"):
-                    await connection.disconnect()
             self._connections.clear()
 
 
 async def parallel_requests(
-    urls: list[str],
-    fetch_func: Callable[[str], Awaitable[Response]],
+    inputs: list[str],
+    func: Callable[[str], Awaitable[Response]],
     max_concurrency: int = 10,
 ) -> list[Response]:
-    """Fetch multiple URLs in parallel with limited concurrency.
+    """Execute requests in parallel with controlled concurrency.
 
     Args:
-        urls: The URLs to fetch
-        fetch_func: The function to use for fetching
-        max_concurrency: The maximum number of concurrent requests
+        inputs: List of inputs
+        fetch_func: Async function
+        max_concurrency: Maximum number of concurrent requests
 
     Returns:
-        A list of responses in the same order as the URLs
+        List of responses in the same order as inputs
     """
-    limiter = CapacityLimiter(max_concurrency)
-    results: list[Response | None] = [None] * len(urls)
-    exceptions: list[Exception | None] = [None] * len(urls)
+    if not inputs:
+        return []
 
-    async def fetch_with_limit(index: int, url: str) -> None:
-        async with limiter:
-            try:
-                results[index] = await fetch_func(url)
-            except Exception as exc:
-                exceptions[index] = exc
+    results: list[Response | None] = [None] * len(inputs)
 
-    async with create_task_group() as tg:
-        for i, url in enumerate(urls):
-            await tg.start_soon(fetch_with_limit, i, url)
+    async def bounded_fetch(
+        semaphore: anyio.Semaphore, idx: int, url: str
+    ) -> None:
+        async with semaphore:
+            results[idx] = await func(url)
 
-    # Check for exceptions
-    for i, exc in enumerate(exceptions):
-        if exc is not None:
-            raise exc
+    try:
+        async with create_task_group() as tg:
+            semaphore = anyio.Semaphore(max_concurrency)
+
+            for i, inp in enumerate(inputs):
+                await tg.start_soon(bounded_fetch, semaphore, i, inp)
+    except BaseException as e:
+        # Re-raise the first exception directly instead of ExceptionGroup
+        if hasattr(e, "exceptions") and e.exceptions:
+            raise e.exceptions[0]
+        else:
+            raise
 
     return results  # type: ignore
 
 
 async def retry_with_timeout(
-    func: Callable[..., Awaitable[T]],
-    *args: Any,
+    func: Callable[[], Awaitable[T]],
     max_retries: int = 3,
-    timeout: float = 5.0,
-    retry_exceptions: list[type[Exception]] | None = None,
-    **kwargs: Any,
+    timeout: float = 30.0,
+    backoff_factor: float = 1.0,
 ) -> T:
-    """Execute a function with retry logic and timeout.
+    """Retry an async function with exponential backoff and timeout.
 
     Args:
-        func: The function to call
-        *args: Positional arguments to pass to the function
-        max_retries: The maximum number of retry attempts
-        timeout: The timeout for each attempt in seconds
-        retry_exceptions: List of exception types to retry on, or None to retry on any exception
-        **kwargs: Keyword arguments to pass to the function
+        func: The async function to retry
+        max_retries: Maximum number of retries
+        timeout: Timeout for each attempt
+        backoff_factor: Multiplier for exponential backoff
 
     Returns:
-        The return value of the function
+        The result of the successful function call
 
     Raises:
-        TimeoutError: If all retry attempts time out
-        Exception: If the function raises an exception after all retry attempts
+        Exception: The last exception raised by the function
     """
-    retry_exceptions = retry_exceptions or [Exception]
     last_exception = None
 
     for attempt in range(max_retries):
         try:
-            timed_out = False
-            with move_on_after(timeout) as scope:
-                result = await func(*args, **kwargs)
-                if not scope.cancelled_caught:
+            with move_on_after(timeout) as cancel_scope:
+                result = await func()
+                if not cancel_scope.cancelled_caught:
                     return result
-                timed_out = True
+                else:
+                    raise TimeoutError(f"Function timed out after {timeout}s")
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries - 1:
+                delay = backoff_factor * (2**attempt)
+                await anyio.sleep(delay)
+            continue
 
-            # If we get here, the operation timed out
-            if timed_out:
-                if attempt == max_retries - 1:
-                    raise TimeoutError(
-                        f"Operation timed out after {max_retries} attempts"
-                    )
-
-                # Wait before retrying (exponential backoff)
-                await anyio.sleep(2**attempt)
-
-        except tuple(retry_exceptions) as exc:
-            last_exception = exc
-            if attempt == max_retries - 1:
-                raise
-
-            # Wait before retrying (exponential backoff)
-            await anyio.sleep(2**attempt)
-
-    # This should never be reached, but makes the type checker happy
     if last_exception:
         raise last_exception
-    raise RuntimeError("Unreachable code")
+    else:
+        raise RuntimeError("Retry failed without capturing exception")
 
 
 class WorkerPool:
@@ -187,66 +179,81 @@ class WorkerPool:
     def __init__(
         self, num_workers: int, worker_func: Callable[[Any], Awaitable[None]]
     ):
-        """Initialize a new worker pool.
+        """Initialize a new worker pool."""
+        if num_workers < 1:
+            raise ValueError("num_workers must be >= 1")
+        if not callable(worker_func):
+            raise ValueError("worker_func must be callable")
 
-        Args:
-            num_workers: The number of worker tasks to create
-            worker_func: The function that each worker will run
-        """
         self._num_workers = num_workers
         self._worker_func = worker_func
-        self._queue = anyio.create_memory_object_stream(math.inf)
+        self._queue = anyio.create_memory_object_stream(1000)
         self._task_group = None
+
+        track_resource(self, f"WorkerPool-{id(self)}", "WorkerPool")
+
+    def __del__(self):
+        """Clean up resource tracking."""
+        try:
+            untrack_resource(self)
+        except Exception:
+            pass
 
     async def start(self) -> None:
         """Start the worker pool."""
         if self._task_group is not None:
-            raise RuntimeError("Worker pool already started")
+            raise RuntimeError("Worker pool is already started")
 
         self._task_group = create_task_group()
+        await self._task_group.__aenter__()
 
-        async with self._task_group as tg:
-            for _ in range(self._num_workers):
-                tg.start_soon(self._worker_loop)
+        # Start worker tasks
+        for i in range(self._num_workers):
+            await self._task_group.start_soon(self._worker_loop)
 
     async def stop(self) -> None:
         """Stop the worker pool."""
         if self._task_group is None:
             return
 
-        # Signal workers to stop
-        for _ in range(self._num_workers):
-            await self._queue[0].send(None)
+        # Close the queue to signal workers to stop
+        await self._queue[0].aclose()
 
-        # Wait for workers to finish
-        await self._task_group.__aexit__(None, None, None)
-        self._task_group = None
+        # Wait for all workers to finish
+        try:
+            await self._task_group.__aexit__(None, None, None)
+        finally:
+            self._task_group = None
 
     async def submit(self, item: Any) -> None:
-        """Submit an item to be processed by a worker.
-
-        Args:
-            item: The item to process
-        """
+        """Submit an item for processing."""
         if self._task_group is None:
-            raise RuntimeError("Worker pool not started")
-
+            raise RuntimeError("Worker pool is not started")
         await self._queue[0].send(item)
 
     async def _worker_loop(self) -> None:
-        """The main loop for each worker task."""
-        while True:
-            try:
-                item = await self._queue[1].receive()
+        """Main loop for worker tasks."""
+        try:
+            async with self._queue[1]:
+                async for item in self._queue[1]:
+                    try:
+                        await self._worker_func(item)
+                    except Exception as e:
+                        logger.error(f"Worker error processing item: {e}")
+        except anyio.ClosedResourceError:
+            # Queue was closed, worker should exit gracefully
+            pass
 
-                # None is a signal to stop
-                if item is None:
-                    break
+    async def __aenter__(self) -> WorkerPool:
+        """Enter the worker pool context."""
+        await self.start()
+        return self
 
-                try:
-                    await self._worker_func(item)
-                except Exception as exc:
-                    # Log the exception but keep the worker running
-                    print(f"Worker error: {exc}")
-            except anyio.EndOfStream:
-                break
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the worker pool context."""
+        await self.stop()
