@@ -1,28 +1,36 @@
-"""Resource management primitives for structured concurrency."""
+"""Resource management primitives for structured concurrency.
 
+Pure async primitives focused on correctness and simplicity.
+"""
+
+import math
 from types import TracebackType
-from typing import Optional
 
 import anyio
 
+from .resource_tracker import track_resource, untrack_resource
+
 
 class Lock:
-    """A mutex lock for controlling access to a shared resource.
-
-    This lock is reentrant, meaning the same task can acquire it multiple times
-    without deadlocking.
-    """
+    """A mutex lock for controlling access to a shared resource."""
 
     def __init__(self):
         """Initialize a new lock."""
         self._lock = anyio.Lock()
+        self._acquired = False
+        track_resource(self, f"Lock-{id(self)}", "Lock")
+
+    def __del__(self):
+        """Clean up resource tracking when lock is destroyed."""
+        try:
+            untrack_resource(self)
+        except Exception:
+            pass
 
     async def __aenter__(self) -> None:
-        """Acquire the lock.
-
-        If the lock is already held by another task, this will wait until it's released.
-        """
-        await self.acquire()
+        """Acquire the lock."""
+        await self._lock.acquire()
+        self._acquired = True
 
     async def __aexit__(
         self,
@@ -31,44 +39,45 @@ class Lock:
         exc_tb: TracebackType | None,
     ) -> None:
         """Release the lock."""
-        self.release()
+        self._lock.release()
+        self._acquired = False
 
-    async def acquire(self) -> bool:
-        """Acquire the lock.
-
-        Returns:
-            True if the lock was acquired, False otherwise.
-        """
+    async def acquire(self) -> None:
+        """Acquire the lock directly."""
         await self._lock.acquire()
-        return True
+        self._acquired = True
 
     def release(self) -> None:
-        """Release the lock.
-
-        Raises:
-            RuntimeError: If the lock is not currently held by this task.
-        """
+        """Release the lock directly."""
+        if not self._acquired:
+            raise RuntimeError(
+                "Attempted to release lock that was not acquired by this task"
+            )
         self._lock.release()
+        self._acquired = False
 
 
 class Semaphore:
-    """A semaphore for limiting concurrent access to a resource."""
+    """A semaphore preventing excessive releases."""
 
     def __init__(self, initial_value: int):
-        """Initialize a new semaphore.
-
-        Args:
-            initial_value: The initial value of the semaphore (must be >= 0)
-        """
+        """Initialize a new semaphore."""
         if initial_value < 0:
             raise ValueError("The initial value must be >= 0")
+        self._initial_value = initial_value
+        self._current_acquisitions = 0
         self._semaphore = anyio.Semaphore(initial_value)
+        track_resource(self, f"Semaphore-{id(self)}", "Semaphore")
+
+    def __del__(self):
+        """Clean up resource tracking when semaphore is destroyed."""
+        try:
+            untrack_resource(self)
+        except Exception:
+            pass
 
     async def __aenter__(self) -> None:
-        """Acquire the semaphore.
-
-        If the semaphore value is zero, this will wait until it's released.
-        """
+        """Acquire the semaphore."""
         await self.acquire()
 
     async def __aexit__(
@@ -81,35 +90,58 @@ class Semaphore:
         self.release()
 
     async def acquire(self) -> None:
-        """Acquire the semaphore.
-
-        If the semaphore value is zero, this will wait until it's released.
-        """
+        """Acquire the semaphore."""
         await self._semaphore.acquire()
+        self._current_acquisitions += 1
 
     def release(self) -> None:
-        """Release the semaphore, incrementing its value."""
+        """Release the semaphore."""
+        if self._current_acquisitions <= 0:
+            raise RuntimeError(
+                "Cannot release semaphore: no outstanding acquisitions"
+            )
         self._semaphore.release()
+        self._current_acquisitions -= 1
+
+    @property
+    def current_acquisitions(self) -> int:
+        """Get the current number of outstanding acquisitions."""
+        return self._current_acquisitions
+
+    @property
+    def initial_value(self) -> int:
+        """Get the initial semaphore value."""
+        return self._initial_value
 
 
 class CapacityLimiter:
     """A context manager for limiting the number of concurrent operations."""
 
-    def __init__(self, total_tokens: float):
-        """Initialize a new capacity limiter.
+    def __init__(self, total_tokens: int | float):
+        """Initialize a new capacity limiter."""
+        if total_tokens == math.inf:
+            processed_tokens = math.inf
+        elif isinstance(total_tokens, (int, float)) and total_tokens >= 1:
+            processed_tokens = (
+                int(total_tokens) if total_tokens != math.inf else math.inf
+            )
+        else:
+            raise ValueError(
+                "The total number of tokens must be >= 1 (int or math.inf)"
+            )
 
-        Args:
-            total_tokens: The maximum number of tokens (>= 1)
-        """
-        if total_tokens < 1:
-            raise ValueError("The total number of tokens must be >= 1")
-        self._limiter = anyio.CapacityLimiter(total_tokens)
+        self._limiter = anyio.CapacityLimiter(processed_tokens)
+        track_resource(self, f"CapacityLimiter-{id(self)}", "CapacityLimiter")
+
+    def __del__(self):
+        """Clean up resource tracking when limiter is destroyed."""
+        try:
+            untrack_resource(self)
+        except Exception:
+            pass
 
     async def __aenter__(self) -> None:
-        """Acquire a token.
-
-        If no tokens are available, this will wait until one is released.
-        """
+        """Acquire a token."""
         await self.acquire()
 
     async def __aexit__(
@@ -122,35 +154,39 @@ class CapacityLimiter:
         self.release()
 
     async def acquire(self) -> None:
-        """Acquire a token.
-
-        If no tokens are available, this will wait until one is released.
-        """
+        """Acquire a token."""
         await self._limiter.acquire()
 
     def release(self) -> None:
-        """Release a token.
-
-        Raises:
-            RuntimeError: If the current task doesn't hold any tokens.
-        """
+        """Release a token."""
         self._limiter.release()
 
     @property
-    def total_tokens(self) -> float:
+    def total_tokens(self) -> int | float:
         """The total number of tokens."""
-        return self._limiter.total_tokens
+        return float(self._limiter.total_tokens)
 
     @total_tokens.setter
-    def total_tokens(self, value: float) -> None:
-        """Set the total number of tokens.
+    def total_tokens(self, value: int | float) -> None:
+        """Set the total number of tokens."""
+        if value == math.inf:
+            processed_value = math.inf
+        elif isinstance(value, (int, float)) and value >= 1:
+            processed_value = int(value) if value != math.inf else math.inf
+        else:
+            raise ValueError(
+                "The total number of tokens must be >= 1 (int or math.inf)"
+            )
 
-        Args:
-            value: The new total number of tokens (>= 1)
-        """
-        if value < 1:
-            raise ValueError("The total number of tokens must be >= 1")
-        self._limiter.total_tokens = value
+        current_borrowed = self._limiter.borrowed_tokens
+        if processed_value != math.inf and processed_value < current_borrowed:
+            raise ValueError(
+                f"Cannot set total_tokens to {processed_value}: {current_borrowed} tokens "
+                f"are currently borrowed. Wait for tokens to be released or "
+                f"set total_tokens to at least {current_borrowed}."
+            )
+
+        self._limiter.total_tokens = processed_value
 
     @property
     def borrowed_tokens(self) -> int:
@@ -158,28 +194,28 @@ class CapacityLimiter:
         return self._limiter.borrowed_tokens
 
     @property
-    def available_tokens(self) -> float:
+    def available_tokens(self) -> int | float:
         """The number of tokens currently available."""
         return self._limiter.available_tokens
 
 
 class Event:
-    """An event object for task synchronization.
-
-    An event can be in one of two states: set or unset. When set, tasks waiting
-    on the event are allowed to proceed.
-    """
+    """An event object for task synchronization."""
 
     def __init__(self):
         """Initialize a new event in the unset state."""
         self._event = anyio.Event()
+        track_resource(self, f"Event-{id(self)}", "Event")
+
+    def __del__(self):
+        """Clean up resource tracking when event is destroyed."""
+        try:
+            untrack_resource(self)
+        except Exception:
+            pass
 
     def is_set(self) -> bool:
-        """Check if the event is set.
-
-        Returns:
-            True if the event is set, False otherwise.
-        """
+        """Check if the event is set."""
         return self._event.is_set()
 
     def set(self) -> None:
@@ -195,21 +231,21 @@ class Condition:
     """A condition variable for task synchronization."""
 
     def __init__(self, lock: Lock | None = None):
-        """Initialize a new condition.
-
-        Args:
-            lock: The lock to use, or None to create a new one
-        """
+        """Initialize a new condition."""
         self._lock = lock or Lock()
         self._condition = anyio.Condition(self._lock._lock)
+        track_resource(self, f"Condition-{id(self)}", "Condition")
+
+    def __del__(self):
+        """Clean up resource tracking when condition is destroyed."""
+        try:
+            untrack_resource(self)
+        except Exception:
+            pass
 
     async def __aenter__(self) -> "Condition":
-        """Acquire the underlying lock.
-
-        Returns:
-            The condition instance.
-        """
-        await self._lock.acquire()
+        """Acquire the underlying lock."""
+        await self._lock.__aenter__()
         return self
 
     async def __aexit__(
@@ -219,7 +255,7 @@ class Condition:
         exc_tb: TracebackType | None,
     ) -> None:
         """Release the underlying lock."""
-        self._lock.release()
+        await self._lock.__aexit__(exc_type, exc_val, exc_tb)
 
     async def wait(self) -> None:
         """Wait for a notification.
