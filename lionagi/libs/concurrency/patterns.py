@@ -114,18 +114,25 @@ async def parallel_requests(
         async with semaphore:
             results[idx] = await func(url)
 
-    async with create_task_group() as tg:
-        semaphore = anyio.Semaphore(max_concurrency)
+    try:
+        async with create_task_group() as tg:
+            semaphore = anyio.Semaphore(max_concurrency)
 
-        for i, inp in enumerate(inputs):
-            await tg.start_soon(bounded_fetch, semaphore, i, inp)
+            for i, inp in enumerate(inputs):
+                await tg.start_soon(bounded_fetch, semaphore, i, inp)
+    except BaseException as e:
+        # Re-raise the first exception directly instead of ExceptionGroup
+        if hasattr(e, "exceptions") and e.exceptions:
+            raise e.exceptions[0]
+        else:
+            raise
 
     return results  # type: ignore
 
 
 async def retry_with_timeout(
     func: Callable[[], Awaitable[T]],
-    max_attempts: int = 3,
+    max_retries: int = 3,
     timeout: float = 30.0,
     backoff_factor: float = 1.0,
 ) -> T:
@@ -133,7 +140,7 @@ async def retry_with_timeout(
 
     Args:
         func: The async function to retry
-        max_attempts: Maximum number of attempts
+        max_retries: Maximum number of retries
         timeout: Timeout for each attempt
         backoff_factor: Multiplier for exponential backoff
 
@@ -145,7 +152,7 @@ async def retry_with_timeout(
     """
     last_exception = None
 
-    for attempt in range(max_attempts):
+    for attempt in range(max_retries):
         try:
             with move_on_after(timeout) as cancel_scope:
                 result = await func()
@@ -155,7 +162,7 @@ async def retry_with_timeout(
                     raise TimeoutError(f"Function timed out after {timeout}s")
         except Exception as e:
             last_exception = e
-            if attempt < max_attempts - 1:
+            if attempt < max_retries - 1:
                 delay = backoff_factor * (2**attempt)
                 await anyio.sleep(delay)
             continue
@@ -226,12 +233,16 @@ class WorkerPool:
 
     async def _worker_loop(self) -> None:
         """Main loop for worker tasks."""
-        async with self._queue[1]:
-            async for item in self._queue[1]:
-                try:
-                    await self._worker_func(item)
-                except Exception as e:
-                    logger.error(f"Worker error processing item: {e}")
+        try:
+            async with self._queue[1]:
+                async for item in self._queue[1]:
+                    try:
+                        await self._worker_func(item)
+                    except Exception as e:
+                        logger.error(f"Worker error processing item: {e}")
+        except anyio.ClosedResourceError:
+            # Queue was closed, worker should exit gracefully
+            pass
 
     async def __aenter__(self) -> WorkerPool:
         """Enter the worker pool context."""

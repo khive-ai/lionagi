@@ -5,9 +5,9 @@ to address the security vulnerabilities identified in the hardening tests.
 """
 
 import weakref
-from typing import Any
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 
 @dataclass
@@ -29,7 +29,9 @@ class ResourceTracker:
     def __init__(self):
         """Initialize a new resource tracker."""
         self._active_resources: dict[int, ResourceInfo] = {}
-        self._weak_refs: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+        self._weak_refs: weakref.WeakKeyDictionary = (
+            weakref.WeakKeyDictionary()
+        )
 
     def track(
         self, resource: Any, name: str, resource_type: str | None = None
@@ -45,7 +47,9 @@ class ResourceTracker:
             resource_type = type(resource).__name__
 
         resource_info = ResourceInfo(
-            name=name, creation_time=datetime.now(), resource_type=resource_type
+            name=name,
+            creation_time=datetime.now(),
+            resource_type=resource_type,
         )
 
         # Use weak reference to avoid interfering with garbage collection

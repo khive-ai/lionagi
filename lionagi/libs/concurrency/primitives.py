@@ -131,6 +131,8 @@ class CapacityLimiter:
             )
 
         self._limiter = anyio.CapacityLimiter(processed_tokens)
+        self._borrower_counter = 0
+        self._active_borrowers = {}
         track_resource(self, f"CapacityLimiter-{id(self)}", "CapacityLimiter")
 
     def __del__(self):
@@ -155,11 +157,21 @@ class CapacityLimiter:
 
     async def acquire(self) -> None:
         """Acquire a token."""
-        await self._limiter.acquire()
+        # Create a unique borrower identity for each acquisition
+        self._borrower_counter += 1
+        borrower = f"borrower-{self._borrower_counter}"
+        await self._limiter.acquire_on_behalf_of(borrower)
+        self._active_borrowers[borrower] = True
 
     def release(self) -> None:
         """Release a token."""
-        self._limiter.release()
+        # Find and release the first active borrower
+        if not self._active_borrowers:
+            raise RuntimeError("No tokens to release")
+
+        borrower = next(iter(self._active_borrowers.keys()))
+        self._limiter.release_on_behalf_of(borrower)
+        del self._active_borrowers[borrower]
 
     @property
     def total_tokens(self) -> int | float:
