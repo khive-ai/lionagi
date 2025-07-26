@@ -19,9 +19,9 @@ from uuid import uuid4
 
 import pytest
 
+from lionagi.fields.instruct import Instruct
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.flow import flow
-from lionagi.fields.instruct import Instruct
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
@@ -36,8 +36,8 @@ class MockClaudeCode:
         self.call_count = 0
 
     async def __call__(
-        self, messages: List[Dict[str, Any]], **kwargs
-    ) -> Dict[str, Any]:
+        self, messages: list[dict[str, Any]], **kwargs
+    ) -> dict[str, Any]:
         """Simulate model call."""
         self.call_count += 1
 
