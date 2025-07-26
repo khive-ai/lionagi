@@ -1264,7 +1264,7 @@ class Branch(Element, Communicatable, Relational):
                     suppress_errors=suppress_errors,
                 )
             case _:
-                raise 
+                raise
 
     async def _concurrent_act(
         self,
