@@ -8,7 +8,7 @@ import asyncio
 import codecs
 import contextlib
 import dataclasses
-import orjson as json
+import json
 import logging
 import shutil
 from collections.abc import AsyncIterator, Callable

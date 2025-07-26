@@ -82,6 +82,7 @@ class ClaudeCodeCLIEndpoint(Endpoint):
             responses[-1], ClaudeSession
         ):
             req2 = request.model_copy(deep=True)
+            req2.prompt = "Please provide a the final result message only"
             req2.max_turns = 1
             req2.continue_conversation = True
             if system:
@@ -94,4 +95,11 @@ class ClaudeCodeCLIEndpoint(Endpoint):
         log.info(
             f"Session {session.session_id} finished with {len(responses)} chunks"
         )
+        texts = []
+        for i in session.chunks:
+            if i.text is not None:
+                texts.append(i.text)
+
+        texts.append(session.result)
+        session.result = "\n".join(texts)
         return to_dict(session, recursive=True)
