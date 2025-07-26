@@ -1186,7 +1186,6 @@ class Branch(Element, Communicatable, Relational):
         backoff_factor: float = 1,
         retry_default: Any = UNDEFINED,
         retry_timeout: float | None = None,
-        retry_timing: bool = False,
         max_concurrent: int | None = None,
         throttle_period: float | None = None,
         flatten: bool = True,
@@ -1223,8 +1222,6 @@ class Branch(Element, Communicatable, Relational):
                 Fallback value if all retries fail (if suppressing errors).
             retry_timeout (float|None):
                 Overall timeout for all attempts (None = no limit).
-            retry_timing (bool):
-                If True, track time used for retries.
             max_concurrent (int|None):
                 Maximum concurrent tasks (if batching).
             throttle_period (float|None):
@@ -1261,7 +1258,6 @@ class Branch(Element, Communicatable, Relational):
                     backoff_factor=backoff_factor,
                     retry_default=retry_default,
                     retry_timeout=retry_timeout,
-                    retry_timing=retry_timing,
                     max_concurrent=max_concurrent,
                     throttle_period=throttle_period,
                     flatten=flatten,
@@ -1290,7 +1286,6 @@ class Branch(Element, Communicatable, Relational):
                     backoff_factor=backoff_factor,
                     retry_default=retry_default,
                     retry_timeout=retry_timeout,
-                    retry_timing=retry_timing,
                     throttle_period=throttle_period,
                     flatten=flatten,
                     dropna=dropna,

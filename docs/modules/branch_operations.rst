@@ -64,7 +64,7 @@ of action requests. Optionally retries, logs errors, or merges results.
 This is best used for **explicit function calls** triggered from user 
 instructions or system logic.
 
-.. method:: Branch.act(action_request, *, suppress_errors=True, sanitize_input=False, unique_input=False, num_retries=0, initial_delay=0, retry_delay=0, backoff_factor=1, retry_default=UNDEFINED, retry_timeout=None, retry_timing=False, max_concurrent=None, throttle_period=None, flatten=True, dropna=True, unique_output=False, flatten_tuple_set=False)
+.. method:: Branch.act(action_request, *, suppress_errors=True, sanitize_input=False, unique_input=False, num_retries=0, initial_delay=0, retry_delay=0, backoff_factor=1, retry_default=UNDEFINED, retry_timeout=None, max_concurrent=None, throttle_period=None, flatten=True, dropna=True, unique_output=False, flatten_tuple_set=False)
 
     Public, potentially batched, asynchronous interface to run one or multiple action requests.
 
@@ -90,8 +90,6 @@ instructions or system logic.
         Fallback value if all retries fail (if suppressing errors)
     retry_timeout : float | None, default=None
         Overall timeout for all attempts (None = no limit)
-    retry_timing : bool, default=False
-        If True, track time used for retries
     max_concurrent : int | None, default=None
         Maximum concurrent tasks (if batching)
     throttle_period : float | None, default=None

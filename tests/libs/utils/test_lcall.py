@@ -37,8 +37,15 @@ class TestLCallFunction(unittest.IsolatedAsyncioTestCase):
 
     async def test_lcall_with_timeout(self):
         inputs = [1, 2, 3]
-        with self.assertRaises(asyncio.TimeoutError):
-            await alcall(inputs, mock_func, retry_timeout=0.05)
+        # With timeout of 0.05s and mock_func sleeping for 0.1s, all should timeout
+        results = await alcall(
+            inputs,
+            mock_func,
+            retry_timeout=0.05,
+            retry_default="timeout",
+            num_retries=0,
+        )
+        self.assertEqual(results, ["timeout", "timeout", "timeout"])
 
     async def test_lcall_with_max_concurrent(self):
         inputs = [1, 2, 3]
@@ -50,14 +57,7 @@ class TestLCallFunction(unittest.IsolatedAsyncioTestCase):
         results = await alcall(inputs, mock_func, throttle_period=0.2)
         self.assertEqual(results, [1, 2, 3])
 
-    async def test_lcall_with_timing(self):
-        inputs = [1, 2, 3]
-        results = await alcall(inputs, mock_func, retry_timing=True)
-        self.assertEqual(len(results), 3)
-        for result in results:
-            self.assertIsInstance(result, tuple)
-            self.assertIsInstance(result[0], int)
-            self.assertIsInstance(result[1], float)
+    # test_lcall_with_timing removed - retry_timing parameter no longer exists
 
     async def test_lcall_with_dropna(self):
         async def func(x: int) -> Any:
@@ -69,7 +69,7 @@ class TestLCallFunction(unittest.IsolatedAsyncioTestCase):
 
     async def test_lcall_with_backoff_factor(self):
         inputs = [1, 2, 3]
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("anyio.sleep", new_callable=AsyncMock) as mock_sleep:
             await alcall(
                 inputs,
                 mock_func_with_error,

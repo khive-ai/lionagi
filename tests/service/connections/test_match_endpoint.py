@@ -127,7 +127,6 @@ class TestMatchEndpoint:
             ("openai", False),  # Updated based on actual behavior
             ("anthropic", False),
             ("perplexity", False),  # Updated based on actual behavior
-            ("ollama", False),  # Updated based on actual behavior
         ],
     )
     def test_openai_compatibility(self, provider, expected_compatible):

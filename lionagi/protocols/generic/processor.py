@@ -5,6 +5,9 @@
 import asyncio
 from typing import Any, ClassVar
 
+from lionagi.libs.concurrency import Event as ConcurrencyEvent
+from lionagi.libs.concurrency import Semaphore, create_task_group
+
 from .._concepts import Observer
 from .element import ID
 from .event import Event, EventStatus
@@ -56,9 +59,9 @@ class Processor(Observer):
         self.queue = asyncio.Queue()
         self._available_capacity = queue_capacity
         self._execution_mode = False
-        self._stop_event = asyncio.Event()
+        self._stop_event = ConcurrencyEvent()
         if concurrency_limit:
-            self._concurrency_sem = asyncio.Semaphore(concurrency_limit)
+            self._concurrency_sem = Semaphore(concurrency_limit)
         else:
             self._concurrency_sem = None
 
@@ -106,7 +109,9 @@ class Processor(Observer):
 
     async def start(self) -> None:
         """Clears the stop signal, allowing event processing to resume."""
-        self._stop_event.clear()
+        # Create a new event since ConcurrencyEvent doesn't have clear()
+        if self._stop_event.is_set():
+            self._stop_event = ConcurrencyEvent()
 
     def is_stopped(self) -> bool:
         """Checks whether the processor is in a stopped state.
@@ -136,30 +141,52 @@ class Processor(Observer):
         for tasks to complete. Resets capacity afterward if any events
         were processed.
         """
-        tasks = set()
         prev_event: Event | None = None
+        events_processed = 0
 
-        while self.available_capacity > 0 and not self.queue.empty():
-            next_event = None
-            if prev_event and prev_event.status == EventStatus.PENDING:
-                # Wait if previous event is still pending
-                await asyncio.sleep(self.capacity_refresh_time)
-                next_event = prev_event
-            else:
-                next_event = await self.dequeue()
-
-            if await self.request_permission(**next_event.request):
-                if next_event.streaming:
-                    task = asyncio.create_task(next_event.stream())
+        async with create_task_group() as tg:
+            while self.available_capacity > 0 and not self.queue.empty():
+                next_event = None
+                if prev_event and prev_event.status == EventStatus.PENDING:
+                    # Wait if previous event is still pending
+                    await asyncio.sleep(self.capacity_refresh_time)
+                    next_event = prev_event
                 else:
-                    task = asyncio.create_task(next_event.invoke())
-                tasks.add(task)
+                    next_event = await self.dequeue()
 
-            prev_event = next_event
-            self._available_capacity -= 1
+                if await self.request_permission(**next_event.request):
+                    if next_event.streaming:
+                        # For streaming, we need to consume the async generator
+                        async def consume_stream(event):
+                            async for _ in event.stream():
+                                pass
 
-        if tasks:
-            await asyncio.wait(tasks)
+                        if self._concurrency_sem:
+
+                            async def stream_with_sem(event):
+                                async with self._concurrency_sem:
+                                    await consume_stream(event)
+
+                            await tg.start_soon(stream_with_sem, next_event)
+                        else:
+                            await tg.start_soon(consume_stream, next_event)
+                    else:
+                        # For non-streaming, just invoke
+                        if self._concurrency_sem:
+
+                            async def invoke_with_sem(event):
+                                async with self._concurrency_sem:
+                                    await event.invoke()
+
+                            await tg.start_soon(invoke_with_sem, next_event)
+                        else:
+                            await tg.start_soon(next_event.invoke)
+                    events_processed += 1
+
+                prev_event = next_event
+                self._available_capacity -= 1
+
+        if events_processed > 0:
             self.available_capacity = self.queue_capacity
 
     async def request_permission(self, **kwargs: Any) -> bool:
@@ -270,9 +297,9 @@ class Executor(Observer):
         Args:
             event (Event): The event to add.
         """
-        async with self.pile:
-            self.pile.include(event)
-            self.pending.include(event)
+        # Use async methods to avoid deadlock between sync/async locks
+        await self.pile.ainclude(event)
+        self.pending.include(event)
 
     @property
     def completed_events(self) -> Pile[Event]:
