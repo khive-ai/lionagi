@@ -54,11 +54,18 @@ class TestBCallFunction(unittest.IsolatedAsyncioTestCase):
 
     async def test_bcall_with_timeout(self):
         inputs = [1, 2, 3]
-        with self.assertRaises(asyncio.TimeoutError):
-            async for batch in bcall(
-                inputs, async_func, batch_size=2, retry_timeout=0.05
-            ):
-                pass
+        batches = []
+        async for batch in bcall(
+            inputs,
+            async_func,
+            batch_size=2,
+            retry_timeout=0.05,
+            retry_default="timeout",
+            num_retries=0,
+        ):
+            batches.append(batch)
+        # All should timeout since async_func sleeps for 0.1s
+        self.assertEqual(batches, [["timeout", "timeout"], ["timeout"]])
 
     async def test_bcall_with_max_concurrent(self):
         inputs = [1, 2, 3, 4, 5]
@@ -80,7 +87,7 @@ class TestBCallFunction(unittest.IsolatedAsyncioTestCase):
 
     async def test_bcall_with_initial_delay(self):
         inputs = [1, 2, 3]
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("anyio.sleep", new_callable=AsyncMock) as mock_sleep:
             batches = []
             async for batch in bcall(
                 inputs, async_func, batch_size=2, initial_delay=0.5
