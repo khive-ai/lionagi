@@ -35,7 +35,6 @@ class Instruct(HashableModel):
         "reason",
         "actions",
         "action_strategy",
-        "batch_size",
         "request_params",
         "response_params",
     ]
@@ -97,16 +96,10 @@ class Instruct(HashableModel):
             "None: Contextual execution."
         ),
     )
-    action_strategy: Literal["batch", "sequential", "concurrent"] | None = (
-        Field(
-            None,
-            description="Action strategy to use for executing actions. Default "
-            "is 'concurrent'. Only provide for if actions are enabled.",
-        )
-    )
-    batch_size: int | None = Field(
+    action_strategy: Literal["sequential", "concurrent"] | None = Field(
         None,
-        description="Batch size for executing actions. Only provide for 'batch' strategy.",
+        description="Action strategy to use for executing actions. Default "
+        "is 'concurrent'. Only provide for if actions are enabled.",
     )
 
     @field_validator("instruction", "guidance", "context", mode="before")
@@ -122,13 +115,6 @@ class Instruct(HashableModel):
         if v not in ["batch", "sequential", "concurrent"]:
             return "concurrent"
         return v
-
-    @field_validator("batch_size", mode="before")
-    def _validate_batch_size(cls, v):
-        try:
-            return to_num(v, num_type=int)
-        except Exception:
-            return None
 
 
 class InstructResponse(HashableModel):
