@@ -234,7 +234,6 @@ class OperationGraphBuilder:
         inherit_context: bool = False,
         inherit_from_source: int = 0,
         branch=None,
-        chat_model_generator: Callable = None,
         **parameters,
     ) -> str:
         """
