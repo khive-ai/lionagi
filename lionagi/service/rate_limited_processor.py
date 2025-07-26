@@ -4,9 +4,11 @@
 
 import asyncio
 import logging
+from typing import Any
 
 from typing_extensions import Self, override
 
+from lionagi.libs.concurrency import CapacityLimiter, Lock, move_on_after
 from lionagi.protocols.types import Executor, Processor
 
 from .connections.api_calling import APICalling
@@ -40,24 +42,40 @@ class RateLimitedAPIProcessor(Processor):
         self.available_request = self.limit_requests
         self.available_token = self.limit_tokens
         self._rate_limit_replenisher_task: asyncio.Task | None = None
-        self._lock: asyncio.Lock = asyncio.Lock()
-        self._concurrency_sem = asyncio.Semaphore(
-            concurrency_limit or queue_capacity
-        )
+        self._lock = Lock()
+
+        # Use CapacityLimiter for better token management
+        if self.limit_tokens:
+            self._token_limiter = CapacityLimiter(self.limit_tokens)
+        else:
+            self._token_limiter = None
+
+        if self.limit_requests:
+            self._request_limiter = CapacityLimiter(self.limit_requests)
+        else:
+            self._request_limiter = None
 
     async def start_replenishing(self):
         """Start replenishing rate limit capacities at regular intervals."""
         await self.start()
         try:
             while not self.is_stopped():
-                await asyncio.sleep(delay=self.interval)
-                async with self._lock:
-                    if self.limit_requests is not None:
-                        self.available_request = (
-                            self.limit_requests - self.queue.qsize()
+                await asyncio.sleep(self.interval)
+
+                # Reset capacity limiters to their original values
+                if self._request_limiter and self.limit_requests:
+                    # Adjust total tokens to reset capacity
+                    current_borrowed = self._request_limiter.borrowed_tokens
+                    if current_borrowed < self.limit_requests:
+                        self._request_limiter.total_tokens = (
+                            self.limit_requests
                         )
-                    if self.limit_tokens is not None:
-                        self.available_token = self.limit_tokens
+
+                if self._token_limiter and self.limit_tokens:
+                    # Reset token limiter capacity
+                    current_borrowed = self._token_limiter.borrowed_tokens
+                    if current_borrowed < self.limit_tokens:
+                        self._token_limiter.total_tokens = self.limit_tokens
 
         except asyncio.CancelledError:
             logging.info("Rate limit replenisher task cancelled.")
@@ -98,31 +116,31 @@ class RateLimitedAPIProcessor(Processor):
 
     @override
     async def request_permission(
-        self, required_tokens: int = None, **kwargs
+        self, required_tokens: int = None, **kwargs: Any
     ) -> bool:
-        async with self._lock:
-            if self.limit_requests is None and self.limit_tokens is None:
-                if self.queue.qsize() < self.queue_capacity:
-                    return True
+        # No limits configured, just check queue capacity
+        if self._request_limiter is None and self._token_limiter is None:
+            return self.queue.qsize() < self.queue_capacity
 
-            if self.limit_requests is not None:
-                if self.available_request > 0:
-                    self.available_request -= 1
-                if required_tokens is None:
-                    return True
-                else:
-                    if self.limit_tokens >= required_tokens:
-                        self.limit_tokens -= required_tokens
-                        return True
+        # Check request limit
+        if self._request_limiter:
+            # Try to acquire with timeout
+            with move_on_after(0.1) as scope:
+                await self._request_limiter.acquire()
+                if scope.cancelled_caught:
+                    return False
 
-            if self.limit_tokens is not None:
-                if required_tokens is None:
-                    return True
-                if self.limit_tokens >= required_tokens:
-                    self.limit_tokens -= required_tokens
-                    return True
+        # Check token limit if required
+        if self._token_limiter and required_tokens:
+            # For token-based limiting, we need to acquire multiple tokens
+            # This is a simplified approach - in production you might want
+            # a more sophisticated token bucket algorithm
+            if self._token_limiter.available_tokens < required_tokens:
+                if self._request_limiter:
+                    self._request_limiter.release()
+                return False
 
-            return False
+        return True
 
 
 class RateLimitedAPIExecutor(Executor):
