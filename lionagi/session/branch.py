@@ -917,9 +917,7 @@ class Branch(Element, Communicatable, Relational):
         actions: bool = False,
         reason: bool = False,
         action_kwargs: dict = None,
-        action_strategy: Literal[
-            "sequential", "concurrent", "batch"
-        ] = "concurrent",
+        action_strategy: Literal["sequential", "concurrent"] = "concurrent",
         verbose_action: bool = False,
         field_models: list[FieldModel] = None,
         exclude_fields: list | dict | None = None,
@@ -987,7 +985,7 @@ class Branch(Element, Communicatable, Relational):
                 If `True`, signals that the LLM should provide chain-of-thought or reasoning (where applicable).
             action_kwargs (dict | None, optional):
                 Additional parameters for the `branch.act()` call if tools are invoked.
-            action_strategy (Literal["sequential","concurrent","batch"], optional):
+            action_strategy (Literal["sequential","concurrent"], optional):
                 The strategy for invoking tools (default: "concurrent").
             verbose_action (bool, optional):
                 If `True`, logs detailed information about tool invocation.
@@ -1174,9 +1172,8 @@ class Branch(Element, Communicatable, Relational):
         self,
         action_request: list | ActionRequest | BaseModel | dict,
         *,
-        strategy: Literal["concurrent", "sequential", "batch"] = "concurrent",
+        strategy: Literal["concurrent", "sequential"] = "concurrent",
         verbose_action: bool = False,
-        batch_size: int = None,
         suppress_errors: bool = True,
         sanitize_input: bool = False,
         unique_input: bool = False,
@@ -1223,7 +1220,7 @@ class Branch(Element, Communicatable, Relational):
             retry_timeout (float|None):
                 Overall timeout for all attempts (None = no limit).
             max_concurrent (int|None):
-                Maximum concurrent tasks (if batching).
+                Maximum concurrent tasks.
             throttle_period (float|None):
                 Minimum spacing (in seconds) between requests.
             flatten (bool):
@@ -1239,11 +1236,6 @@ class Branch(Element, Communicatable, Relational):
             Any:
                 The result or results from the invoked tool(s).
         """
-        if batch_size and not strategy == "batch":
-            raise ValueError(
-                "Batch size is only applicable for 'batch' strategy."
-            )
-
         match strategy:
             case "concurrent":
                 return await self._concurrent_act(
@@ -1271,27 +1263,8 @@ class Branch(Element, Communicatable, Relational):
                     verbose_action=verbose_action,
                     suppress_errors=suppress_errors,
                 )
-            case "batch":
-                return await self._batch_act(
-                    action_request,
-                    verbose_action=verbose_action,
-                    batch_size=batch_size or 1,
-                    max_concurrent=max_concurrent,
-                    suppress_errors=suppress_errors,
-                    sanitize_input=sanitize_input,
-                    unique_input=unique_input,
-                    num_retries=num_retries,
-                    initial_delay=initial_delay,
-                    retry_delay=retry_delay,
-                    backoff_factor=backoff_factor,
-                    retry_default=retry_default,
-                    retry_timeout=retry_timeout,
-                    throttle_period=throttle_period,
-                    flatten=flatten,
-                    dropna=dropna,
-                    unique_output=unique_output,
-                    flatten_tuple_set=flatten_tuple_set,
-                )
+            case _:
+                raise 
 
     async def _concurrent_act(
         self,
@@ -1321,19 +1294,6 @@ class Branch(Element, Communicatable, Relational):
                 )
             )
         return results
-
-    async def _batch_act(
-        self,
-        action_request: list[ActionRequest | BaseModel | dict],
-        batch_size: int = None,
-        **kwargs,
-    ) -> list:
-        result = []
-        async for i in bcall(
-            action_request, self._act, batch_size=batch_size, **kwargs
-        ):
-            result.extend(i)
-        return result
 
     async def translate(
         self,
