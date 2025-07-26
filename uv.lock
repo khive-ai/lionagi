@@ -1696,7 +1696,6 @@ dependencies = [
     { name = "backoff" },
     { name = "jinja2" },
     { name = "json-repair" },
-    { name = "matplotlib" },
     { name = "pillow" },
     { name = "psutil" },
     { name = "pydantic-settings" },
@@ -1713,6 +1712,8 @@ all = [
     { name = "datamodel-code-generator" },
     { name = "docling" },
     { name = "fastmcp" },
+    { name = "matplotlib" },
+    { name = "networkx" },
     { name = "ollama" },
     { name = "pydapter", extra = ["postgres"] },
     { name = "rich" },
@@ -1724,6 +1725,10 @@ docs = [
     { name = "furo" },
     { name = "sphinx" },
     { name = "sphinx-autobuild" },
+]
+graph = [
+    { name = "matplotlib" },
+    { name = "networkx" },
 ]
 lint = [
     { name = "black", extra = ["jupyter"] },
@@ -1785,6 +1790,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "json-repair", specifier = ">=0.40.0" },
     { name = "lionagi", extras = ["claude-code"], marker = "extra == 'all'" },
+    { name = "lionagi", extras = ["graph"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["mcp"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["ollama"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["postgres"], marker = "extra == 'all'" },
@@ -1792,7 +1798,8 @@ requires-dist = [
     { name = "lionagi", extras = ["reader"], marker = "extra == 'tools'" },
     { name = "lionagi", extras = ["rich"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["schema"], marker = "extra == 'all'" },
-    { name = "matplotlib", specifier = ">=3.9.0" },
+    { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.7.0" },
+    { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0.0" },
     { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pre-commit", marker = "extra == 'lint'", specifier = ">=4.0.1" },
@@ -1809,7 +1816,7 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.8.0" },
     { name = "toml", specifier = ">=0.9.0" },
 ]
-provides-extras = ["lint", "test", "docs", "reader", "tools", "ollama", "claude-code", "mcp", "rich", "schema", "postgres", "all"]
+provides-extras = ["lint", "test", "docs", "reader", "tools", "ollama", "claude-code", "mcp", "rich", "schema", "postgres", "graph", "all"]
 
 [package.metadata.requires-dev]
 dev = [
