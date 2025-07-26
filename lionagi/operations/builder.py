@@ -8,12 +8,14 @@ OperationGraphBuilder: Incremental graph builder for multi-stage operations.
 Build → Execute → Expand → Execute → ...
 """
 
+from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
 from lionagi.operations.node import BranchOperations, Operation
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
+from lionagi.protocols.types import ID
 
 __all__ = (
     "OperationGraphBuilder",
@@ -76,6 +78,7 @@ class OperationGraphBuilder:
         node_id: str | None = None,
         depends_on: list[str] | None = None,
         inherit_context: bool = False,
+        branch=None,
         **parameters,
     ) -> str:
         """
@@ -107,6 +110,9 @@ class OperationGraphBuilder:
         if node_id:
             # Add as metadata for easy lookup
             node.metadata["reference_id"] = node_id
+
+        if branch:
+            node.branch_id = ID.get_id(branch)
 
         # Handle dependencies
         if depends_on:
@@ -227,6 +233,8 @@ class OperationGraphBuilder:
         source_node_ids: list[str] | None = None,
         inherit_context: bool = False,
         inherit_from_source: int = 0,
+        branch=None,
+        chat_model_generator: Callable = None,
         **parameters,
     ) -> str:
         """
@@ -263,6 +271,9 @@ class OperationGraphBuilder:
         # Store node reference if provided
         if node_id:
             node.metadata["reference_id"] = node_id
+
+        if branch:
+            node.branch_id = ID.get_id(branch)
 
         # Store context inheritance for aggregations
         if inherit_context and sources:
