@@ -43,9 +43,12 @@ from typing import (
     overload,
 )
 
+import anyio
 from pydantic import BaseModel, model_validator
 from pydantic_core import PydanticUndefinedType
 
+from .libs.concurrency import Lock as ConcurrencyLock
+from .libs.concurrency import Semaphore, create_task_group
 from .settings import Settings
 
 R = TypeVar("R")
@@ -612,32 +615,6 @@ class CallParams(Params):
         )
 
 
-class LCallParams(CallParams):
-    func: Any = None
-    sanitize_input: bool = False
-    unique_input: bool = False
-    flatten: bool = False
-    dropna: bool = False
-    unique_output: bool = False
-    flatten_tuple_set: bool = False
-
-    def __call__(self, input_: Any, func=None):
-        if self.func is None and func is None:
-            raise ValueError("a sync func must be provided")
-        return lcall(
-            input_,
-            func or self.func,
-            *self.args,
-            sanitize_input=self.sanitize_input,
-            unique_input=self.unique_input,
-            flatten=self.flatten,
-            dropna=self.dropna,
-            unique_output=self.unique_output,
-            flatten_tuple_set=self.flatten_tuple_set,
-            **self.kwargs,
-        )
-
-
 async def alcall(
     input_: list[Any],
     func: Callable[..., T],
@@ -651,7 +628,6 @@ async def alcall(
     backoff_factor: float = 1,
     retry_default: Any = UNDEFINED,
     retry_timeout: float | None = None,
-    retry_timing: bool = False,
     max_concurrent: int | None = None,
     throttle_period: float | None = None,
     flatten: bool = False,
@@ -659,7 +635,7 @@ async def alcall(
     unique_output: bool = False,
     flatten_tuple_set: bool = False,
     **kwargs: Any,
-) -> list[T] | list[tuple[T, float]]:
+) -> list[T]:
     """
     Asynchronously apply a function to each element of a list, with optional input sanitization,
     retries, timeout, and output processing.
@@ -675,7 +651,6 @@ async def alcall(
         backoff_factor (float): Multiplier for delay after each retry.
         retry_default (Any): Default value if all retries fail.
         retry_timeout (float | None): Timeout for each function call.
-        retry_timing (bool): If True, return (result, duration) tuples.
         max_concurrent (int | None): Maximum number of concurrent operations.
         throttle_period (float | None): Delay after each completed operation.
         flatten (bool): Flatten the final result if True.
@@ -685,7 +660,7 @@ async def alcall(
         **kwargs: Additional arguments passed to func.
 
     Returns:
-        list[T] or list[tuple[T, float]]: The processed results, or results with timing if retry_timing is True.
+        list[T]: The processed results.
 
     Raises:
         asyncio.TimeoutError: If a call times out and no default is provided.
@@ -734,9 +709,9 @@ async def alcall(
 
     # Optional initial delay before processing
     if initial_delay:
-        await asyncio.sleep(initial_delay)
+        await anyio.sleep(initial_delay)
 
-    semaphore = asyncio.Semaphore(max_concurrent) if max_concurrent else None
+    semaphore = Semaphore(max_concurrent) if max_concurrent else None
     throttle_delay = throttle_period or 0
     coro_func = is_coro_func(func)
 
@@ -744,137 +719,92 @@ async def alcall(
         if coro_func:
             # Async function
             if retry_timeout is not None:
-                return await asyncio.wait_for(
-                    func(item, **kwargs), timeout=retry_timeout
-                )
+                with anyio.move_on_after(retry_timeout) as cancel_scope:
+                    result = await func(item, **kwargs)
+                if cancel_scope.cancelled_caught:
+                    raise asyncio.TimeoutError(
+                        f"Function call timed out after {retry_timeout}s"
+                    )
+                return result
             else:
                 return await func(item, **kwargs)
         else:
             # Sync function
             if retry_timeout is not None:
-                return await asyncio.wait_for(
-                    asyncio.to_thread(func, item, **kwargs),
-                    timeout=retry_timeout,
-                )
+                with anyio.move_on_after(retry_timeout) as cancel_scope:
+                    result = await anyio.to_thread.run_sync(
+                        func, item, **kwargs
+                    )
+                if cancel_scope.cancelled_caught:
+                    raise asyncio.TimeoutError(
+                        f"Function call timed out after {retry_timeout}s"
+                    )
+                return result
             else:
-                return func(item, **kwargs)
+                return await anyio.to_thread.run_sync(func, item, **kwargs)
 
     async def execute_task(i: Any, index: int) -> Any:
-        start_time = asyncio.get_running_loop().time()
         attempts = 0
         current_delay = retry_delay
         while True:
             try:
                 result = await call_func(i)
-                if retry_timing:
-                    end_time = asyncio.get_running_loop().time()
-                    return index, result, end_time - start_time
-                else:
-                    return index, result
-            except asyncio.CancelledError as e:
-                raise e
+                return index, result
+            except anyio.get_cancelled_exc_class():
+                raise
 
             except Exception:
                 attempts += 1
                 if attempts <= num_retries:
                     if current_delay:
-                        await asyncio.sleep(current_delay)
+                        await anyio.sleep(current_delay)
                         current_delay *= backoff_factor
                     # Retry loop continues
                 else:
                     # Exhausted retries
                     if retry_default is not UNDEFINED:
-                        # Return default if provided
-                        if retry_timing:
-                            end_time = asyncio.get_running_loop().time()
-                            duration = end_time - (start_time or end_time)
-                            return index, retry_default, duration
-                        else:
-                            return index, retry_default
+                        return index, retry_default
                     # No default, re-raise
                     raise
 
     async def task_wrapper(item: Any, idx: int) -> Any:
         if semaphore:
             async with semaphore:
-                return await execute_task(item, idx)
+                result = await execute_task(item, idx)
         else:
-            return await execute_task(item, idx)
+            result = await execute_task(item, idx)
 
-    # Create tasks
-    tasks = [task_wrapper(item, idx) for idx, item in enumerate(input_)]
+        return result
 
-    # Collect results as they complete
+    # Use task group for structured concurrency
     results = []
-    for coro in asyncio.as_completed(tasks):
-        res = await coro
-        results.append(res)
-        if throttle_delay:
-            await asyncio.sleep(throttle_delay)
+    results_lock = ConcurrencyLock()  # Protect results list
+
+    async def run_and_store(item: Any, idx: int):
+        result = await task_wrapper(item, idx)
+        async with results_lock:
+            results.append(result)
+
+    # Execute all tasks using task group
+    async with create_task_group() as tg:
+        for idx, item in enumerate(input_):
+            await tg.start_soon(run_and_store, item, idx)
+            # Apply throttle delay between starting tasks
+            if throttle_delay and idx < len(input_) - 1:
+                await anyio.sleep(throttle_delay)
 
     # Sort by original index
     results.sort(key=lambda x: x[0])
 
-    if retry_timing:
-        # (index, result, duration)
-        filtered = [
-            (r[1], r[2]) for r in results if not dropna or r[1] is not None
-        ]
-        return filtered
-    else:
-        # (index, result)
-        output_list = [r[1] for r in results]
-        return to_list(
-            output_list,
-            flatten=flatten,
-            dropna=dropna,
-            unique=unique_output,
-            flatten_tuple_set=flatten_tuple_set,
-        )
-
-
-class ALCallParams(CallParams):
-    func: Any = None
-    sanitize_input: bool = False
-    unique_input: bool = False
-    num_retries: int = 0
-    initial_delay: float = 0
-    retry_delay: float = 0
-    backoff_factor: float = 1
-    retry_default: Any = UNDEFINED
-    retry_timeout: float | None = None
-    retry_timing: bool = False
-    max_concurrent: int | None = None
-    throttle_period: float | None = None
-    flatten: bool = False
-    dropna: bool = False
-    unique_output: bool = False
-    flatten_tuple_set: bool = False
-
-    async def __call__(self, input_: Any, func=None):
-        if self.func is None and func is None:
-            raise ValueError("a sync/async func must be provided")
-        return await alcall(
-            input_,
-            func or self.func,
-            *self.args,
-            sanitize_input=self.sanitize_input,
-            unique_input=self.unique_input,
-            num_retries=self.num_retries,
-            initial_delay=self.initial_delay,
-            retry_delay=self.retry_delay,
-            backoff_factor=self.backoff_factor,
-            retry_default=self.retry_default,
-            retry_timeout=self.retry_timeout,
-            retry_timing=self.retry_timing,
-            max_concurrent=self.max_concurrent,
-            throttle_period=self.throttle_period,
-            flatten=self.flatten,
-            dropna=self.dropna,
-            unique_output=self.unique_output,
-            flatten_tuple_set=self.flatten_tuple_set,
-            **self.kwargs,
-        )
+    # (index, result)
+    output_list = [r[1] for r in results]
+    return to_list(
+        output_list,
+        flatten=flatten,
+        dropna=dropna,
+        unique=unique_output,
+        flatten_tuple_set=flatten_tuple_set,
+    )
 
 
 async def bcall(
@@ -891,7 +821,6 @@ async def bcall(
     backoff_factor: float = 1,
     retry_default: Any = UNDEFINED,
     retry_timeout: float | None = None,
-    retry_timing: bool = False,
     max_concurrent: int | None = None,
     throttle_period: float | None = None,
     flatten: bool = False,
@@ -915,7 +844,6 @@ async def bcall(
             backoff_factor=backoff_factor,
             retry_default=retry_default,
             retry_timeout=retry_timeout,
-            retry_timing=retry_timing,
             max_concurrent=max_concurrent,
             throttle_period=throttle_period,
             flatten=flatten,
@@ -923,52 +851,6 @@ async def bcall(
             unique_output=unique_output,
             flatten_tuple_set=flatten_tuple_set,
             **kwargs,
-        )
-
-
-class BCallParams(CallParams):
-    func: Any = None
-    batch_size: int
-    sanitize_input: bool = False
-    unique_input: bool = False
-    num_retries: int = 0
-    initial_delay: float = 0
-    retry_delay: float = 0
-    backoff_factor: float = 1
-    retry_default: Any = UNDEFINED
-    retry_timeout: float | None = None
-    retry_timing: bool = False
-    max_concurrent: int | None = None
-    throttle_period: float | None = None
-    flatten: bool = False
-    dropna: bool = False
-    unique_output: bool = False
-    flatten_tuple_set: bool = False
-
-    async def __call__(self, input_, func=None):
-        if self.func is None and func is None:
-            raise ValueError("a sync/async func must be provided")
-        return await bcall(
-            input_,
-            func or self.func,
-            *self.args,
-            batch_size=self.batch_size,
-            sanitize_input=self.sanitize_input,
-            unique_input=self.unique_input,
-            num_retries=self.num_retries,
-            initial_delay=self.initial_delay,
-            retry_delay=self.retry_delay,
-            backoff_factor=self.backoff_factor,
-            retry_default=self.retry_default,
-            retry_timeout=self.retry_timeout,
-            retry_timing=self.retry_timing,
-            max_concurrent=self.max_concurrent,
-            throttle_period=self.throttle_period,
-            flatten=self.flatten,
-            dropna=self.dropna,
-            unique_output=self.unique_output,
-            flatten_tuple_set=self.flatten_tuple_set,
-            **self.kwargs,
         )
 
 
