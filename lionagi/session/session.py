@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -46,7 +47,7 @@ class Session(Node, Communicatable, Relational):
         mail_manager (MailManager | None): Manages mail operations.
     """
 
-    branches: Pile[Any] = Field(
+    branches: Pile[Branch] = Field(
         default_factory=lambda: Pile(item_type={Branch}, strict_type=False)
     )
     default_branch: Any = Field(default=None, exclude=True)
@@ -57,20 +58,37 @@ class Session(Node, Communicatable, Relational):
     name: str = Field(default="Session")
 
     @model_validator(mode="after")
-    def _initialize_default_branch(self) -> Self:
-        if self.default_branch is None:
-            from .branch import Branch
-
-            self.default_branch = Branch()
-        return self
-
-    @model_validator(mode="after")
     def _add_mail_sources(self) -> Self:
+        if self.default_branch is None:
+            self.default_branch = Branch()
         if self.default_branch not in self.branches:
             self.branches.include(self.default_branch)
         if self.branches:
             self.mail_manager.add_sources(self.branches)
         return self
+
+    def _lookup_branch_by_name(self, name: str) -> Branch | None:
+        for branch in self.branches:
+            if branch.name == name:
+                return branch
+        return None
+
+    def get_branch(
+        self, branch: ID.Ref | str, default: Any = ..., /
+    ) -> Branch:
+        """Get a branch by its ID or name."""
+
+        with contextlib.suppress(ItemNotFoundError, ValueError):
+            id = ID.get_id(branch)
+            return self.branches[id]
+
+        if isinstance(branch, str):
+            if b := self._lookup_branch_by_name(branch):
+                return b
+
+        if default is ...:
+            raise ItemNotFoundError(f"Branch '{branch}' not found.")
+        return default
 
     def new_branch(
         self,
