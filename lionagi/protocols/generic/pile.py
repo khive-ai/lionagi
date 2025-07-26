@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
 from collections import deque
 from collections.abc import (
     AsyncIterator,
@@ -25,6 +24,7 @@ from pydapter import Adaptable, AsyncAdaptable
 from typing_extensions import Self, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError
+from lionagi.libs.concurrency import Lock as ConcurrencyLock
 from lionagi.utils import UNDEFINED, is_same_dtype, to_list
 
 from .._concepts import Observable
@@ -38,19 +38,10 @@ T = TypeVar("T", bound=E)
 __all__ = ("Pile",)
 
 
-def synchronized(func: Callable):
-    @wraps(func)
-    def wrapper(self: Pile, *args, **kwargs):
-        with self.lock:
-            return func(self, *args, **kwargs)
-
-    return wrapper
-
-
 def async_synchronized(func: Callable):
     @wraps(func)
     async def wrapper(self: Pile, *args, **kwargs):
-        async with self.async_lock:
+        async with self.lock:
             return await func(self, *args, **kwargs)
 
     return wrapper
@@ -91,8 +82,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
 
     def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
-            "_lock": Field(default_factory=threading.Lock),
-            "_async": Field(default_factory=asyncio.Lock),
+            "_lock": Field(default_factory=ConcurrencyLock),
         }
 
     def __pydantic_private__(self) -> dict[str, FieldInfo]:
@@ -172,7 +162,6 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
         """
         self._setitem(key, item)
 
-    @synchronized
     def pop(
         self,
         key: ID.Ref | ID.RefSeq | int | slice,
@@ -235,7 +224,6 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
         """
         self._exclude(item)
 
-    @synchronized
     def clear(self) -> None:
         """Remove all items."""
         self._clear()
@@ -255,7 +243,6 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
         """
         self._update(other)
 
-    @synchronized
     def insert(self, index: int, item: T, /) -> None:
         """Insert item at position.
 
@@ -269,7 +256,6 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
         """
         self._insert(index, item)
 
-    @synchronized
     def append(self, item: T, /) -> None:
         """Append item to end (alias for include).
 
@@ -281,7 +267,6 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
         """
         self.update(item)
 
-    @synchronized
     def get(
         self,
         key: ID.Ref | ID.RefSeq | int | slice,
@@ -321,11 +306,12 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
 
     def __iter__(self) -> Iterator[T]:
         """Iterate over items safely."""
-        with self.lock:
-            current_order = list(self.progression)
+        # Take a snapshot of the current order to avoid holding lock during iteration
+        current_order = list(self.progression)
 
         for key in current_order:
-            yield self.collections[key]
+            if key in self.collections:
+                yield self.collections[key]
 
     def __next__(self) -> T:
         """Get next item."""
@@ -478,28 +464,19 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
         """Prepare for pickling."""
         state = self.__dict__.copy()
         state["_lock"] = None
-        state["_async_lock"] = None
         return state
 
     def __setstate__(self, state):
         """Restore after unpickling."""
         self.__dict__.update(state)
-        self._lock = threading.Lock()
-        self._async_lock = asyncio.Lock()
+        self._lock = ConcurrencyLock()
 
     @property
     def lock(self):
-        """Thread lock."""
+        """Unified concurrency lock for both sync and async operations."""
         if not hasattr(self, "_lock") or self._lock is None:
-            self._lock = threading.Lock()
+            self._lock = ConcurrencyLock()
         return self._lock
-
-    @property
-    def async_lock(self):
-        """Async lock."""
-        if not hasattr(self, "_async_lock") or self._async_lock is None:
-            self._async_lock = asyncio.Lock()
-        return self._async_lock
 
     # Async Interface methods
     @async_synchronized
@@ -577,12 +554,13 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
 
     async def __aiter__(self) -> AsyncIterator[T]:
         """Async iterate over items."""
-        async with self.async_lock:
+        async with self.lock:
             current_order = list(self.progression)
 
         for key in current_order:
-            yield self.collections[key]
-            await asyncio.sleep(0)  # Yield control to the event loop
+            if key in self.collections:
+                yield self.collections[key]
+                await asyncio.sleep(0)  # Yield control to the event loop
 
     async def __anext__(self) -> T:
         """Async get next item."""
@@ -915,7 +893,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
 
     async def __aenter__(self) -> Self:
         """Enter async context."""
-        await self.async_lock.acquire()
+        await self.lock.__aenter__()
         return self
 
     async def __aexit__(
@@ -925,7 +903,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
         exc_tb: Any,
     ) -> None:
         """Exit async context."""
-        self.async_lock.release()
+        await self.lock.__aexit__(exc_type, exc_val, exc_tb)
 
     def is_homogenous(self) -> bool:
         """Check if all items are same type."""
