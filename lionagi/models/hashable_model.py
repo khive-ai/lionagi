@@ -1,7 +1,8 @@
 from pydantic import BaseModel
 from typing_extensions import Self
 
-from lionagi.utils import UNDEFINED, hash_dict
+from lionagi.libs.hash.hash_dict import hash_dict
+from lionagi.utils import UNDEFINED
 
 
 class HashableModel(BaseModel):
