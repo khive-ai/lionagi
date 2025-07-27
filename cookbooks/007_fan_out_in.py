@@ -1,7 +1,8 @@
-from lionagi import Branch, iModel, Session, Builder
-from lionagi.fields import Instruct, LIST_INSTRUCT_FIELD_MODEL
+from lionagi import Branch, Builder, Session, iModel
+from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
 
 CC_WORKSPACE = ".khive/workspace"
+
 
 def create_cc(
     subdir: str,
@@ -45,6 +46,7 @@ overview of the codebase, including:
 ---END
 """
 
+
 async def main():
     try:
         orc_cc = create_cc("orchestrator")
@@ -56,7 +58,7 @@ async def main():
             name="orchestrator",
         )
         session = Session(default_branch=orc_branch)
-        
+
         builder = Builder("CodeInvestigator")
         root = builder.add_operation(
             "operate",
@@ -69,8 +71,10 @@ async def main():
         )
 
         result = await session.flow(builder.get_graph())
-        
-        instruct_models: list[Instruct] = result["operation_results"][root].instruct_models
+
+        instruct_models: list[Instruct] = result["operation_results"][
+            root
+        ].instruct_models
         research_nodes = []
 
         for i in instruct_models:
@@ -88,7 +92,7 @@ async def main():
             branch=orc_branch,
             instruction="Synthesize the information from the researcher branches.",
         )
-        
+
         result2 = await session.flow(builder.get_graph())
         result_synthesis = result2["operation_results"][synthesis]
         print(result_synthesis)
