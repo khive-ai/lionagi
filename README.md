@@ -138,7 +138,7 @@ Seamlessly route to different models in the same workflow.
 
 ### Claude Code Integration
 
-LionAGI now supports Anthropic's [Claude Code SDK](https://github.com/anthropics/claude-code-sdk), enabling autonomous coding capabilities with persistent session management:
+LionAGI now supports Anthropic's [Claude Code Python SDK](https://github.com/anthropics/claude-code-sdk-python), enabling autonomous coding capabilities with persistent session management:
 
 ```python
 from lionagi import iModel, Branch
