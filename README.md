@@ -131,8 +131,7 @@ sonnet = iModel(
 )
 
 branch = Branch(chat_model=gpt4o)
-# Switch mid-flow
-analysis = await branch.communicate("Analyze these stats", imodel=sonnet)
+analysis = await branch.communicate("Analyze these stats", chat_model=sonnet) # Switch mid-flow
 ```
 
 Seamlessly route to different models in the same workflow.
