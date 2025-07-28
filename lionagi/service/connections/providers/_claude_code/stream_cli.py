@@ -348,3 +348,12 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
         _pp_final(session, theme)
 
     yield session
+
+
+__all__ = (
+    "CLAUDE",
+    "stream_claude_code_cli",
+    "ndjson_from_cli",
+    "ClaudeChunk",
+    "ClaudeSession",
+)

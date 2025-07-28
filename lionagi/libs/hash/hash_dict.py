@@ -92,7 +92,6 @@ def _generate_hashable_representation(item: any) -> any:
 
 
 def hash_dict(data: any, strict: bool = False) -> int:
-
     data_to_process = data
     if strict:
         data_to_process = copy.deepcopy(data)

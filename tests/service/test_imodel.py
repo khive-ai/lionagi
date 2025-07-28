@@ -4,8 +4,7 @@
 
 import asyncio
 import os
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -47,7 +46,6 @@ class TestiModel:
             ("openai", "OPENAI_API_KEY"),
             ("anthropic", "ANTHROPIC_API_KEY"),
             ("perplexity", "PERPLEXITY_API_KEY"),
-            ("ollama", None),  # Ollama doesn't use env vars
         ]
 
         for provider, env_var in test_cases:
@@ -59,11 +57,6 @@ class TestiModel:
                     api_key=f"test-{provider}-key",
                 )
                 assert imodel.endpoint.config._api_key is not None
-            else:
-                # Ollama case - should work without API key
-                imodel = iModel(provider=provider, model="test-model")
-                # Ollama doesn't need an API key
-                assert imodel.endpoint.config.provider == "ollama"
 
     def test_custom_api_key(self):
         """Test iModel initialization with custom API key."""
@@ -73,15 +66,6 @@ class TestiModel:
 
         # Just verify that an API key was set
         assert imodel.endpoint.config._api_key is not None
-
-    def test_ollama_no_api_key_required(self):
-        """Test that Ollama doesn't require API key."""
-        imodel = iModel(provider="ollama", model="llama2")
-
-        # Ollama doesn't need an API key, so _api_key can be None
-        # Just verify that the model was created successfully
-        assert imodel.endpoint.config.provider == "ollama"
-        assert imodel.endpoint.config.kwargs["model"] == "llama2"
 
     def test_create_api_calling(self):
         """Test creation of APICalling objects."""

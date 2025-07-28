@@ -43,7 +43,7 @@ CLAUDE_CODE_OPTION_PARAMS = {
 # --------------------------------------------------------------------------- request model
 class ClaudeCodeRequest(BaseModel):
     # -- conversational bits -------------------------------------------------
-    prompt: str = Field(description="The prompt for Claude Code")
+    prompt: str = Field(description="The prompt for Claude Code")
     system_prompt: str | None = None
     append_system_prompt: str | None = None
     max_turns: int | None = None
@@ -68,10 +68,9 @@ class ClaudeCodeRequest(BaseModel):
     # -- internal use --------------------------------------------------------
     auto_finish: bool = Field(
         default=False,
-        exclude=True,
         description="Automatically finish the conversation after the first response",
     )
-    verbose_output: bool = Field(default=False, exclude=True)
+    verbose_output: bool = Field(default=False)
     cli_display_theme: Literal["light", "dark"] = "light"
 
     # ------------------------ validators & helpers --------------------------
