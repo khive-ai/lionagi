@@ -130,7 +130,7 @@ sonnet = iModel(
   max_tokens=1000,                    # max_tokens is required for anthropic models
 )
 
-branch = Branch(chat_model=gpt4o)
+branch = Branch(chat_model=gpt41)
 analysis = await branch.communicate("Analyze these stats", chat_model=sonnet) # Switch mid-flow
 ```
 
