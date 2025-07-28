@@ -1,5 +1,4 @@
 class HashUtils:
-
     @staticmethod
     def hash_dict(data: any, strict: bool = False) -> int:
         """

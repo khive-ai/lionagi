@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any
@@ -147,7 +149,7 @@ class RoledMessage(Node, Sendable):
         """
         return self._flag == MessageFlag.MESSAGE_CLONE
 
-    def clone(self, keep_role: bool = True) -> "RoledMessage":
+    def clone(self, keep_role: bool = True) -> RoledMessage:
         """
         Create a shallow copy of this message, possibly resetting the role.
 
