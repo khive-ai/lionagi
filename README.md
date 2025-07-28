@@ -27,7 +27,9 @@ integrations, and custom validations in a single coherent pipeline.
 ## Installation
 
 ```
-pip install lionagi
+uv add lionagi  # recommended to use pyproject and uv for dependency management
+
+pip install lionagi # or install directly
 ```
 
 ## Quick Start
@@ -36,12 +38,12 @@ pip install lionagi
 from lionagi import Branch, iModel
 
 # Pick a model
-gpt4o = iModel(provider="openai", model="gpt-4o")
+gpt41 = iModel(provider="openai", model="gpt-4.1-mini")
 
 # Create a Branch (conversation context)
 hunter = Branch(
   system="you are a hilarious dragon hunter who responds in 10 words rhymes.",
-  chat_model=gpt4o,
+  chat_model=gpt41,
 )
 
 # Communicate asynchronously
@@ -122,7 +124,6 @@ print(df.tail())
 ```python
 from lionagi import Branch, iModel
 
-gpt4o = iModel(provider="openai", model="gpt-4o")
 sonnet = iModel(
   provider="anthropic",
   model="claude-3-5-sonnet-20241022",
@@ -138,25 +139,61 @@ Seamlessly route to different models in the same workflow.
 
 ### Claude Code Integration
 
-LionAGI now supports Anthropic's [Claude Code Python SDK](https://github.com/anthropics/claude-code-sdk-python), enabling autonomous coding capabilities with persistent session management:
+LionAGI now supports Anthropic's Claude Code [Python SDK](https://github.com/anthropics/claude-code-sdk-python), and [CLI SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) enabling autonomous coding capabilities with persistent session management. The CLI endpoint
+directly connects to claude code, and is recommended, you can either use it via a [proxy server](https://github.com/khive-ai/lionagi/tree/main/cookbooks/claude_proxy) or directly with `query_cli` endpoint, provided you have already logged onto claude code cli in your terminal.
 
 ```python
 from lionagi import iModel, Branch
 
-# Create a Claude Code model
-model = iModel(
-    provider="claude_code",
-    endpoint="query_cli",
-    model="sonnet",
-    allowed_tools=["Write", "Read", "Edit"],  # Control which tools Claude can use
-    permission_mode = "bypassPermissions", # Bypass tool permission checks (use with caution!),
-    verbose_output=True,  # Enable detailed output for debugging
-)
+def create_cc_model():
+  return iModel(
+      provider="claude_code",
+      endpoint="query_cli",
+      model="sonnet",
+      verbose_output=True,  # Enable detailed output for debugging
+  )
 
 # Start a coding session
-branch = Branch(chat_model=model)
-response = await branch.communicate("Explain the architecture of protocols, operations, and branch")
-response2 = await branch.communicate("how do these parts form lionagi system")
+orchestrator = Branch(chat_model=create_cc_model())
+response = await orchestrator.communicate("Explain the architecture of protocols, operations, and branch")
+
+# continue the session with more queries
+response2 = await orchestrator.communicate("how do these parts form lionagi system")
+```
+
+### Fan out fan in pattern orchestration with claude code
+
+```python
+# use structured outputs with claude code
+from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
+
+response3 = await orchestrator.operate(
+  instruct=Instruct(
+    instruction="create 4 research questions for parallel discovery",
+    guidance="put into `instruct_models` field as part of your structured result message",
+    context="I'd like to create an orchestration system for AI agents using lionagi"
+  ),
+  field_models=[LIST_INSTRUCT_FIELD_MODEL],
+)
+
+len(response3.instruct_models)  # should be 4
+
+async def handle_instruct(instruct):
+  sub_branch = Branch(
+    system="You are an diligent research expert.",
+    chat_model=create_cc_model(),
+  )
+  return await sub_branch.operate(instruct=instruct)
+
+# run in parallel across all instruct models
+from lionagi.utils import alcall
+responses = await alcall(response3.instruct_models, handle_instruct)
+
+# now hand these reports back to the orchestrator
+final_response = await orchestrator.communicate(
+  "please synthesize these research findings into a final report",
+  context=responses,
+)
 ```
 
 Key features:
@@ -168,9 +205,14 @@ Key features:
 ### optional dependencies
 
 ```
-pip install "lionagi[reader]"
-pip install "lionagi[ollama]"
-pip install "lionagi[claude-code]"
+"lionagi[reader]" - Reader tool for any unstructured data and web pages
+"lionagi[ollama]" - Ollama model support for local inference
+"lionagi[claude-code]" - Claude code python SDK integration (cli endpoint does not require this)
+"lionagi[rich]" - Rich output formatting for better console display
+"lionagi[schema]" - Convert pydantic schema to make the Model class persistent
+"lionagi[postgres]" - Postgres database support for storing and retrieving structured data
+"lionagi[graph]" - Graph display for visualizing complex workflows
+"lionagi[sqlite]" - SQLite database support for lightweight data storage (also need `postgres` option)
 ```
 
 ## Community & Contributing
