@@ -11,7 +11,6 @@ from lionagi.libs.validate.common_field_validators import (
     validate_nullable_jsonvalue_field,
 )
 from lionagi.models import FieldModel, HashableModel
-from lionagi.utils import to_num
 
 __all__ = (
     "Instruct",
