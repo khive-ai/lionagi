@@ -61,6 +61,7 @@ class ClaudeCodeRequest(BaseModel):
     max_thinking_tokens: int | None = None
     mcp_tools: list[str] = Field(default_factory=list)
     mcp_servers: dict[str, Any] = Field(default_factory=dict)
+    mcp_config: str | Path | None = Field(None, exclude=True)
     permission_mode: ClaudePermission | None = None
     permission_prompt_tool_name: str | None = None
     disallowed_tools: list[str] = Field(default_factory=list)
@@ -71,7 +72,7 @@ class ClaudeCodeRequest(BaseModel):
         description="Automatically finish the conversation after the first response",
     )
     verbose_output: bool = Field(default=False)
-    cli_display_theme: Literal["light", "dark"] = "light"
+    cli_display_theme: Literal["light", "dark"] = "dark"
 
     # ------------------------ validators & helpers --------------------------
     @field_validator("permission_mode", mode="before")
@@ -162,6 +163,15 @@ class ClaudeCodeRequest(BaseModel):
 
         if self.add_dir:
             args += ["--add-dir", self.add_dir]
+
+        if self.permission_prompt_tool_name:
+            args += [
+                "--permission-prompt-tool",
+                self.permission_prompt_tool_name,
+            ]
+
+        if self.mcp_config:
+            args += ["--mcp-config", str(self.mcp_config)]
 
         args += ["--model", self.model or "sonnet", "--verbose"]
         return args
