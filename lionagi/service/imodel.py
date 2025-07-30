@@ -2,18 +2,34 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 
 from pydantic import BaseModel
 
 from lionagi.protocols.generic.event import EventStatus
+from lionagi.protocols.types import Event
 from lionagi.utils import is_coro_func
 
 from .connections.api_calling import APICalling
-from .connections.endpoint import Endpoint
+from .connections.endpoint import Endpoint, EndpointEventHook
+from .connections.endpoint_hook import EventHooks, StreamHandlers
 from .connections.match_endpoint import match_endpoint
 from .rate_limited_processor import RateLimitedAPIExecutor
+
+
+def _handle_claude_code_session_id(
+    self: iModel, include_token_usage_to_model, /, **kwargs
+):
+    if (
+        "resume" not in kwargs
+        and "session_id" not in kwargs
+        and self.provider_metadata.get("session_id")
+    ):
+        kwargs["resume"] = self.provider_metadata["session_id"]
+        return (False, kwargs)
 
 
 class iModel:
@@ -45,8 +61,10 @@ class iModel:
         limit_requests: int = None,
         limit_tokens: int = None,
         concurrency_limit: int | None = None,
-        streaming_process_func: Callable = None,
+        streaming_process_func: Callable = None,  # deprecated, use stream_handlers instead
         provider_metadata: dict | None = None,
+        hooks: EventHooks | None = None,
+        stream_handlers: StreamHandlers | None = None,
         **kwargs,
     ) -> None:
         """Initializes the iModel instance.
@@ -112,6 +130,13 @@ class iModel:
         if base_url:
             self.endpoint.config.base_url = base_url
 
+        if hooks is not None or stream_handlers is not None:
+            event_hook = EndpointEventHook(
+                hooks=hooks,
+                stream_handlers=stream_handlers,
+            )
+            self.endpoint.event_hook = event_hook
+
         self.executor = RateLimitedAPIExecutor(
             queue_capacity=queue_capacity,
             capacity_refresh_time=capacity_refresh_time,
@@ -125,6 +150,53 @@ class iModel:
 
         # Provider-specific metadata storage (e.g., session_id for Claude Code)
         self.provider_metadata = provider_metadata or {}
+
+    async def create_api_event(
+        self,
+        exit: bool = False,
+        include_token_usage_to_model: bool = False,
+        **kwargs,
+    ) -> Event:
+        if self.endpoint.has_hooks and self.endpoint.event_hook.can_handle(
+            "pre_event_create"
+        ):
+            r_or_err, exit = await self.endpoint.event_hook.pre_event_create(
+                APICalling, exit=exit, **kwargs
+            )
+
+            if isinstance(r_or_err, Event):
+                return r_or_err
+
+            if isinstance(r_or_err, Exception):
+                if exit:
+                    raise r_or_err
+                else:
+                    if self.endpoint.config.provider == "claude_code":
+                        include_token_usage_to_model, kwargs = (
+                            _handle_claude_code_session_id(
+                                self, None, **kwargs
+                            )
+                        )
+
+                    # The new Endpoint.create_payload returns (payload, headers)
+                    payload, headers = self.endpoint.create_payload(
+                        request=kwargs
+                    )
+                    cache_control = kwargs.pop("cache_control", False)
+                    api_call = APICalling(
+                        payload=payload,
+                        headers=headers,
+                        endpoint=self.endpoint,
+                        cache_control=cache_control,
+                        include_token_usage_to_model=include_token_usage_to_model,
+                    )
+                    api_call.execution.status = EventStatus.CANCELLED
+                    api_call.execution.error = (
+                        f"pre-event-create hook aborted this event: {r_or_err}"
+                    )
+                    return api_call
+
+        return self.create_api_calling(**kwargs)
 
     def create_api_calling(
         self, include_token_usage_to_model: bool = False, **kwargs
@@ -141,13 +213,10 @@ class iModel:
                 headers, and the selected endpoint.
         """
         # For Claude Code, auto-inject session_id for resume if available and not explicitly provided
-        if (
-            self.endpoint.config.provider == "claude_code"
-            and "resume" not in kwargs
-            and "session_id" not in kwargs
-            and self.provider_metadata.get("session_id")
-        ):
-            kwargs["resume"] = self.provider_metadata["session_id"]
+        if self.endpoint.config.provider == "claude_code":
+            include_token_usage_to_model, kwargs = (
+                _handle_claude_code_session_id(self, None, **kwargs)
+            )
 
         # The new Endpoint.create_payload returns (payload, headers)
         payload, headers = self.endpoint.create_payload(request=kwargs)
@@ -265,6 +334,7 @@ class iModel:
             while api_call.status not in (
                 EventStatus.COMPLETED,
                 EventStatus.FAILED,
+                EventStatus.CANCELLED,
             ):
                 if ctr > 100:
                     break
