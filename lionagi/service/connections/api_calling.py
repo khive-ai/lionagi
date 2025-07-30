@@ -198,6 +198,7 @@ class APICalling(Event):
 
         try:
             self.execution.status = EventStatus.PROCESSING
+            self.streaming = True
 
             async for chunk in self.endpoint.stream(
                 request=self.payload,
@@ -215,7 +216,7 @@ class APICalling(Event):
             logger.error(f"Streaming failed: {e}")
 
         finally:
-            self.streaming = True
+            self.streaming = False
             self.execution.duration = asyncio.get_event_loop().time() - start
 
     @property
