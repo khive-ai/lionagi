@@ -25,10 +25,6 @@ from lionagi.utils import is_coro_func
 from .models import ClaudeCodeRequest
 
 CLAUDE = shutil.which("claude") or "claude"
-if not shutil.which(CLAUDE):
-    raise RuntimeError(
-        "Claude CLI binary not found (npm i -g @anthropic-ai/claude-code)"
-    )
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("claude-cli")
 
@@ -76,7 +72,6 @@ class ClaudeSession:
 
 # --------------------------------------------------------------------------- helpers
 
-
 async def ndjson_from_cli(request: ClaudeCodeRequest):
     """
     Yields each JSON object emitted by the *claude-code* CLI.
@@ -85,6 +80,10 @@ async def ndjson_from_cli(request: ClaudeCodeRequest):
     • Robust against braces inside strings (uses json.JSONDecoder.raw_decode)
     • Falls back to `json_repair.repair_json` when necessary.
     """
+    if not shutil.which(CLAUDE):
+        raise RuntimeError(
+            "Claude CLI binary not found (npm i -g @anthropic-ai/claude-code)"
+        )
     workspace = request.cwd()
     workspace.mkdir(parents=True, exist_ok=True)
 
