@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Literal,
+    Optional,
+    ParamSpec,
+    TypeVar,
+)
+
+from typing_extensions import TypedDict
+
+from lionagi.protocols.types import Event
+
+E = TypeVar("E", bound=Event)
+P = ParamSpec("P")
+SC = TypeVar("SC")  # streaming chunk type
+
+
+class EventHooks(TypedDict, total=False):
+    pre_event_create: Optional[Callable]
+    pre_invokation: Optional[Callable]
+
+
+HookEventTypes = Literal["pre_event_create", "pre_invokation"]
+
+StreamHandlers = dict[str, Callable[[type[E], SC], Awaitable[None]]]
+
+
+class EndpointEventHook:
+
+    def __init__(
+        self,
+        hooks: EventHooks | None = None,
+        stream_handlers: StreamHandlers | None = None,
+    ):
+        self._stream_handlers = {}
+        self._hooks = {}
+        if hooks:
+            self._hooks.update(hooks)
+        if stream_handlers:
+            self._stream_handlers.update(stream_handlers)
+
+    def can_handle(
+        self, method: HookEventTypes = None, chunk_type: str | type = None
+    ) -> bool:
+        if method is None and chunk_type is None:
+            raise ValueError("Either method or chunk_type must be provided")
+        if method:
+            if method not in EventHooks.__optional_keys__:
+                raise ValueError(
+                    f"Invalid method: {method}. Must be one of {EventHooks.__optional_keys__}"
+                )
+            return self._hooks.get(method) is not None
+        return self._stream_handlers.get(chunk_type) is not None
+
+    async def call(
+        self, method: str, *args, exit: bool, **kwargs
+    ) -> tuple[Any | Exception, bool]:
+        """
+        if the hook raises an exception
+        - if exit is True, system will exit after this hook,
+        - if exit is False, system will proceeed to create an event and mark status as "cancelled" (for logging purposes)
+            it will continue to the next hook or event creation.
+        """
+        try:
+            if hook := self._hooks.get(method) is not None:
+                result = await hook(*args, **kwargs)
+                return (result, False)
+        except Exception as e:
+            return (e, exit)
+
+    async def pre_event_create(
+        self, event_type: type[E], exit: bool = False, **kwargs
+    ) -> tuple[E | Exception | None, bool]:
+        """Hook to be called before an event is created. Typically used to modify or validate the event creation parameters.
+
+        pre_event_hook takes an event type and any additional keyword arguments.
+        It can:
+            - return an instance of the event type
+            - return None if no event should be created during handling, event will be created in corresponding default manner
+            - raise an exception if this event should be cancelled.  (status: cancelled, reason: f"pre-event-create hook aborted this event: {e}")
+        """
+        return await self.call(
+            "pre_event_create", event_type, exit=exit, **kwargs
+        )
+
+    async def pre_invokation(
+        self, event: E, exit: bool = False
+    ) -> tuple[None | Exception, bool]:
+        """
+        Hook to be called when an event is dequeued and right before it is invoked. Typically used to check permissions.
+        pre_invokation takes the content of the event as a dictionary.
+
+        It can either raise an exception to abort the event invokation or pass to continue. (status: cancelled)
+        It cannot modify the event itself, and won't be able to access the event instance.
+        """
+        return await self.call("pre_invokation", event.to_dict(), exit=exit)
+
+    async def handle_streaming_chunk(
+        self, chunk_type: str | type, chunk: Any, exit: bool = False
+    ) -> tuple[None | Exception, bool]:
+        """
+        Hook to be called to consume streaming chunks. Typically used for logging or stream event abortion.
+        post_invokation takes the content of the event as a dictionary.
+
+        It can either raise an exception to mark the event invokation as "failed" or pass to continue. (status: aborted)
+        """
+        try:
+            if handler := self._stream_handlers.get(chunk_type) is not None:
+                result = await handler(chunk)
+                return (result, False)
+        except Exception as e:
+            return (e, exit)
