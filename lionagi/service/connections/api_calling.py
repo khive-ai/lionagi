@@ -215,6 +215,7 @@ class APICalling(Event):
             logger.error(f"Streaming failed: {e}")
 
         finally:
+            self.streaming = True
             self.execution.duration = asyncio.get_event_loop().time() - start
 
     @property
