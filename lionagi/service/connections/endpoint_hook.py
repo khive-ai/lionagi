@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import (
     Any,
-    Awaitable,
-    Callable,
     Literal,
     Optional,
     ParamSpec,
@@ -21,8 +19,8 @@ SC = TypeVar("SC")  # streaming chunk type
 
 
 class EventHooks(TypedDict, total=False):
-    pre_event_create: Optional[Callable]
-    pre_invokation: Optional[Callable]
+    pre_event_create: Callable | None
+    pre_invokation: Callable | None
 
 
 HookEventTypes = Literal["pre_event_create", "pre_invokation"]

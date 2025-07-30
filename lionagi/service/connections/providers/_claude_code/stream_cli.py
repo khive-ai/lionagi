@@ -72,6 +72,7 @@ class ClaudeSession:
 
 # --------------------------------------------------------------------------- helpers
 
+
 async def ndjson_from_cli(request: ClaudeCodeRequest):
     """
     Yields each JSON object emitted by the *claude-code* CLI.
