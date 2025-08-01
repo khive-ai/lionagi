@@ -4,7 +4,7 @@
 
 [Documentation](https://lion-agi.github.io/lionagi/) |
 [Discord](https://discord.gg/JDj9ENhUE8) |
-[PyPI](https://pypi.org/project/lionagi/) |
+[PyPI](https://pypi.org/project/lionagi/)
 
 # LION - Language InterOperable Network
 
