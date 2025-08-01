@@ -19,6 +19,7 @@ from lionagi.service.resilience import (
 from lionagi.utils import to_dict
 
 from .endpoint_config import EndpointConfig
+from .endpoint_hook import EndpointEventHook
 from .header_factory import HeaderFactory
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class Endpoint:
         config: dict | EndpointConfig,
         circuit_breaker: CircuitBreaker | None = None,
         retry_config: RetryConfig | None = None,
+        event_hook: EndpointEventHook | None = None,
         **kwargs,
     ):
         """
@@ -56,12 +58,7 @@ class Endpoint:
         self.config = _config
         self.circuit_breaker = circuit_breaker
         self.retry_config = retry_config
-
-        logger.debug(
-            f"Initialized Endpoint with provider={self.config.provider}, "
-            f"endpoint={self.config.endpoint}, circuit_breaker={circuit_breaker is not None}, "
-            f"retry_config={retry_config is not None}"
-        )
+        self.event_hook = event_hook
 
     def _create_http_session(self):
         """Create a new HTTP session (not thread-safe, create new for each request)."""
@@ -69,6 +66,15 @@ class Endpoint:
             timeout=aiohttp.ClientTimeout(self.config.timeout),
             **self.config.client_kwargs,
         )
+
+    @property
+    def has_hooks(self):
+        """Check if the endpoint has any event hooks defined."""
+        if isinstance(self.event_hook, EndpointEventHook):
+            return bool(self.event_hook._hooks) or bool(
+                self.event_hook._stream_handlers
+            )
+        return False
 
     @property
     def request_options(self):

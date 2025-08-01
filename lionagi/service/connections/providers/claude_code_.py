@@ -23,7 +23,7 @@ from ._claude_code.models import (
 __all__ = (
     "ClaudeCodeRequest",
     "CLAUDE_CODE_OPTION_PARAMS",  # backward compatibility
-    "ClaudePermission",  # backward compatibility
+    "ClaudePermission",
     "ClaudeCodeEndpoint",
 )
 
