@@ -43,7 +43,7 @@ from .messages.manager import (
     SenderRecipient,
     System,
 )
-from .operatives.step import Operative, Step, StepModel
+from .operatives.operative import Operative, OperativeConfig
 
 __all__ = (
     "Collective",
@@ -100,8 +100,7 @@ __all__ = (
     "Form",
     "Report",
     "Operative",
-    "Step",
-    "StepModel",
+    "OperativeConfig",
     "ActionManager",
     "Tool",
     "FunctionCalling",
