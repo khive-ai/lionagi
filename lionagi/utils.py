@@ -61,7 +61,6 @@ logger = logging.getLogger(__name__)
 __all__ = (
     "UndefinedType",
     "KeysDict",
-    "Params",
     "DataClass",
     "UNDEFINED",
     "copy",
@@ -79,11 +78,6 @@ __all__ = (
     "time",
     "fuzzy_parse_json",
     "fix_json_string",
-    "ToListParams",
-    "LCallParams",
-    "ALCallParams",
-    "BCallParams",
-    "CreatePathParams",
     "get_bins",
     "EventStatus",
     "logger",
@@ -135,16 +129,6 @@ def hash_dict(data) -> int:
             v = str(v)
         hashable_items.append((k, v))
     return hash(frozenset(hashable_items))
-
-
-class Params(BaseModel):
-    def keys(self):
-        return self.model_fields.keys()
-
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "This method should be implemented in a subclass"
-        )
 
 
 class DataClass(ABC):
@@ -467,24 +451,6 @@ def to_list(
     return processed
 
 
-class ToListParams(Params):
-    flatten: bool = False
-    dropna: bool = False
-    unique: bool = False
-    use_values: bool = False
-    flatten_tuple_set: bool = False
-
-    def __call__(self, input_: Any):
-        return to_list(
-            input_,
-            flatten=self.flatten,
-            dropna=self.dropna,
-            unique=self.unique,
-            use_values=self.use_values,
-            flatten_tuple_set=self.flatten_tuple_set,
-        )
-
-
 def lcall(
     input_: Iterable[T] | T,
     func: Callable[[T], R] | Iterable[Callable[[T], R]],
@@ -590,29 +556,6 @@ def lcall(
         )
 
     return out
-
-
-class CallParams(Params):
-    """params class for high order function with additional handling of lower order function parameters, can take arbitrary number of args and kwargs, args need to be in agrs=, kwargs can be passed as is"""
-
-    args: list = []
-    kwargs: dict = {}
-
-    @model_validator(mode="before")
-    def _validate_data(cls, data: dict):
-        _d = {}
-        for k in list(data.keys()):
-            if k in cls.keys():
-                _d[k] = data.pop(k)
-        _d.setdefault("args", [])
-        _d.setdefault("kwargs", {})
-        _d["kwargs"].update(data)
-        return _d
-
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "This method should be implemented in a subclass"
-        )
 
 
 async def alcall(
@@ -925,33 +868,6 @@ def create_path(
         )
 
     return full_path
-
-
-class CreatePathParams(Params):
-    directory: Path | str
-    filename: str
-    extension: str = None
-    timestamp: bool = False
-    dir_exist_ok: bool = True
-    file_exist_ok: bool = False
-    time_prefix: bool = False
-    timestamp_format: str | None = None
-    random_hash_digits: int = 0
-
-    def __call__(
-        self, directory: Path | str = None, filename: str = None
-    ) -> Path:
-        return create_path(
-            directory or self.directory,
-            filename or self.filename,
-            extension=self.extension,
-            timestamp=self.timestamp,
-            dir_exist_ok=self.dir_exist_ok,
-            file_exist_ok=self.file_exist_ok,
-            time_prefix=self.time_prefix,
-            timestamp_format=self.timestamp_format,
-            random_hash_digits=self.random_hash_digits,
-        )
 
 
 # --- JSON and XML Conversion ---
@@ -1594,7 +1510,7 @@ _JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
 
 def to_json(
     input_data: str | list[str], /, *, fuzzy_parse: bool = False
-) -> dict[str, Any] | list[dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Extract and parse JSON content from a string or markdown code blocks.
 
@@ -1606,8 +1522,7 @@ def to_json(
         fuzzy_parse (bool): If True, attempts fuzzy JSON parsing on failed attempts.
 
     Returns:
-        dict or list of dicts:
-            - If a single JSON object is found: returns a dict.
+        list of dicts:
             - If multiple JSON objects are found: returns a list of dicts.
             - If no valid JSON found: returns an empty list.
     """
@@ -1630,13 +1545,6 @@ def to_json(
     matches = _JSON_BLOCK_PATTERN.findall(input_str)
     if not matches:
         return []
-
-    # If only one match, return single dict; if multiple, return list of dicts
-    if len(matches) == 1:
-        data_str = matches[0]
-        return (
-            fuzzy_parse_json(data_str) if fuzzy_parse else json.loads(data_str)
-        )
 
     # Multiple matches
     if fuzzy_parse:
