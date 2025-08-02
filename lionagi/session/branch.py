@@ -12,9 +12,13 @@ from pydantic import BaseModel, Field, JsonValue, PrivateAttr
 
 from lionagi.config import settings
 from lionagi.fields import Instruct
+from lionagi.fields.action import ACTION_REQUESTS_FIELD
+from lionagi.fields.reason import REASON_FIELD
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.models.field_model import FieldModel
+from lionagi.protocols.action.manager import ActionConfig
 from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
+from lionagi.protocols.operatives.operative import OperativeConfig
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
@@ -47,7 +51,7 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.types import iModel, iModelManager
 from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
-from lionagi.utils import UNDEFINED, alcall, bcall, copy
+from lionagi.utils import UNDEFINED, copy
 
 from .prompts import LION_SYSTEM_MESSAGE
 
@@ -813,85 +817,6 @@ class Branch(Element, Communicatable, Relational):
             **kwargs,
         )
 
-    async def parse(
-        self,
-        text: str,
-        handle_validation: Literal[
-            "raise", "return_value", "return_none"
-        ] = "return_value",
-        max_retries: int = 3,
-        request_type: type[BaseModel] = None,
-        operative: Operative = None,
-        similarity_algo="jaro_winkler",
-        similarity_threshold: float = 0.85,
-        fuzzy_match: bool = True,
-        handle_unmatched: Literal[
-            "ignore", "raise", "remove", "fill", "force"
-        ] = "force",
-        fill_value: Any = None,
-        fill_mapping: dict[str, Any] | None = None,
-        strict: bool = False,
-        suppress_conversion_errors: bool = False,
-        response_format: type[BaseModel] = None,
-    ):
-        """
-        Attempts to parse text into a structured Pydantic model using parse model logic. New messages are not appeneded to conversation context.
-
-        If fuzzy matching is enabled, tries to map partial or uncertain keys
-        to the known fields of the model. Retries are performed if initial parsing fails.
-
-        Args:
-            text (str):
-                The raw text to parse.
-            handle_validation (Literal["raise","return_value","return_none"]):
-                What to do if parsing fails (default: "return_value").
-            max_retries (int):
-                Number of times to retry parsing on failure (default: 3).
-            request_type (type[BaseModel], optional):
-                The Pydantic model to parse into.
-            operative (Operative, optional):
-                An `Operative` object with known request model and settings.
-            similarity_algo (str):
-                Algorithm name for fuzzy field matching.
-            similarity_threshold (float):
-                Threshold for matching (0.0 - 1.0).
-            fuzzy_match (bool):
-                Whether to attempt fuzzy matching for unmatched fields.
-            handle_unmatched (Literal["ignore","raise","remove","fill","force"]):
-                Policy for unrecognized fields (default: "force").
-            fill_value (Any):
-                Default placeholder for missing fields (if fill is used).
-            fill_mapping (dict[str, Any] | None):
-                A mapping of specific fields to fill values.
-            strict (bool):
-                If True, raises errors on ambiguous fields or data types.
-            suppress_conversion_errors (bool):
-                If True, logs or ignores conversion errors instead of raising.
-
-        Returns:
-            BaseModel | dict | str | None:
-                Parsed model instance, or a fallback based on `handle_validation`.
-        """
-        from lionagi.operations.parse.parse import parse
-
-        return await parse(
-            self,
-            text=text,
-            handle_validation=handle_validation,
-            max_retries=max_retries,
-            request_type=request_type,
-            operative=operative,
-            similarity_algo=similarity_algo,
-            similarity_threshold=similarity_threshold,
-            fuzzy_match=fuzzy_match,
-            handle_unmatched=handle_unmatched,
-            fill_value=fill_value,
-            fill_mapping=fill_mapping,
-            strict=strict,
-            suppress_conversion_errors=suppress_conversion_errors,
-            response_format=response_format,
-        )
-
     async def operate(
         self,
         *,
@@ -904,28 +829,25 @@ class Branch(Element, Communicatable, Relational):
         progression: Progression = None,
         chat_model: iModel = None,
         invoke_actions: bool = True,
-        tool_schemas: list[dict] = None,
-        images: list = None,
-        image_detail: Literal["low", "high", "auto"] = None,
         parse_model: iModel = None,
         skip_validation: bool = False,
         tools: ToolRef = None,
-        operative: Operative = None,
-        response_format: type[
-            BaseModel
-        ] = None,  # alias of operative.request_type
+        response_format: type[BaseModel] = None,
         actions: bool = False,
         reason: bool = False,
-        action_kwargs: dict = None,
         action_strategy: Literal["sequential", "concurrent"] = "concurrent",
         verbose_action: bool = False,
         field_models: list[FieldModel] = None,
-        exclude_fields: list | dict | None = None,
-        handle_validation: Literal[
-            "raise", "return_value", "return_none"
-        ] = "return_value",
         include_token_usage_to_model: bool = False,
-        **kwargs,
+        llm_reparse: bool = None,
+        handle_parse: Literal[
+            "return_value", "return_none", "raise"
+        ] = "return_value",
+        operative_config: OperativeConfig | None = None,
+        action_config: ActionConfig = None,
+        suppress_action_errors: bool = True,
+        clear_messages: bool = True,
+        **kwargs: Any,
     ) -> list | BaseModel | None | dict | str:
         """
         Orchestrates an "operate" flow with optional tool invocation and
@@ -957,13 +879,10 @@ class Branch(Element, Communicatable, Relational):
                 The recipient ID for newly added messages.
             progression (Progression, optional):
                 Custom ordering of conversation messages.
-
             chat_model (iModel, optional):
                 The LLM used for the main chat operation. Defaults to `branch.chat_model`.
             invoke_actions (bool, optional):
                 If `True`, executes any requested tools found in the LLM's response.
-            tool_schemas (list[dict], optional):
-                Additional schema definitions for tool-based function-calling.
             images (list, optional):
                 Optional images appended to the LLM context.
             image_detail (Literal["low","high","auto"], optional):
@@ -1013,34 +932,68 @@ class Branch(Element, Communicatable, Relational):
         """
         from lionagi.operations.operate.operate import operate
 
+        if instruct is not None:
+            instruct = (
+                instruct.to_dict()
+                if isinstance(instruct, Instruct)
+                else instruct
+            )
+            if not isinstance(instruct, dict):
+                raise ValueError(
+                    f"Invalid instruct type: {type(instruct)}. Expected dict or Instruct."
+                )
+
+        if instruction is not None:
+            instruct["instruction"] = instruction
+        if guidance is not None:
+            instruct["guidance"] = guidance
+        if context is not None:
+            instruct["context"] = context
+        if kwargs.get("images") is not None:
+            instruct["images"] = kwargs["images"]
+        if kwargs.get("image_detail") is not None:
+            instruct["image_detail"] = kwargs["image_detail"]
+
+        # backward compatibility for old kwargs
+        handle_parse = handle_parse or kwargs.get(
+            "handle_validation", "return_value"
+        )
+
+        # handle special field models
+        field_models = field_models or []
+        field_models = (
+            [field_models]
+            if not isinstance(field_models, list)
+            else field_models
+        )
+
+        if actions:
+            field_models.append(ACTION_REQUESTS_FIELD)
+        if reason:
+            field_models.append(REASON_FIELD)
+
         return await operate(
-            self,
-            instruct=instruct,
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
+            branch=self,
+            operation_context=instruct,
             sender=sender,
             recipient=recipient,
+            parse_model=parse_model,
+            llm_reparse=llm_reparse,
+            handle_parse=handle_parse,
+            skip_validation=skip_validation,
+            response_format=response_format,
+            operative_config=operative_config,
+            field_models=field_models,
+            invoke_actions=invoke_actions,
+            action_strategy=action_strategy,
+            action_config=action_config,
+            verbose_action=verbose_action,
+            suppress_action_errors=suppress_action_errors,
+            tools=tools,
             progression=progression,
             chat_model=chat_model,
-            invoke_actions=invoke_actions,
-            tool_schemas=tool_schemas,
-            images=images,
-            image_detail=image_detail,
-            parse_model=parse_model,
-            skip_validation=skip_validation,
-            tools=tools,
-            operative=operative,
-            response_format=response_format,
-            actions=actions,
-            reason=reason,
-            action_kwargs=action_kwargs,
-            action_strategy=action_strategy,
-            verbose_action=verbose_action,
-            field_models=field_models,
-            exclude_fields=exclude_fields,
-            handle_validation=handle_validation,
             include_token_usage_to_model=include_token_usage_to_model,
+            clear_messages=clear_messages,
             **kwargs,
         )
 
@@ -1055,15 +1008,17 @@ class Branch(Element, Communicatable, Relational):
         recipient: SenderRecipient = None,
         progression: ID.IDSeq = None,
         response_format: type[BaseModel] = None,
-        request_fields: dict | list[str] = None,
         chat_model: iModel = None,
         parse_model: iModel = None,
         skip_validation: bool = False,
-        images: list = None,
-        image_detail: Literal["low", "high", "auto"] = None,
-        num_parse_retries: int = 3,
         clear_messages: bool = False,
         include_token_usage_to_model: bool = False,
+        field_models: list[FieldModel] | None = None,
+        handle_parse: Literal[
+            "return_value", "return_none", "raise"
+        ] = "return_value",
+        llm_reparse: bool = None,
+        operative_config: OperativeConfig | None = None,
         **kwargs,
     ):
         """
@@ -1117,55 +1072,55 @@ class Branch(Element, Communicatable, Relational):
                 - A dict of the requested fields,
                 - or `None` if parsing fails and `handle_validation='return_none'`.
         """
-        from lionagi.operations.communicate.communicate import communicate
+        from lionagi.operations.operate.operate import operate
 
-        return await communicate(
-            self,
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
-            plain_content=plain_content,
-            sender=sender,
-            recipient=recipient,
-            progression=progression,
-            response_format=response_format,
-            request_fields=request_fields,
-            chat_model=chat_model,
-            parse_model=parse_model,
-            skip_validation=skip_validation,
-            images=images,
-            image_detail=image_detail,
-            num_parse_retries=num_parse_retries,
-            clear_messages=clear_messages,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
+        if instruct is not None:
+            instruct = (
+                instruct.to_dict()
+                if isinstance(instruct, Instruct)
+                else instruct
+            )
+            if not isinstance(instruct, dict):
+                raise ValueError(
+                    f"Invalid instruct type: {type(instruct)}. Expected dict or Instruct."
+                )
+
+        if instruction is not None:
+            instruct["instruction"] = instruction
+        if guidance is not None:
+            instruct["guidance"] = guidance
+        if context is not None:
+            instruct["context"] = context
+        if plain_content is not None:
+            instruct["plain_content"] = plain_content
+        if kwargs.get("images") is not None:
+            instruct["images"] = kwargs["images"]
+        if kwargs.get("image_detail") is not None:
+            instruct["image_detail"] = kwargs["image_detail"]
+
+        # backward compatibility for old kwargs
+        handle_parse = handle_parse or kwargs.get(
+            "handle_validation", "return_value"
         )
 
-    async def _act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        suppress_errors: bool = False,
-        verbose_action: bool = False,
-    ) -> ActionResponse:
-        """
-        Internal method to invoke a tool (action) asynchronously.
-
-        Args:
-            action_request (ActionRequest|BaseModel|dict):
-                Must contain `function` and `arguments`.
-            suppress_errors (bool, optional):
-                If True, errors are logged instead of raised.
-
-        Returns:
-            ActionResponse: Result of the tool invocation or `None` if suppressed.
-        """
-        from lionagi.operations._act.act import _act
-
-        return await _act(
+        return await operate(
             branch=self,
-            action_request=action_request,
-            suppress_errors=suppress_errors,
-            verbose_action=verbose_action,
+            operation_context=instruct,
+            sender=sender,
+            recipient=recipient,
+            parse_model=parse_model,
+            clear_messages=clear_messages,
+            llm_reparse=llm_reparse,
+            handle_parse=handle_parse,
+            skip_validation=skip_validation,
+            response_format=response_format,
+            operative_config=operative_config,
+            field_models=field_models,
+            invoke_actions=False,
+            progression=progression,
+            chat_model=chat_model,
+            include_token_usage_to_model=include_token_usage_to_model,
+            **kwargs,
         )
 
     async def act(
@@ -1173,127 +1128,20 @@ class Branch(Element, Communicatable, Relational):
         action_request: list | ActionRequest | BaseModel | dict,
         *,
         strategy: Literal["concurrent", "sequential"] = "concurrent",
+        action_config: ActionConfig = None,
         verbose_action: bool = False,
         suppress_errors: bool = True,
-        sanitize_input: bool = False,
-        unique_input: bool = False,
-        num_retries: int = 0,
-        initial_delay: float = 0,
-        retry_delay: float = 0,
-        backoff_factor: float = 1,
-        retry_default: Any = UNDEFINED,
-        retry_timeout: float | None = None,
-        max_concurrent: int | None = None,
-        throttle_period: float | None = None,
-        flatten: bool = True,
-        dropna: bool = True,
-        unique_output: bool = False,
-        flatten_tuple_set: bool = False,
     ) -> list[ActionResponse]:
-        """
-        Public, potentially batched, asynchronous interface to run one or multiple action requests.
+        from lionagi.operations.act.act import act
 
-        Args:
-            action_request (list|ActionRequest|BaseModel|dict):
-                A single or list of action requests, each requiring
-                `function` and `arguments`.
-            strategy (Literal["concurrent","sequential","batch"]):
-                The execution strategy to use.
-            verbose_action (bool):
-                If True, log detailed information about the action.
-            suppress_errors (bool):
-                If True, log errors instead of raising exceptions.
-            sanitize_input (bool):
-                Reserved. Potentially sanitize the action arguments.
-            unique_input (bool):
-                Reserved. Filter out duplicate requests.
-            num_retries (int):
-                Number of times to retry on failure (default 0).
-            initial_delay (float):
-                Delay before first attempt (seconds).
-            retry_delay (float):
-                Base delay between retries.
-            backoff_factor (float):
-                Multiplier for the `retry_delay` after each attempt.
-            retry_default (Any):
-                Fallback value if all retries fail (if suppressing errors).
-            retry_timeout (float|None):
-                Overall timeout for all attempts (None = no limit).
-            max_concurrent (int|None):
-                Maximum concurrent tasks.
-            throttle_period (float|None):
-                Minimum spacing (in seconds) between requests.
-            flatten (bool):
-                If a list of results is returned, flatten them if possible.
-            dropna (bool):
-                Remove `None` or invalid results from final output if True.
-            unique_output (bool):
-                Only return unique results if True.
-            flatten_tuple_set (bool):
-                Flatten nested tuples in results if True.
-
-        Returns:
-            Any:
-                The result or results from the invoked tool(s).
-        """
-        match strategy:
-            case "concurrent":
-                return await self._concurrent_act(
-                    action_request,
-                    verbose_action=verbose_action,
-                    suppress_errors=suppress_errors,
-                    sanitize_input=sanitize_input,
-                    unique_input=unique_input,
-                    num_retries=num_retries,
-                    initial_delay=initial_delay,
-                    retry_delay=retry_delay,
-                    backoff_factor=backoff_factor,
-                    retry_default=retry_default,
-                    retry_timeout=retry_timeout,
-                    max_concurrent=max_concurrent,
-                    throttle_period=throttle_period,
-                    flatten=flatten,
-                    dropna=dropna,
-                    unique_output=unique_output,
-                    flatten_tuple_set=flatten_tuple_set,
-                )
-            case "sequential":
-                return await self._sequential_act(
-                    action_request,
-                    verbose_action=verbose_action,
-                    suppress_errors=suppress_errors,
-                )
-            case _:
-                raise
-
-    async def _concurrent_act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        **kwargs,
-    ) -> list:
-        return await alcall(action_request, self._act, **kwargs)
-
-    async def _sequential_act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        suppress_errors: bool = True,
-        verbose_action: bool = False,
-    ) -> list:
-        action_request = (
-            action_request
-            if isinstance(action_request, list)
-            else [action_request]
+        return await act(
+            branch=self,
+            action_request=action_request,
+            strategy=strategy,
+            action_config=action_config,
+            verbose_action=verbose_action,
+            suppress_errors=suppress_errors,
         )
-        results = []
-        for req in action_request:
-            results.append(
-                await self._act(
-                    req,
-                    verbose_action=verbose_action,
-                    suppress_errors=suppress_errors,
-                )
-            )
-        return results
 
     async def translate(
         self,
