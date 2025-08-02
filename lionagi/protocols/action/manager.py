@@ -4,15 +4,88 @@
 
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from lionagi.fields.action import ActionRequestModel
 from lionagi.protocols._concepts import Manager
 from lionagi.protocols.messages.action_request import ActionRequest
-from lionagi.utils import to_list
+from lionagi.utils import UNDEFINED, to_list
 
 from .function_calling import FunctionCalling
 from .tool import FuncTool, FuncToolRef, Tool, ToolRef
 
 __all__ = ("ActionManager",)
+
+
+class ActionConfig(BaseModel):
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        serialize_by_alias=True,
+    )
+
+    surpress_errors: bool = Field(
+        default=True,
+        description="If True, will surpress errors and silently log the error. If False, will raise an error if any action fails.",
+    )
+
+    retry_attempts: int = Field(
+        default=0,
+        ge=0,
+        le=10,
+        description="Number of times to retry the action if it fails. Default is 0, meaning no retries. max 10 attempts.",
+        alias="num_retries",
+    )
+
+    initial_delay: float = Field(
+        default=0,
+        ge=0,
+        le=600,
+        description="Initial delay before invoking action, in seconds. Default is 0. max 10 minutes.",
+    )
+
+    retry_delay: float = Field(
+        default=1,
+        ge=0,
+        le=600,
+        description="Delay between retries, in seconds. Default is 1. max 10 minutes",
+    )
+
+    backoff_factor: float = 1
+
+    retry_default: Any = Field(
+        UNDEFINED, description="Default value to return if all retries fail."
+    )
+
+    action_timeout: float | None = Field(
+        default=600,
+        ge=0,
+        le=3600,
+        description="Timeout for a single action execution, in seconds. Default is 10 minutes, If None, no timeout is applied. max 1 hour.",
+        alias="retry_timeout",
+    )
+    max_concurrent: int | None = None
+    throttle_period: float | None = None
+    verbose: bool = False
+    auto_register: bool = True
+    auto_update: bool = False
+
+    def get_retry_kwargs(self) -> dict[str, Any]:
+        """
+        Returns:
+            dict: A dictionary of retry parameters for action execution.
+        """
+        return {
+            "num_retries": self.retry_attempts,
+            "initial_delay": self.initial_delay,
+            "retry_delay": self.retry_delay,
+            "backoff_factor": self.backoff_factor,
+            "retry_default": self.retry_default,
+            "retry_timeout": self.action_timeout,
+            "max_concurrent": self.max_concurrent,
+            "throttle_period": self.throttle_period,
+        }
 
 
 class ActionManager(Manager):
@@ -22,7 +95,9 @@ class ActionManager(Manager):
     individually or in bulk, and each tool must have a unique name.
     """
 
-    def __init__(self, *args: FuncTool, **kwargs) -> None:
+    def __init__(
+        self, *args: FuncTool, config: ActionConfig = None, **kwargs
+    ) -> None:
         """
         Create an ActionManager, optionally registering initial tools.
 
@@ -42,6 +117,7 @@ class ActionManager(Manager):
             tools.extend(to_list(kwargs.values(), dropna=True, flatten=True))
 
         self.register_tools(tools, update=True)
+        self.config = config or ActionConfig()
 
     def __contains__(self, tool: FuncToolRef) -> bool:
         """
@@ -149,6 +225,7 @@ class ActionManager(Manager):
     async def invoke(
         self,
         func_call: ActionRequestModel | ActionRequest,
+        verbose: bool = False,
     ) -> FunctionCalling:
         """
         High-level API to parse and run a function call.
@@ -165,7 +242,15 @@ class ActionManager(Manager):
             `FunctionCalling` event after it completes execution.
         """
         function_calling = self.match_tool(func_call)
+        if verbose:
+            args_ = str(function_calling.arguments)
+            args_ = args_[:50] + "..." if len(args_) > 50 else args_
+            print(f"Invoking action {function_calling.function} with {args_}.")
         await function_calling.invoke()
+        if verbose:
+            print(
+                f"Action {function_calling.function} invoked, status: {function_calling.status.value}."
+            )
         return function_calling
 
     @property
@@ -175,10 +260,10 @@ class ActionManager(Manager):
 
     def get_tool_schema(
         self,
-        tools: ToolRef = False,
-        auto_register: bool = True,
-        update: bool = False,
-    ) -> dict:
+        tools: ToolRef = None,
+        auto_register: bool = None,
+        update: bool = None,
+    ) -> list[dict[str, Any]] | None:
         """
         Retrieve schemas for a subset of tools or for all.
 
@@ -193,12 +278,14 @@ class ActionManager(Manager):
                 If True, allow updating existing tools.
 
         Returns:
-            dict: e.g., {"tools": [list of schemas]}
+            list of schemas
 
         Raises:
             ValueError: If requested tool is not found and auto_register=False.
             TypeError: If tool specification is invalid.
         """
+        if tools is None:
+            return None
         if isinstance(tools, list | tuple) and len(tools) == 1:
             tools = tools[0]
         if isinstance(tools, bool):
@@ -206,17 +293,18 @@ class ActionManager(Manager):
                 return {"tools": self.schema_list}
             return []
         else:
-            schemas = self._get_tool_schema(
-                tools, auto_register=auto_register, update=update
+            return self._get_tool_schema(
+                tools,
+                auto_register=(auto_register or self.config.auto_register),
+                update=(update or self.config.auto_update),
             )
-            return {"tools": schemas}
 
     def _get_tool_schema(
         self,
         tool: Any,
         auto_register: bool = True,
         update: bool = False,
-    ) -> list[dict[str, Any]] | dict[str, Any]:
+    ) -> list[dict[str, Any]]:
         """
         Internal helper to handle retrieval or registration of a single or
         multiple tools, returning their schema(s).
@@ -231,7 +319,7 @@ class ActionManager(Manager):
                     self.register_tool(tool, update=update)
                 else:
                     raise ValueError(f"Tool {name} is not registered.")
-            return self.registry[name].tool_schema
+            return [self.registry[name].tool_schema]
 
         elif isinstance(tool, Tool) or isinstance(tool, str):
             name = tool.function if isinstance(tool, Tool) else tool
