@@ -37,7 +37,26 @@ class Observation(ABC):
 
 
 class Invariant(ABC):
-    """system invariants"""
+    """
+    Base for system invariants - unchanging foundational rules and contracts.
+    
+    Invariants are the "physical laws" of intelligence systems. Unlike Observable 
+    entities (Session, Branch) which have IDs, state changes, and communication, 
+    Invariant entities represent constant mathematical/structural definitions 
+    that define how Observable entities can behave.
+    
+    Key Properties:
+    - Mathematical contracts that remain constant during IPU observation
+    - Define measurement standards for Observable behavior validation
+    - Enable trustless coordination through shared validation rules
+    - Form the theoretical foundation of Computational Cognitive Physics
+    
+    Design Pattern:
+    - Non-constructable: Use factory methods, never direct construction
+    - Immutable: All properties frozen after creation
+    - Cacheable: Aggressive caching following FieldModel patterns
+    - Composable: Can be combined through mathematical operations
+    """
 
 
 # specialized observables
@@ -88,15 +107,25 @@ class Manager(ABC):
 
 class Composable(Invariant):
     """
-    Invariants that CAN BE composed and transformed through pure functions.
-
-    Composable invariants can be combined while preserving their mathematical nature:
+    Invariants that can be composed and transformed through pure functions.
+    
+    Composable invariants enable building sophisticated measurement standards
+    from simple mathematical components while preserving invariant properties:
+    
     - Combined with other composable invariants
-    - Transformed through factory methods (with_*, as_*)
-    - Materialized into runtime objects for validation
-
+    - Transformed through factory methods (with_*, as_*, from_*)
+    - Materialized into runtime objects for IPU validation
+    - Maintain mathematical consistency under all transformations
+    
     The composition operations preserve invariant properties - no matter how
-    you transform/combine them, they remain mathematically consistent contracts.
+    you transform/combine them, they remain mathematically consistent contracts
+    suitable for IPU observation and trustless coordination.
+    
+    Examples: FieldModel (composable validation rules), Operable (composable capabilities)
+    
+    Mathematical Foundation:
+    For any composition function f: Composable → Composable,
+    Invariant(x) → Invariant(f(x)) must hold
     """
 
 
