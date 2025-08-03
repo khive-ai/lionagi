@@ -2,16 +2,23 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel
+from typing_extensions import TypedDict
+
+from pydantic import BaseModel, Json, JsonValue
 
 from lionagi.protocols.types import (
     ActionResponse,
     AssistantResponse,
     Instruction,
     Log,
+    LogManager,
     RoledMessage,
+    SenderRecipient,
+    System,
+    Invariant
 )
 from lionagi.service.imodel import iModel
 from lionagi.utils import copy
@@ -20,7 +27,7 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
-async def chat(
+def _select_messages(
     branch: "Branch",
     instruction=None,
     guidance=None,
@@ -30,15 +37,13 @@ async def chat(
     request_fields=None,
     response_format: type[BaseModel] = None,
     progression=None,
-    imodel: iModel = None,
-    tool_schemas=None,
     images: list = None,
     image_detail: Literal["low", "high", "auto"] = None,
+    tool_schemas=None,
     plain_content: str = None,
-    return_ins_res_message: bool = False,
-    include_token_usage_to_model: bool = False,
-    **kwargs,
-) -> tuple[Instruction, AssistantResponse]:
+) -> tuple[Instruction, list[RoledMessage]]:
+    """prepare an instruction message, and get the requested conversation history """
+    
     ins: Instruction = branch.msgs.create_instruction(
         instruction=instruction,
         guidance=guidance,
@@ -54,10 +59,13 @@ async def chat(
     )
 
     progression = progression or branch.msgs.progression
-    messages: list[RoledMessage] = [
-        branch.msgs.messages[i] for i in progression
-    ]
+    return ins, [branch.msgs.messages[i] for i in progression]
 
+def _sort_messages(
+    ins: Instruction,
+    messages: list[RoledMessage],
+    system: System,
+) -> list[RoledMessage]:
     use_ins = None
     _to_use = []
     _action_responses: set[ActionResponse] = set()
@@ -123,13 +131,13 @@ async def chat(
         messages = _msgs
 
     # All endpoints now assume sequential exchange (system message embedded in first user message)
-    if branch.msgs.system:
+    if system:
         messages = [msg for msg in messages if msg.role != "system"]
         first_instruction = None
 
         if len(messages) == 0:
             first_instruction = ins.model_copy()
-            first_instruction.guidance = branch.msgs.system.rendered + (
+            first_instruction.guidance = system.rendered + (
                 first_instruction.guidance or ""
             )
             messages.append(first_instruction)
@@ -140,7 +148,7 @@ async def chat(
                     "First message in progression must be an Instruction or System"
                 )
             first_instruction = first_instruction.model_copy()
-            first_instruction.guidance = branch.msgs.system.rendered + (
+            first_instruction.guidance = system.rendered + (
                 first_instruction.guidance or ""
             )
             messages[0] = first_instruction
@@ -148,6 +156,102 @@ async def chat(
 
     else:
         messages.append(use_ins or ins)
+        
+    return messages
+
+
+class Operable:
+    ...
+
+
+
+class Input(TypedDict, total=False):
+    
+    instruction: JsonValue
+    """primary instruction"""
+
+    guidance: JsonValue
+    """guidance for the instruction, can be a string or a list of strings"""
+
+    context: JsonValue
+    """context for the instruction, can be a string or a list of strings"""
+
+    response_format: type[BaseModel]
+    """response format as a pydantic model for structured output, can be a BaseModel"""
+
+    images: list
+    """a list of base64 encoded images or image URLs to be included"""
+
+    image_detail: Literal["low", "high", "auto"]
+
+    tool_schemas: list[dict]
+    """requested tool schemas for the function calling"""
+    
+    plain_content: str
+    """override everything else including lion system template, will use this as the content of the instruction"""
+
+
+
+
+
+
+
+
+class InstructionParams(TypedDict, total=False):
+    
+    input: Input | None
+    """the input for the instruction"""
+    
+    request_fields: JsonValue | None
+    """optional json like example of how to provide the expected structured output"""
+
+
+
+
+
+
+@dataclass(slots=True, frozen=True, init=False)
+class OperationContext(Invariant):
+    
+    messages: list[RoledMessage] = field(default_factory=list)
+    
+    
+
+    instruction: Instruction | JsonValue
+    """primary instruction"""
+
+    # optional instruction object parameters creation or update
+    guidance: JsonValue = field(default=None)
+    context: JsonValue = field(default=None)
+    sender: SenderRecipient | None = field(default=None)
+    recipient: SenderRecipient | None = field(default=None)
+    request_fields=None
+    response_format: type[BaseModel] = None
+
+
+
+
+
+
+
+
+
+
+
+def _create_create_api_call(
+    
+):
+    ...
+
+
+
+async def _chat(
+    ins: Instruction,
+    messages: list[RoledMessage],
+    imodel: iModel,
+    include_token_usage_to_model: bool = False,
+    **kwargs,
+) -> tuple[Instruction, AssistantResponse]:
 
     kwargs["messages"] = [i.chat_msg for i in messages]
     imodel = imodel or branch.chat_model
@@ -158,8 +262,19 @@ async def chat(
     else:
         meth = imodel.stream
 
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+
     api_call = await meth(**kwargs)
-    branch._log_manager.log(Log.create(api_call))
+    log_manager.log(Log.create(api_call))
 
     if return_ins_res_message:
         # Wrap result in `AssistantResponse` and return
