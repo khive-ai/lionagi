@@ -10,45 +10,43 @@ E = TypeVar("E")
 
 __all__ = (
     "Observer",
-    "Manager",
+    "Observable",
+    "Observation",
+    "Invariant",
     "Relational",
     "Sendable",
-    "Observable",
     "Communicatable",
-    "Condition",
     "Collective",
     "Ordering",
+    "Manager",
+    "Composable",
+    "Condition",
 )
 
 
 class Observer(ABC):
-    """Base for all observers."""
-
-    pass
-
-
-class Manager(Observer):
-    """Base for all managers."""
-
-    pass
-
-
-class Relational(ABC):
-    """Base for graph-connectable objects."""
-
-    pass
-
-
-class Sendable(ABC):
-    """Sendable entities must define 'sender' and 'recipient'."""
-
-    pass
+    """Lion ecosystem itself as an observer"""
 
 
 class Observable(ABC):
     """Observable entities must define 'id'."""
 
-    pass
+
+class Observation(ABC):
+    """Base for observations."""
+
+
+class Invariant(ABC):
+    """system invariants"""
+
+
+# specialized observables
+class Relational(Observable):
+    """Base for graph-connectable objects."""
+
+
+class Sendable(Observable):
+    """Sendable entities must define 'sender' and 'recipient'."""
 
 
 class Communicatable(Observable):
@@ -59,15 +57,7 @@ class Communicatable(Observable):
         pass
 
 
-class Condition(ABC):
-    """Base for conditions."""
-
-    @abstractmethod
-    async def apply(self, *args, **kwargs) -> bool:
-        pass
-
-
-class Collective(ABC, Generic[E]):
+class Collective(Observable, Generic[E]):
     """Base for collections of elements."""
 
     @abstractmethod
@@ -79,7 +69,7 @@ class Collective(ABC, Generic[E]):
         pass
 
 
-class Ordering(ABC, Generic[E]):
+class Ordering(Observable, Generic[E]):
     """Base for element orderings."""
 
     @abstractmethod
@@ -88,6 +78,33 @@ class Ordering(ABC, Generic[E]):
 
     @abstractmethod
     def exclude(self, item, /):
+        pass
+
+
+# other specialized concepts
+class Manager(ABC):
+    """Base for all managers."""
+
+
+class Composable(Invariant):
+    """
+    Invariants that CAN BE composed and transformed through pure functions.
+
+    Composable invariants can be combined while preserving their mathematical nature:
+    - Combined with other composable invariants
+    - Transformed through factory methods (with_*, as_*)
+    - Materialized into runtime objects for validation
+
+    The composition operations preserve invariant properties - no matter how
+    you transform/combine them, they remain mathematically consistent contracts.
+    """
+
+
+class Condition(Invariant):
+    """Base for conditions."""
+
+    @abstractmethod
+    async def apply(self, *args, **kwargs) -> bool:
         pass
 
 
