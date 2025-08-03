@@ -34,8 +34,6 @@ def parse_action_request(content: str | dict) -> list[dict]:
             json_blocks = [to_json(match, fuzzy_parse=True) for match in _d]
             json_blocks = to_list(json_blocks, dropna=True)
 
-        print(json_blocks)
-
     elif content and isinstance(content, dict):
         json_blocks = [content]
 
