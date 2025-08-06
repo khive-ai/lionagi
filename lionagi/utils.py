@@ -93,6 +93,7 @@ __all__ = (
     "to_num",
     "breakdown_pydantic_annotation",
     "run_package_manager_command",
+    "StringEnum",
 )
 
 
@@ -139,7 +140,7 @@ def hash_dict(data) -> int:
 
 class Params(BaseModel):
     def keys(self):
-        return self.model_fields.keys()
+        return type(self).model_fields.keys()
 
     def __call__(self, *args, **kwargs):
         raise NotImplementedError(
@@ -153,6 +154,13 @@ class DataClass(ABC):
 
 # --- Create a global UNDEFINED object ---
 UNDEFINED = UndefinedType()
+
+
+class StringEnum(str, Enum):
+
+    @classmethod
+    def allowed(cls) -> tuple[str, ...]:
+        return tuple(e.value for e in cls)
 
 
 # --- General Global Utilities Functions ---
