@@ -131,7 +131,12 @@ async def compute_perplexity(
         await api_call.invoke()
         elapsed = 0
         while (
-            api_call.status not in [EventStatus.COMPLETED, EventStatus.FAILED]
+            api_call.status
+            not in [
+                EventStatus.COMPLETED,
+                EventStatus.FAILED,
+                EventStatus.CANCELLED,
+            ]
             and elapsed < 5
         ):
             await asyncio.sleep(0.1)

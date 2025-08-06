@@ -17,6 +17,7 @@ from lionagi.protocols.types import (
     Communicatable,
     Exchange,
     Graph,
+    IDError,
     IDType,
     MailManager,
     MessageFlag,
@@ -78,7 +79,12 @@ class Session(Node, Communicatable, Relational):
     ) -> Branch:
         """Get a branch by its ID or name."""
 
-        with contextlib.suppress(ItemNotFoundError, ValueError):
+        if branch is None:
+            if default is ...:
+                raise ValueError("Branch cannot be None.")
+            return default
+
+        with contextlib.suppress(IDError, ItemNotFoundError, ValueError):
             id = ID.get_id(branch)
             return self.branches[id]
 

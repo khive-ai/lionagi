@@ -14,10 +14,11 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.utils import is_import_installed, to_dict, to_list
 
-from ._claude_code.models import (
+from ...third_party.claude_code import (
     CLAUDE_CODE_OPTION_PARAMS,
     ClaudeCodeRequest,
     ClaudePermission,
+    stream_cc_sdk_events,
 )
 
 __all__ = (
@@ -64,16 +65,9 @@ class ClaudeCodeEndpoint(Endpoint):
         req_obj = ClaudeCodeRequest.create(messages=messages, **req_dict)
         return {"request": req_obj}, {}
 
-    def _stream_claude_code(self, request: ClaudeCodeRequest):
-        from claude_code_sdk import query as sdk_query
-
-        return sdk_query(
-            prompt=request.prompt, options=request.as_claude_options()
-        )
-
     async def stream(self, request: dict | BaseModel, **kwargs):
         payload, _ = self.create_payload(request, **kwargs)
-        async for chunk in self._stream_claude_code(payload["request"]):
+        async for chunk in stream_cc_sdk_events(payload["request"]):
             yield chunk
 
     def _parse_claude_code_response(self, responses: list) -> dict:
@@ -203,9 +197,6 @@ class ClaudeCodeEndpoint(Endpoint):
                             )
 
                     responses.append(chunk)
-
-        # 3. Parse the responses into a clean format
-        return self._parse_claude_code_response(responses)
 
 
 def _display_message(chunk, theme):

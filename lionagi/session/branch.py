@@ -43,11 +43,10 @@ from lionagi.protocols.types import (
     SenderRecipient,
     System,
 )
-from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.types import iModel, iModelManager
+from lionagi.service import Endpoint, iModel, iModelManager
 from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
-from lionagi.utils import UNDEFINED, alcall, bcall, copy
+from lionagi.utils import UNDEFINED, alcall, copy
 
 from .prompts import LION_SYSTEM_MESSAGE
 

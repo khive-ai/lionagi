@@ -4,7 +4,9 @@
 
 import asyncio
 import logging
+from typing import Any
 
+from anyio import current_time, get_cancelled_exc_class
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
@@ -158,12 +160,11 @@ class APICalling(Event):
 
         Updates execution status and stores the response or error.
         """
-        start = asyncio.get_event_loop().time()
+        start = current_time()
 
         try:
             self.execution.status = EventStatus.PROCESSING
 
-            # Make the API call with skip_payload_creation=True since payload is already prepared
             response = await self.endpoint.call(
                 request=self.payload,
                 cache_control=self.cache_control,
@@ -176,7 +177,7 @@ class APICalling(Event):
 
         except asyncio.CancelledError:
             self.execution.error = "API call cancelled"
-            self.execution.status = EventStatus.FAILED
+            self.execution.status = EventStatus.CANCELLED
             raise
 
         except Exception as e:
@@ -185,7 +186,7 @@ class APICalling(Event):
             logger.error(f"API call failed: {e}")
 
         finally:
-            self.execution.duration = asyncio.get_event_loop().time() - start
+            self.execution.duration = current_time() - start
 
     async def stream(self):
         """Stream the API response through the endpoint.
@@ -193,11 +194,12 @@ class APICalling(Event):
         Yields:
             Streaming chunks from the API.
         """
-        start = asyncio.get_event_loop().time()
+        start = current_time()
         response = []
 
         try:
             self.execution.status = EventStatus.PROCESSING
+            self.streaming = True
 
             async for chunk in self.endpoint.stream(
                 request=self.payload,
@@ -209,13 +211,32 @@ class APICalling(Event):
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
 
+        except get_cancelled_exc_class():
+            self.execution.error = "API call cancelled"
+            self.execution.status = EventStatus.CANCELLED
+            raise
+
         except Exception as e:
             self.execution.error = str(e)
             self.execution.status = EventStatus.FAILED
             logger.error(f"Streaming failed: {e}")
 
         finally:
-            self.execution.duration = asyncio.get_event_loop().time() - start
+            self.streaming = False
+            self.execution.duration = current_time() - start
+
+    async def consume_stream(self) -> list[Any]:
+        """Consume the stream and return a list of results, will list aggregated result"""
+        responses = []
+        try:
+            self.streaming = True
+            async for i in self.morphism.stream(self.branch):
+                responses.append(i)
+        finally:
+            self.streaming = False
+            return responses
+
+
 
     @property
     def request(self) -> dict:

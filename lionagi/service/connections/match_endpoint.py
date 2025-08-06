@@ -69,7 +69,6 @@ def match_endpoint(
         auth_type="bearer",
         content_type="application/json",
         method="POST",
-        requires_tokens=True,
     )
 
     return Endpoint(config, **kwargs)

@@ -1,94 +1,70 @@
-import asyncio
-import logging
-from typing import Any, Literal
-from uuid import UUID
+from __future__ import annotations
 
+import logging
+from typing import Any
+
+from anyio import current_time, get_cancelled_exc_class
 from pydantic import BaseModel, Field
 
-from lionagi.protocols.types import ID, Event, EventStatus, IDType, Node
+from lionagi.protocols.types import Event, EventStatus, Node
 from lionagi.session.branch import Branch
 
-BranchOperations = Literal[
-    "chat",
-    "operate",
-    "communicate",
-    "parse",
-    "ReAct",
-    "select",
-    "translate",
-    "interpret",
-    "act",
-    "ReActStream",
-    "instruct",
-]
+from .morphism import Morphism, MorphismContext
 
 logger = logging.getLogger("operation")
 
 
 class Operation(Node, Event):
-    operation: BranchOperations
-    parameters: dict[str, Any] | BaseModel = Field(
-        default_factory=dict, description="Parameters for the operation"
-    )
+    morphism: Morphism = Field(..., exclude=True)
+    branch: Branch | None = Field(..., exclude=True)
 
     @property
-    def branch_id(self) -> IDType | None:
-        if a := self.metadata.get("branch_id"):
-            return ID.get_id(a)
+    def name(self) -> str:
+        return self.morphism.meta["name"] if self.morphism else "Operation"
 
-    @branch_id.setter
-    def branch_id(self, value: str | UUID | IDType | None):
-        if value is None:
-            self.metadata.pop("branch_id", None)
-        else:
-            self.metadata["branch_id"] = str(value)
-
-    @property
-    def graph_id(self) -> str | None:
-        if a := self.metadata.get("graph_id"):
-            return ID.get_id(a)
-
-    @graph_id.setter
-    def graph_id(self, value: str | UUID | IDType | None):
-        if value is None:
-            self.metadata.pop("graph_id", None)
-        else:
-            self.metadata["graph_id"] = str(value)
+    @classmethod
+    def create(
+        cls,
+        morphism: type[Morphism],
+        branch: Branch,
+        params: dict | BaseModel,
+        stream_morphism: bool = False,
+    ):
+        ctx = MorphismContext(params=params, stream_morphism=stream_morphism)
+        return cls(
+            morphism=morphism(ctx=ctx),
+            branch=branch,
+            metadata={
+                "morphism_meta": morphism.meta,
+                "branch_id": str(branch.id),
+            },
+        )
 
     @property
     def request(self) -> dict:
-        # Convert parameters to dict if it's a BaseModel
-        params = self.parameters
-        if hasattr(params, "model_dump"):
-            params = params.model_dump()
-        elif hasattr(params, "dict"):
-            params = params.dict()
+        return self.morphism.ctx.to_dict()
 
-        return params if isinstance(params, dict) else {}
+    async def invoke(self):
+        """Invoke the operation asynchronously."""
+        if not self.branch:
+            raise RuntimeError("Branch is not set for the operation.")
 
-    @property
-    def response(self):
-        """Get the response from the execution."""
-        return self.execution.response if self.execution else None
-
-    async def invoke(self, branch: Branch):
-        meth = getattr(branch, self.operation, None)
-        if meth is None:
-            raise ValueError(f"Unsupported operation type: {self.operation}")
-
-        start = asyncio.get_event_loop().time()
+        meth = (
+            self._consume_stream
+            if self.morphism.ctx.stream_morphism
+            else self.morphism.apply
+        )
+        start = current_time()
 
         try:
             self.execution.status = EventStatus.PROCESSING
-            self.branch_id = branch.id
-            response = await self._invoke(meth)
-
+            response = await meth(self.branch)
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
 
-        except asyncio.CancelledError:
+        except get_cancelled_exc_class() as e:
             self.execution.error = "Operation cancelled"
-            self.execution.status = EventStatus.FAILED
+            self.execution.status = EventStatus.CANCELLED
             raise
 
         except Exception as e:
@@ -97,12 +73,15 @@ class Operation(Node, Event):
             logger.error(f"Operation failed: {e}")
 
         finally:
-            self.execution.duration = asyncio.get_event_loop().time() - start
+            self.execution.duration = current_time() - start
 
-    async def _invoke(self, meth):
-        if self.operation == "ReActStream":
-            res = []
-            async for i in meth(**self.request):
-                res.append(i)
-            return res
-        return await meth(**self.request)
+    async def _consume_stream(self, _branch, /) -> list[Any]:
+        """Consume the stream and return a list of results, will list aggregated result"""
+        responses = []
+        try:
+            self.streaming = True
+            async for i in self.morphism.stream(self.branch):
+                responses.append(i)
+        finally:
+            self.streaming = False
+            return responses

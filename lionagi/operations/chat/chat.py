@@ -155,10 +155,12 @@ async def chat(
     meth = imodel.invoke
     if "stream" not in kwargs or not kwargs["stream"]:
         kwargs["include_token_usage_to_model"] = include_token_usage_to_model
+        api_call = await meth(**kwargs)
+        
     else:
         meth = imodel.stream
 
-    api_call = await meth(**kwargs)
+    
     branch._log_manager.log(Log.create(api_call))
 
     if return_ins_res_message:
