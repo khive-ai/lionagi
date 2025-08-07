@@ -4,7 +4,6 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import ClassVar
 
 from pydantic import (
     BaseModel,
@@ -12,7 +11,6 @@ from pydantic import (
     JsonValue,
     field_serializer,
     field_validator,
-    model_validator,
 )
 
 from lionagi.protocols.action.tool import Tool
@@ -44,7 +42,7 @@ class ResourceMeta(BaseModel):
 
     @property
     def keys(self):
-        return set(self.model_fields.keys())
+        return set(type(self).model_fields.keys())
 
 
 class Resource(Node):

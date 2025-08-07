@@ -263,7 +263,7 @@ class OperableModel(HashableModel):
             Dictionary mapping field names to FieldInfo objects,
             excluding the extra_fields field itself
         """
-        a = {**self.model_fields, **self.extra_fields}
+        a = {**type(self).model_fields, **self.extra_fields}
         a.pop("extra_fields", None)
         a.pop("extra_field_models", None)  # Exclude internal field tracking
         return a
@@ -478,7 +478,7 @@ class OperableModel(HashableModel):
             raise KeyError(f"Field {field_name} not found in object fields.")
 
         if str(attr).strip("s").lower() == "annotation":
-            return self.model_fields[field_name].annotation
+            return type(self).model_fields[field_name].annotation
 
         field_obj = all_fields[field_name]
 
