@@ -150,14 +150,20 @@ class iModel:
         self.hook_registry = hook_registry or HookRegistry()
         if isinstance(self.hook_registry, dict):
             self.hook_registry = HookRegistry(**self.hook_registry)
-        self.exit_hook = exit_hook
+        self.exit_hook: bool = exit_hook
 
     async def create_event(
         self,
         create_event_type: type[Event] = APICalling,
-        exit_hook: bool = None,
-        hook_timeout: float = 10.0,
-        hook_params: dict = None,
+        create_event_exit_hook: bool = None,
+        create_event_hook_timeout: float = 10.0,
+        create_event_hook_params: dict = None,
+        pre_invoke_event_exit_hook: bool = None,
+        pre_invoke_event_hook_timeout: float = 30.0,
+        pre_invoke_event_hook_params: dict = None,
+        post_invoke_event_exit_hook: bool = None,
+        post_invoke_event_hook_timeout: float = 30.0,
+        post_invoke_event_hook_params: dict = None,
         **kwargs,
     ) -> tuple[HookEvent | None, APICalling]:
         h_ev = None
@@ -166,9 +172,13 @@ class iModel:
                 hook_type=HookEventTypes.PreEventCreate,
                 registry=self.hook_registry,
                 event_like=create_event_type,
-                params=hook_params or {},
-                exit=self.exit_hook if exit_hook is None else exit_hook,
-                timeout=hook_timeout,
+                params=create_event_hook_params or {},
+                exit=(
+                    self.exit_hook
+                    if create_event_exit_hook is None
+                    else create_event_exit_hook
+                ),
+                timeout=create_event_hook_timeout,
             )
             await h_ev.invoke()
             if h_ev._should_exit:
@@ -184,6 +194,35 @@ class iModel:
                     api_call.created_at
                 )
                 await global_hook_logger.alog(Log(content=h_ev.to_dict()))
+
+            if self.hook_registry._can_handle(
+                ht_=HookEventTypes.PreInvokation
+            ):
+                api_call.create_pre_invoke_hook(
+                    hook_registry=self.hook_registry,
+                    exit_hook=(
+                        self.exit_hook
+                        if pre_invoke_event_exit_hook is None
+                        else pre_invoke_event_exit_hook
+                    ),
+                    hook_timeout=pre_invoke_event_hook_timeout,
+                    hook_params=pre_invoke_event_hook_params or {},
+                )
+
+            if self.hook_registry._can_handle(
+                ht_=HookEventTypes.PostInvokation
+            ):
+                api_call.create_post_invoke_hook(
+                    hook_registry=self.hook_registry,
+                    exit_hook=(
+                        self.exit_hook
+                        if post_invoke_event_exit_hook is None
+                        else post_invoke_event_exit_hook
+                    ),
+                    hook_timeout=post_invoke_event_hook_timeout,
+                    hook_params=post_invoke_event_hook_params or {},
+                )
+
             return api_call
 
         raise ValueError(
@@ -307,6 +346,7 @@ class iModel:
             if api_call is None:
                 kw.pop("stream", None)
                 api_call = await self.create_event(**kw)
+
             if (
                 self.executor.processor is None
                 or self.executor.processor.is_stopped()
