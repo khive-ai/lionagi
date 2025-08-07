@@ -7,7 +7,6 @@ import contextlib
 import copy as _copy
 import dataclasses
 import functools
-import importlib.metadata
 import importlib.util
 import json
 import logging
@@ -93,10 +92,18 @@ __all__ = (
     "to_num",
     "breakdown_pydantic_annotation",
     "run_package_manager_command",
+    "StringEnum",
 )
 
 
 # --- General Global Utilities Types ---
+
+
+class StringEnum(str, Enum):
+
+    @classmethod
+    def allowed(cls) -> tuple[str, ...]:
+        return tuple(e.value for e in cls)
 
 
 class UndefinedType:
@@ -139,7 +146,7 @@ def hash_dict(data) -> int:
 
 class Params(BaseModel):
     def keys(self):
-        return self.model_fields.keys()
+        return type(self).model_fields.keys()
 
     def __call__(self, *args, **kwargs):
         raise NotImplementedError(
