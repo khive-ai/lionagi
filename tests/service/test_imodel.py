@@ -25,8 +25,8 @@ class TestiModel:
 
         assert imodel.endpoint.config.provider == "openai"
         assert imodel.endpoint.config.kwargs["model"] == "gpt-4o-mini"
-        # The actual API key might be different, so just check it's set
-        assert imodel.endpoint.config._api_key is not None
+        # API key should be set when explicitly provided
+        assert imodel.endpoint.config._api_key == "test-key"
 
     def test_imodel_initialization_from_model_path(self):
         """Test iModel initialization with provider inferred from model path."""
@@ -56,7 +56,9 @@ class TestiModel:
                     model="test-model",
                     api_key=f"test-{provider}-key",
                 )
-                assert imodel.endpoint.config._api_key is not None
+                assert (
+                    imodel.endpoint.config._api_key == f"test-{provider}-key"
+                )
 
     def test_custom_api_key(self):
         """Test iModel initialization with custom API key."""
@@ -64,8 +66,18 @@ class TestiModel:
             provider="openai", model="gpt-4o-mini", api_key="custom-key"
         )
 
-        # Just verify that an API key was set
-        assert imodel.endpoint.config._api_key is not None
+        # Verify that the custom API key was set
+        assert imodel.endpoint.config._api_key == "custom-key"
+
+    def test_none_api_key_for_headless(self):
+        """Test iModel initialization with None API key for headless scenarios."""
+        imodel = iModel(provider="openai", model="gpt-4o-mini", api_key=None)
+
+        # Verify that None API key is accepted and auth_type is set to "none"
+        assert imodel.endpoint.config._api_key is None
+        assert imodel.endpoint.config.auth_type == "none"
+        assert imodel.endpoint.config.provider == "openai"
+        assert imodel.endpoint.config.kwargs["model"] == "gpt-4o-mini"
 
     def test_create_api_calling(self):
         """Test creation of APICalling objects."""

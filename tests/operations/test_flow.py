@@ -14,9 +14,7 @@ from lionagi.protocols.graph.edge import Edge, EdgeCondition
 from lionagi.protocols.graph.graph import Graph
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.providers.oai_ import (
-    OPENAI_CHAT_ENDPOINT_CONFIG,
-)
+from lionagi.service.connections.providers.oai_ import OpenaiChatEndpoint
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
@@ -55,7 +53,12 @@ def make_mock_branch(name: str = "TestBranch") -> Branch:
     branch = Branch(user="test_user", name=name)
 
     async def _fake_invoke(**kwargs):
-        endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+        endpoint = OpenaiChatEndpoint(
+            config={
+                "api_key": "test-key-dummy",
+                "base_url": "https://api.test.com/v1",
+            }
+        )
         fake_call = APICalling(
             payload={"model": "gpt-4o-mini", "messages": []},
             headers={"Authorization": "Bearer test"},

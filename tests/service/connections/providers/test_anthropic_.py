@@ -17,10 +17,12 @@ class TestAnthropicIntegration:
     @pytest.fixture
     def anthropic_imodel(self):
         """Create an iModel instance for Anthropic."""
-        with patch.dict(
-            os.environ, {"ANTHROPIC_API_KEY": "test-anthropic-key"}
-        ):
-            return iModel(provider="anthropic", model="claude-3-opus-20240229")
+        return iModel(
+            provider="anthropic",
+            model="claude-3-opus-20240229",
+            api_key="test-anthropic-key-dummy",
+            base_url="https://api.test.com/v1",
+        )
 
     def test_anthropic_endpoint_configuration(self, anthropic_imodel):
         """Test that Anthropic endpoint is configured correctly."""

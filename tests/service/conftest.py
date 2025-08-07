@@ -123,7 +123,8 @@ def mock_imodel(mock_endpoint):
         provider="openai",
         endpoint=mock_endpoint,
         model="gpt-4o-mini",
-        api_key="test-key",
+        api_key="test-key-dummy",
+        base_url="https://api.test.com/v1",
     )
     return imodel
 

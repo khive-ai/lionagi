@@ -58,12 +58,17 @@ class TestHeaderFactory:
         assert headers["Authorization"] == "Bearer secret-key"
         assert headers["Content-Type"] == "application/json"
 
-    def test_missing_api_key_with_auth(self):
-        """Test that missing API key raises error when auth is required."""
-        with pytest.raises(
-            ValueError, match="API key is required for authentication"
-        ):
-            HeaderFactory.get_header(auth_type="bearer", api_key=None)
+    def test_missing_api_key_with_auth_uses_dummy(self):
+        """Test that missing API key uses dummy key for headless scenarios."""
+        # Test bearer auth with None API key
+        headers = HeaderFactory.get_header(auth_type="bearer", api_key=None)
+        assert headers["Authorization"] == "Bearer dummy-key-for-testing"
+        assert headers["Content-Type"] == "application/json"
+
+        # Test x-api-key auth with None API key
+        headers = HeaderFactory.get_header(auth_type="x-api-key", api_key=None)
+        assert headers["x-api-key"] == "dummy-key-for-testing"
+        assert headers["Content-Type"] == "application/json"
 
     def test_unsupported_auth_type(self):
         """Test that unsupported auth type raises error."""

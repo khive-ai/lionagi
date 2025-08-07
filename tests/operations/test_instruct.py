@@ -17,7 +17,12 @@ def make_mocked_branch_for_instruct():
     branch = Branch(user="tester_fixture", name="BranchForTests_Instruct")
 
     async def _fake_invoke(**kwargs):
-        endpoint = OpenaiChatEndpoint(api_key="test")
+        endpoint = OpenaiChatEndpoint(
+            config={
+                "api_key": "test-key-dummy",
+                "base_url": "https://api.test.com/v1",
+            }
+        )
         fake_call = APICalling(
             payload={"model": "gpt-4o-mini", "messages": []},
             headers={"Authorization": "Bearer test"},
