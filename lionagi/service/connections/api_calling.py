@@ -10,7 +10,8 @@ from pydantic import Field, PrivateAttr, model_validator
 from typing_extensions import Self
 
 from lionagi.protocols.generic.event import Event, EventStatus
-from lionagi.service.hooks import HookEvent, HookEventTypes
+from lionagi.protocols.types import Log
+from lionagi.service.hooks import HookEvent, HookEventTypes, global_hook_logger
 from lionagi.service.token_calculator import TokenCalculator
 
 from .endpoint import Endpoint
@@ -173,6 +174,7 @@ class APICalling(Event):
                     raise h_ev._exit_cause or RuntimeError(
                         "Pre-invocation hook requested exit without a cause"
                     )
+                await global_hook_logger.alog(Log.create(h_ev))
 
             # Make the API call with skip_payload_creation=True since payload is already prepared
             response = await self.endpoint.call(
@@ -188,6 +190,7 @@ class APICalling(Event):
                     raise h_ev._exit_cause or RuntimeError(
                         "Post-invocation hook requested exit without a cause"
                     )
+                await global_hook_logger.alog(Log.create(h_ev))
 
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
