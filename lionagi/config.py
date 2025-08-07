@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import timezone
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, SecretStr
@@ -40,6 +41,20 @@ class CacheConfig(BaseModel):
         return raw
 
 
+def _get_log_config(prefix: str) -> dict[str, Any]:
+    return {
+        "persist_dir": f"./data/logs/{prefix}",
+        "subfolder": None,
+        "capacity": 50,
+        "extension": ".json",
+        "use_timestamp": True,
+        "hash_digits": 5,
+        "file_prefix": "action",
+        "auto_save_on_exit": True,
+        "clear_after_dump": True,
+    }
+
+
 class AppSettings(BaseSettings, frozen=True):
     """Application settings with environment variable support."""
 
@@ -53,6 +68,21 @@ class AppSettings(BaseSettings, frozen=True):
     aiocache_config: CacheConfig = Field(
         default_factory=CacheConfig, description="Cache settings for aiocache"
     )
+
+    HOOK_LOG_CONFIG: dict = Field(
+        default_factory=lambda: _get_log_config("hook"),
+        description="Default configuration for hook logs",
+    )
+
+    ACTION_LOG_CONFIG: dict = Field(
+        default_factory=lambda: _get_log_config("action"),
+        description="Default configuration for action logs",
+    )
+    API_LOG_CONFIG: dict = Field(
+        default_factory=lambda: _get_log_config("api"),
+        description="Default configuration for API logs",
+    )
+    TIMEZONE: timezone = timezone.utc
 
     # secrets
     OPENAI_API_KEY: SecretStr | None = None

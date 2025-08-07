@@ -20,7 +20,7 @@ from .pile import Pile
 __all__ = (
     "LogManagerConfig",
     "Log",
-    "LogManager",
+    "DataLogger",
 )
 
 
@@ -101,7 +101,7 @@ class Log(Element):
         return cls(content=content)
 
 
-class LogManager(Manager):
+class DataLogger:
     """
     Manages a collection of logs, optionally auto-dumping them
     to CSV or JSON when capacity is reached or at program exit.
@@ -227,7 +227,7 @@ class LogManager(Manager):
     @classmethod
     def from_config(
         cls, config: LogManagerConfig, logs: Any = None
-    ) -> LogManager:
+    ) -> DataLogger:
         """
         Construct a LogManager from a LogManagerConfig.
         """

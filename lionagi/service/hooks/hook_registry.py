@@ -203,3 +203,17 @@ class HooksRegistry:
                     meta["event_created_at"] = event_like.created_at
                     return await self.post_invokation(**kw), meta
         return await self.handle_streaming_chunk(chunk_type, chunk, exit, **kw)
+
+    def _can_handle(
+        self,
+        /,
+        *,
+        ht_: HookEventTypes = None,
+        ct_=None,
+    ) -> bool:
+        """Check if the registry can handle the given event or chunk type."""
+        if ht_ is not None:
+            return ht_ in self._hooks
+        if ct_ is not None:
+            return ct_ in self._stream_handlers
+        return False

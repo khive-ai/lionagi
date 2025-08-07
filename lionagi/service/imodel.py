@@ -8,11 +8,13 @@ from collections.abc import AsyncGenerator, Callable
 from pydantic import BaseModel
 
 from lionagi.protocols.generic.event import EventStatus
+from lionagi.service.hooks.hook_event import HookEventTypes
 from lionagi.utils import is_coro_func
 
 from .connections.api_calling import APICalling
 from .connections.endpoint import Endpoint
 from .connections.match_endpoint import match_endpoint
+from .hooks import EventHookCalling, HooksRegistry
 from .rate_limited_processor import RateLimitedAPIExecutor
 
 
@@ -47,6 +49,7 @@ class iModel:
         concurrency_limit: int | None = None,
         streaming_process_func: Callable = None,
         provider_metadata: dict | None = None,
+        hook_registry: HooksRegistry | None = None,
         **kwargs,
     ) -> None:
         """Initializes the iModel instance.
@@ -125,6 +128,31 @@ class iModel:
 
         # Provider-specific metadata storage (e.g., session_id for Claude Code)
         self.provider_metadata = provider_metadata or {}
+
+        # Initialize the hooks registry if not provided
+        self.hook_registry = hook_registry
+
+    async def create_event(
+        self,
+    ):
+        if self.hook_registry and self.hook_registry._can_handle()(
+            ht_=HookEventTypes.PreInvokation,
+            ct_=None,
+        ):
+            hook_event = EventHookCalling(
+                registry=self.hook_registry,
+                hook_type=HookEventTypes.PreInvokation,
+                event_like=APICalling,
+                exit=False,
+            )
+            await hook_event.invoke()
+
+            if hook_event.should_exit:
+                raise RuntimeError(
+                    "Pre-invokation hook requested to exit early."
+                )
+
+        ...
 
     def create_api_calling(
         self, include_token_usage_to_model: bool = False, **kwargs

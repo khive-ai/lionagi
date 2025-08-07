@@ -1,4 +1,5 @@
-from typing import Awaitable, Callable, Optional, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Optional, TypeVar
 
 from typing_extensions import TypedDict
 
@@ -25,9 +26,9 @@ ALLOWED_HOOKS_TYPES = HookEventTypes.allowed()
 
 
 class HookDict(TypedDict):
-    pre_event_create: Optional[Callable]
-    pre_invokation: Optional[Callable]
-    post_invokation: Optional[Callable]
+    pre_event_create: Callable | None
+    pre_invokation: Callable | None
+    post_invokation: Callable | None
 
 
 StreamHandlers = dict[str, Callable[[SC], Awaitable[None]]]

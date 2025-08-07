@@ -18,7 +18,7 @@ from .forms.flow import FlowDefinition, FlowStep
 from .forms.report import BaseForm, Form, Report
 from .generic.element import ID, Element, IDError, IDType, validate_order
 from .generic.event import Event, EventStatus, Execution
-from .generic.log import Log, LogManager, LogManagerConfig
+from .generic.log import DataLogger, Log, LogManagerConfig
 from .generic.pile import Pile, to_list_type
 from .generic.processor import Executor, Processor
 from .generic.progression import Progression, prog
@@ -64,7 +64,7 @@ __all__ = (
     "EventStatus",
     "Execution",
     "Log",
-    "LogManager",
+    "DataLogger",
     "LogManagerConfig",
     "Pile",
     "to_list_type",

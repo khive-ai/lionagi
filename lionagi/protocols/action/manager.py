@@ -4,11 +4,13 @@
 
 from typing import Any
 
+from lionagi.config import settings
 from lionagi.fields.action import ActionRequestModel
 from lionagi.protocols._concepts import Manager
 from lionagi.protocols.messages.action_request import ActionRequest
 from lionagi.utils import to_list
 
+from ..generic.log import DataLogger
 from .function_calling import FunctionCalling
 from .tool import FuncTool, FuncToolRef, Tool, ToolRef
 
@@ -22,7 +24,7 @@ class ActionManager(Manager):
     individually or in bulk, and each tool must have a unique name.
     """
 
-    def __init__(self, *args: FuncTool, **kwargs) -> None:
+    def __init__(self, action_log_config, args: FuncTool, kw) -> None:
         """
         Create an ActionManager, optionally registering initial tools.
 
@@ -34,12 +36,15 @@ class ActionManager(Manager):
         """
         super().__init__()
         self.registry: dict[str, Tool] = {}
+        self._dlog: DataLogger | None = DataLogger(
+            **(action_log_config or settings.ACTION_LOG_CONFIG)
+        )
 
         tools = []
         if args:
             tools.extend(to_list(args, dropna=True, flatten=True))
-        if kwargs:
-            tools.extend(to_list(kwargs.values(), dropna=True, flatten=True))
+        if kw:
+            tools.extend(to_list(kw.values(), dropna=True, flatten=True))
 
         self.register_tools(tools, update=True)
 
