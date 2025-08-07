@@ -30,6 +30,8 @@ class EventStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+    ABORTED = "aborted"
 
 
 class Execution:
