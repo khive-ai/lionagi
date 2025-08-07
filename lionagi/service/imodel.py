@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from lionagi.protocols.generic.log import Log
 from lionagi.protocols.types import ID, Event, EventStatus, IDType
 from lionagi.service.hooks.hook_event import HookEventTypes
-from lionagi.utils import is_coro_func, time
+from lionagi.utils import Unset, is_coro_func, time
 
 from .connections.api_calling import APIEvent
 from .connections.endpoint import Endpoint
@@ -41,7 +41,7 @@ class iModel:
         provider: str = None,
         base_url: str = None,
         endpoint: str | Endpoint = "chat",
-        api_key: str = None,
+        api_key: str = Unset,
         queue_capacity: int = 100,
         capacity_refresh_time: float = 60,
         interval: float | None = None,
@@ -119,7 +119,7 @@ class iModel:
                 else:
                     raise ValueError("Provider must be provided")
 
-        if api_key is not None:
+        if api_key is not Unset:
             kwargs["api_key"] = api_key
         if isinstance(endpoint, Endpoint):
             self.endpoint = endpoint

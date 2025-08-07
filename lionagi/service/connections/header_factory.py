@@ -37,7 +37,12 @@ class HeaderFactory:
             # No authentication needed
             pass
         elif not api_key:
-            raise ValueError("API key is required for authentication")
+            # Use dummy key for headless/testing scenarios
+            dummy_key = "dummy-key-for-testing"
+            if auth_type == "bearer":
+                dict_.update(HeaderFactory.get_bearer_auth_header(dummy_key))
+            elif auth_type == "x-api-key":
+                dict_.update(HeaderFactory.get_x_api_key_header(dummy_key))
         else:
             api_key = (
                 api_key.get_secret_value()

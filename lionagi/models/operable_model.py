@@ -15,7 +15,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 from typing_extensions import Self, override
 
-from lionagi.utils import UNDEFINED, is_same_dtype
+from lionagi.utils import Undefined, is_same_dtype
 
 from .field_model import FieldModel
 from .hashable_model import HashableModel
@@ -179,7 +179,7 @@ class OperableModel(HashableModel):
             AttributeError: If field not found
         """
         if field_name == "extra_field" or field_name in self.all_fields:
-            return self.__dict__.get(field_name, UNDEFINED)
+            return self.__dict__.get(field_name, Undefined)
         raise AttributeError(f"Field {field_name} not found in object fields.")
 
     @override
@@ -223,14 +223,14 @@ class OperableModel(HashableModel):
         """
         if field_name in self.extra_fields:
             if self.extra_fields[field_name].default not in [
-                UNDEFINED,
+                Undefined,
                 PydanticUndefined,
             ]:
                 setattr(
                     self, field_name, self.extra_fields[field_name].default
                 )
                 return
-            if self.extra_fields[field_name].default_factory is not UNDEFINED:
+            if self.extra_fields[field_name].default_factory is not Undefined:
                 setattr(
                     self,
                     field_name,
@@ -245,7 +245,7 @@ class OperableModel(HashableModel):
         """Convert model to dictionary including extra fields.
 
         Args:
-            clean: If True, exclude UNDEFINED values
+            clean: If True, exclude Undefined values
 
         Returns:
             Dictionary containing all fields and their values
@@ -253,7 +253,7 @@ class OperableModel(HashableModel):
         dict_ = self.model_dump()
         dict_.update(self._serialize_extra_fields(self.extra_fields))
         print(dict_)
-        return {k: v for k, v in dict_.items() if v is not UNDEFINED}
+        return {k: v for k, v in dict_.items() if v is not Undefined}
 
     @property
     def all_fields(self) -> dict[str, FieldInfo]:
@@ -272,10 +272,10 @@ class OperableModel(HashableModel):
         self,
         field_name: FieldName,
         /,
-        value: Any = UNDEFINED,
-        annotation: type = UNDEFINED,
-        field_obj: FieldInfo = UNDEFINED,
-        field_model: FieldModel = UNDEFINED,
+        value: Any = Undefined,
+        annotation: type = Undefined,
+        field_obj: FieldInfo = Undefined,
+        field_model: FieldModel = Undefined,
         **kwargs,
     ) -> None:
         """Add a new field to the model's extra fields.
@@ -307,10 +307,10 @@ class OperableModel(HashableModel):
         self,
         field_name: FieldName,
         /,
-        value: Any = UNDEFINED,
-        annotation: type = UNDEFINED,
-        field_obj: FieldInfo = UNDEFINED,
-        field_model: FieldModel = UNDEFINED,
+        value: Any = Undefined,
+        annotation: type = Undefined,
+        field_obj: FieldInfo = Undefined,
+        field_model: FieldModel = Undefined,
         **kwargs,
     ) -> None:
         """Update existing field or create new one.
@@ -374,11 +374,11 @@ class OperableModel(HashableModel):
             field_obj.annotation = Any
 
         # Handle value
-        if value is UNDEFINED:
+        if value is Undefined:
             if field_name in self.all_fields:
-                if self.__dict__.get(field_name, UNDEFINED) is not UNDEFINED:
+                if self.__dict__.get(field_name, Undefined) is not Undefined:
                     value = self.__dict__.get(field_name)
-            if getattr(self, field_name, UNDEFINED) is not UNDEFINED:
+            if getattr(self, field_name, Undefined) is not Undefined:
                 value = getattr(self, field_name)
             elif getattr(field_obj, "default") is not PydanticUndefined:
                 value = field_obj.default
@@ -455,7 +455,7 @@ class OperableModel(HashableModel):
         self,
         field_name: FieldName,
         attr: str,
-        default: Any = UNDEFINED,
+        default: Any = Undefined,
         /,
     ) -> Any:
         """Get attribute value for a field.
@@ -483,17 +483,17 @@ class OperableModel(HashableModel):
         field_obj = all_fields[field_name]
 
         # Check fieldinfo attr
-        value = getattr(field_obj, attr, UNDEFINED)
-        if value is not UNDEFINED:
+        value = getattr(field_obj, attr, Undefined)
+        if value is not Undefined:
             return value
         else:
             if isinstance(field_obj.json_schema_extra, dict):
-                value = field_obj.json_schema_extra.get(attr, UNDEFINED)
-                if value is not UNDEFINED:
+                value = field_obj.json_schema_extra.get(attr, Undefined)
+                if value is not Undefined:
                     return value
 
         # Handle undefined attr
-        if default is not UNDEFINED:
+        if default is not Undefined:
             return default
         else:
             raise AttributeError(

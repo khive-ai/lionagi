@@ -16,7 +16,7 @@ from typing import Annotated, Any
 from typing_extensions import Self, override
 
 from .._errors import ValidationError
-from ..utils import UNDEFINED
+from ..utils import Undefined
 
 # Cache of valid Pydantic Field parameters
 _PYDANTIC_FIELD_PARAMS: set[str] | None = None

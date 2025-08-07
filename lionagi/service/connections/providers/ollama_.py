@@ -10,35 +10,41 @@ from lionagi.utils import is_import_installed
 
 _HAS_OLLAMA = is_import_installed("ollama")
 
-OLLAMA_CHAT_ENDPOINT_CONFIG = EndpointConfig(
-    name="ollama_chat",
-    provider="ollama",
-    base_url="http://localhost:11434/v1",  # Ollama desktop client default
-    endpoint="chat/completions",  # Use full OpenAI-compatible endpoint
-    kwargs={},  # Empty kwargs, model will be provided at runtime
-    openai_compatible=False,  # Use HTTP transport
-    api_key=None,  # No API key needed
-    method="POST",
-    content_type="application/json",
-    auth_type="none",  # No authentication
-    default_headers={},  # No auth headers needed
-)
-
 
 class OllamaChatEndpoint(Endpoint):
     """
     Documentation: https://platform.openai.com/docs/api-reference/chat/create
     """
 
-    def __init__(self, config=OLLAMA_CHAT_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
         if not _HAS_OLLAMA:
             raise ModuleNotFoundError(
                 "ollama is not installed, please install it with `pip install lionagi[ollama]`"
             )
 
+        _config = {
+            "name": "ollama_chat",
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",  # Ollama desktop client default
+            "endpoint": "chat/completions",  # Use full OpenAI-compatible endpoint
+            "kwargs": {},  # Empty kwargs, model will be provided at runtime
+            "openai_compatible": False,  # Use HTTP transport
+            "api_key": None,  # No API key needed
+            "method": "POST",
+            "content_type": "application/json",
+            "auth_type": "none",  # No authentication
+            "default_headers": {},  # No auth headers needed
+        }
+
         # Override api_key for Ollama (not needed)
         if "api_key" in kwargs:
             kwargs.pop("api_key")
+
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump()
+        _config.update(config)
+        config = EndpointConfig(**_config)
 
         super().__init__(config, **kwargs)
 

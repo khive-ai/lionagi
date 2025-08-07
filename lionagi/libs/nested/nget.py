@@ -4,7 +4,7 @@
 
 from typing import Any
 
-from lionagi.utils import UNDEFINED
+from lionagi.utils import Undefined
 
 from .utils import get_target_container
 
@@ -13,7 +13,7 @@ def nget(
     nested_structure: dict[Any, Any] | list[Any],
     /,
     indices: list[int | str],
-    default: Any = UNDEFINED,
+    default: Any = Undefined,
 ) -> Any:
     try:
         target_container = get_target_container(nested_structure, indices[:-1])
@@ -30,14 +30,14 @@ def nget(
             and last_index in target_container
         ):
             return target_container[last_index]
-        elif default is not UNDEFINED:
+        elif default is not Undefined:
             return default
         else:
             raise LookupError(
                 "Target not found and no default value provided."
             )
     except (IndexError, KeyError, TypeError):
-        if default is not UNDEFINED:
+        if default is not Undefined:
             return default
         else:
             raise LookupError(

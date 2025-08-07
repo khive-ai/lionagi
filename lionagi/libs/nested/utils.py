@@ -4,7 +4,7 @@
 
 from typing import Any
 
-from lionagi.utils import UNDEFINED
+from lionagi.utils import Undefined
 
 
 def is_homogeneous(
@@ -183,7 +183,7 @@ def get_target_container(
 
 
 def ensure_list_index(
-    lst: list[Any], index: int, default: Any = UNDEFINED
+    lst: list[Any], index: int, default: Any = Undefined
 ) -> None:
     while len(lst) <= index:
-        lst.append(default if default is not UNDEFINED else None)
+        lst.append(default if default is not Undefined else None)

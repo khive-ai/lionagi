@@ -26,7 +26,7 @@ from typing_extensions import Self, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError
 from lionagi.libs.concurrency import Lock as ConcurrencyLock
-from lionagi.utils import UNDEFINED, is_same_dtype, to_list
+from lionagi.utils import Undefined, is_same_dtype, to_list
 
 from .._concepts import Observable
 from .element import ID, Collective, E, Element, IDType, validate_order
@@ -174,7 +174,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
     def pop(
         self,
         key: ID.Ref | ID.RefSeq | int | slice,
-        default: D = UNDEFINED,
+        default: D = Undefined,
         /,
     ) -> T | Pile | D:
         """Remove and return item(s) from the Pile.
@@ -283,7 +283,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
     def get(
         self,
         key: ID.Ref | ID.RefSeq | int | slice,
-        default: D = UNDEFINED,
+        default: D = Undefined,
         /,
     ) -> T | Pile | D:
         """Get item(s) by key with default.
@@ -513,7 +513,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
     async def apop(
         self,
         key: ID.Ref | ID.RefSeq | int | slice,
-        default: Any = UNDEFINED,
+        default: Any = Undefined,
         /,
     ):
         """Async remove and return item(s)."""
@@ -566,7 +566,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
     async def aget(
         self,
         key: Any,
-        default=UNDEFINED,
+        default=Undefined,
         /,
     ) -> list | Any | T:
         """Async get item(s)."""
@@ -672,12 +672,12 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
             self.progression += key
             self.collections.update(item_dict)
 
-    def _get(self, key: Any, default: D = UNDEFINED) -> T | Pile | D:
+    def _get(self, key: Any, default: D = Undefined) -> T | Pile | D:
         if isinstance(key, int | slice):
             try:
                 return self[key]
             except Exception as e:
-                if default is UNDEFINED:
+                if default is Undefined:
                     raise ItemNotFoundError(f"Item not found. Error: {e}")
                 return default
         else:
@@ -701,14 +701,14 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
                 return result
 
             except Exception as e:
-                if default is UNDEFINED:
+                if default is Undefined:
                     raise ItemNotFoundError(f"Item not found. Error: {e}")
                 return default
 
     def _pop(
         self,
         key: ID.Ref | ID.RefSeq | int | slice,
-        default: D = UNDEFINED,
+        default: D = Undefined,
     ) -> T | Pile | D:
         if isinstance(key, int | slice):
             try:
@@ -725,7 +725,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
                 )
                 return result
             except Exception as e:
-                if default is UNDEFINED:
+                if default is Undefined:
                     raise ItemNotFoundError(f"Item not found. Error: {e}")
                 return default
         else:
@@ -741,7 +741,7 @@ class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
                     return result[0]
                 return result
             except Exception as e:
-                if default is UNDEFINED:
+                if default is Undefined:
                     raise ItemNotFoundError(f"Item not found. Error: {e}")
                 return default
 

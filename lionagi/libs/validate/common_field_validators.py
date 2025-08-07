@@ -4,7 +4,7 @@
 
 from pydantic import BaseModel, JsonValue
 
-from lionagi.utils import UNDEFINED, copy, to_list
+from lionagi.utils import Undefined, copy, to_list
 
 from .validate_boolean import validate_boolean
 
@@ -45,7 +45,7 @@ def validate_same_dtype_flat_list(
     Raises:
         ValueError: If value is not a list or contains different data types.
     """
-    if value in [None, UNDEFINED, {}]:
+    if value in [None, Undefined, {}]:
         return default
 
     to_list_kwargs = {}
@@ -101,7 +101,7 @@ def validate_nullable_jsonvalue_field(cls, value) -> JsonValue | None:
 
 def validate_dict_kwargs_params(cls, value) -> dict:
     """Validate validator kwargs."""
-    if value in [None, UNDEFINED, []]:
+    if value in [None, Undefined, []]:
         return {}
     if not isinstance(value, dict):
         raise ValueError("Validator kwargs must be a dictionary")
@@ -124,7 +124,7 @@ def validate_callable(
         ValueError: If value is not callable.
     """
     if not callable(value):
-        if undefind_able and value in [None, UNDEFINED]:
+        if undefind_able and value in [None, Undefined]:
             pass
         else:
             raise ValueError("Value must be a callable function")

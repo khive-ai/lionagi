@@ -47,7 +47,7 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.types import iModel, iModelManager
 from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
-from lionagi.utils import UNDEFINED, alcall, bcall, copy
+from lionagi.utils import Undefined, alcall, bcall, copy
 
 from .prompts import LION_SYSTEM_MESSAGE
 
@@ -685,12 +685,12 @@ class Branch(Element, Communicatable, Relational):
             Branch: A new `Branch` instance based on the deserialized data.
         """
         dict_ = {
-            "messages": data.pop("messages", UNDEFINED),
-            "logs": data.pop("logs", UNDEFINED),
-            "chat_model": data.pop("chat_model", UNDEFINED),
-            "parse_model": data.pop("parse_model", UNDEFINED),
-            "system": data.pop("system", UNDEFINED),
-            "log_config": data.pop("log_config", UNDEFINED),
+            "messages": data.pop("messages", Undefined),
+            "logs": data.pop("logs", Undefined),
+            "chat_model": data.pop("chat_model", Undefined),
+            "parse_model": data.pop("parse_model", Undefined),
+            "system": data.pop("system", Undefined),
+            "log_config": data.pop("log_config", Undefined),
         }
         params = {}
 
@@ -703,8 +703,8 @@ class Branch(Element, Communicatable, Relational):
                 params[k] = v
 
         params.update(dict_)
-        # Remove placeholders (UNDEFINED) so we don't incorrectly assign them
-        return cls(**{k: v for k, v in params.items() if v is not UNDEFINED})
+        # Remove placeholders (Undefined) so we don't incorrectly assign them
+        return cls(**{k: v for k, v in params.items() if v is not Undefined})
 
     def dump_logs(self, clear: bool = True, persist_path=None):
         """
@@ -1181,7 +1181,7 @@ class Branch(Element, Communicatable, Relational):
         initial_delay: float = 0,
         retry_delay: float = 0,
         backoff_factor: float = 1,
-        retry_default: Any = UNDEFINED,
+        retry_default: Any = Undefined,
         retry_timeout: float | None = None,
         max_concurrent: int | None = None,
         throttle_period: float | None = None,

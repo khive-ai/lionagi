@@ -12,69 +12,8 @@ __all__ = (
     "OpenaiChatEndpoint",
     "OpenaiResponseEndpoint",
     "OpenrouterChatEndpoint",
-    "OPENROUTER_GEMINI_ENDPOINT_CONFIG",
-)
-
-
-OPENAI_CHAT_ENDPOINT_CONFIG = EndpointConfig(
-    name="openai_chat",
-    provider="openai",
-    base_url="https://api.openai.com/v1",
-    endpoint="chat/completions",
-    kwargs={"model": "gpt-4.1-nano"},
-    api_key=settings.OPENAI_API_KEY or "dummy-key-for-testing",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
-    requires_tokens=True,
-)
-
-OPENAI_RESPONSE_ENDPOINT_CONFIG = EndpointConfig(
-    name="openai_response",
-    provider="openai",
-    base_url="https://api.openai.com/v1",
-    endpoint="chat/completions",  # OpenAI responses API uses same endpoint
-    kwargs={"model": "gpt-4o"},
-    api_key=settings.OPENAI_API_KEY or "dummy-key-for-testing",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
-    requires_tokens=True,
-)
-
-OPENROUTER_CHAT_ENDPOINT_CONFIG = EndpointConfig(
-    name="openrouter_chat",
-    provider="openrouter",
-    base_url="https://openrouter.ai/api/v1",
-    endpoint="chat/completions",
-    kwargs={"model": "google/gemini-2.5-flash"},
-    api_key=settings.OPENROUTER_API_KEY or "dummy-key-for-testing",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
-)
-
-OPENAI_EMBEDDING_ENDPOINT_CONFIG = EndpointConfig(
-    name="openai_embed",
-    provider="openai",
-    base_url="https://api.openai.com/v1",
-    endpoint="embeddings",
-    kwargs={"model": "text-embedding-3-small"},
-    api_key=settings.OPENAI_API_KEY or "dummy-key-for-testing",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
-)
-
-GROQ_CHAT_ENDPOINT_CONFIG = EndpointConfig(
-    name="groq_chat",
-    provider="groq",
-    base_url="https://api.groq.com/openai/v1",
-    endpoint="chat/completions",
-    api_key=settings.GROQ_API_KEY or "dummy-key-for-testing",
-    auth_type="bearer",
-    content_type="application/json",
-    method="POST",
+    "GroqChatEndpoint",
+    "OpenaiEmbedEndpoint",
 )
 
 
@@ -106,10 +45,19 @@ REASONING_NOT_SUPPORT_PARAMS = (
 
 
 class OpenaiChatEndpoint(Endpoint):
-
     def __init__(self, config=None, **kwargs):
-
         from ...third_party.openai_models import CreateChatCompletionRequest
+
+        # Handle headless scenarios - if api_key is explicitly None, use no auth
+        if "api_key" in kwargs and kwargs["api_key"] is None:
+            api_key = None
+            auth_type = "none"
+        else:
+            # Use provided api_key, fall back to settings, then dummy key
+            api_key = kwargs.get("api_key")
+            if api_key is None:
+                api_key = settings.OPENAI_API_KEY or "dummy-key-for-testing"
+            auth_type = "bearer"
 
         _config = {
             "name": "openai_chat",
@@ -117,8 +65,8 @@ class OpenaiChatEndpoint(Endpoint):
             "base_url": "https://api.openai.com/v1",
             "endpoint": "chat/completions",
             "kwargs": {"model": "gpt-4.1-nano"},
-            "api_key": settings.OPENAI_API_KEY,
-            "auth_type": "bearer",
+            "api_key": api_key,
+            "auth_type": auth_type,
             "content_type": "application/json",
             "method": "POST",
             "requires_tokens": True,
@@ -174,7 +122,7 @@ class OpenaiResponseEndpoint(Endpoint):
             base_url="https://api.openai.com/v1",
             endpoint="chat/completions",  # OpenAI responses API uses same endpoint
             kwargs={"model": "gpt-4.1-nano"},
-            api_key=settings.OPENAI_API_KEY,
+            api_key=settings.OPENAI_API_KEY or "dummy-key-for-testing",
             auth_type="bearer",
             content_type="application/json",
             method="POST",
@@ -192,14 +140,13 @@ class OpenaiResponseEndpoint(Endpoint):
 
 class OpenrouterChatEndpoint(Endpoint):
     def __init__(self, config=None, **kwargs):
-
         _config = dict(
             name="openrouter_chat",
             provider="openrouter",
             base_url="https://openrouter.ai/api/v1",
             endpoint="chat/completions",
             kwargs={"model": "google/gemini-2.5-flash"},
-            api_key=settings.OPENROUTER_API_KEY,
+            api_key=settings.OPENROUTER_API_KEY or "dummy-key-for-testing",
             auth_type="bearer",
             content_type="application/json",
             method="POST",
@@ -214,10 +161,49 @@ class OpenrouterChatEndpoint(Endpoint):
 
 
 class GroqChatEndpoint(Endpoint):
-    def __init__(self, config=GROQ_CHAT_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        _config = {
+            "name": "groq_chat",
+            "provider": "groq",
+            "base_url": "https://api.groq.com/openai/v1",
+            "endpoint": "chat/completions",
+            "api_key": settings.GROQ_API_KEY or "dummy-key-for-testing",
+            "auth_type": "bearer",
+            "content_type": "application/json",
+            "method": "POST",
+            "context_window": 128_000,  # Groq context window
+        }
+
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump()
+        _config.update(config)
+        config = EndpointConfig(**_config)
+
         super().__init__(config, **kwargs)
 
 
 class OpenaiEmbedEndpoint(Endpoint):
-    def __init__(self, config=OPENAI_EMBEDDING_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        from ...third_party.openai_models import CreateEmbeddingRequest
+
+        _config = {
+            "name": "openai_embed",
+            "provider": "openai",
+            "base_url": "https://api.openai.com/v1",
+            "endpoint": "embeddings",
+            "kwargs": {"model": "text-embedding-3-small"},
+            "api_key": settings.OPENAI_API_KEY or "dummy-key-for-testing",
+            "auth_type": "bearer",
+            "content_type": "application/json",
+            "method": "POST",
+            "request_options": CreateEmbeddingRequest,
+        }
+
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump()
+        _config.update(config)
+        config = EndpointConfig(**_config)
+
         super().__init__(config, **kwargs)

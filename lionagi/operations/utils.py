@@ -4,6 +4,7 @@
 
 from lionagi.fields.instruct import Instruct
 from lionagi.session.session import Branch, Session
+from lionagi.utils import coalesce, validate_param
 
 
 def prepare_session(
@@ -11,18 +12,24 @@ def prepare_session(
     branch: Branch | None = None,
     branch_kwargs=None,
 ) -> tuple[Session, Branch]:
+    """Prepare a session and branch for operations.
+
+    Uses param validation utilities for cleaner null handling.
+    """
+    branch_kwargs = validate_param(branch_kwargs, "branch_kwargs", default={})
+
     if session is not None:
         if branch is not None:
             branch: Branch = session.branches[branch]
         else:
-            branch = session.new_branch(**(branch_kwargs or {}))
+            branch = session.new_branch(**branch_kwargs)
     else:
         session = Session()
         if isinstance(branch, Branch):
             session.branches.include(branch)
             session.default_branch = branch
         if branch is None:
-            branch = session.new_branch(**(branch_kwargs or {}))
+            branch = session.new_branch(**branch_kwargs)
 
     return session, branch
 

@@ -13,11 +13,11 @@ To generate the OpenAI models, use the following command:
 
 ```bash
 # Use exact version to guarantee byte-for-byte generation
-python -m pip install 'datamodel-code-generator[http]==0.30.1'
+uv pip install 'datamodel-code-generator[http]==0.30.1'
 
-python -m datamodel-codegen \
-  --url https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml \
-  --output lionagi/services/third_party/openai_models.py \
+datamodel-codegen \
+  --url "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml" \
+  --output lionagi/service/third_party/openai_models.py \
   --allow-population-by-field-name \
   --output-model-type pydantic_v2.BaseModel \
   --field-constraints \
@@ -30,24 +30,26 @@ python -m datamodel-codegen \
   --no-alias
 ```
 
-**Note**: if `bytes_aliased` and `float_aliased` are not generated, you can add
-them manually onto the top of the file
-
-```python
-from typing import Annotated
-from pydantic import Field
-
-bytes_aliased = Annotated[bytes, Field(alias="bytes")]
-float_aliased = Annotated[float, Field(alias="float")]
-```
-
-### Avoiding Pydantic Alias Warnings
-
-After generation, add the following line at the top of the file to avoid
-Pydantic alias warnings:
+**Note**: The generation process automatically adds the required type aliases and
+warning suppressions:
 
 ```python
 from __future__ import annotations  # noqa: D401,F401
+import warnings
+from typing import Annotated, Any, Dict, List, Literal
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, RootModel
+
+# Filter out Pydantic alias warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*`alias` specification on field.*must be set on outermost annotation.*",
+    category=UserWarning,
+    module="pydantic._internal._fields",
+)
+
+# Type aliases for special field names
+bytes_aliased = Annotated[bytes, Field(alias="bytes")]
+float_aliased = Annotated[float, Field(alias="float")]
 ```
 
 This prevents warnings about "alias must be outermost" that can appear if the

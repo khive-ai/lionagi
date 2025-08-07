@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import ConfigDict, Field
 from pydantic_core import PydanticUndefined
 
-from lionagi.utils import UNDEFINED
+from lionagi.utils import Undefined
 
 from ..generic.element import Element
 
@@ -41,7 +41,7 @@ class BaseForm(Element):
     )
 
     def is_completed(self) -> bool:
-        """Check if all required output fields are set (and not UNDEFINED/None if not allowed)."""
+        """Check if all required output fields are set (and not Undefined/None if not allowed)."""
         missing = self.check_completeness()
         return not missing
 
@@ -52,13 +52,13 @@ class BaseForm(Element):
         Return a list of any 'required' output fields that are missing or invalid.
         If how='raise', raise an exception if missing any.
         """
-        invalid_vals = [UNDEFINED, PydanticUndefined]
+        invalid_vals = [Undefined, PydanticUndefined]
         if not self.none_as_valid:
             invalid_vals.append(None)
 
         missing = []
         for f in self.output_fields:
-            val = getattr(self, f, UNDEFINED)
+            val = getattr(self, f, Undefined)
             if val in invalid_vals:
                 missing.append(f)
 
@@ -71,12 +71,12 @@ class BaseForm(Element):
         Return a dict of all `output_fields`, optionally skipping invalid/None if `valid_only`.
         """
         results = {}
-        invalid_vals = [UNDEFINED, PydanticUndefined]
+        invalid_vals = [Undefined, PydanticUndefined]
         if not self.none_as_valid:
             invalid_vals.append(None)
 
         for f in self.output_fields:
-            val = getattr(self, f, UNDEFINED)
+            val = getattr(self, f, Undefined)
             if valid_only and val in invalid_vals:
                 continue
             results[f] = val

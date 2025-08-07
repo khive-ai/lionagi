@@ -13,7 +13,7 @@ from lionagi.libs.nested.nget import nget
 from lionagi.libs.nested.ninsert import ninsert
 from lionagi.libs.nested.npop import npop
 from lionagi.libs.nested.nset import nset
-from lionagi.utils import UNDEFINED, copy, to_list
+from lionagi.utils import Undefined, copy, to_list
 
 IndiceType: TypeAlias = str | list[str | int]
 
@@ -87,11 +87,11 @@ class Note(BaseModel):
         """Convert Note to dictionary, excluding undefined values.
 
         Returns:
-            Dictionary representation with UNDEFINED values removed
+            Dictionary representation with Undefined values removed
         """
         out = copy(self.content)
         for k, v in self.content.items():
-            if v is UNDEFINED:
+            if v is Undefined:
                 out.pop(k)
         return out
 
@@ -99,7 +99,7 @@ class Note(BaseModel):
         self,
         indices: IndiceType,
         /,
-        default: Any = UNDEFINED,
+        default: Any = Undefined,
     ) -> Any:
         """Remove and return item from nested structure.
 
@@ -150,7 +150,7 @@ class Note(BaseModel):
         self,
         indices: IndiceType,
         /,
-        default: Any = UNDEFINED,
+        default: Any = Undefined,
     ) -> Any:
         """Get value from nested structure at specified indices.
 
@@ -307,7 +307,7 @@ class Note(BaseModel):
         Returns:
             True if the path exists in the nested structure, False otherwise.
         """
-        return self.content.get(indices, UNDEFINED) is not UNDEFINED
+        return self.content.get(indices, Undefined) is not Undefined
 
     def __len__(self) -> int:
         """Get length of content.

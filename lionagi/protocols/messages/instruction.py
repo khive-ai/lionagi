@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, JsonValue, field_serializer
 from typing_extensions import override
 
-from lionagi.utils import UNDEFINED, breakdown_pydantic_annotation, copy
+from lionagi.utils import Undefined, breakdown_pydantic_annotation, copy
 
 from .base import MessageRole
 from .message import RoledMessage, SenderRecipient
@@ -295,8 +295,8 @@ def prepare_instruction_content(
     if plain_content:
         out_["plain_content"] = plain_content
 
-    # remove keys with None/UNDEFINED
-    return {k: v for k, v in out_.items() if v not in [None, UNDEFINED]}
+    # remove keys with None/Undefined
+    return {k: v for k, v in out_.items() if v not in [None, Undefined]}
 
 
 class Instruction(RoledMessage):

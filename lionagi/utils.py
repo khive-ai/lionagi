@@ -34,9 +34,12 @@ from inspect import isclass
 from pathlib import Path
 from typing import (
     Any,
+    Final,
     Literal,
+    Optional,
     TypedDict,
     TypeVar,
+    Union,
     get_args,
     get_origin,
     overload,
@@ -58,11 +61,23 @@ logger = logging.getLogger(__name__)
 
 
 __all__ = (
+    "_SingletonMeta",
+    "SingletonType",
     "UndefinedType",
+    "UnsetType",
+    "Undefined",
+    "UNDEFINED",
+    "Unset",
+    "MaybeUndefined",
+    "MaybeUnset",
+    "MaybeSentinel",
+    "is_undefined",
+    "is_unset",
+    "is_sentinel",
+    "not_sentinel",
     "KeysDict",
     "Params",
     "DataClass",
-    "UNDEFINED",
     "copy",
     "is_same_dtype",
     "get_file_classes",
@@ -100,27 +115,100 @@ __all__ = (
 
 
 class StringEnum(str, Enum):
-
     @classmethod
     def allowed(cls) -> tuple[str, ...]:
         return tuple(e.value for e in cls)
 
 
-class UndefinedType:
-    def __init__(self) -> None:
-        self.undefined = True
+# ------------------------------- Singleton infrastructure ----------------------------------- #
+class _SingletonMeta(type):
+    """Metaclass that guarantees exactly one instance per subclass.
+
+    This ensures that sentinel values maintain identity across the entire application,
+    allowing safe identity checks with 'is' operator.
+    """
+
+    _cache: dict[type, "SingletonType"] = {}
+
+    def __call__(cls, *a, **kw):
+        if cls not in cls._cache:
+            cls._cache[cls] = super().__call__(*a, **kw)
+        return cls._cache[cls]
+
+
+class SingletonType(metaclass=_SingletonMeta):
+    """Base class for singleton sentinel types.
+
+    Provides consistent interface for sentinel values with:
+    - Identity preservation across deepcopy
+    - Falsy boolean evaluation
+    - Clear string representation
+    """
+
+    __slots__: tuple[str, ...] = ()
+
+    def __deepcopy__(self, memo):  # copy & deepcopy both noop
+        return self
+
+    def __copy__(self):
+        return self
+
+    # concrete classes *must* override the two methods below
+    def __bool__(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+
+class UndefinedType(SingletonType):
+    """Sentinel for a key or field entirely missing from a namespace.
+
+    Use this when:
+    - A field has never been set
+    - A key doesn't exist in a mapping
+    - A value is conceptually undefined (not just unset)
+
+    Example:
+        >>> d = {"a": 1}
+        >>> d.get("b", Undefined) is Undefined
+        True
+    """
+
+    __slots__ = ()
 
     def __bool__(self) -> Literal[False]:
         return False
 
-    def __deepcopy__(self, memo):
-        # Ensure UNDEFINED is universal
-        return self
+    def __repr__(self) -> Literal["Undefined"]:
+        return "Undefined"
 
-    def __repr__(self) -> Literal["UNDEFINED"]:
-        return "UNDEFINED"
+    def __str__(self) -> Literal["Undefined"]:
+        return "Undefined"
 
-    __slots__ = ["undefined"]
+
+class UnsetType(SingletonType):
+    """Sentinel for a key present but value not yet provided.
+
+    Use this when:
+    - A parameter exists but hasn't been given a value
+    - Distinguishing between None and "not provided"
+    - API parameters that are optional but need explicit handling
+
+    Example:
+        >>> def func(param=Unset):
+        ...     if param is not Unset:
+        ...         # param was explicitly provided
+        ...         process(param)
+    """
+
+    __slots__ = ()
+
+    def __bool__(self) -> Literal[False]:
+        return False
+
+    def __repr__(self) -> Literal["Unset"]:
+        return "Unset"
+
+    def __str__(self) -> Literal["Unset"]:
+        return "Unset"
 
 
 class KeysDict(TypedDict, total=False):
@@ -158,8 +246,179 @@ class DataClass(ABC):
     pass
 
 
-# --- Create a global UNDEFINED object ---
-UNDEFINED = UndefinedType()
+# --- Create global singleton instances ---
+Undefined: Final = UndefinedType()
+Unset: Final = UnsetType()
+
+# --- Backwards compatibility ---
+UNDEFINED: Final = Undefined
+
+# --- Type aliases for better type hints ---
+MaybeUndefined = Union[T, UndefinedType]
+MaybeUnset = Union[T, UnsetType]
+MaybeSentinel = Union[T, UndefinedType, UnsetType]
+
+
+# --- Parameter validation utilities ---
+def validate_param(
+    value: Any,
+    param_name: str,
+    default: T = Undefined,
+    validator: Callable[[Any], bool] | None = None,
+    transformer: Callable[[Any], T] | None = None,
+    required: bool = False,
+    allow_none: bool = True,
+) -> T:
+    """Validate and optionally transform a parameter with precise sentinel handling."""
+    # Handle missing required parameters
+    if required and is_undefined(value):
+        raise TypeError(f"Required parameter '{param_name}' is missing")
+
+    # Apply default for undefined values
+    if is_undefined(value):
+        if is_undefined(default):
+            return None if allow_none else Undefined
+        return default
+
+    # Handle Unset sentinel (present but not yet set)
+    if is_unset(value):
+        if required:
+            raise ValueError(f"Required parameter '{param_name}' is unset")
+        return default if not is_undefined(default) else None
+
+    # Handle None values
+    if value is None:
+        if not allow_none:
+            raise ValueError(f"Parameter '{param_name}' cannot be None")
+        return value
+
+    # Apply transformer if provided
+    if transformer:
+        try:
+            value = transformer(value)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to transform parameter '{param_name}': {e}"
+            )
+
+    # Apply validator if provided
+    if validator:
+        try:
+            if not validator(value):
+                raise ValueError(
+                    f"Validation failed for parameter '{param_name}'"
+                )
+        except Exception as e:
+            raise ValueError(
+                f"Validation error for parameter '{param_name}': {e}"
+            )
+
+    return value
+
+
+def coalesce(
+    *values: Any, default: Any = None, skip_sentinels: bool = True
+) -> Any:
+    """Return the first non-sentinel (and optionally non-None) value."""
+    for value in values:
+        if skip_sentinels and is_sentinel(value):
+            continue
+        if value is not None:
+            return value
+    return default
+
+
+def require_one_of(**kwargs) -> tuple[str, Any]:
+    """Ensure exactly one of the provided parameters is not a sentinel."""
+    provided = [(k, v) for k, v in kwargs.items() if not_sentinel(v)]
+
+    if len(provided) == 0:
+        params = ", ".join(kwargs.keys())
+        raise ValueError(f"One of {params} must be provided")
+
+    if len(provided) > 1:
+        params = ", ".join(kwargs.keys())
+        raise ValueError(f"Exactly one of {params} must be provided")
+
+    return provided[0]
+
+
+# --- Sentinel utility functions ---
+
+
+def is_undefined(value: Any) -> bool:
+    """Check if a value is the Undefined sentinel.
+
+    Args:
+        value: The value to check.
+
+    Returns:
+        bool: True if value is Undefined, False otherwise.
+
+    Example:
+        >>> is_undefined(Undefined)
+        True
+        >>> is_undefined(None)
+        False
+    """
+    return value is Undefined
+
+
+def is_unset(value: Any) -> bool:
+    """Check if a value is the Unset sentinel.
+
+    Args:
+        value: The value to check.
+
+    Returns:
+        bool: True if value is Unset, False otherwise.
+
+    Example:
+        >>> is_unset(Unset)
+        True
+        >>> is_unset(None)
+        False
+    """
+    return value is Unset
+
+
+def is_sentinel(value: Any) -> bool:
+    """Check if a value is any sentinel (Undefined or Unset).
+
+    Args:
+        value: The value to check.
+
+    Returns:
+        bool: True if value is a sentinel, False otherwise.
+
+    Example:
+        >>> is_sentinel(Undefined)
+        True
+        >>> is_sentinel(Unset)
+        True
+        >>> is_sentinel(None)
+        False
+    """
+    return value is Undefined or value is Unset
+
+
+def not_sentinel(value: Any) -> bool:
+    """Check if a value is NOT a sentinel.
+
+    Useful for filtering operations.
+
+    Args:
+        value: The value to check.
+
+    Returns:
+        bool: True if value is not a sentinel, False otherwise.
+
+    Example:
+        >>> values = [1, Undefined, 2, Unset, 3]
+        >>> list(filter(not_sentinel, values))
+        [1, 2, 3]
+    """
+    return value is not Undefined and value is not Unset
 
 
 # --- General Global Utilities Functions ---
@@ -633,7 +892,7 @@ async def alcall(
     initial_delay: float = 0,
     retry_delay: float = 0,
     backoff_factor: float = 1,
-    retry_default: Any = UNDEFINED,
+    retry_default: Any = Undefined,
     retry_timeout: float | None = None,
     max_concurrent: int | None = None,
     throttle_period: float | None = None,
@@ -769,7 +1028,7 @@ async def alcall(
                     # Retry loop continues
                 else:
                     # Exhausted retries
-                    if retry_default is not UNDEFINED:
+                    if retry_default is not Undefined:
                         return index, retry_default
                     # No default, re-raise
                     raise
@@ -826,7 +1085,7 @@ async def bcall(
     initial_delay: float = 0,
     retry_delay: float = 0,
     backoff_factor: float = 1,
-    retry_default: Any = UNDEFINED,
+    retry_default: Any = Undefined,
     retry_timeout: float | None = None,
     max_concurrent: int | None = None,
     throttle_period: float | None = None,

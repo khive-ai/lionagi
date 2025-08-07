@@ -16,7 +16,6 @@ from .hook_registry import HookRegistry
 
 
 class HookEvent(Event):
-
     registry: HookRegistry = Field(..., exclude=True)
     hook_type: HookEventTypes
     exit: bool = Field(False, exclude=True)

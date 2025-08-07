@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from lionagi.libs.validate.fuzzy_validate_mapping import fuzzy_validate_mapping
-from lionagi.utils import UNDEFINED
+from lionagi.utils import Undefined
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -118,8 +118,8 @@ async def communicate(
             res.response,
             request_fields,
             handle_unmatched="force",
-            fill_value=UNDEFINED,
+            fill_value=Undefined,
         )
-        return {k: v for k, v in _d.items() if v != UNDEFINED}
+        return {k: v for k, v in _d.items() if v != Undefined}
 
     return res.response

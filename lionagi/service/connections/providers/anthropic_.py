@@ -7,28 +7,41 @@ from pydantic import BaseModel
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
+
 from lionagi.service.third_party.anthropic_models import CreateMessageRequest
 
-ANTHROPIC_MESSAGES_ENDPOINT_CONFIG = EndpointConfig(
-    name="anthropic_messages",
-    provider="anthropic",
-    base_url="https://api.anthropic.com/v1",
-    endpoint="messages",
-    method="POST",
-    openai_compatible=False,
-    auth_type="x-api-key",
-    default_headers={"anthropic-version": "2023-06-01"},
-    api_key=settings.ANTHROPIC_API_KEY or "dummy-key-for-testing",
-    request_options=CreateMessageRequest,
-)
+__all__ = ("AnthropicMessagesEndpoint", "CreateMessageRequest")
 
 
 class AnthropicMessagesEndpoint(Endpoint):
-    def __init__(
-        self,
-        config: EndpointConfig = ANTHROPIC_MESSAGES_ENDPOINT_CONFIG,
-        **kwargs,
-    ):
+    def __init__(self, config=None, **kwargs):
+        from ...third_party.anthropic_models import CreateMessageRequest
+
+        # Check if api_key is provided in kwargs
+        api_key = kwargs.get(
+            "api_key", settings.ANTHROPIC_API_KEY or "dummy-key-for-testing"
+        )
+
+        _config = {
+            "name": "anthropic_messages",
+            "provider": "anthropic",
+            "base_url": "https://api.anthropic.com/v1",
+            "endpoint": "messages",
+            "method": "POST",
+            "openai_compatible": False,
+            "auth_type": "x-api-key",
+            "default_headers": {"anthropic-version": "2023-06-01"},
+            "api_key": api_key,
+            "context_window": 200_000,  # Claude context window
+            "request_options": CreateMessageRequest,
+        }
+
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump()
+        _config.update(config)
+        config = EndpointConfig(**_config)
+
         super().__init__(config, **kwargs)
 
     def create_payload(

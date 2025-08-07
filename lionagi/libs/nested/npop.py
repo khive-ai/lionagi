@@ -5,14 +5,14 @@
 from collections.abc import Sequence
 from typing import Any
 
-from lionagi.utils import UNDEFINED, to_list
+from lionagi.utils import Undefined, to_list
 
 
 def npop(
     input_: dict[str, Any] | list[Any],
     /,
     indices: str | int | Sequence[str | int],
-    default: Any = UNDEFINED,
+    default: Any = Undefined,
 ) -> Any:
     """
     Perform a nested pop operation on the input structure.
@@ -63,7 +63,7 @@ def npop(
             last_key,
         )
     except Exception as e:
-        if default is not UNDEFINED:
+        if default is not Undefined:
             return default
         else:
             raise KeyError(f"Invalid npop. Error: {e}")

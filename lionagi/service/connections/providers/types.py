@@ -1,4 +1,4 @@
-from .anthropic_ import AnthropicMessagesEndpoint
+from .anthropic_ import AnthropicMessagesEndpoint, CreateMessageRequest
 from .claude_code_ import ClaudeCodeEndpoint, ClaudeCodeRequest
 from .claude_code_cli import ClaudeCodeCLIEndpoint
 from .exa_ import ExaSearchEndpoint, ExaSearchRequest
@@ -14,6 +14,7 @@ from .perplexity_ import PerplexityChatEndpoint, PerplexityChatRequest
 
 __all__ = (
     "AnthropicMessagesEndpoint",
+    "CreateMessageRequest",
     "ClaudeCodeEndpoint",
     "ClaudeCodeRequest",
     "ClaudeCodeCLIEndpoint",

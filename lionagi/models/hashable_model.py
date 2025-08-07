@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from lionagi.libs.hash.hash_dict import hash_dict
-from lionagi.utils import UNDEFINED
+from lionagi.utils import Undefined
 
 
 class HashableModel(BaseModel):
@@ -11,7 +11,7 @@ class HashableModel(BaseModel):
         return {
             k: v
             for k, v in self.model_dump(**kwargs).items()
-            if v is not UNDEFINED
+            if v is not Undefined
         }
 
     @classmethod

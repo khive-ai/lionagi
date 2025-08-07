@@ -7,27 +7,36 @@ from __future__ import annotations
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
+
+# Re-export for backward compatibility
 from lionagi.service.third_party.exa_models import ExaSearchRequest
 
-__all__ = ("ExaSearchEndpoint",)
-
-
-ENDPOINT_CONFIG = EndpointConfig(
-    name="exa_search",
-    provider="exa",
-    base_url="https://api.exa.ai",
-    endpoint="search",
-    method="POST",
-    request_options=ExaSearchRequest,
-    api_key=settings.EXA_API_KEY or "dummy-key-for-testing",
-    timeout=120,
-    max_retries=3,
-    auth_type="x-api-key",
-    transport_type="http",
-    content_type="application/json",
-)
+__all__ = ("ExaSearchEndpoint", "ExaSearchRequest")
 
 
 class ExaSearchEndpoint(Endpoint):
-    def __init__(self, config=ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        from ...third_party.exa_models import ExaSearchRequest
+
+        _config = {
+            "name": "exa_search",
+            "provider": "exa",
+            "base_url": "https://api.exa.ai",
+            "endpoint": "search",
+            "method": "POST",
+            "api_key": settings.EXA_API_KEY or "dummy-key-for-testing",
+            "timeout": 120,
+            "max_retries": 3,
+            "auth_type": "x-api-key",
+            "transport_type": "http",
+            "content_type": "application/json",
+            "request_options": ExaSearchRequest,
+        }
+
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump()
+        _config.update(config)
+        config = EndpointConfig(**_config)
+
         super().__init__(config=config, **kwargs)

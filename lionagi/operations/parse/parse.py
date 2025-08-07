@@ -8,7 +8,11 @@ from pydantic import BaseModel
 
 from lionagi.libs.validate.fuzzy_validate_mapping import fuzzy_validate_mapping
 from lionagi.protocols.types import Operative
-from lionagi.utils import breakdown_pydantic_annotation
+from lionagi.utils import (
+    breakdown_pydantic_annotation,
+    coalesce,
+    require_one_of,
+)
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -37,15 +41,20 @@ async def parse(
 ):
     if operative is not None:
         max_retries = operative.max_retries
-        response_format = operative.request_type or response_format
-        request_type = request_type or operative.request_type
+        response_format = coalesce(operative.request_type, response_format)
+        request_type = coalesce(request_type, operative.request_type)
 
-    if not request_type and not response_format:
+    # If both are provided and are the same, that's okay - just use one
+    if request_type and response_format and request_type == response_format:
+        # Both point to the same model, which is fine
+        pass
+    elif not request_type and not response_format:
         raise ValueError(
             "Either request_type or response_format must be provided"
         )
 
-    request_type = request_type or response_format
+    # Use first non-None value
+    request_type = coalesce(request_type, response_format)
 
     # First attempt: try to parse the text directly
     import logging

@@ -20,7 +20,7 @@ from pydantic import (
 from lionagi._class_registry import get_class
 from lionagi._errors import IDError
 from lionagi.settings import Settings
-from lionagi.utils import UNDEFINED, time, to_dict
+from lionagi.utils import Undefined, time, to_dict
 
 from .._concepts import Collective, Observable, Ordering
 
@@ -297,14 +297,14 @@ class Element(BaseModel, Observable):
     def to_dict(self) -> dict:
         """Converts this Element to a dictionary.
 
-        All fields are included except those set to `UNDEFINED`.
+        All fields are included except those set to `Undefined`.
 
         Returns:
             dict: The dictionary representation of this Element.
         """
         dict_ = self.model_dump()
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
-        return {k: v for k, v in dict_.items() if v is not UNDEFINED}
+        return {k: v for k, v in dict_.items() if v is not Undefined}
 
     @classmethod
     def from_dict(cls, data: dict, /) -> Element:

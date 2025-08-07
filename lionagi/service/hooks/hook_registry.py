@@ -7,7 +7,7 @@ from typing import Any, TypeVar
 
 from lionagi.libs.concurrency import get_cancelled_exc_class
 from lionagi.protocols.types import Event, EventStatus
-from lionagi.utils import UNDEFINED
+from lionagi.utils import Undefined, require_one_of
 
 from ._types import HookDict, HookEventTypes, StreamHandlers
 from ._utils import validate_hooks, validate_stream_handlers
@@ -16,7 +16,6 @@ E = TypeVar("E", bound=Event)
 
 
 class HookRegistry:
-
     def __init__(
         self,
         hooks: HookDict = None,
@@ -99,7 +98,7 @@ class HookRegistry:
             )
             return (res, False, EventStatus.COMPLETED)
         except get_cancelled_exc_class():
-            return (UNDEFINED, True, EventStatus.CANCELLED)
+            return (Undefined, True, EventStatus.CANCELLED)
         except Exception as e:
             return (e, exit, EventStatus.CANCELLED)
 
@@ -124,7 +123,7 @@ class HookRegistry:
             )
             return (res, False, EventStatus.COMPLETED)
         except get_cancelled_exc_class() as e:
-            return ((UNDEFINED, e), True, EventStatus.CANCELLED)
+            return ((Undefined, e), True, EventStatus.CANCELLED)
         except Exception as e:
             return (e, exit, EventStatus.CANCELLED)
 
@@ -145,7 +144,7 @@ class HookRegistry:
             )
             return (res, False, EventStatus.COMPLETED)
         except get_cancelled_exc_class():
-            return (UNDEFINED, True, EventStatus.CANCELLED)
+            return (Undefined, True, EventStatus.CANCELLED)
         except Exception as e:
             return (e, exit, EventStatus.ABORTED)
 
@@ -189,8 +188,8 @@ class HookRegistry:
         If chunk_type is provided, it will call the corresponding stream handler.
         If both are provided, method will be used.
         """
-        if hook_type is None and chunk_type is None:
-            raise ValueError("Either method or chunk_type must be provided")
+        # Ensure at least one parameter is provided
+        require_one_of({"hook_type": hook_type, "chunk_type": chunk_type})
         if hook_type:
             meta = {}
             meta["event_type"] = event_like.class_name(full=True)
