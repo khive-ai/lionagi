@@ -8,9 +8,7 @@ from lionagi.fields.instruct import Instruct
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.providers.oai_ import (
-    OPENAI_CHAT_ENDPOINT_CONFIG,
-)
+from lionagi.service.connections.providers.oai_ import OpenaiChatEndpoint
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch
 
@@ -19,7 +17,7 @@ def make_mocked_branch_for_instruct():
     branch = Branch(user="tester_fixture", name="BranchForTests_Instruct")
 
     async def _fake_invoke(**kwargs):
-        endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+        endpoint = OpenaiChatEndpoint(api_key="test")
         fake_call = APICalling(
             payload={"model": "gpt-4o-mini", "messages": []},
             headers={"Authorization": "Bearer test"},

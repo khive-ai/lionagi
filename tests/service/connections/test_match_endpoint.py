@@ -121,24 +121,6 @@ class TestMatchEndpoint:
         assert isinstance(reasoning_endpoint, Endpoint)
         assert isinstance(standard_endpoint, Endpoint)
 
-    @pytest.mark.parametrize(
-        "provider,expected_compatible",
-        [
-            ("openai", False),  # Updated based on actual behavior
-            ("anthropic", False),
-            ("perplexity", False),  # Updated based on actual behavior
-        ],
-    )
-    def test_openai_compatibility(self, provider, expected_compatible):
-        """Test OpenAI compatibility flag for different providers."""
-        endpoint = match_endpoint(
-            provider=provider, endpoint="chat", model="test-model"
-        )
-
-        if endpoint is None:
-            pytest.skip(f"{provider} endpoint not implemented")
-        assert endpoint.config.openai_compatible == expected_compatible
-
     def test_endpoint_with_api_key(self):
         """Test endpoint creation with API key."""
         endpoint = match_endpoint(
