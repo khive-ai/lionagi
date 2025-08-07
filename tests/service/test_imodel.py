@@ -176,15 +176,6 @@ class TestiModel:
 
         assert imodel.model_name == "gpt-4o-mini"
 
-    def test_allowed_roles_property(self):
-        """Test allowed_roles property."""
-        imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
-        )
-
-        expected_roles = {"system", "user", "assistant"}
-        assert imodel.allowed_roles == expected_roles
-
     def test_request_options_property(self):
         """Test request_options property."""
         imodel = iModel(

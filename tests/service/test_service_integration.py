@@ -62,7 +62,6 @@ class TestServiceIntegration:
 
         endpoint = Endpoint(config=config)
         assert endpoint.config == config
-        # Note: allowed_roles is a property of iModel, not Endpoint
 
     def test_endpoint_payload_creation(self):
         """Test endpoint payload creation."""
