@@ -5,6 +5,7 @@
 from .connections.api_calling import APICalling
 from .connections.endpoint import Endpoint, EndpointConfig
 from .connections.providers.types import *
+from .hooks import *
 from .imodel import iModel
 from .manager import iModelManager
 from .rate_limited_processor import RateLimitedAPIExecutor
@@ -32,4 +33,9 @@ __all__ = (
     "OllamaChatEndpoint",
     "PerplexityChatEndpoint",
     "PerplexityChatRequest",
+    "HookEventTypes",
+    "HookDict",
+    "AssosiatedEventInfo",
+    "HookEvent",
+    "HookRegistry",
 )
