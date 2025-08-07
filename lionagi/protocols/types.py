@@ -12,6 +12,7 @@ from ._concepts import (
     Ordering,
     Relational,
     Sendable,
+    Invariant,
 )
 from .action.manager import ActionManager, FunctionCalling, Tool, ToolRef
 from .forms.flow import FlowDefinition, FlowStep
@@ -107,4 +108,5 @@ __all__ = (
     "FunctionCalling",
     "ToolRef",
     "MailManager",
+    "Invariant",
 )
