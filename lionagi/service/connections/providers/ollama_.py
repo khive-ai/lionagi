@@ -6,9 +6,7 @@ from pydantic import BaseModel
 
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.third_party.openai_models import (
-    CreateChatCompletionRequest,
-)
+
 from lionagi.utils import is_import_installed
 
 _HAS_OLLAMA = is_import_installed("ollama")
@@ -25,7 +23,6 @@ OLLAMA_CHAT_ENDPOINT_CONFIG = EndpointConfig(
     content_type="application/json",
     auth_type="none",  # No authentication
     default_headers={},  # No auth headers needed
-    request_options=CreateChatCompletionRequest,  # Use Pydantic model for validation
 )
 
 

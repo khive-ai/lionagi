@@ -7,10 +7,6 @@ from pydantic import BaseModel
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.third_party.openai_models import (
-    CreateChatCompletionRequest,
-    CreateResponse,
-)
 
 __all__ = (
     "OpenaiChatEndpoint",
@@ -31,7 +27,6 @@ OPENAI_CHAT_ENDPOINT_CONFIG = EndpointConfig(
     content_type="application/json",
     method="POST",
     requires_tokens=True,
-    request_options=CreateChatCompletionRequest,
 )
 
 OPENAI_RESPONSE_ENDPOINT_CONFIG = EndpointConfig(
@@ -45,7 +40,6 @@ OPENAI_RESPONSE_ENDPOINT_CONFIG = EndpointConfig(
     content_type="application/json",
     method="POST",
     requires_tokens=True,
-    request_options=CreateResponse,
 )
 
 OPENROUTER_CHAT_ENDPOINT_CONFIG = EndpointConfig(
@@ -58,7 +52,6 @@ OPENROUTER_CHAT_ENDPOINT_CONFIG = EndpointConfig(
     auth_type="bearer",
     content_type="application/json",
     method="POST",
-    request_options=CreateChatCompletionRequest,
 )
 
 OPENAI_EMBEDDING_ENDPOINT_CONFIG = EndpointConfig(
