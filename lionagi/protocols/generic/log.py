@@ -13,18 +13,19 @@ from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 from lionagi.utils import create_path, to_dict
 
-from .._concepts import Manager
 from .element import Element
 from .pile import Pile
 
 __all__ = (
+    "DataLoggerConfig",
     "LogManagerConfig",
     "Log",
+    "DataLogger",
     "LogManager",
 )
 
 
-class LogManagerConfig(BaseModel):
+class DataLoggerConfig(BaseModel):
     persist_dir: str | Path = "./data/logs"
     subfolder: str | None = None
     file_prefix: str | None = None
@@ -101,7 +102,7 @@ class Log(Element):
         return cls(content=content)
 
 
-class LogManager(Manager):
+class DataLogger:
     """
     Manages a collection of logs, optionally auto-dumping them
     to CSV or JSON when capacity is reached or at program exit.
@@ -111,7 +112,7 @@ class LogManager(Manager):
         self,
         *,
         logs: Any = None,
-        _config: LogManagerConfig = None,
+        _config: DataLoggerConfig = None,
         **kwargs,
     ):
         """
@@ -128,7 +129,7 @@ class LogManager(Manager):
             clear_after_dump: Whether to clear logs after saving.
         """
         if _config is None:
-            _config = LogManagerConfig(**kwargs)
+            _config = DataLoggerConfig(**kwargs)
 
         if isinstance(logs, dict):
             self.logs = Pile.from_dict(logs)
@@ -226,12 +227,15 @@ class LogManager(Manager):
 
     @classmethod
     def from_config(
-        cls, config: LogManagerConfig, logs: Any = None
-    ) -> LogManager:
+        cls, config: DataLoggerConfig, logs: Any = None
+    ) -> DataLogger:
         """
         Construct a LogManager from a LogManagerConfig.
         """
         return cls(_config=config, logs=logs)
 
+
+LogManagerConfig = DataLoggerConfig
+LogManager = DataLogger
 
 # File: lionagi/protocols/generic/log.py

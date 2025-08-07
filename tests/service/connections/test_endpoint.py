@@ -47,7 +47,6 @@ class TestEndpoint:
         """Test that endpoint initializes correctly."""
         endpoint = Endpoint(config=openai_config)
         assert endpoint.config == openai_config
-        # Note: allowed_roles is a property of iModel, not Endpoint
 
     def test_endpoint_stateless_design(self, openai_config):
         """Test that endpoint is stateless between calls."""

@@ -215,8 +215,8 @@ class HookRegistry:
         ct_=None,
     ) -> bool:
         """Check if the registry can handle the given event or chunk type."""
-        if ht_ is not None:
+        if ht_:
             return ht_ in self._hooks
-        if ct_ is not None:
+        if ct_:
             return ct_ in self._stream_handlers
         return False

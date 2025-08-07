@@ -7,12 +7,15 @@ from collections.abc import AsyncGenerator, Callable
 
 from pydantic import BaseModel
 
-from lionagi.protocols.generic.event import EventStatus
-from lionagi.utils import is_coro_func
+from lionagi.protocols.generic.log import Log
+from lionagi.protocols.types import ID, Event, EventStatus, IDType
+from lionagi.service.hooks.hook_event import HookEventTypes
+from lionagi.utils import is_coro_func, time
 
 from .connections.api_calling import APICalling
 from .connections.endpoint import Endpoint
 from .connections.match_endpoint import match_endpoint
+from .hooks import HookEvent, HookRegistry, global_hook_logger
 from .rate_limited_processor import RateLimitedAPIExecutor
 
 
@@ -47,6 +50,10 @@ class iModel:
         concurrency_limit: int | None = None,
         streaming_process_func: Callable = None,
         provider_metadata: dict | None = None,
+        hook_registry: HookRegistry | dict | None = None,
+        exit_hook: bool = False,
+        id: IDType | str = None,
+        created_at: float | None = None,
         **kwargs,
     ) -> None:
         """Initializes the iModel instance.
@@ -86,6 +93,22 @@ class iModel:
                 Additional keyword arguments, such as `model`, or any other
                 provider-specific fields.
         """
+
+        # 1. put in ID and timestamp -----------------------------------------
+        self.id = None
+        self.created_at = None
+        if id is not None:
+            self.id = ID.get_id(id)
+        else:
+            self.id = IDType.create()
+        if created_at is not None:
+            if not isinstance(created_at, float):
+                raise ValueError("created_at must be a float timestamp.")
+            self.created_at = created_at
+        else:
+            self.created_at = time()
+
+        # 2. Configure Endpoint ---------------------------------------------
         model = kwargs.get("model", None)
         if model:
             if not provider:
@@ -96,7 +119,6 @@ class iModel:
                 else:
                     raise ValueError("Provider must be provided")
 
-        # Pass api_key to endpoint if provided
         if api_key is not None:
             kwargs["api_key"] = api_key
         if isinstance(endpoint, Endpoint):
@@ -112,6 +134,7 @@ class iModel:
         if base_url:
             self.endpoint.config.base_url = base_url
 
+        # 3. Configure executor ---------------------------------------------
         self.executor = RateLimitedAPIExecutor(
             queue_capacity=queue_capacity,
             capacity_refresh_time=capacity_refresh_time,
@@ -120,11 +143,52 @@ class iModel:
             limit_tokens=limit_tokens,
             concurrency_limit=concurrency_limit,
         )
-        # Use provided streaming_process_func or default to None
-        self.streaming_process_func = streaming_process_func
 
-        # Provider-specific metadata storage (e.g., session_id for Claude Code)
+        # 4. other configurations --------------------------------------------
+        self.streaming_process_func = streaming_process_func
         self.provider_metadata = provider_metadata or {}
+        self.hook_registry = hook_registry or HookRegistry()
+        if isinstance(self.hook_registry, dict):
+            self.hook_registry = HookRegistry(**self.hook_registry)
+        self.exit_hook = exit_hook
+
+    async def create_event(
+        self,
+        create_event_type: type[Event] = APICalling,
+        exit_hook: bool = None,
+        hook_timeout: float = 10.0,
+        hook_params: dict = None,
+        **kwargs,
+    ) -> tuple[HookEvent | None, APICalling]:
+        h_ev = None
+        if self.hook_registry._can_handle(ht_=HookEventTypes.PreEventCreate):
+            h_ev = HookEvent(
+                hook_type=HookEventTypes.PreEventCreate,
+                registry=self.hook_registry,
+                event_like=create_event_type,
+                params=hook_params or {},
+                exit=self.exit_hook if exit_hook is None else exit_hook,
+                timeout=hook_timeout,
+            )
+            await h_ev.invoke()
+            if h_ev._should_exit:
+                raise h_ev._exit_cause or RuntimeError(
+                    "PreEventCreate hook requested exit without a cause"
+                )
+
+        if create_event_type is APICalling:
+            api_call = self.create_api_calling(**kwargs)
+            if h_ev:
+                h_ev.assosiated_event_info["event_id"] = str(api_call.id)
+                h_ev.assosiated_event_info["event_created_at"] = (
+                    api_call.created_at
+                )
+                await global_hook_logger.alog(Log(content=h_ev.to_dict()))
+            return api_call
+
+        raise ValueError(
+            f"Unsupported event type: {create_event_type}. Only APICalling is supported."
+        )
 
     def create_api_calling(
         self, include_token_usage_to_model: bool = False, **kwargs
@@ -178,12 +242,7 @@ class iModel:
                 return await self.streaming_process_func(chunk)
             return self.streaming_process_func(chunk)
 
-    async def stream(
-        self,
-        api_call=None,
-        include_token_usage_to_model: bool = False,
-        **kwargs,
-    ) -> AsyncGenerator:
+    async def stream(self, api_call=None, **kw) -> AsyncGenerator:
         """Performs a streaming API call with the given arguments.
 
         Args:
@@ -196,11 +255,8 @@ class iModel:
                 goes wrong.
         """
         if api_call is None:
-            kwargs["stream"] = True
-            api_call = self.create_api_calling(
-                include_token_usage_to_model=include_token_usage_to_model,
-                **kwargs,
-            )
+            kw["stream"] = True
+            api_call = await self.create_event(**kw)
             await self.executor.append(api_call)
 
         if (
@@ -231,9 +287,7 @@ class iModel:
             finally:
                 yield self.executor.pile.pop(api_call.id)
 
-    async def invoke(
-        self, api_call: APICalling = None, **kwargs
-    ) -> APICalling | None:
+    async def invoke(self, api_call: APICalling = None, **kw) -> APICalling:
         """Invokes a rate-limited API call with the given arguments.
 
         Args:
@@ -251,8 +305,8 @@ class iModel:
         """
         try:
             if api_call is None:
-                kwargs.pop("stream", None)
-                api_call = self.create_api_calling(**kwargs)
+                kw.pop("stream", None)
+                api_call = await self.create_event(**kw)
             if (
                 self.executor.processor is None
                 or self.executor.processor.is_stopped()
@@ -292,18 +346,6 @@ class iModel:
             raise ValueError(f"Failed to invoke API call: {e}")
 
     @property
-    def allowed_roles(self) -> set[str]:
-        """list[str]: Roles that are permissible for this endpoint.
-
-        Returns:
-            If the endpoint has an `allowed_roles` attribute, returns that;
-            otherwise, defaults to `{"system", "user", "assistant"}`.
-        """
-        if hasattr(self.endpoint, "allowed_roles"):
-            return self.endpoint.allowed_roles
-        return {"system", "user", "assistant"}
-
-    @property
     def model_name(self) -> str:
         """str: The name of the model used by the endpoint.
 
@@ -323,6 +365,8 @@ class iModel:
 
     def to_dict(self):
         return {
+            "id": str(self.id) if self.id else None,
+            "created_at": self.created_at,
             "endpoint": self.endpoint.to_dict(),
             "processor_config": self.executor.config,
             "provider_metadata": self.provider_metadata,
@@ -343,5 +387,7 @@ class iModel:
         return cls(
             endpoint=e1,
             provider_metadata=data.get("provider_metadata"),
+            id=data.get("id"),
+            created_at=data.get("created_at"),
             **data.get("processor_config", {}),
         )
