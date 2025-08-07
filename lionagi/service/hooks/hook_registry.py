@@ -151,7 +151,7 @@ class HookRegistry:
 
     async def handle_streaming_chunk(
         self, chunk_type: str | type, chunk: Any, /, exit: bool = False, **kw
-    ) -> tuple[None | Exception, bool, EventStatus]:
+    ) -> tuple[Any, bool, EventStatus | None]:
         """Hook to be called to consume streaming chunks.
 
         Typically used for logging or stream event abortion.
@@ -166,11 +166,11 @@ class HookRegistry:
                 None,
                 **kw,
             )
-            return (res, False)
+            return (res, False, None)
         except get_cancelled_exc_class() as e:
-            return (e, True)
+            return (e, True, EventStatus.CANCELLED)
         except Exception as e:
-            return (e, exit)
+            return (e, exit, EventStatus.ABORTED)
 
     async def call(
         self,

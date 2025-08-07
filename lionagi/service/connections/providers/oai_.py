@@ -106,7 +106,33 @@ REASONING_NOT_SUPPORT_PARAMS = (
 
 
 class OpenaiChatEndpoint(Endpoint):
-    def __init__(self, config=OPENAI_CHAT_ENDPOINT_CONFIG, **kwargs):
+
+    def __init__(self, config=None, **kwargs):
+
+        from ...third_party.openai_models import CreateChatCompletionRequest
+
+        _config = {
+            "name": "openai_chat",
+            "provider": "openai",
+            "base_url": "https://api.openai.com/v1",
+            "endpoint": "chat/completions",
+            "kwargs": {"model": "gpt-4.1-nano"},
+            "api_key": settings.OPENAI_API_KEY,
+            "auth_type": "bearer",
+            "content_type": "application/json",
+            "method": "POST",
+            "requires_tokens": True,
+            "openai_compatible": True,
+            "context_window": 128_000,  # Default context window for OpenAI models
+            "request_options": CreateChatCompletionRequest,
+        }
+
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump()
+        _config.update(config)
+        config = EndpointConfig(**_config)
+
         super().__init__(config, **kwargs)
 
     def create_payload(
@@ -139,12 +165,51 @@ class OpenaiChatEndpoint(Endpoint):
 
 
 class OpenaiResponseEndpoint(Endpoint):
-    def __init__(self, config=OPENAI_RESPONSE_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        from ...third_party.openai_models import CreateResponse
+
+        _config = dict(
+            name="openai_response",
+            provider="openai",
+            base_url="https://api.openai.com/v1",
+            endpoint="chat/completions",  # OpenAI responses API uses same endpoint
+            kwargs={"model": "gpt-4.1-nano"},
+            api_key=settings.OPENAI_API_KEY,
+            auth_type="bearer",
+            content_type="application/json",
+            method="POST",
+            requires_tokens=True,
+            request_options=CreateResponse,
+        )
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump(exclude_none=True)
+        _config.update(config)
+        config = EndpointConfig(**_config)
+
         super().__init__(config, **kwargs)
 
 
 class OpenrouterChatEndpoint(Endpoint):
-    def __init__(self, config=OPENROUTER_CHAT_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+
+        _config = dict(
+            name="openrouter_chat",
+            provider="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            endpoint="chat/completions",
+            kwargs={"model": "google/gemini-2.5-flash"},
+            api_key=settings.OPENROUTER_API_KEY,
+            auth_type="bearer",
+            content_type="application/json",
+            method="POST",
+        )
+        config = config or {}
+        if isinstance(config, EndpointConfig):
+            config = config.model_dump(exclude_none=True)
+        _config.update(config)
+        config = EndpointConfig(**_config)
+
         super().__init__(config, **kwargs)
 
 
