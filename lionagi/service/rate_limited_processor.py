@@ -11,7 +11,7 @@ from typing_extensions import Self, override
 from lionagi.libs.concurrency import CapacityLimiter, Lock, move_on_after
 from lionagi.protocols.types import Executor, Processor
 
-from .connections.api_calling import APICalling
+from .connections.api_calling import APIEvent
 
 __all__ = (
     "RateLimitedAPIProcessor",
@@ -20,7 +20,7 @@ __all__ = (
 
 
 class RateLimitedAPIProcessor(Processor):
-    event_type = APICalling
+    event_type = APIEvent
 
     def __init__(
         self,

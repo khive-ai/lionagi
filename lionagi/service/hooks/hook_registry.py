@@ -204,7 +204,7 @@ class HookRegistry:
                 case HookEventTypes.PostInvokation:
                     meta["event_id"] = str(event_like.id)
                     meta["event_created_at"] = event_like.created_at
-                    return await self.post_invokation(**kw), meta
+                    return await self.post_invokation(event_like, **kw), meta
         return await self.handle_streaming_chunk(chunk_type, chunk, exit, **kw)
 
     def _can_handle(

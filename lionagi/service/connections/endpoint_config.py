@@ -4,7 +4,7 @@
 
 import logging
 import os
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -22,6 +22,25 @@ logger = logging.getLogger(__name__)
 
 
 B = TypeVar("B", bound=type[BaseModel])
+
+_TOKEN_LIMITS = {
+    # OpenAI models
+    "gpt-4": 128_000,
+    "gpt-4-turbo": 128_000,
+    "o1-mini": 128_000,
+    "o1-preview": 128_000,
+    "o1": 200_000,
+    "o3": 200_000,
+    "gpt-4.1": 1_000_000,
+    # Anthropic models
+    "sonnet": 200_000,
+    "haiku": 200_000,
+    "opus": 200_000,
+    # Google models
+    "gemini": 1_000_000,
+    # Alibaba models
+    "qwen-turbo": 1_000_000,
+}
 
 
 class EndpointConfig(BaseModel):
@@ -43,6 +62,7 @@ class EndpointConfig(BaseModel):
     requires_tokens: bool = False
     kwargs: dict = Field(default_factory=dict)
     client_kwargs: dict = Field(default_factory=dict)
+    context_window: int = 0
     _api_key: str | None = PrivateAttr(None)
 
     @model_validator(mode="before")

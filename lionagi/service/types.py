@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from .connections.api_calling import APICalling
+from .connections.api_calling import APICalling, APIEvent
 from .connections.endpoint import Endpoint, EndpointConfig
 from .connections.providers.types import *
 from .hooks import *
@@ -13,6 +13,7 @@ from .token_calculator import TokenCalculator
 
 __all__ = (
     "APICalling",
+    "APIEvent",
     "Endpoint",
     "EndpointConfig",
     "RateLimitedAPIExecutor",

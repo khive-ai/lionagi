@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-
 from lionagi.utils import is_import_installed
 
 _HAS_OLLAMA = is_import_installed("ollama")

@@ -74,37 +74,13 @@ class APICalling(Event):
             ):
                 required_tokens = self.required_tokens
                 content = self.payload["messages"][-1]["content"]
-                # Model token limit mapping
-                TOKEN_LIMITS = {
-                    # OpenAI models
-                    "gpt-4": 128_000,
-                    "gpt-4-turbo": 128_000,
-                    "o1-mini": 128_000,
-                    "o1-preview": 128_000,
-                    "o1": 200_000,
-                    "o3": 200_000,
-                    "gpt-4.1": 1_000_000,
-                    # Anthropic models
-                    "sonnet": 200_000,
-                    "haiku": 200_000,
-                    "opus": 200_000,
-                    # Google models
-                    "gemini": 1_000_000,
-                    # Alibaba models
-                    "qwen-turbo": 1_000_000,
-                }
-
                 token_msg = (
                     f"\n\nEstimated Current Token Usage: {required_tokens}"
                 )
-
-                # Find matching token limit
-                if "model" in self.payload:
-                    model = self.payload["model"]
-                    for model_prefix, limit in TOKEN_LIMITS.items():
-                        if model_prefix in model.lower():
-                            token_msg += f"/{limit:,}"
-                            break
+                if m := self.payload.get("model"):
+                    token_msg += f" (Model: {m})"
+                if cw := self.endpoint.config.context_window:
+                    token_msg += f" / Context Window: {cw:,}"
 
                 # Update content based on its type
                 if isinstance(content, str):
@@ -197,7 +173,7 @@ class APICalling(Event):
 
         except get_cancelled_exc_class():
             self.execution.error = "API call cancelled"
-            self.execution.status = EventStatus.FAILED
+            self.execution.status = EventStatus.CANCELLED
             raise
 
         except Exception as e:
@@ -219,6 +195,15 @@ class APICalling(Event):
 
         try:
             self.execution.status = EventStatus.PROCESSING
+            if h_ev := self._pre_invoke_hook_event:
+                await h_ev.invoke()
+                if h_ev._should_exit:
+                    raise h_ev._exit_cause or RuntimeError(
+                        "Pre-invocation hook requested exit without a cause"
+                    )
+                await global_hook_logger.alog(Log.create(h_ev))
+
+            self.execution.status = EventStatus.PROCESSING
 
             async for chunk in self.endpoint.stream(
                 request=self.payload,
@@ -227,8 +212,21 @@ class APICalling(Event):
                 response.append(chunk)
                 yield chunk
 
+            if h_ev := self._post_invoke_hook_event:
+                await h_ev.invoke()
+                if h_ev._should_exit:
+                    raise h_ev._exit_cause or RuntimeError(
+                        "Post-invocation hook requested exit without a cause"
+                    )
+                await global_hook_logger.alog(Log.create(h_ev))
+
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
+
+        except get_cancelled_exc_class():
+            self.execution.error = "API call cancelled"
+            self.execution.status = EventStatus.CANCELLED
+            raise
 
         except Exception as e:
             self.execution.error = str(e)
@@ -283,3 +281,6 @@ class APICalling(Event):
             params=hook_params or {},
         )
         self._post_invoke_hook_event = h_ev
+
+
+APIEvent = APICalling

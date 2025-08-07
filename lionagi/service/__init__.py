@@ -1,4 +1,4 @@
-from .connections.api_calling import APICalling
+from .connections.api_calling import APICalling, APIEvent
 from .connections.endpoint import Endpoint, EndpointConfig
 from .hooks import *
 from .imodel import iModel
@@ -8,6 +8,7 @@ from .token_calculator import TokenCalculator
 
 __all__ = (
     "APICalling",
+    "APIEvent",
     "Endpoint",
     "EndpointConfig",
     "RateLimitedAPIExecutor",

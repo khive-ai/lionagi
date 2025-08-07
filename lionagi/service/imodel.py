@@ -12,7 +12,7 @@ from lionagi.protocols.types import ID, Event, EventStatus, IDType
 from lionagi.service.hooks.hook_event import HookEventTypes
 from lionagi.utils import is_coro_func, time
 
-from .connections.api_calling import APICalling
+from .connections.api_calling import APIEvent
 from .connections.endpoint import Endpoint
 from .connections.match_endpoint import match_endpoint
 from .hooks import HookEvent, HookRegistry, global_hook_logger
@@ -154,7 +154,7 @@ class iModel:
 
     async def create_event(
         self,
-        create_event_type: type[Event] = APICalling,
+        create_event_type: type[Event] = APIEvent,
         create_event_exit_hook: bool = None,
         create_event_hook_timeout: float = 10.0,
         create_event_hook_params: dict = None,
@@ -165,7 +165,7 @@ class iModel:
         post_invoke_event_hook_timeout: float = 30.0,
         post_invoke_event_hook_params: dict = None,
         **kwargs,
-    ) -> tuple[HookEvent | None, APICalling]:
+    ) -> tuple[HookEvent | None, APIEvent]:
         h_ev = None
         if self.hook_registry._can_handle(ht_=HookEventTypes.PreEventCreate):
             h_ev = HookEvent(
@@ -186,7 +186,7 @@ class iModel:
                     "PreEventCreate hook requested exit without a cause"
                 )
 
-        if create_event_type is APICalling:
+        if create_event_type is APIEvent:
             api_call = self.create_api_calling(**kwargs)
             if h_ev:
                 h_ev.assosiated_event_info["event_id"] = str(api_call.id)
@@ -226,21 +226,21 @@ class iModel:
             return api_call
 
         raise ValueError(
-            f"Unsupported event type: {create_event_type}. Only APICalling is supported."
+            f"Unsupported event type: {create_event_type}. Only APIEvent is supported."
         )
 
     def create_api_calling(
         self, include_token_usage_to_model: bool = False, **kwargs
-    ) -> APICalling:
-        """Constructs an `APICalling` object from endpoint-specific payload.
+    ) -> APIEvent:
+        """Constructs an `APIEvent` object from endpoint-specific payload.
 
         Args:
             **kwargs:
                 Additional arguments used to generate the payload.
 
         Returns:
-            APICalling:
-                An `APICalling` instance with the constructed payload,
+            APIEvent:
+                An `APIEvent` instance with the constructed payload,
                 headers, and the selected endpoint.
         """
         # For Claude Code, auto-inject session_id for resume if available and not explicitly provided
@@ -258,7 +258,7 @@ class iModel:
         # Extract cache_control if provided
         cache_control = kwargs.pop("cache_control", False)
 
-        return APICalling(
+        return APIEvent(
             payload=payload,
             headers=headers,
             endpoint=self.endpoint,
@@ -276,7 +276,7 @@ class iModel:
             chunk:
                 A portion of the streamed data returned by the API.
         """
-        if self.streaming_process_func and not isinstance(chunk, APICalling):
+        if self.streaming_process_func and not isinstance(chunk, APIEvent):
             if is_coro_func(self.streaming_process_func):
                 return await self.streaming_process_func(chunk)
             return self.streaming_process_func(chunk)
@@ -289,8 +289,8 @@ class iModel:
                 Arguments for the request, merged with self.kwargs.
 
         Returns:
-            `APICalling` | None:
-                An APICalling instance upon success, or None if something
+            `APIEvent` | None:
+                An APIEvent instance upon success, or None if something
                 goes wrong.
         """
         if api_call is None:
@@ -326,7 +326,7 @@ class iModel:
             finally:
                 yield self.executor.pile.pop(api_call.id)
 
-    async def invoke(self, api_call: APICalling = None, **kw) -> APICalling:
+    async def invoke(self, api_call: APIEvent = None, **kw) -> APIEvent:
         """Invokes a rate-limited API call with the given arguments.
 
         Args:
@@ -334,8 +334,8 @@ class iModel:
                 Arguments for the request, merged with self.kwargs.
 
         Returns:
-            APICalling | None:
-                The `APICalling` object if successfully invoked and
+            APIEvent | None:
+                The `APIEvent` object if successfully invoked and
                 completed; otherwise None.
 
         Raises:
