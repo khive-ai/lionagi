@@ -24,6 +24,7 @@ class HookEvent(Event):
     params: dict[str, Any] = Field(default_factory=dict, exclude=True)
     event_like: Event | type[Event] = Field(..., exclude=True)
     _should_exit: bool = PrivateAttr(False)
+    _exit_cause: BaseException | None = PrivateAttr(None)
 
     assosiated_event_info: AssosiatedEventInfo | None = None
 
@@ -45,10 +46,12 @@ class HookEvent(Event):
                 if isinstance(res, tuple) and len(res) == 2:
                     self.execution.response = None
                     self.execution.error = str(res[1])
+                    self._exit_cause = res[1]
                     raise res[1]
                 if isinstance(res, Exception):
                     self.execution.response = None
                     self.execution.error = str(res)
+                    self._exit_cause = res
                 else:
                     self.execution.response = res
                     self.execution.error = None
