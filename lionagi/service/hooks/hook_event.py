@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 import anyio
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from lionagi.libs.concurrency import fail_after, get_cancelled_exc_class
 from lionagi.protocols.types import Event, EventStatus
@@ -23,7 +23,7 @@ class HookEvent(Event):
     timeout: int = Field(30, exclude=True)
     params: dict[str, Any] = Field(default_factory=dict, exclude=True)
     event_like: Event | type[Event] = Field(..., exclude=True)
-    should_exit = Field(False, exclude=True)
+    _should_exit: bool = PrivateAttr(False)
 
     assosiated_event_info: AssosiatedEventInfo | None = None
 
@@ -40,7 +40,7 @@ class HookEvent(Event):
                 )
 
                 self.assosiated_event_info = AssosiatedEventInfo(**meta)
-                self.should_exit = se
+                self._should_exit = se
                 self.execution.status = st
                 if isinstance(res, tuple) and len(res) == 2:
                     self.execution.response = None
@@ -59,7 +59,7 @@ class HookEvent(Event):
             self.execution.status = EventStatus.FAILED
             self.execution.response = None
             self.execution.error = str(e)
-            self.should_exit = True
+            self._should_exit = True
 
         finally:
             self.execution.duration = anyio.current_time() - start
