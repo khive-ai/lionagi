@@ -4,20 +4,20 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
 
 from lionagi.service.connections.endpoint import Endpoint, EndpointConfig
 from lionagi.utils import to_dict
 
-from ._claude_code.models import ClaudeCodeRequest
-from ._claude_code.stream_cli import (
+from ...third_party.claude_code import (
     ClaudeChunk,
+    ClaudeCodeRequest,
     ClaudeSession,
-    log,
-    stream_claude_code_cli,
 )
+from ...third_party.claude_code import log as cc_log
+from ...third_party.claude_code import stream_claude_code_cli
 
 ENDPOINT_CONFIG = EndpointConfig(
     name="claude_code_cli",
@@ -29,6 +29,27 @@ ENDPOINT_CONFIG = EndpointConfig(
     timeout=18000,  # 30 mins
 )
 
+_CLAUDE_HANDLER_PARAMS = (
+    "on_thinking",
+    "on_text",
+    "on_tool_use",
+    "on_tool_result",
+    "on_system",
+    "on_final",
+)
+
+
+def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
+    if not isinstance(handlers, dict):
+        raise ValueError("Handlers must be a dictionary")
+    for k, v in handlers.items():
+        if k not in _CLAUDE_HANDLER_PARAMS:
+            raise ValueError(f"Invalid handler key: {k}")
+        if not (v is None or callable(v)):
+            raise ValueError(
+                f"Handler value must be callable or None, got {type(v)}"
+            )
+
 
 class ClaudeCodeCLIEndpoint(Endpoint):
     def __init__(self, config: EndpointConfig = ENDPOINT_CONFIG, **kwargs):
@@ -36,15 +57,18 @@ class ClaudeCodeCLIEndpoint(Endpoint):
 
     @property
     def claude_handlers(self):
-        handlers = {
-            "on_thinking": None,
-            "on_text": None,
-            "on_tool_use": None,
-            "on_tool_result": None,
-            "on_system": None,
-            "on_final": None,
-        }
+        handlers = {k: None for k in _CLAUDE_HANDLER_PARAMS}
         return self.config.kwargs.get("claude_handlers", handlers)
+
+    @claude_handlers.setter
+    def claude_handlers(self, value: dict):
+        _validate_handlers(value)
+        self.config.kwargs["claude_handlers"] = value
+
+    def update_handlers(self, **kwargs):
+        _validate_handlers(kwargs)
+        handlers = {**self.claude_handlers, **kwargs}
+        self.claude_handlers = handlers
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
@@ -75,6 +99,8 @@ class ClaudeCodeCLIEndpoint(Endpoint):
             request, session, **self.claude_handlers, **kwargs
         ):
             if isinstance(chunk, dict):
+                if chunk.get("type") == "done":
+                    break
                 system = chunk
             responses.append(chunk)
 
@@ -92,7 +118,7 @@ class ClaudeCodeCLIEndpoint(Endpoint):
                 responses.append(chunk)
                 if isinstance(chunk, ClaudeSession):
                     break
-        log.info(
+        cc_log.info(
             f"Session {session.session_id} finished with {len(responses)} chunks"
         )
         texts = []
@@ -102,4 +128,7 @@ class ClaudeCodeCLIEndpoint(Endpoint):
 
         texts.append(session.result)
         session.result = "\n".join(texts)
+        if request.cli_include_summary:
+            session.populate_summary()
+
         return to_dict(session, recursive=True)
