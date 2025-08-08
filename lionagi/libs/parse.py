@@ -8,7 +8,8 @@ from lionagi.libs.schema.function_to_schema import function_to_schema
 from lionagi.libs.validate.fuzzy_match_keys import fuzzy_match_keys
 from lionagi.libs.validate.fuzzy_validate_mapping import fuzzy_validate_mapping
 from lionagi.libs.validate.string_similarity import string_similarity
-from lionagi.utils import fuzzy_parse_json, to_dict, to_json, to_num
+from lionagi.libs.validate.to_num import to_num
+from lionagi.utils import fuzzy_parse_json, to_dict, to_json
 
 validate_keys = fuzzy_match_keys  # for backward compatibility
 validate_mapping = fuzzy_validate_mapping  # for backward compatibility

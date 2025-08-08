@@ -26,14 +26,14 @@ def get_handler(d_: dict, k: str | type, get: bool = False, /):
         if not is_coro_func(handler):
 
             async def _func(x):
-                sleep(0)
+                await sleep(0)
                 return handler(x)
 
             return _func
         return handler
 
     async def _func(x):
-        sleep(0)
+        await sleep(0)
         return x
 
     return _func

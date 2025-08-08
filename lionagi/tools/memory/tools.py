@@ -4,13 +4,13 @@ Memory Tools - Proper lionagi tool implementation following reader pattern
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from lionagi.libs.validate.to_num import to_num
 from lionagi.protocols.action.tool import Tool
 from lionagi.tools.base import LionTool
-from lionagi.utils import to_num
 
 
 class MemoryAction(str, Enum):
