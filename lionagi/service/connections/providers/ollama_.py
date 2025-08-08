@@ -2,31 +2,50 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Ollama endpoint configuration.
+
+Ollama provides local model hosting with both native and OpenAI-compatible APIs.
+This module configures the OpenAI-compatible endpoint for consistency.
+"""
+
 from pydantic import BaseModel
 
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.third_party.openai_models import (
-    CreateChatCompletionRequest,
-)
 from lionagi.utils import is_import_installed
+
+__all__ = (
+    "OllamaChatEndpoint",
+    "OLLAMA_CHAT_ENDPOINT_CONFIG",
+)
 
 _HAS_OLLAMA = is_import_installed("ollama")
 
-OLLAMA_CHAT_ENDPOINT_CONFIG = EndpointConfig(
-    name="ollama_chat",
-    provider="ollama",
-    base_url="http://localhost:11434/v1",  # Ollama desktop client default
-    endpoint="chat/completions",  # Use full OpenAI-compatible endpoint
-    kwargs={},  # Empty kwargs, model will be provided at runtime
-    openai_compatible=False,  # Use HTTP transport
-    api_key=None,  # No API key needed
-    method="POST",
-    content_type="application/json",
-    auth_type="none",  # No authentication
-    default_headers={},  # No auth headers needed
-    request_options=CreateChatCompletionRequest,  # Use Pydantic model for validation
-)
+
+def _get_ollama_config(**kwargs):
+    """Create Ollama endpoint configuration with defaults."""
+    config = dict(
+        name="ollama_chat",
+        provider="ollama",
+        base_url="http://localhost:11434/v1",  # OpenAI-compatible endpoint
+        endpoint="chat/completions",
+        kwargs={},  # Model will be provided at runtime
+        openai_compatible=False,  # Use HTTP transport
+        api_key=None,  # No API key needed
+        method="POST",
+        content_type="application/json",
+        auth_type="none",  # No authentication
+        default_headers={},  # No auth headers needed
+        # NOTE: Not using request_options due to OpenAI model role literal issues
+        # request_options=CreateChatCompletionRequest,
+    )
+    config.update(kwargs)
+    return EndpointConfig(**config)
+
+
+# Default OpenAI-compatible configuration
+OLLAMA_CHAT_ENDPOINT_CONFIG = _get_ollama_config()
 
 
 class OllamaChatEndpoint(Endpoint):

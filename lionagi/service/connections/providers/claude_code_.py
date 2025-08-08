@@ -31,21 +31,26 @@ __all__ = (
 
 
 # --------------------------------------------------------------------------- SDK endpoint
-ENDPOINT_CONFIG = EndpointConfig(
+
+_get_config = lambda: EndpointConfig(
     name="claude_code",
     provider="claude_code",
     base_url="internal",
     endpoint="query",
-    api_key="dummy",
+    auth_type="none",
+    content_type=None,
     request_options=ClaudeCodeRequest,
     timeout=3000,
 )
 
 
+ENDPOINT_CONFIG = _get_config()  # backward compatibility
+
+
 class ClaudeCodeEndpoint(Endpoint):
     """Direct Python-SDK (non-CLI) endpoint - unchanged except for bug-fixes."""
 
-    def __init__(self, config: EndpointConfig = ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config: EndpointConfig = None, **kwargs):
         if not HAS_CLAUDE_CODE_SDK:
             raise ImportError(
                 "claude_code_sdk is not installed. "
@@ -56,7 +61,11 @@ class ClaudeCodeEndpoint(Endpoint):
             "Use `query_cli` endpoint instead.",
             DeprecationWarning,
         )
-
+        if config and not isinstance(config, EndpointConfig):
+            raise TypeError(
+                "config must be an instance of EndpointConfig or None"
+            )
+        config = config or _get_config()
         super().__init__(config=config, **kwargs)
 
     def create_payload(self, request: dict | BaseModel, **kwargs):

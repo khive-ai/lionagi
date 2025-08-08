@@ -11,8 +11,7 @@ from lionagi.service.third_party.exa_models import ExaSearchRequest
 
 __all__ = ("ExaSearchEndpoint",)
 
-
-ENDPOINT_CONFIG = EndpointConfig(
+_get_config = lambda: EndpointConfig(
     name="exa_search",
     provider="exa",
     base_url="https://api.exa.ai",
@@ -27,7 +26,14 @@ ENDPOINT_CONFIG = EndpointConfig(
     content_type="application/json",
 )
 
+ENDPOINT_CONFIG = _get_config()  # backward compatibility
+
 
 class ExaSearchEndpoint(Endpoint):
-    def __init__(self, config=ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config: EndpointConfig = None, **kwargs):
+        if config and not isinstance(config, EndpointConfig):
+            raise TypeError(
+                "config must be an instance of EndpointConfig or None"
+            )
+        config = config or _get_config()
         super().__init__(config=config, **kwargs)

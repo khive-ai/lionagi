@@ -21,15 +21,19 @@ from ...third_party.claude_code import (
     stream_claude_code_cli,
 )
 
-ENDPOINT_CONFIG = EndpointConfig(
+_get_config = lambda: EndpointConfig(
     name="claude_code_cli",
     provider="claude_code",
     base_url="internal",
     endpoint="query_cli",
-    api_key="dummy",
+    auth_type="none",
+    content_type=None,
     request_options=ClaudeCodeRequest,
     timeout=18000,  # 30 mins
 )
+
+ENDPOINT_CONFIG = _get_config()  # backward compatibility
+
 
 _CLAUDE_HANDLER_PARAMS = (
     "on_thinking",
@@ -54,7 +58,12 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 
 
 class ClaudeCodeCLIEndpoint(Endpoint):
-    def __init__(self, config: EndpointConfig = ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config: EndpointConfig = None, **kwargs):
+        if not isinstance(config, EndpointConfig):
+            raise TypeError(
+                "config must be an instance of EndpointConfig or None"
+            )
+        config = config or _get_config()
         super().__init__(config=config, **kwargs)
 
     @property
