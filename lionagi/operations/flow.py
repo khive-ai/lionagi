@@ -349,7 +349,6 @@ class DependencyAwareExecutor:
                 and branch.metadata
                 and branch.metadata.get("pending_context_inheritance")
             ):
-
                 primary_dep_id = branch.metadata.get("inherit_from_operation")
                 if primary_dep_id and primary_dep_id in self.results:
                     # Find the primary dependency's branch

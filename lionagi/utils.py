@@ -100,7 +100,6 @@ __all__ = (
 
 
 class StringEnum(str, Enum):
-
     @classmethod
     def allowed(cls) -> tuple[str, ...]:
         return tuple(e.value for e in cls)

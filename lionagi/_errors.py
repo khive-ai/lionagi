@@ -97,8 +97,8 @@ class NotFoundError(LionError):
 class ExistsError(LionError):
     """Exception raised when an item already exists."""
 
-    default_message = "Item not found"
-    default_status_code = 500
+    default_message = "Item already exists"
+    default_status_code = 409
     __slots__ = ()
 
 
@@ -106,7 +106,7 @@ class ObservationError(LionError):
     """Exception raised when an observation fails."""
 
     default_message = "Observation failed"
-    default_status_code = 401
+    default_status_code = 500
     __slots__ = ()
 
 
@@ -114,7 +114,7 @@ class ResourceError(LionError):
     """Exception raised when resource access fails."""
 
     default_message = "Resource error"
-    default_status_code = 402
+    default_status_code = 429
     __slots__ = ()
 
 

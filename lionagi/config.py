@@ -63,12 +63,14 @@ class AppSettings(BaseSettings, frozen=True):
     GROQ_API_KEY: SecretStr | None = None
     ANTHROPIC_API_KEY: SecretStr | None = None
 
+    OPENAI_DEFAULT_MODEL: str = "gpt-4.1-mini"
+
     # defaults models
     LIONAGI_EMBEDDING_PROVIDER: str = "openai"
     LIONAGI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
     LIONAGI_CHAT_PROVIDER: str = "openai"
-    LIONAGI_CHAT_MODEL: str = "gpt-4.1-nano"
+    LIONAGI_CHAT_MODEL: str = "gpt-4.1-mini"
 
     # default storage
     LIONAGI_AUTO_STORE_EVENT: bool = False

@@ -16,7 +16,6 @@ E = TypeVar("E", bound=Event)
 
 
 class HookRegistry:
-
     def __init__(
         self,
         hooks: HookDict = None,
