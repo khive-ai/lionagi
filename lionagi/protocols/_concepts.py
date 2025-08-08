@@ -90,5 +90,8 @@ class Ordering(ABC, Generic[E]):
     def exclude(self, item, /):
         pass
 
+class Invariant(ABC):
+    """constants during observation"""
+
 
 # File: lionagi/protocols/_concepts.py

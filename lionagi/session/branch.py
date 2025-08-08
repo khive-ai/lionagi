@@ -721,6 +721,15 @@ class Branch(Element, Communicatable, Relational):
         """
         await self._log_manager.adump(clear=clear, persist_path=persist_path)
 
+    def ...
+
+
+
+
+
+
+
+
     # -------------------------------------------------------------------------
     # Asynchronous Operations (chat, parse, operate, etc.)
     # -------------------------------------------------------------------------
