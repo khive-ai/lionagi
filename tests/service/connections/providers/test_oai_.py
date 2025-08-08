@@ -20,7 +20,7 @@ class TestOpenAIIntegration:
     def openai_imodel(self):
         """Create an iModel instance for OpenAI."""
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-openai-key"}):
-            return iModel(provider="openai", model="gpt-4o-mini")
+            return iModel(provider="openai", model="gpt-4.1-mini")
 
     @pytest.fixture
     def reasoning_imodel(self):
@@ -38,7 +38,7 @@ class TestOpenAIIntegration:
         payload, headers = openai_imodel.endpoint.create_payload(
             {
                 "messages": [{"role": "user", "content": "Hello"}],
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
                 "temperature": 0.7,
                 "api_key": "test-key",
             }
@@ -54,14 +54,14 @@ class TestOpenAIIntegration:
         payload, headers = openai_imodel.endpoint.create_payload(
             {
                 "messages": [{"role": "user", "content": "Hello"}],
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
                 "temperature": 0.7,
                 "max_tokens": 100,
                 "top_p": 0.9,
             }
         )
 
-        assert payload["model"] == "gpt-4o-mini"
+        assert payload["model"] == "gpt-4.1-mini"
         assert payload["messages"][0]["content"] == "Hello"
         assert payload["temperature"] == 0.7
         assert payload["max_tokens"] == 100
@@ -99,7 +99,7 @@ class TestOpenAIIntegration:
                     },
                     {"role": "user", "content": "Hello"},
                 ],
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
             }
         )
 
@@ -118,7 +118,7 @@ class TestOpenAIIntegration:
             max_tokens=100,
         )
 
-        assert api_call.payload["model"] == "gpt-4o-mini"
+        assert api_call.payload["model"] == "gpt-4.1-mini"
         assert api_call.payload["messages"][0]["content"] == "Hello, GPT!"
         assert api_call.payload["temperature"] == 0.7
         assert api_call.payload["max_tokens"] == 100
@@ -182,7 +182,7 @@ class TestOpenAIIntegration:
     def test_openai_url_construction(self):
         """Test OpenAI URL construction."""
         endpoint = match_endpoint(
-            provider="openai", endpoint="chat", model="gpt-4o-mini"
+            provider="openai", endpoint="chat", model="gpt-4.1-mini"
         )
 
         url = endpoint.config.full_url
@@ -191,7 +191,7 @@ class TestOpenAIIntegration:
     def test_openai_model_validation(self, openai_imodel):
         """Test that OpenAI models are validated correctly."""
         valid_models = [
-            "gpt-4o-mini",
+            "gpt-4.1-mini",
             "gpt-4o",
             "gpt-4-turbo",
             "gpt-3.5-turbo",
@@ -267,7 +267,7 @@ class TestOpenAIIntegration:
                 "messages": [
                     {"role": "user", "content": "What's the weather?"}
                 ],
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
                 "tools": tools,
                 "tool_choice": "auto",
             }
@@ -281,7 +281,7 @@ class TestOpenAIIntegration:
         payload, _ = openai_imodel.endpoint.create_payload(
             {
                 "messages": [{"role": "user", "content": "Return JSON"}],
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
                 "response_format": {"type": "json_object"},
             }
         )
@@ -325,7 +325,7 @@ class TestOpenAIIntegration:
             imodel = iModel(
                 provider="openai",
                 base_url="https://custom.openai.proxy.com/v1",
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
             )
 
         assert (
@@ -363,7 +363,7 @@ class TestOpenAIIntegration:
     def test_openai_different_models_isolation(self):
         """Test that different OpenAI models work independently."""
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-            standard_model = iModel(provider="openai", model="gpt-4o-mini")
+            standard_model = iModel(provider="openai", model="gpt-4.1-mini")
             reasoning_model = iModel(provider="openai", model="o1-preview")
 
         # Create payloads with same input but different models

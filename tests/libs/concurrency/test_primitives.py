@@ -40,7 +40,7 @@ async def test_lock_basic():
             await try_acquire()
 
         # Start a background task
-        _ = anyio.to_thread.run_sync(lambda: None)
+        _ = await anyio.to_thread.run_sync(lambda: None)
 
         # Give the task a chance to run, but it shouldn't complete because we hold the lock
         await anyio.sleep(0.01)

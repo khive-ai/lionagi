@@ -56,7 +56,7 @@ class TestEndpoint:
         payload1, headers1 = endpoint.create_payload(
             {
                 "messages": [{"role": "user", "content": "Hello"}],
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
             }
         )
 
@@ -71,7 +71,7 @@ class TestEndpoint:
         # Verify that payloads are independent
         assert payload1["messages"][0]["content"] == "Hello"
         assert payload2["messages"][0]["content"] == "Goodbye"
-        assert payload1["model"] == "gpt-4o-mini"
+        assert payload1["model"] == "gpt-4.1-mini"
         assert payload2["model"] == "gpt-4o"
 
     @pytest.mark.asyncio
@@ -110,14 +110,14 @@ class TestEndpoint:
 
         request_data = {
             "messages": [{"role": "user", "content": "Hello"}],
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-mini",
             "temperature": 0.7,
             "max_tokens": 100,
         }
 
         payload, headers = endpoint.create_payload(request_data)
 
-        assert payload["model"] == "gpt-4o-mini"
+        assert payload["model"] == "gpt-4.1-mini"
         assert payload["messages"] == request_data["messages"]
         assert payload["temperature"] == 0.7
         assert payload["max_tokens"] == 100
@@ -183,7 +183,7 @@ class TestEndpoint:
         with patch("aiohttp.ClientSession", side_effect=mock_session_class):
             request = {
                 "messages": [{"role": "user", "content": "test"}],
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
             }
 
             await endpoint.call(request)

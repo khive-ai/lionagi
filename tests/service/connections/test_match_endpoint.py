@@ -16,7 +16,7 @@ class TestMatchEndpoint:
     def test_openai_chat_endpoint(self):
         """Test matching OpenAI chat endpoint."""
         endpoint = match_endpoint(
-            provider="openai", endpoint="chat", model="gpt-4o-mini"
+            provider="openai", endpoint="chat", model="gpt-4.1-mini"
         )
 
         assert isinstance(endpoint, Endpoint)
@@ -78,7 +78,7 @@ class TestMatchEndpoint:
             provider="openai",
             endpoint="chat",
             base_url=custom_url,
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
         )
 
         assert endpoint.config.base_url == custom_url
@@ -89,7 +89,7 @@ class TestMatchEndpoint:
             provider="openai",
             endpoint="chat",
             endpoint_params=["custom", "path"],
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
         )
 
         assert endpoint.config.endpoint_params == ["custom", "path"]
@@ -115,7 +115,7 @@ class TestMatchEndpoint:
 
         # Test with standard model
         standard_endpoint = match_endpoint(
-            provider="openai", endpoint="chat", model="gpt-4o-mini"
+            provider="openai", endpoint="chat", model="gpt-4.1-mini"
         )
 
         assert isinstance(reasoning_endpoint, Endpoint)
@@ -144,7 +144,7 @@ class TestMatchEndpoint:
         endpoint = match_endpoint(
             provider="openai",
             endpoint="chat",
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             api_key="test-key",
         )
 
@@ -177,11 +177,11 @@ class TestMatchEndpoint:
     def test_provider_case_insensitive(self):
         """Test that provider matching is case insensitive."""
         endpoint_lower = match_endpoint(
-            provider="openai", endpoint="chat", model="gpt-4o-mini"
+            provider="openai", endpoint="chat", model="gpt-4.1-mini"
         )
 
         endpoint_upper = match_endpoint(
-            provider="OPENAI", endpoint="chat", model="gpt-4o-mini"
+            provider="OPENAI", endpoint="chat", model="gpt-4.1-mini"
         )
 
         if endpoint_lower is None or endpoint_upper is None:
@@ -191,7 +191,7 @@ class TestMatchEndpoint:
     def test_multiple_providers_isolation(self):
         """Test that multiple endpoint instances are isolated."""
         openai_endpoint = match_endpoint(
-            provider="openai", endpoint="chat", model="gpt-4o-mini"
+            provider="openai", endpoint="chat", model="gpt-4.1-mini"
         )
 
         anthropic_endpoint = match_endpoint(
@@ -215,7 +215,7 @@ class TestMatchEndpoint:
         endpoint1 = match_endpoint(
             provider="openai",
             endpoint="chat",
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             temperature=0.5,
         )
 

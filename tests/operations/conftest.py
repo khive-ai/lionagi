@@ -23,7 +23,7 @@ def branch_with_mock_imodel():
     async def _fake_invoke(**kwargs):
         # Build a real APICalling object so it plays nicely with logging & validation
         fake_call = APICalling(
-            payload={"model": "gpt-4o-mini", "messages": []},
+            payload={"model": "gpt-4.1-mini", "messages": []},
             headers={"Authorization": "Bearer test"},
             endpoint=branch.chat_model.endpoint,  # Some endpoint, real or mock
         )
@@ -36,12 +36,12 @@ def branch_with_mock_imodel():
     async_mock_invoke = AsyncMock(side_effect=_fake_invoke)
 
     mock_chat_model = iModel(
-        provider="openai", model="gpt-4o-mini", api_key="test_key"
+        provider="openai", model="gpt-4.1-mini", api_key="test_key"
     )
     mock_chat_model.invoke = async_mock_invoke
 
     mock_parse_model = iModel(
-        provider="openai", model="gpt-4o-mini", api_key="test_key"
+        provider="openai", model="gpt-4.1-mini", api_key="test_key"
     )
     mock_parse_model.invoke = async_mock_invoke
 

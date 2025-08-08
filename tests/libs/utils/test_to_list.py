@@ -19,7 +19,7 @@ class CustomMapping:
         return [1, 2, 3]
 
 
-class TestModel(BaseModel):
+class SampleModel(BaseModel):
     field_: str = "value"
 
 
@@ -106,7 +106,7 @@ def test_namedtuple_input():
 
 
 def test_pydantic_model():
-    model = TestModel()
+    model = SampleModel()
     assert to_list(model) == [model]
 
 

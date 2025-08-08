@@ -20,25 +20,25 @@ class TestiModel:
         """Test iModel initialization with explicit provider."""
         # Create the iModel with explicit api_key parameter
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         assert imodel.endpoint.config.provider == "openai"
-        assert imodel.endpoint.config.kwargs["model"] == "gpt-4o-mini"
+        assert imodel.endpoint.config.kwargs["model"] == "gpt-4.1-mini"
         # The actual API key might be different, so just check it's set
         assert imodel.endpoint.config._api_key is not None
 
     def test_imodel_initialization_from_model_path(self):
         """Test iModel initialization with provider inferred from model path."""
-        imodel = iModel(model="openai/gpt-4o-mini", api_key="test-key")
+        imodel = iModel(model="openai/gpt-4.1-mini", api_key="test-key")
 
         assert imodel.endpoint.config.provider == "openai"
-        assert imodel.endpoint.config.kwargs["model"] == "gpt-4o-mini"
+        assert imodel.endpoint.config.kwargs["model"] == "gpt-4.1-mini"
 
     def test_imodel_initialization_missing_provider(self):
         """Test that iModel raises error when provider cannot be determined."""
         with pytest.raises(ValueError, match="Provider must be provided"):
-            iModel(model="gpt-4o-mini")  # No provider, no slash in model
+            iModel(model="gpt-4.1-mini")  # No provider, no slash in model
 
     def test_api_key_environment_variable_lookup(self):
         """Test that API keys are correctly looked up from environment."""
@@ -61,7 +61,7 @@ class TestiModel:
     def test_custom_api_key(self):
         """Test iModel initialization with custom API key."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="custom-key"
+            provider="openai", model="gpt-4.1-mini", api_key="custom-key"
         )
 
         # Just verify that an API key was set
@@ -70,7 +70,7 @@ class TestiModel:
     def test_create_api_calling(self):
         """Test creation of APICalling objects."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         api_call = imodel.create_api_calling(
@@ -78,7 +78,7 @@ class TestiModel:
         )
 
         assert isinstance(api_call, APICalling)
-        assert api_call.payload["model"] == "gpt-4o-mini"
+        assert api_call.payload["model"] == "gpt-4.1-mini"
         assert api_call.payload["messages"][0]["content"] == "Hello"
         assert api_call.payload["temperature"] == 0.7
 
@@ -86,7 +86,7 @@ class TestiModel:
     async def test_successful_invoke(self, mock_response):
         """Test successful API invocation."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         with patch.object(
@@ -105,7 +105,7 @@ class TestiModel:
     async def test_parallel_invoke_calls(self, mock_response):
         """Test parallel API invocations don't interfere."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         async def mock_request_with_id(request, cache_control=False, **kwargs):
@@ -141,7 +141,7 @@ class TestiModel:
     async def test_streaming_invoke(self, mock_streaming_response):
         """Test streaming API calls."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         async def mock_stream():
@@ -171,25 +171,26 @@ class TestiModel:
     def test_model_name_property(self):
         """Test model_name property."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
-        assert imodel.model_name == "gpt-4o-mini"
+        assert imodel.model_name == "gpt-4.1-mini"
 
     def test_request_options_property(self):
         """Test request_options property."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
-        # Should return the request options from the endpoint
-        assert imodel.request_options is not None
+        # NOTE: request_options removed due to incorrect role literals in generated models
+        # Should return None when not configured
+        assert imodel.request_options is None
 
     @pytest.mark.asyncio
     async def test_error_handling_in_invoke(self):
         """Test error handling during API invocation."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         with patch.object(
@@ -206,7 +207,7 @@ class TestiModel:
     def test_cache_control_parameter(self):
         """Test cache_control parameter in create_api_calling."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         api_call = imodel.create_api_calling(
@@ -218,7 +219,7 @@ class TestiModel:
     def test_include_token_usage_to_model(self):
         """Test include_token_usage_to_model parameter."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         api_call = imodel.create_api_calling(
@@ -232,7 +233,7 @@ class TestiModel:
         """Test iModel serialization to dictionary."""
         imodel = iModel(
             provider="openai",
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             temperature=0.7,
             api_key="test-key",
         )
@@ -256,7 +257,7 @@ class TestiModel:
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
             imodel = iModel(
                 provider="openai",
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 streaming_process_func=custom_process,
             )
 
@@ -268,7 +269,7 @@ class TestiModel:
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
             imodel = iModel(
                 provider="openai",
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 limit_requests=10,
                 limit_tokens=1000,
                 queue_capacity=50,
@@ -282,7 +283,7 @@ class TestiModel:
     async def test_aclose_cleanup(self):
         """Test async cleanup of resources."""
         imodel = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
 
         # aclose no longer exists - resources are cleaned up automatically
@@ -292,7 +293,7 @@ class TestiModel:
     async def test_concurrent_different_models(self):
         """Test concurrent calls with different models work independently."""
         imodel1 = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test-key"
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
         )
         imodel2 = iModel(provider="openai", model="gpt-4o", api_key="test-key")
 
@@ -319,5 +320,5 @@ class TestiModel:
 
             result1, result2 = await asyncio.gather(task1, task2)
 
-        assert result1.response["model_used"] == "gpt-4o-mini"
+        assert result1.response["model_used"] == "gpt-4.1-mini"
         assert result2.response["model_used"] == "gpt-4o"

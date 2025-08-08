@@ -79,13 +79,13 @@ class TestServiceIntegration:
 
         request_data = {
             "messages": [{"role": "user", "content": "Hello"}],
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-mini",
             "temperature": 0.7,
         }
 
         payload, headers = endpoint.create_payload(request_data)
 
-        assert payload["model"] == "gpt-4o-mini"
+        assert payload["model"] == "gpt-4.1-mini"
         assert payload["messages"][0]["content"] == "Hello"
         assert payload["temperature"] == 0.7
         assert "Authorization" in headers
@@ -113,7 +113,7 @@ class TestServiceIntegration:
     def test_match_endpoint_openai(self):
         """Test endpoint matching for OpenAI."""
         endpoint = match_endpoint(
-            provider="openai", endpoint="chat", model="gpt-4o-mini"
+            provider="openai", endpoint="chat", model="gpt-4.1-mini"
         )
 
         assert endpoint.config.provider == "openai"
@@ -146,14 +146,14 @@ class TestServiceIntegration:
 
         api_call = APICalling(
             payload={
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
             headers={"Authorization": "Bearer test-key"},
             endpoint=endpoint,
         )
 
-        assert api_call.payload["model"] == "gpt-4o-mini"
+        assert api_call.payload["model"] == "gpt-4.1-mini"
         assert api_call.headers["Authorization"] == "Bearer test-key"
         assert api_call.endpoint == endpoint
         assert api_call.response is None
@@ -161,23 +161,23 @@ class TestServiceIntegration:
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_imodel_creation(self):
         """Test iModel creation."""
-        imodel = iModel(provider="openai", model="gpt-4o-mini")
+        imodel = iModel(provider="openai", model="gpt-4.1-mini")
 
         assert imodel.endpoint.config.provider == "openai"
-        assert imodel.endpoint.config.kwargs["model"] == "gpt-4o-mini"
-        assert imodel.model_name == "gpt-4o-mini"
+        assert imodel.endpoint.config.kwargs["model"] == "gpt-4.1-mini"
+        assert imodel.model_name == "gpt-4.1-mini"
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_imodel_api_calling_creation(self):
         """Test iModel API calling creation."""
-        imodel = iModel(provider="openai", model="gpt-4o-mini")
+        imodel = iModel(provider="openai", model="gpt-4.1-mini")
 
         api_call = imodel.create_api_calling(
             messages=[{"role": "user", "content": "Hello"}], temperature=0.7
         )
 
         assert isinstance(api_call, APICalling)
-        assert api_call.payload["model"] == "gpt-4o-mini"
+        assert api_call.payload["model"] == "gpt-4.1-mini"
         assert api_call.payload["temperature"] == 0.7
 
     def test_endpoint_url_construction(self):
