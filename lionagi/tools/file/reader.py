@@ -7,9 +7,9 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
+from lionagi.libs.validate.to_num import to_num
 from lionagi.protocols.action.tool import Tool
 from lionagi.service.token_calculator import TokenCalculator
-from lionagi.utils import to_num
 
 from ..base import LionTool
 
