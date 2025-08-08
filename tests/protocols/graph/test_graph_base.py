@@ -34,9 +34,9 @@ class GraphNode(Node):
             self.relations[direction].remove(edge)
 
 
-def create_test_node(name: str) -> TestNode:
+def create_test_node(name: str) -> GraphNode:
     """Helper function to create a test node with name"""
-    node = TestNode()
+    node = GraphNode()
     if node.content is None:
         node.content = {}
     node.content["name"] = name
