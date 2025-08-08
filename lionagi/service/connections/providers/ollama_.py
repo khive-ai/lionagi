@@ -53,7 +53,7 @@ class OllamaChatEndpoint(Endpoint):
     Documentation: https://platform.openai.com/docs/api-reference/chat/create
     """
 
-    def __init__(self, config=OLLAMA_CHAT_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
         if not _HAS_OLLAMA:
             raise ModuleNotFoundError(
                 "ollama is not installed, please install it with `pip install lionagi[ollama]`"
@@ -63,6 +63,7 @@ class OllamaChatEndpoint(Endpoint):
         if "api_key" in kwargs:
             kwargs.pop("api_key")
 
+        config = config or _get_ollama_config()
         super().__init__(config, **kwargs)
 
         from ollama import list as ollama_list  # type: ignore[import]

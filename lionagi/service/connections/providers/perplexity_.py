@@ -46,5 +46,6 @@ ENDPOINT_CONFIG = PERPLEXITY_CHAT_ENDPOINT_CONFIG
 
 
 class PerplexityChatEndpoint(Endpoint):
-    def __init__(self, config=ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_perplexity_config()
         super().__init__(config, **kwargs)
