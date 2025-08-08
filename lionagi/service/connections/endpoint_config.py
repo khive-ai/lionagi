@@ -32,7 +32,7 @@ class EndpointConfig(BaseModel):
     endpoint_params: list[str] | None = None
     method: str = "POST"
     params: dict[str, str] = Field(default_factory=dict)
-    content_type: str = "application/json"
+    content_type: str | None = "application/json"
     auth_type: AUTH_TYPES = "bearer"
     default_headers: dict = {}
     request_options: B | None = None

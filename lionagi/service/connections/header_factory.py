@@ -27,11 +27,13 @@ class HeaderFactory:
     @staticmethod
     def get_header(
         auth_type: AUTH_TYPES,
-        content_type: str = "application/json",
+        content_type: str | None = "application/json",
         api_key: str | SecretStr | None = None,
         default_headers: dict[str, str] | None = None,
     ) -> dict[str, str]:
-        dict_ = HeaderFactory.get_content_type_header(content_type)
+        dict_ = {}
+        if content_type is not None:
+            dict_ = HeaderFactory.get_content_type_header(content_type)
 
         if auth_type == "none":
             # No authentication needed
