@@ -20,7 +20,7 @@ class TestAPICalling:
     @pytest.fixture
     def sample_payload(self):
         return {
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-mini",
             "messages": [{"role": "user", "content": "Hello"}],
             "temperature": 0.7,
         }
@@ -197,7 +197,7 @@ class TestAPICalling:
         """Test that concurrent API calls don't interfere with each other."""
         payloads = [
             {
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
                 "messages": [{"role": "user", "content": f"Message {i}"}],
             }
             for i in range(3)

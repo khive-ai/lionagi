@@ -9,7 +9,7 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.third_party.anthropic_models import CreateMessageRequest
 
-ANTHROPIC_MESSAGES_ENDPOINT_CONFIG = EndpointConfig(
+_get_config = lambda: EndpointConfig(
     name="anthropic_messages",
     provider="anthropic",
     base_url="https://api.anthropic.com/v1",
@@ -22,13 +22,16 @@ ANTHROPIC_MESSAGES_ENDPOINT_CONFIG = EndpointConfig(
     request_options=CreateMessageRequest,
 )
 
+ANTHROPIC_MESSAGES_ENDPOINT_CONFIG = _get_config()  # backward compatibility
+
 
 class AnthropicMessagesEndpoint(Endpoint):
     def __init__(
         self,
-        config: EndpointConfig = ANTHROPIC_MESSAGES_ENDPOINT_CONFIG,
+        config: EndpointConfig = None,
         **kwargs,
     ):
+        config = config or _get_config()
         super().__init__(config, **kwargs)
 
     def create_payload(

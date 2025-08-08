@@ -320,7 +320,6 @@ class ClaudeSession:
 
 
 def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
-
     tool_counts = {}
     tool_details = []
     file_operations = {"reads": [], "writes": [], "edits": []}

@@ -205,10 +205,7 @@ class Branch(Element, Communicatable, Relational):
                 model=settings.LIONAGI_CHAT_MODEL,
             )
         if not parse_model:
-            parse_model = iModel(
-                provider=settings.LIONAGI_CHAT_PROVIDER,
-                model="gpt-4o-mini",  # Default parse model
-            )
+            parse_model = chat_model
 
         if isinstance(chat_model, dict):
             chat_model = iModel.from_dict(chat_model)

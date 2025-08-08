@@ -358,7 +358,12 @@ class OperableModel(HashableModel):
                 for k, v in kwargs.items():
                     self.field_setattr(field_name, k, v)
             else:
-                self.extra_fields[field_name] = Field(**kwargs)
+                _kwargs = {
+                    k: v
+                    for k, v in kwargs.items()
+                    if k not in ("name", "annotation", "validator_kwargs")
+                }
+                self.extra_fields[field_name] = Field(**_kwargs)
 
         # Handle no explicit defined field
         if not field_obj and not kwargs:

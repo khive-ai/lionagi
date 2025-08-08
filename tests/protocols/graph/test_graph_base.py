@@ -5,8 +5,8 @@ from pydantic import ConfigDict, Field
 from lionagi.protocols.types import Node
 
 
-class TestNode(Node):
-    """Test node class for graph testing"""
+class GraphNode(Node):
+    """Base node class for graph testing"""
 
     relations: dict = Field(
         default_factory=lambda: {"in": [], "out": []},
@@ -34,9 +34,9 @@ class TestNode(Node):
             self.relations[direction].remove(edge)
 
 
-def create_test_node(name: str) -> TestNode:
+def create_test_node(name: str) -> GraphNode:
     """Helper function to create a test node with name"""
-    node = TestNode()
+    node = GraphNode()
     if node.content is None:
         node.content = {}
     node.content["name"] = name

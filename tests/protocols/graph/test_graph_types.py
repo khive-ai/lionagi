@@ -2,16 +2,16 @@ import pytest
 
 from lionagi.protocols.types import Edge, Graph
 
-from .test_graph_base import TestNode
+from .test_graph_base import GraphNode
 
 
-class TypeANode(TestNode):
+class TypeANode(GraphNode):
     """Test node type A"""
 
     value: int
 
 
-class TypeBNode(TestNode):
+class TypeBNode(GraphNode):
     """Test node type B"""
 
     name: str

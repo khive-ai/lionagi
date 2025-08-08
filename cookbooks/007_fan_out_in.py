@@ -1,5 +1,6 @@
-from lionagi import Branch, Builder, Session, iModel
+from lionagi import Branch, Builder, Operation, Session, iModel
 from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
+from lionagi.protocols.types import AssistantResponse
 
 CC_WORKSPACE = ".khive/workspace"
 
@@ -15,7 +16,6 @@ def create_cc(
         provider="claude_code",
         endpoint="query_cli",
         model=model,
-        api_key="dummy_api_key",
         ws=f"{CC_WORKSPACE}/{subdir}",
         verbose_output=verbose_output,
         add_dir="../../../",
@@ -26,7 +26,7 @@ def create_cc(
 
 
 prompt = """
-Task: Investigate the codebase in the specified directory and provide a comprehensive overview.
+Task: Quickly Investigate the codebase in the specified directory and provide a comprehensive overview.
 
 ---START
 read into the specified dir, glance over the key components and pay attention to architecture, 
@@ -86,16 +86,44 @@ async def main():
             )
             research_nodes.append(node)
 
-        synthesis = builder.add_aggregation(
+        costs = 0
+
+        def get_context(node_id):
+            nonlocal costs
+            g = builder.get_graph()
+            node: Operation = g.internal_nodes[node_id]
+            branch = session.get_branch(node.branch_id, None)
+            if (
+                branch
+                and len(branch.messages) > 0
+                and isinstance(msg := branch.messages[-1], AssistantResponse)
+            ):
+                costs += msg.model_response.get("total_cost_usd") or 0
+                return f"""
+            Response: {msg.model_response.get("result") or "Not available"}
+            Summary: {msg.model_response.get("summary") or "Not available"}
+            """.strip()
+
+        await session.flow(builder.get_graph())
+        ctx = [get_context(i) for i in research_nodes]
+
+        synthesis = builder.add_operation(
             "communicate",
-            source_node_ids=research_nodes,
+            depends_on=research_nodes,
             branch=orc_branch,
             instruction="Synthesize the information from the researcher branches.",
+            context=[i for i in ctx if i is not None],
         )
 
-        result2 = await session.flow(builder.get_graph())
-        result_synthesis = result2["operation_results"][synthesis]
+        result3 = await session.flow(builder.get_graph())
+        result_synthesis = result3["operation_results"][synthesis]
+
+        builder.visualize(
+            "LionAGI codebase investigation: fan-out fan-in pattern with Claude Code"
+        )
+
         print(result_synthesis)
+        print(f"Flow total cost: ${costs:.4f}")
 
     except Exception as e:
         print(f"Error: {e}")

@@ -168,7 +168,7 @@ class Step:
                     ACTION_REQUESTS_FIELD,
                 ]
             )
-        if "reason" in operative.response_model.model_fields:
+        if "reason" in type(operative.response_model).model_fields:
             field_models.extend([REASON_FIELD])
 
         operative = Step._create_response_type(

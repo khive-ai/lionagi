@@ -31,21 +31,25 @@ __all__ = (
 
 
 # --------------------------------------------------------------------------- SDK endpoint
-ENDPOINT_CONFIG = EndpointConfig(
+
+_get_config = lambda: EndpointConfig(
     name="claude_code",
     provider="claude_code",
     base_url="internal",
     endpoint="query",
-    api_key="dummy",
     request_options=ClaudeCodeRequest,
     timeout=3000,
+    api_key="dummy-key",
 )
+
+
+ENDPOINT_CONFIG = _get_config()  # backward compatibility
 
 
 class ClaudeCodeEndpoint(Endpoint):
     """Direct Python-SDK (non-CLI) endpoint - unchanged except for bug-fixes."""
 
-    def __init__(self, config: EndpointConfig = ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config: EndpointConfig = None, **kwargs):
         if not HAS_CLAUDE_CODE_SDK:
             raise ImportError(
                 "claude_code_sdk is not installed. "
@@ -57,6 +61,7 @@ class ClaudeCodeEndpoint(Endpoint):
             DeprecationWarning,
         )
 
+        config = config or _get_config()
         super().__init__(config=config, **kwargs)
 
     def create_payload(self, request: dict | BaseModel, **kwargs):

@@ -48,7 +48,7 @@ def mock_response():
             "id": "test-123",
             "object": "chat.completion",
             "created": 1234567890,
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-mini",
             "choices": [
                 {
                     "index": 0,
@@ -122,7 +122,7 @@ def mock_imodel(mock_endpoint):
     imodel = iModel(
         provider="openai",
         endpoint=mock_endpoint,
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         api_key="test-key",
     )
     return imodel
@@ -141,7 +141,7 @@ def sample_messages():
 def sample_payload():
     """Sample payload for API requests."""
     return {
-        "model": "gpt-4o-mini",
+        "model": "gpt-4.1-mini",
         "messages": [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Hello"},

@@ -6,14 +6,15 @@ from pydantic import BaseModel, Field
 
 class PerplexityModels(str, Enum):
     """
-    Models available in Perplexity's API.
+    Models available in Perplexity's API (as of 2025).
 
-    sonar: Lightweight, cost-effective search model designed for quick, grounded
-        answers
-    sonar-pro: Advanced search model optimized for complex queries and deeper content
-        understanding.
-    sonar-reasoning: Quick problem-solving and reasoning model, ideal for evaluating
+    sonar: Lightweight, cost-effective search model built on Llama 3.3 70B,
+        designed for quick, grounded answers. F-score: 0.773 on SimpleQA.
+    sonar-pro: Advanced search model optimized for complex queries with double
+        the citations and larger context window. F-score: 0.858 on SimpleQA.
+    sonar-reasoning: Quick problem-solving and reasoning model for evaluating
         complex queries.
+    sonar-reasoning-pro: Advanced reasoning model with enhanced capabilities.
     sonar-deep-research: Best suited for exhaustive research, generating detailed
         reports and in-depth insights.
     """
@@ -21,6 +22,7 @@ class PerplexityModels(str, Enum):
     SONAR = "sonar"
     SONAR_PRO = "sonar-pro"
     SONAR_REASONING = "sonar-reasoning"
+    SONAR_REASONING_PRO = "sonar-reasoning-pro"
     SONAR_DEEP_RESEARCH = "sonar-deep-research"
 
 
@@ -51,18 +53,24 @@ class PerplexityChatRequest(BaseModel):
     """
     Represents the request body for Perplexity's Chat Completions endpoint.
     Endpoint: POST https://api.perplexity.ai/chat/completions
+    Updated: 2025 - Added search_mode and new model options
     """
 
     model: PerplexityModels = Field(
         PerplexityModels.SONAR,
-        description="The model name, e.g. 'sonar', (the only model available at the "
-        "time when this request model was updated, check doc for latest info).",
+        description="The model name. Options: sonar, sonar-pro, sonar-reasoning, "
+        "sonar-reasoning-pro, sonar-deep-research. Default: sonar.",
     )
     messages: list[PerplexityMessage] = Field(
         ..., description="A list of messages forming the conversation so far."
     )
 
     # Optional parameters
+    search_mode: Literal["default", "academic"] | None = Field(
+        default=None,
+        description="Search mode to use. 'academic' filters results to academic and "
+        "scholarly sources. Default: 'default' (general web search).",
+    )
     frequency_penalty: float | None = Field(
         default=1,
         ge=0,

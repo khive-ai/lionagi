@@ -24,7 +24,7 @@ def make_mocked_branch_for_communicate():
     async def _fake_invoke(**kwargs):
         endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
         fake_call = APICalling(
-            payload={"model": "gpt-4o-mini", "messages": []},
+            payload={"model": "gpt-4.1-mini", "messages": []},
             headers={"Authorization": "Bearer test"},
             endpoint=endpoint,
         )
@@ -34,7 +34,7 @@ def make_mocked_branch_for_communicate():
 
     async_mock_invoke = AsyncMock(side_effect=_fake_invoke)
     mock_chat_model = iModel(
-        provider="openai", model="gpt-4o-mini", api_key="test_key"
+        provider="openai", model="gpt-4.1-mini", api_key="test_key"
     )
     mock_chat_model.invoke = async_mock_invoke
 
