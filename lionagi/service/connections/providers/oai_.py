@@ -132,7 +132,8 @@ REASONING_NOT_SUPPORT_PARAMS = (
 
 
 class OpenaiChatEndpoint(Endpoint):
-    def __init__(self, config=OPENAI_CHAT_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_openai_config()
         super().__init__(config, **kwargs)
 
     def create_payload(
@@ -169,20 +170,31 @@ class OpenaiChatEndpoint(Endpoint):
 
 
 class OpenaiResponseEndpoint(Endpoint):
-    def __init__(self, config=OPENAI_RESPONSE_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_openai_config(
+            name="openai_response",
+            endpoint="responses",
+        )
         super().__init__(config, **kwargs)
 
 
 class OpenrouterChatEndpoint(Endpoint):
-    def __init__(self, config=OPENROUTER_CHAT_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_openrouter_config()
         super().__init__(config, **kwargs)
 
 
 class GroqChatEndpoint(Endpoint):
-    def __init__(self, config=GROQ_CHAT_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_groq_config()
         super().__init__(config, **kwargs)
 
 
 class OpenaiEmbedEndpoint(Endpoint):
-    def __init__(self, config=OPENAI_EMBEDDING_ENDPOINT_CONFIG, **kwargs):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_openai_config(
+            name="openai_embed",
+            endpoint="embeddings",
+            kwargs={"model": "text-embedding-3-small"},
+        )
         super().__init__(config, **kwargs)

@@ -37,10 +37,9 @@ _get_config = lambda: EndpointConfig(
     provider="claude_code",
     base_url="internal",
     endpoint="query",
-    auth_type="none",
-    content_type=None,
     request_options=ClaudeCodeRequest,
     timeout=3000,
+    api_key="dummy-key",
 )
 
 
@@ -61,10 +60,7 @@ class ClaudeCodeEndpoint(Endpoint):
             "Use `query_cli` endpoint instead.",
             DeprecationWarning,
         )
-        if config and not isinstance(config, EndpointConfig):
-            raise TypeError(
-                "config must be an instance of EndpointConfig or None"
-            )
+
         config = config or _get_config()
         super().__init__(config=config, **kwargs)
 

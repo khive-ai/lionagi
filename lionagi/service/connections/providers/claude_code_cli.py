@@ -26,8 +26,7 @@ _get_config = lambda: EndpointConfig(
     provider="claude_code",
     base_url="internal",
     endpoint="query_cli",
-    auth_type="none",
-    content_type=None,
+    api_key="dummy-key",
     request_options=ClaudeCodeRequest,
     timeout=18000,  # 30 mins
 )
@@ -59,10 +58,6 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 
 class ClaudeCodeCLIEndpoint(Endpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
-        if not isinstance(config, EndpointConfig):
-            raise TypeError(
-                "config must be an instance of EndpointConfig or None"
-            )
         config = config or _get_config()
         super().__init__(config=config, **kwargs)
 

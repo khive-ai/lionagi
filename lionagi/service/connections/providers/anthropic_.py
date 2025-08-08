@@ -31,10 +31,6 @@ class AnthropicMessagesEndpoint(Endpoint):
         config: EndpointConfig = None,
         **kwargs,
     ):
-        if config and not isinstance(config, EndpointConfig):
-            raise TypeError(
-                "config must be an instance of EndpointConfig or None"
-            )
         config = config or _get_config()
         super().__init__(config, **kwargs)
 

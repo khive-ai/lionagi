@@ -16,49 +16,49 @@ def match_endpoint(
         if "chat" in endpoint:
             from .providers.oai_ import OpenaiChatEndpoint
 
-            return OpenaiChatEndpoint(**kwargs)
+            return OpenaiChatEndpoint(None, **kwargs)
         if "response" in endpoint:
             from .providers.oai_ import OpenaiResponseEndpoint
 
-            return OpenaiResponseEndpoint(**kwargs)
+            return OpenaiResponseEndpoint(None, **kwargs)
     if provider == "openrouter" and "chat" in endpoint:
         from .providers.oai_ import OpenrouterChatEndpoint
 
-        return OpenrouterChatEndpoint(**kwargs)
+        return OpenrouterChatEndpoint(None, **kwargs)
     if provider == "ollama" and "chat" in endpoint:
         from .providers.ollama_ import OllamaChatEndpoint
 
-        return OllamaChatEndpoint(**kwargs)
+        return OllamaChatEndpoint(None, **kwargs)
     if provider == "exa" and "search" in endpoint:
         from .providers.exa_ import ExaSearchEndpoint
 
-        return ExaSearchEndpoint(**kwargs)
+        return ExaSearchEndpoint(None, **kwargs)
     if provider == "anthropic" and (
         "messages" in endpoint or "chat" in endpoint
     ):
         from .providers.anthropic_ import AnthropicMessagesEndpoint
 
-        return AnthropicMessagesEndpoint(**kwargs)
+        return AnthropicMessagesEndpoint(None, **kwargs)
     if provider == "groq" and "chat" in endpoint:
         from .providers.oai_ import GroqChatEndpoint
 
-        return GroqChatEndpoint(**kwargs)
+        return GroqChatEndpoint(None, **kwargs)
     if provider == "perplexity" and "chat" in endpoint:
         from .providers.perplexity_ import PerplexityChatEndpoint
 
-        return PerplexityChatEndpoint(**kwargs)
+        return PerplexityChatEndpoint(None, **kwargs)
     if provider == "claude_code":
         if "cli" in endpoint:
             from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
 
-            return ClaudeCodeCLIEndpoint(**kwargs)
+            return ClaudeCodeCLIEndpoint(None, **kwargs)
 
         if "query" in endpoint or "code" in endpoint:
             from lionagi.service.connections.providers.claude_code_ import (
                 ClaudeCodeEndpoint,
             )
 
-            return ClaudeCodeEndpoint(**kwargs)
+            return ClaudeCodeEndpoint(None, **kwargs)
 
     from .providers.oai_ import OpenaiChatEndpoint
 
