@@ -47,12 +47,10 @@ app = FastAPI(
 def check_claude_code():
     """Verify Claude Code CLI is installed and accessible"""
     try:
-        from lionagi.service.connections.providers._claude_code.stream_cli import (
-            CLAUDE,
-        )
+        from lionagi.service.third_party.claude_code import CLAUDE_CLI
 
         result = subprocess.run(
-            [CLAUDE, "--version"], capture_output=True, text=True
+            [CLAUDE_CLI, "--version"], capture_output=True, text=True
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -75,7 +73,6 @@ async def health_check():
 
 @app.post("/v1/query")
 async def query(request: ClaudeCodeRequest):
-
     endpoint = ClaudeCodeCLIEndpoint()
     try:
         return await endpoint._call(payload={"request": request}, headers={})
