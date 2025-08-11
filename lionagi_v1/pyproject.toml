@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lionagi-v1"
+version = "0.2.0"
+description = "LionAGI v1 base: invariant-aware, observer-first orchestration with morphisms and DAG runner (msgspec core)."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "LionAGI", email = "dev@lionagi.local" }]
+requires-python = ">=3.10"
+dependencies = [
+    "anyio>=4.10.0",
+    "msgspec>=0.18",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lionagi_v1"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4",
+    "black>=25.1.0",
+    "isort>=6.0.1",
+    "pytest-asyncio>=1.1.0",
+    "ruff>=0.12.8",
+]
