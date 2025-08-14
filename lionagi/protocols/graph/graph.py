@@ -5,7 +5,7 @@
 from collections import deque
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 from typing_extensions import Self
 
 from lionagi._errors import ItemExistsError, RelationError
@@ -46,6 +46,18 @@ class Graph(Element, Relational):
                 self.node_edge_mapping[edge.head]["out"][edge.id] = edge.tail
                 self.node_edge_mapping[edge.tail]["in"][edge.id] = edge.head
         return self
+
+    @field_serializer("internal_nodes", "internal_edges")
+    def _serialize_nodes_edges(self, value: Pile):
+        """
+        Serialize the internal nodes and edges to a dictionary format.
+        This is used for serialization purposes.
+        """
+        return value.to_dict()
+
+    @field_validator("internal_nodes", "internal_edges", mode="before")
+    def _deserialize_nodes_edges(cls, value: Any):
+        return Pile.from_dict(value)
 
     def add_node(self, node: Relational) -> None:
         """Add a node to the graph."""
