@@ -84,7 +84,7 @@ def add_post_processing():
         return False
 
     # Read the current content
-    with open(models_file, "r") as f:
+    with open(models_file) as f:
         content = f.read()
 
     # Check if post-processing is already applied
@@ -212,7 +212,7 @@ def get_file_info():
         print(f"📊 File size: {size_mb:.1f} MB")
 
         # Count lines
-        with open(models_file, "r") as f:
+        with open(models_file) as f:
             line_count = sum(1 for _ in f)
         print(f"📊 Lines: {line_count:,}")
 

@@ -28,7 +28,9 @@ logger = logging.getLogger("operation")
 class Operation(Node, Event):
     operation: BranchOperations
     parameters: dict[str, Any] | BaseModel = Field(
-        default_factory=dict, description="Parameters for the operation"
+        default_factory=dict,
+        description="Parameters for the operation",
+        exclude=True,
     )
 
     @property

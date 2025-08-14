@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
 from time import sleep, time
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
