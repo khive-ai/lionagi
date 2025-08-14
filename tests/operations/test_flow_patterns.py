@@ -13,7 +13,7 @@ These tests ensure complex patterns work correctly:
 """
 
 import asyncio
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -22,7 +22,6 @@ import pytest
 from lionagi.fields.instruct import Instruct
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.flow import flow
-from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
 # from lionagi.service.connections.providers.claude_code_cli import ClaudeCodeModel  # Not needed for these tests

@@ -5,8 +5,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lionagi.protocols.generic.event import EventStatus
-
-# Import these so we can construct a real APICalling object:
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch

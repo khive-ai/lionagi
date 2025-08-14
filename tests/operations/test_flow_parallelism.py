@@ -14,7 +14,7 @@ These tests ensure that:
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -22,11 +22,8 @@ import pytest
 from lionagi.fields.instruct import Instruct
 from lionagi.operations.flow import flow
 from lionagi.operations.node import Operation
-from lionagi.protocols.generic.element import IDType
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
-from lionagi.protocols.types import EventStatus
-from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
 
