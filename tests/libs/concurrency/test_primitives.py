@@ -3,14 +3,14 @@
 import anyio
 import pytest
 
-from lionagi.libs.concurrency.primitives import (
+from lionagi.ln.concurrency.primitives import (
     CapacityLimiter,
     Condition,
     Event,
     Lock,
     Semaphore,
 )
-from lionagi.libs.concurrency.task import create_task_group
+from lionagi.ln.concurrency.task import create_task_group
 
 
 @pytest.mark.asyncio

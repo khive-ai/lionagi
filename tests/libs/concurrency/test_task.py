@@ -2,7 +2,7 @@
 
 import pytest
 
-from lionagi.libs.concurrency.task import TaskGroup, create_task_group
+from lionagi.ln.concurrency.task import TaskGroup, create_task_group
 
 
 @pytest.mark.asyncio

@@ -5,12 +5,12 @@ import time
 import anyio
 import pytest
 
-from lionagi.libs.concurrency.cancel import (
+from lionagi.ln.concurrency.cancel import (
     CancelScope,
     fail_after,
     move_on_after,
 )
-from lionagi.libs.concurrency.errors import get_cancelled_exc_class, shield
+from lionagi.ln.concurrency.errors import get_cancelled_exc_class, shield
 
 
 @pytest.mark.asyncio
