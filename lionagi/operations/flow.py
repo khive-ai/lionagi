@@ -12,9 +12,9 @@ using Events for synchronization and CapacityLimiter for concurrency control.
 import os
 from typing import Any
 
-from lionagi.libs.concurrency.primitives import CapacityLimiter
-from lionagi.libs.concurrency.primitives import Event as ConcurrencyEvent
-from lionagi.libs.concurrency.task import create_task_group
+from lionagi.ln.concurrency.primitives import CapacityLimiter
+from lionagi.ln.concurrency.primitives import Event as ConcurrencyEvent
+from lionagi.ln.concurrency.task import create_task_group
 from lionagi.operations.node import Operation
 from lionagi.protocols.types import EventStatus, Graph
 from lionagi.session.branch import Branch

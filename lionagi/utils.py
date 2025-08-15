@@ -25,23 +25,17 @@ from collections.abc import (
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from enum import Enum as _Enum
-from functools import lru_cache, partial
+from functools import partial
 from inspect import isclass
 from pathlib import Path
-from typing import (
-    Any,
-    Literal,
-    TypeVar,
-    get_args,
-    get_origin,
-)
+from typing import Any, Literal, TypeVar, get_args, get_origin
 
-import anyio
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
 from typing_extensions import deprecated
 
-from ._utils import (
+from .libs.validate.xml_parser import xml_to_dict
+from .ln import (
     DataClass,
     Enum,
     KeysDict,
@@ -51,9 +45,7 @@ from ._utils import (
     hash_dict,
     to_list,
 )
-from .libs.concurrency import Lock as ConcurrencyLock
-from .libs.concurrency import Semaphore, create_task_group
-from .libs.validate.xml_parser import xml_to_dict
+from .ln.concurrency import is_coro_func
 from .settings import Settings
 
 R = TypeVar("R")
@@ -199,11 +191,6 @@ def is_same_dtype(
     return (result, dtype) if return_dtype else result
 
 
-@lru_cache(maxsize=None)
-def is_coro_func(func: Callable[..., Any]) -> bool:
-    return asyncio.iscoroutinefunction(func)
-
-
 async def custom_error_handler(
     error: Exception, error_map: dict[type, Callable[[Exception], None]]
 ) -> None:
@@ -216,7 +203,7 @@ async def custom_error_handler(
 
 
 @deprecated(
-    "Use `lionagi._utils.lcall` instead, function signature has changed, this will be removed in future versions."
+    "Use `lionagi.ln.lcall` instead, function signature has changed, this will be removed in future versions."
 )
 def lcall(
     input_: Iterable[T] | T,
@@ -262,7 +249,7 @@ def lcall(
         >>> lcall([1, [2, 3]], str, flatten=True)
         ['1', '2', '3']
     """
-    from lionagi._utils import lcall as _lcall
+    from lionagi.ln import lcall as _lcall
 
     return _lcall(
         input_,
@@ -270,7 +257,7 @@ def lcall(
         *args,
         input_flatten=sanitize_input,
         input_dropna=sanitize_input,
-        input_flatten_tuple_set=sanitize_input,
+        input_flatten_tuple_set=flatten_tuple_set,
         input_unique=unique_input,
         input_use_values=use_input_values,
         output_flatten=flatten,
@@ -281,6 +268,9 @@ def lcall(
     )
 
 
+@deprecated(
+    "Use `lionagi.ln.alcall` instead, function signature has changed, this will be removed in future versions."
+)
 async def alcall(
     input_: list[Any],
     func: Callable[..., T],
@@ -332,147 +322,34 @@ async def alcall(
         asyncio.TimeoutError: If a call times out and no default is provided.
         Exception: If retries are exhausted and no default is provided.
     """
+    from .ln._async_call import alcall as _alcall
 
-    # Validate func is a single callable
-    if not callable(func):
-        # If func is not callable, maybe it's an iterable. Extract one callable if possible.
-        try:
-            func_list = list(func)  # Convert iterable to list
-        except TypeError:
-            raise ValueError(
-                "func must be callable or an iterable containing one callable."
-            )
-
-        # Ensure exactly one callable is present
-        if len(func_list) != 1 or not callable(func_list[0]):
-            raise ValueError("Only one callable function is allowed.")
-
-        func = func_list[0]
-
-    # Process input if requested
-    if sanitize_input:
-        input_ = to_list(
-            input_,
-            flatten=True,
-            dropna=True,
-            unique=unique_input,
-            flatten_tuple_set=flatten_tuple_set,
-        )
-    else:
-        if not isinstance(input_, list):
-            # Attempt to iterate
-            if isinstance(input_, BaseModel):
-                # Pydantic model, convert to list
-                input_ = [input_]
-            else:
-                try:
-                    iter(input_)
-                    # It's iterable (tuple), convert to list of its contents
-                    input_ = list(input_)
-                except TypeError:
-                    # Not iterable, just wrap in a list
-                    input_ = [input_]
-
-    # Optional initial delay before processing
-    if initial_delay:
-        await anyio.sleep(initial_delay)
-
-    semaphore = Semaphore(max_concurrent) if max_concurrent else None
-    throttle_delay = throttle_period or 0
-    coro_func = is_coro_func(func)
-
-    async def call_func(item: Any) -> T:
-        if coro_func:
-            # Async function
-            if retry_timeout is not None:
-                with anyio.move_on_after(retry_timeout) as cancel_scope:
-                    result = await func(item, **kwargs)
-                if cancel_scope.cancelled_caught:
-                    raise asyncio.TimeoutError(
-                        f"Function call timed out after {retry_timeout}s"
-                    )
-                return result
-            else:
-                return await func(item, **kwargs)
-        else:
-            # Sync function
-            if retry_timeout is not None:
-                with anyio.move_on_after(retry_timeout) as cancel_scope:
-                    result = await anyio.to_thread.run_sync(
-                        func, item, **kwargs
-                    )
-                if cancel_scope.cancelled_caught:
-                    raise asyncio.TimeoutError(
-                        f"Function call timed out after {retry_timeout}s"
-                    )
-                return result
-            else:
-                return await anyio.to_thread.run_sync(func, item, **kwargs)
-
-    async def execute_task(i: Any, index: int) -> Any:
-        attempts = 0
-        current_delay = retry_delay
-        while True:
-            try:
-                result = await call_func(i)
-                return index, result
-            except anyio.get_cancelled_exc_class():
-                raise
-
-            except Exception:
-                attempts += 1
-                if attempts <= num_retries:
-                    if current_delay:
-                        await anyio.sleep(current_delay)
-                        current_delay *= backoff_factor
-                    # Retry loop continues
-                else:
-                    # Exhausted retries
-                    if retry_default is not UNDEFINED:
-                        return index, retry_default
-                    # No default, re-raise
-                    raise
-
-    async def task_wrapper(item: Any, idx: int) -> Any:
-        if semaphore:
-            async with semaphore:
-                result = await execute_task(item, idx)
-        else:
-            result = await execute_task(item, idx)
-
-        return result
-
-    # Use task group for structured concurrency
-    results = []
-    results_lock = ConcurrencyLock()  # Protect results list
-
-    async def run_and_store(item: Any, idx: int):
-        result = await task_wrapper(item, idx)
-        async with results_lock:
-            results.append(result)
-
-    # Execute all tasks using task group
-    async with create_task_group() as tg:
-        for idx, item in enumerate(input_):
-            await tg.start_soon(run_and_store, item, idx)
-            # Apply throttle delay between starting tasks
-            if throttle_delay and idx < len(input_) - 1:
-                await anyio.sleep(throttle_delay)
-
-    # Sort by original index
-    results.sort(key=lambda x: x[0])
-
-    # (index, result)
-    output_list = [r[1] for r in results]
-    return to_list(
-        output_list,
-        flatten=flatten,
-        dropna=dropna,
-        unique=unique_output,
-        flatten_tuple_set=flatten_tuple_set,
+    return await _alcall(
+        input_,
+        func,
+        input_flatten=sanitize_input,
+        input_dropna=sanitize_input,
+        input_unique=unique_input,
+        input_flatten_tuple_set=flatten_tuple_set,
+        output_flatten=flatten,
+        output_dropna=dropna,
+        output_unique=unique_output,
+        output_flatten_tuple_set=flatten_tuple_set,
+        delay_before_start=initial_delay,
+        retry_initial_deplay=retry_delay,
+        retry_backoff=backoff_factor,
+        retry_default=retry_default,
+        retry_timeout=retry_timeout,
+        retry_attempts=num_retries,
+        max_concurrent=max_concurrent,
+        throttle_period=throttle_period,
+        **kwargs,
     )
 
 
+@deprecated(
+    "Use `lionagi.ln.alcall` instead, function signature has changed, this will be removed in future versions."
+)
 async def bcall(
     input_: Any,
     func: Callable[..., T],
@@ -495,29 +372,31 @@ async def bcall(
     flatten_tuple_set: bool = False,
     **kwargs: Any,
 ) -> AsyncGenerator[list[T | tuple[T, float]], None]:
-    input_ = to_list(input_, flatten=True, dropna=True)
+    from .ln._async_call import bcall as _bcall
 
-    for i in range(0, len(input_), batch_size):
-        batch = input_[i : i + batch_size]  # noqa: E203
-        yield await alcall(
-            batch,
-            func,
-            sanitize_input=sanitize_input,
-            unique_input=unique_input,
-            num_retries=num_retries,
-            initial_delay=initial_delay,
-            retry_delay=retry_delay,
-            backoff_factor=backoff_factor,
-            retry_default=retry_default,
-            retry_timeout=retry_timeout,
-            max_concurrent=max_concurrent,
-            throttle_period=throttle_period,
-            flatten=flatten,
-            dropna=dropna,
-            unique_output=unique_output,
-            flatten_tuple_set=flatten_tuple_set,
-            **kwargs,
-        )
+    async for i in _bcall(
+        input_,
+        func,
+        batch_size,
+        input_flatten=sanitize_input,
+        input_dropna=sanitize_input,
+        input_unique=unique_input,
+        input_flatten_tuple_set=flatten_tuple_set,
+        output_flatten=flatten,
+        output_dropna=dropna,
+        output_unique=unique_output,
+        output_flatten_tuple_set=flatten_tuple_set,
+        delay_before_start=initial_delay,
+        retry_initial_deplay=retry_delay,
+        retry_backoff=backoff_factor,
+        retry_default=retry_default,
+        retry_timeout=retry_timeout,
+        retry_attempts=num_retries,
+        max_concurrent=max_concurrent,
+        throttle_period=throttle_period,
+        **kwargs,
+    ):
+        yield i
 
 
 def create_path(
@@ -1143,7 +1022,7 @@ def throttle(
     Returns:
         The throttled function.
     """
-    from lionagi.libs.concurrency.throttle import Throttle
+    from .ln.concurrency.throttle import Throttle
 
     if not is_coro_func(func):
         func = force_async(func)
