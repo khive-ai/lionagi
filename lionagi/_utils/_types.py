@@ -135,7 +135,6 @@ def not_sentinel(value: Any) -> bool:
 
 
 class Enum(_Enum):
-
     @classmethod
     def allowed(cls) -> tuple[str, ...]:
         return tuple(e.value for e in cls)

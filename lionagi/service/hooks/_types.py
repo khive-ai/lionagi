@@ -8,7 +8,7 @@ from typing import TypeVar
 
 from typing_extensions import TypedDict
 
-from lionagi.utils import StringEnum
+from lionagi.utils import Enum
 
 SC = TypeVar("SC")  # streaming chunk type
 
@@ -21,7 +21,7 @@ __all__ = (
 )
 
 
-class HookEventTypes(StringEnum):
+class HookEventTypes(str, Enum):
     PreEventCreate = "pre_event_create"
     PreInvokation = "pre_invokation"
     PostInvokation = "post_invokation"

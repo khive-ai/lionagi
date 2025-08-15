@@ -2,7 +2,7 @@
 
 import pytest
 
-from lionagi._utils import _hash_dict as hash_utils
+from lionagi._utils import _hash as hash_utils
 
 
 class TestGenerateHashableRepresentation:
