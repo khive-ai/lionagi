@@ -22,8 +22,9 @@ from .resource_tracker import (
     untrack_resource,
 )
 from .task import TaskGroup, create_task_group
+from .utils import is_coro_func
 
-__all__ = [
+__all__ = (
     "TaskGroup",
     "create_task_group",
     "CancelScope",
@@ -46,4 +47,5 @@ __all__ = [
     "untrack_resource",
     "cleanup_check",
     "get_global_tracker",
-]
+    "is_coro_func",
+)
