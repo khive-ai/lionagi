@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import uuid
-from abc import ABC
 from collections.abc import (
     AsyncGenerator,
     Callable,
@@ -25,14 +24,13 @@ from collections.abc import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from enum import Enum
+from enum import Enum as _Enum
 from functools import lru_cache, partial
 from inspect import isclass
 from pathlib import Path
 from typing import (
     Any,
     Literal,
-    TypedDict,
     TypeVar,
     get_args,
     get_origin,
@@ -42,7 +40,17 @@ from typing import (
 import anyio
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
+from typing_extensions import deprecated
 
+from ._utils import (
+    DataClass,
+    Enum,
+    KeysDict,
+    Params,
+    Undefined,
+    UndefinedType,
+    hash_dict,
+)
 from .libs.concurrency import Lock as ConcurrencyLock
 from .libs.concurrency import Semaphore, create_task_group
 from .libs.validate.xml_parser import xml_to_dict
@@ -54,6 +62,7 @@ B = TypeVar("B", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
+UNDEFINED = Undefined
 
 __all__ = (
     "UndefinedType",
@@ -76,11 +85,6 @@ __all__ = (
     "time",
     "fuzzy_parse_json",
     "fix_json_string",
-    "ToListParams",
-    "LCallParams",
-    "ALCallParams",
-    "BCallParams",
-    "CreatePathParams",
     "get_bins",
     "EventStatus",
     "logger",
@@ -90,77 +94,17 @@ __all__ = (
     "breakdown_pydantic_annotation",
     "run_package_manager_command",
     "StringEnum",
+    "Enum",
 )
 
 
 # --- General Global Utilities Types ---
-
-
+@deprecated("String Enum is deprecated, use `Enum` instead.")
 class StringEnum(str, Enum):
-    @classmethod
-    def allowed(cls) -> tuple[str, ...]:
-        return tuple(e.value for e in cls)
-
-
-class UndefinedType:
-    def __init__(self) -> None:
-        self.undefined = True
-
-    def __bool__(self) -> Literal[False]:
-        return False
-
-    def __deepcopy__(self, memo):
-        # Ensure UNDEFINED is universal
-        return self
-
-    def __repr__(self) -> Literal["UNDEFINED"]:
-        return "UNDEFINED"
-
-    __slots__ = ["undefined"]
-
-
-class KeysDict(TypedDict, total=False):
-    """TypedDict for keys dictionary."""
-
-    key: Any  # Represents any key-type pair
-
-
-def hash_dict(data) -> int:
-    hashable_items = []
-    if isinstance(data, BaseModel):
-        data = data.model_dump()
-    for k, v in data.items():
-        if isinstance(v, (list, dict)):
-            # Convert unhashable types to JSON string for hashing
-            v = json.dumps(v, sort_keys=True)
-        elif not isinstance(v, (str, int, float, bool, type(None))):
-            # Convert other unhashable types to string representation
-            v = str(v)
-        hashable_items.append((k, v))
-    return hash(frozenset(hashable_items))
-
-
-class Params(BaseModel):
-    def keys(self):
-        return type(self).model_fields.keys()
-
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "This method should be implemented in a subclass"
-        )
-
-
-class DataClass(ABC):
     pass
 
 
-# --- Create a global UNDEFINED object ---
-UNDEFINED = UndefinedType()
-
-
 # --- General Global Utilities Functions ---
-
-
 def time(
     *,
     tz: timezone = Settings.Config.TIMEZONE,
@@ -359,7 +303,7 @@ def to_list(
             list: Processed list based on specified options.
         """
         result = []
-        skip_types = (str, bytes, bytearray, Mapping, BaseModel, Enum)
+        skip_types = (str, bytes, bytearray, Mapping, BaseModel, _Enum)
 
         if not flatten_tuple_set:
             skip_types += (tuple, set, frozenset)
@@ -1163,7 +1107,7 @@ def _recur_to_dict(
         ]
         return type(input_)(processed)
 
-    elif isinstance(input_, type) and issubclass(input_, Enum):
+    elif isinstance(input_, type) and issubclass(input_, _Enum):
         try:
             obj_dict = _to_dict(input_, **kwargs)
             return _recur_to_dict(
@@ -1290,7 +1234,7 @@ def _to_dict(
     if isinstance(input_, set):
         return _set_to_dict(input_)
 
-    if isinstance(input_, type) and issubclass(input_, Enum):
+    if isinstance(input_, type) and issubclass(input_, _Enum):
         return _enum_to_dict(input_, use_enum_values=use_enum_values)
 
     if isinstance(input_, Mapping):
