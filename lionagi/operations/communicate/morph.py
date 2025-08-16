@@ -61,7 +61,7 @@ class CommunicateMorphism(Morphism):
     params: CommunicateParams = _DEFAULT_COMMUNICATE_PARAMS
     ctx: CommunicateContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .communicate import communicate
 
-        return await communicate(self.branch, **kw)
+        return await communicate(branch, **kw)

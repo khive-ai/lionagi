@@ -81,7 +81,7 @@ class ReActMorphism(Morphism):
     params: ReActParams = _DEFAULT_REACT_PARAMS
     ctx: ReActContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .ReAct import ReAct
 
-        return await ReAct(self.branch, **kw)
+        return await ReAct(branch, **kw)

@@ -3,12 +3,12 @@ import logging
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import Field
-from typing_extensions import deprecated
+from pydantic import Field, model_validator
 
 from lionagi.ln import get_cancelled_exc_class
 from lionagi.operations.morph import Morphism
 from lionagi.protocols.types import ID, Event, EventStatus, IDType, Node
+from lionagi.session.branch import Branch
 
 BranchOperations = Literal[
     "chat",
@@ -25,11 +25,15 @@ logger = logging.getLogger("operation")
 
 
 class Operation(Node, Event):
-    operation: BranchOperations
+
     morph: Morphism = Field(exclude=True)
     """The morphism that defines the operation."""
 
-    @deprecated("Use `morph.request` instead", version="1.0.0")
+    @property
+    def operation(self) -> BranchOperations:
+        """Get the operation type."""
+        return self.morph.name
+
     @property
     def parameters(self) -> dict[str, Any]:
         return self.morph.request
@@ -60,12 +64,12 @@ class Operation(Node, Event):
         """Get the response from the execution."""
         return self.execution.response if self.execution else None
 
-    async def invoke(self):
+    async def invoke(self, branch: Branch) -> None:
         start = asyncio.get_event_loop().time()
-
         try:
             self.execution.status = EventStatus.PROCESSING
-            response = await self.morph.apply()
+            self.metadata["branch_id"] = str(branch.id)
+            response = await self.morph.apply(branch)
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
 
@@ -82,11 +86,3 @@ class Operation(Node, Event):
 
         finally:
             self.execution.duration = asyncio.get_event_loop().time() - start
-
-    async def _invoke(self, meth):
-        if self.operation == "ReActStream":
-            res = []
-            async for i in meth(**self.request):
-                res.append(i)
-            return res
-        return await meth(**self.request)

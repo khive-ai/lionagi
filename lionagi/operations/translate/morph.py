@@ -48,7 +48,7 @@ class TranslateMorphism(Morphism):
     params: TranslateParams = _DEFAULT_TRANSLATE_PARAMS
     ctx: TranslateContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .translate import translate
 
-        return await translate(self.branch, **kw)
+        return await translate(branch, **kw)

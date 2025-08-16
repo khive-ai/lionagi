@@ -7,9 +7,10 @@ from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, PrivateAttr, model_validator
 from typing_extensions import Self
 
+from lionagi.operations.manager import Operation, OperationManager
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
@@ -17,6 +18,7 @@ from lionagi.protocols.types import (
     Communicatable,
     Exchange,
     Graph,
+    IDError,
     IDType,
     MailManager,
     MessageFlag,
@@ -31,8 +33,8 @@ from lionagi.protocols.types import (
 )
 
 from .._errors import ItemNotFoundError
+from ..ln import lcall
 from ..service.imodel import iModel
-from ..utils import lcall
 from .branch import Branch
 
 
@@ -78,7 +80,7 @@ class Session(Node, Communicatable, Relational):
     ) -> Branch:
         """Get a branch by its ID or name."""
 
-        with contextlib.suppress(ItemNotFoundError, ValueError):
+        with contextlib.suppress(ItemNotFoundError, ValueError, IDError):
             id = ID.get_id(branch)
             return self.branches[id]
 
@@ -230,10 +232,11 @@ class Session(Node, Communicatable, Relational):
             lambda x: [
                 i for i in self.branches[x].messages if i not in exclude_flag
             ],
-            sanitize_input=True,
-            flatten=True,
-            unique_input=True,
-            unique_output=True,
+            input_unique=True,
+            input_flatten=True,
+            input_dropna=True,
+            output_flatten=True,
+            output_unique=True,
         )
         return Pile(
             collections=messages, item_type={RoledMessage}, strict_type=False
@@ -269,14 +272,15 @@ class Session(Node, Communicatable, Relational):
                 lcall(
                     to_,
                     lambda x: self.mail_manager.send(ID.get_id(x)),
-                    sanitize_input=True,
-                    unique_input=True,
-                    use_input_values=True,
+                    input_unique=True,
+                    input_flatten=True,
+                    input_dropna=True,
+                    input_use_values=True,
                 )
             except Exception as e:
                 raise ValueError(f"Failed to send mail. Error: {e}")
 
-    async def acollect_send_all(self, receive_all: bool = False):
+    async def acollect_send_all(self, receive_all: bool = True):
         """
         Collect and send mail for all branches, optionally receiving all mail.
 
@@ -286,7 +290,7 @@ class Session(Node, Communicatable, Relational):
         async with self.mail_manager.sources:
             self.collect_send_all(receive_all)
 
-    def collect_send_all(self, receive_all: bool = False):
+    def collect_send_all(self, receive_all: bool = True):
         """
         Collect and send mail for all branches, optionally receiving all mail.
 
@@ -296,7 +300,8 @@ class Session(Node, Communicatable, Relational):
         self.collect()
         self.send()
         if receive_all:
-            lcall(self.branches, lambda x: x.receive_all())
+            for i in self.branches:
+                i.receive_all()
 
     def collect(self, from_: ID.RefSeq = None):
         """
@@ -316,9 +321,10 @@ class Session(Node, Communicatable, Relational):
                 lcall(
                     from_,
                     lambda x: self.mail_manager.collect(ID.get_id(x)),
-                    sanitize_input=True,
-                    unique_input=True,
-                    use_input_values=True,
+                    input_flatten=True,
+                    input_dropna=True,
+                    input_unique=True,
+                    input_use_values=True,
                 )
             except Exception as e:
                 raise ValueError(f"Failed to collect mail. Error: {e}")

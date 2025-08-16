@@ -62,7 +62,7 @@ class IntepretMorphism(Morphism):
     params: InterpretParams = _DEFAULT_INTEPRET_PARAMS
     ctx: IntepretContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .interpret import interpret
 
-        return await interpret(self.branch, **kw)
+        return await interpret(branch, **kw)

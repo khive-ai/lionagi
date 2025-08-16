@@ -25,7 +25,6 @@ class Morphism(Invariant):
 
     meta: MorphMeta
     params: Params
-    branch: Branch
     ctx: DataClass
 
     @property
@@ -38,9 +37,9 @@ class Morphism(Invariant):
         _dict.update(self.ctx.to_dict() if self.ctx else {})
         return _dict
 
-    async def apply(self):
-        return await self._apply(**self.request)
+    async def apply(self, branch: Branch, /) -> dict:
+        return await self._apply(branch, **self.request)
 
     @abstractmethod
-    async def _apply(self, /, **kw):
+    async def _apply(self, branch: Branch, /, **kw):
         """override in subclass"""

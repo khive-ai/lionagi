@@ -51,7 +51,7 @@ class SelectMorphism(Morphism):
     params: SelectParams = _DEFAULT_SELECT_PARAMS
     ctx: SelectContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .select import select
 
-        return await select(self.branch, **kw)
+        return await select(branch, **kw)

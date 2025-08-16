@@ -63,9 +63,9 @@ class ChatMorphism(Morphism):
     params: ChatParams = _DEFAULT_CHAT_PARAMS
     ctx: ChatContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .chat import chat
 
         if "chat_model" in kw:
             kw["imodel"] = kw.pop("chat_model")
-        return await chat(self.branch, **kw)
+        return await chat(branch, **kw)

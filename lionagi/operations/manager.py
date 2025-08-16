@@ -57,9 +57,7 @@ class OperationManager(Manager):
         self.registry: dict[str, type[Morphism]] = _get_morphisms()
         self.strict = strict
 
-    def create_operation(
-        self, name: str, branch: Branch, /, **kw
-    ) -> Operation:
+    def create_operation(self, name: str, /, **kw) -> Operation:
         if (morph_cls := self.registry.get(name)) is None:
             raise ValueError(f"Operation {name} not found in registry.")
 
@@ -69,12 +67,11 @@ class OperationManager(Manager):
             if not self.strict
             else ctx_cls(**kw)
         )
-        morph = morph_cls(branch=branch, ctx=_ctx)
+        morph = morph_cls(ctx=_ctx)
         return Operation(
             operation=morph.name,
             morph=morph,
             metadata={
-                "branch_id": str(branch.id),
                 "morphism": morph.meta,
             },
         )

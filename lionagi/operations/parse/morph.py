@@ -69,7 +69,7 @@ class ParseMorphism(Morphism):
     params: ParseParams = _DEFAULT_PARSE_PARAMS
     ctx: ParseContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .parse import parse
 
-        return await parse(self.branch, **kw)
+        return await parse(branch, **kw)

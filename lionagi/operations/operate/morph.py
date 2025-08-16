@@ -76,7 +76,7 @@ class OperateMorphism(Morphism):
     params: OperateParams = _DEFAULT_OPERATE_PARAMS
     ctx: OperateContext | None = None
 
-    async def _apply(self, **kw):
+    async def _apply(self, branch, **kw):
         from .operate import operate
 
-        return await operate(self.branch, **kw)
+        return await operate(branch, **kw)
