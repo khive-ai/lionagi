@@ -47,7 +47,9 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.types import iModel, iModelManager
 from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
-from lionagi.utils import UNDEFINED, alcall, bcall, copy
+from lionagi.utils import UNDEFINED
+from lionagi.utils import alcall as alcall_legacy
+from lionagi.utils import copy
 
 from .prompts import LION_SYSTEM_MESSAGE
 
@@ -1268,7 +1270,7 @@ class Branch(Element, Communicatable, Relational):
         action_request: ActionRequest | BaseModel | dict,
         **kwargs,
     ) -> list:
-        return await alcall(action_request, self._act, **kwargs)
+        return await alcall_legacy(action_request, self._act, **kwargs)
 
     async def _sequential_act(
         self,

@@ -1,10 +1,9 @@
 [project]
 name = "lionagi"
-version = "0.14.11"
+version = "0.15.0"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
-    { name = "Liangbingyan Luo", email = "llby_luo@outlook.com" }   
 ]
 readme = "README.md"
 requires-python = ">=3.10"

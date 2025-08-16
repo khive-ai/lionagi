@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import uuid
-from abc import ABC
 from collections.abc import (
     AsyncGenerator,
     Callable,
@@ -25,27 +24,28 @@ from collections.abc import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from enum import Enum
-from functools import lru_cache, partial
+from enum import Enum as _Enum
+from functools import partial
 from inspect import isclass
 from pathlib import Path
-from typing import (
-    Any,
-    Literal,
-    TypedDict,
-    TypeVar,
-    get_args,
-    get_origin,
-    overload,
-)
+from typing import Any, Literal, TypeVar, get_args, get_origin
 
-import anyio
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
+from typing_extensions import deprecated
 
-from .libs.concurrency import Lock as ConcurrencyLock
-from .libs.concurrency import Semaphore, create_task_group
 from .libs.validate.xml_parser import xml_to_dict
+from .ln import (
+    DataClass,
+    Enum,
+    KeysDict,
+    Params,
+    Undefined,
+    UndefinedType,
+    hash_dict,
+    to_list,
+)
+from .ln.concurrency import is_coro_func
 from .settings import Settings
 
 R = TypeVar("R")
@@ -54,6 +54,7 @@ B = TypeVar("B", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
+UNDEFINED = Undefined
 
 __all__ = (
     "UndefinedType",
@@ -76,11 +77,6 @@ __all__ = (
     "time",
     "fuzzy_parse_json",
     "fix_json_string",
-    "ToListParams",
-    "LCallParams",
-    "ALCallParams",
-    "BCallParams",
-    "CreatePathParams",
     "get_bins",
     "EventStatus",
     "logger",
@@ -90,77 +86,18 @@ __all__ = (
     "breakdown_pydantic_annotation",
     "run_package_manager_command",
     "StringEnum",
+    "Enum",
+    "hash_dict",
 )
 
 
 # --- General Global Utilities Types ---
-
-
+@deprecated("String Enum is deprecated, use `Enum` instead.")
 class StringEnum(str, Enum):
-    @classmethod
-    def allowed(cls) -> tuple[str, ...]:
-        return tuple(e.value for e in cls)
-
-
-class UndefinedType:
-    def __init__(self) -> None:
-        self.undefined = True
-
-    def __bool__(self) -> Literal[False]:
-        return False
-
-    def __deepcopy__(self, memo):
-        # Ensure UNDEFINED is universal
-        return self
-
-    def __repr__(self) -> Literal["UNDEFINED"]:
-        return "UNDEFINED"
-
-    __slots__ = ["undefined"]
-
-
-class KeysDict(TypedDict, total=False):
-    """TypedDict for keys dictionary."""
-
-    key: Any  # Represents any key-type pair
-
-
-def hash_dict(data) -> int:
-    hashable_items = []
-    if isinstance(data, BaseModel):
-        data = data.model_dump()
-    for k, v in data.items():
-        if isinstance(v, (list, dict)):
-            # Convert unhashable types to JSON string for hashing
-            v = json.dumps(v, sort_keys=True)
-        elif not isinstance(v, (str, int, float, bool, type(None))):
-            # Convert other unhashable types to string representation
-            v = str(v)
-        hashable_items.append((k, v))
-    return hash(frozenset(hashable_items))
-
-
-class Params(BaseModel):
-    def keys(self):
-        return type(self).model_fields.keys()
-
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "This method should be implemented in a subclass"
-        )
-
-
-class DataClass(ABC):
     pass
 
 
-# --- Create a global UNDEFINED object ---
-UNDEFINED = UndefinedType()
-
-
 # --- General Global Utilities Functions ---
-
-
 def time(
     *,
     tz: timezone = Settings.Config.TIMEZONE,
@@ -254,11 +191,6 @@ def is_same_dtype(
     return (result, dtype) if return_dtype else result
 
 
-@lru_cache(maxsize=None)
-def is_coro_func(func: Callable[..., Any]) -> bool:
-    return asyncio.iscoroutinefunction(func)
-
-
 async def custom_error_handler(
     error: Exception, error_map: dict[type, Callable[[Exception], None]]
 ) -> None:
@@ -270,206 +202,9 @@ async def custom_error_handler(
     raise error
 
 
-@overload
-def to_list(
-    input_: None | UndefinedType | PydanticUndefinedType,
-    /,
-) -> list: ...
-
-
-@overload
-def to_list(
-    input_: str | bytes | bytearray,
-    /,
-    use_values: bool = False,
-) -> list[str | bytes | bytearray]: ...
-
-
-@overload
-def to_list(
-    input_: Mapping,
-    /,
-    use_values: bool = False,
-) -> list[Any]: ...
-
-
-@overload
-def to_list(
-    input_: Any,
-    /,
-    *,
-    flatten: bool = False,
-    dropna: bool = False,
-    unique: bool = False,
-    use_values: bool = False,
-    flatten_tuple_set: bool = False,
-) -> list: ...
-
-
-def to_list(
-    input_: Any,
-    /,
-    *,
-    flatten: bool = False,
-    dropna: bool = False,
-    unique: bool = False,
-    use_values: bool = False,
-    flatten_tuple_set: bool = False,
-) -> list:
-    """Convert input to a list with optional transformations.
-
-    Transforms various input types into a list with configurable processing
-    options for flattening, filtering, and value extraction.
-
-    Args:
-        input_: Value to convert to list.
-        flatten: If True, recursively flatten nested iterables.
-        dropna: If True, remove None and undefined values.
-        unique: If True, remove duplicates (requires flatten=True).
-        use_values: If True, extract values from enums/mappings.
-        flatten_tuple_items: If True, include tuples in flattening.
-        flatten_set_items: If True, include sets in flattening.
-
-    Returns:
-        list: Processed list based on input and specified options.
-
-    Raises:
-        ValueError: If unique=True is used without flatten=True.
-
-    Examples:
-        >>> to_list([1, [2, 3], 4], flatten=True)
-        [1, 2, 3, 4]
-        >>> to_list([1, None, 2], dropna=True)
-        [1, 2]
-    """
-
-    def _process_list(
-        lst: list[Any],
-        flatten: bool,
-        dropna: bool,
-    ) -> list[Any]:
-        """Process list according to flatten and dropna options.
-
-        Args:
-            lst: Input list to process.
-            flatten: Whether to flatten nested iterables.
-            dropna: Whether to remove None/undefined values.
-
-        Returns:
-            list: Processed list based on specified options.
-        """
-        result = []
-        skip_types = (str, bytes, bytearray, Mapping, BaseModel, Enum)
-
-        if not flatten_tuple_set:
-            skip_types += (tuple, set, frozenset)
-
-        for item in lst:
-            if dropna and (
-                item is None
-                or isinstance(item, (UndefinedType, PydanticUndefinedType))
-            ):
-                continue
-
-            is_iterable = isinstance(item, Iterable)
-            should_skip = isinstance(item, skip_types)
-
-            if is_iterable and not should_skip:
-                item_list = list(item)
-                if flatten:
-                    result.extend(
-                        _process_list(
-                            item_list, flatten=flatten, dropna=dropna
-                        )
-                    )
-                else:
-                    result.append(
-                        _process_list(
-                            item_list, flatten=flatten, dropna=dropna
-                        )
-                    )
-            else:
-                result.append(item)
-
-        return result
-
-    def _to_list_type(input_: Any, use_values: bool) -> list[Any]:
-        """Convert input to initial list based on type.
-
-        Args:
-            input_: Value to convert to list.
-            use_values: Whether to extract values from containers.
-
-        Returns:
-            list: Initial list conversion of input.
-        """
-        if input_ is None or isinstance(
-            input_, (UndefinedType, PydanticUndefinedType)
-        ):
-            return []
-
-        if isinstance(input_, list):
-            return input_
-
-        if isinstance(input_, type) and issubclass(input_, Enum):
-            members = input_.__members__.values()
-            return (
-                [member.value for member in members]
-                if use_values
-                else list(members)
-            )
-
-        if isinstance(input_, (str, bytes, bytearray)):
-            return list(input_) if use_values else [input_]
-
-        if isinstance(input_, Mapping):
-            return (
-                list(input_.values())
-                if use_values and hasattr(input_, "values")
-                else [input_]
-            )
-
-        if isinstance(input_, BaseModel):
-            return [input_]
-
-        if isinstance(input_, Iterable) and not isinstance(
-            input_, (str, bytes, bytearray)
-        ):
-            return list(input_)
-
-        return [input_]
-
-    if unique and not flatten:
-        raise ValueError("unique=True requires flatten=True")
-
-    initial_list = _to_list_type(input_, use_values=use_values)
-    processed = _process_list(initial_list, flatten=flatten, dropna=dropna)
-
-    if unique:
-        seen = set()
-        out = []
-        try:
-            return [x for x in processed if not (x in seen or seen.add(x))]
-        except TypeError:
-            for i in processed:
-                hash_value = None
-                try:
-                    hash_value = hash(i)
-                except TypeError:
-                    if isinstance(i, (BaseModel, Mapping)):
-                        hash_value = hash_dict(i)
-                    else:
-                        raise ValueError(
-                            "Unhashable type encountered in list unique value processing."
-                        )
-                if hash_value not in seen:
-                    seen.add(hash_value)
-                    out.append(i)
-            return out
-
-    return processed
-
-
+@deprecated(
+    "Use `lionagi.ln.lcall` instead, function signature has changed, this will be removed in future versions."
+)
 def lcall(
     input_: Iterable[T] | T,
     func: Callable[[T], R] | Iterable[Callable[[T], R]],
@@ -514,67 +249,23 @@ def lcall(
         >>> lcall([1, [2, 3]], str, flatten=True)
         ['1', '2', '3']
     """
-    # Validate and extract callable function
-    if not callable(func):
-        try:
-            func_list = list(func)
-            if len(func_list) != 1 or not callable(func_list[0]):
-                raise ValueError(
-                    "func must contain exactly one callable function."
-                )
-            func = func_list[0]
-        except TypeError as e:
-            raise ValueError(
-                "func must be callable or iterable with one callable."
-            ) from e
+    from lionagi.ln import lcall as _lcall
 
-    # Process input based on sanitization flag
-    if sanitize_input:
-        input_ = to_list(
-            input_,
-            flatten=True,
-            dropna=True,
-            unique=unique_input,
-            flatten_tuple_set=flatten_tuple_set,
-            use_values=use_input_values,
-        )
-    else:
-        if not isinstance(input_, list):
-            try:
-                input_ = list(input_)
-            except TypeError:
-                input_ = [input_]
-
-    # Validate output processing options
-    if unique_output and not (flatten or dropna):
-        raise ValueError(
-            "unique_output requires flatten or dropna for post-processing."
-        )
-
-    # Process elements and collect results
-    out = []
-    append = out.append
-
-    for item in input_:
-        try:
-            result = func(item, *args, **kwargs)
-            append(result)
-        except InterruptedError:
-            return out
-        except Exception:
-            raise
-
-    # Apply output processing if requested
-    if flatten or dropna:
-        out = to_list(
-            out,
-            flatten=flatten,
-            dropna=dropna,
-            unique=unique_output,
-            flatten_tuple_set=flatten_tuple_set,
-        )
-
-    return out
+    return _lcall(
+        input_,
+        func,
+        *args,
+        input_flatten=sanitize_input,
+        input_dropna=sanitize_input,
+        input_flatten_tuple_set=flatten_tuple_set,
+        input_unique=unique_input,
+        input_use_values=use_input_values,
+        output_flatten=flatten,
+        output_dropna=dropna,
+        output_flatten_tuple_set=flatten_tuple_set,
+        output_unique=unique_output,
+        **kwargs,
+    )
 
 
 async def alcall(
@@ -628,147 +319,34 @@ async def alcall(
         asyncio.TimeoutError: If a call times out and no default is provided.
         Exception: If retries are exhausted and no default is provided.
     """
+    from .ln._async_call import alcall as _alcall
 
-    # Validate func is a single callable
-    if not callable(func):
-        # If func is not callable, maybe it's an iterable. Extract one callable if possible.
-        try:
-            func_list = list(func)  # Convert iterable to list
-        except TypeError:
-            raise ValueError(
-                "func must be callable or an iterable containing one callable."
-            )
-
-        # Ensure exactly one callable is present
-        if len(func_list) != 1 or not callable(func_list[0]):
-            raise ValueError("Only one callable function is allowed.")
-
-        func = func_list[0]
-
-    # Process input if requested
-    if sanitize_input:
-        input_ = to_list(
-            input_,
-            flatten=True,
-            dropna=True,
-            unique=unique_input,
-            flatten_tuple_set=flatten_tuple_set,
-        )
-    else:
-        if not isinstance(input_, list):
-            # Attempt to iterate
-            if isinstance(input_, BaseModel):
-                # Pydantic model, convert to list
-                input_ = [input_]
-            else:
-                try:
-                    iter(input_)
-                    # It's iterable (tuple), convert to list of its contents
-                    input_ = list(input_)
-                except TypeError:
-                    # Not iterable, just wrap in a list
-                    input_ = [input_]
-
-    # Optional initial delay before processing
-    if initial_delay:
-        await anyio.sleep(initial_delay)
-
-    semaphore = Semaphore(max_concurrent) if max_concurrent else None
-    throttle_delay = throttle_period or 0
-    coro_func = is_coro_func(func)
-
-    async def call_func(item: Any) -> T:
-        if coro_func:
-            # Async function
-            if retry_timeout is not None:
-                with anyio.move_on_after(retry_timeout) as cancel_scope:
-                    result = await func(item, **kwargs)
-                if cancel_scope.cancelled_caught:
-                    raise asyncio.TimeoutError(
-                        f"Function call timed out after {retry_timeout}s"
-                    )
-                return result
-            else:
-                return await func(item, **kwargs)
-        else:
-            # Sync function
-            if retry_timeout is not None:
-                with anyio.move_on_after(retry_timeout) as cancel_scope:
-                    result = await anyio.to_thread.run_sync(
-                        func, item, **kwargs
-                    )
-                if cancel_scope.cancelled_caught:
-                    raise asyncio.TimeoutError(
-                        f"Function call timed out after {retry_timeout}s"
-                    )
-                return result
-            else:
-                return await anyio.to_thread.run_sync(func, item, **kwargs)
-
-    async def execute_task(i: Any, index: int) -> Any:
-        attempts = 0
-        current_delay = retry_delay
-        while True:
-            try:
-                result = await call_func(i)
-                return index, result
-            except anyio.get_cancelled_exc_class():
-                raise
-
-            except Exception:
-                attempts += 1
-                if attempts <= num_retries:
-                    if current_delay:
-                        await anyio.sleep(current_delay)
-                        current_delay *= backoff_factor
-                    # Retry loop continues
-                else:
-                    # Exhausted retries
-                    if retry_default is not UNDEFINED:
-                        return index, retry_default
-                    # No default, re-raise
-                    raise
-
-    async def task_wrapper(item: Any, idx: int) -> Any:
-        if semaphore:
-            async with semaphore:
-                result = await execute_task(item, idx)
-        else:
-            result = await execute_task(item, idx)
-
-        return result
-
-    # Use task group for structured concurrency
-    results = []
-    results_lock = ConcurrencyLock()  # Protect results list
-
-    async def run_and_store(item: Any, idx: int):
-        result = await task_wrapper(item, idx)
-        async with results_lock:
-            results.append(result)
-
-    # Execute all tasks using task group
-    async with create_task_group() as tg:
-        for idx, item in enumerate(input_):
-            await tg.start_soon(run_and_store, item, idx)
-            # Apply throttle delay between starting tasks
-            if throttle_delay and idx < len(input_) - 1:
-                await anyio.sleep(throttle_delay)
-
-    # Sort by original index
-    results.sort(key=lambda x: x[0])
-
-    # (index, result)
-    output_list = [r[1] for r in results]
-    return to_list(
-        output_list,
-        flatten=flatten,
-        dropna=dropna,
-        unique=unique_output,
-        flatten_tuple_set=flatten_tuple_set,
+    return await _alcall(
+        input_,
+        func,
+        input_flatten=sanitize_input,
+        input_dropna=sanitize_input,
+        input_unique=unique_input,
+        input_flatten_tuple_set=flatten_tuple_set,
+        output_flatten=flatten,
+        output_dropna=dropna,
+        output_unique=unique_output,
+        output_flatten_tuple_set=flatten_tuple_set,
+        delay_before_start=initial_delay,
+        retry_initial_deplay=retry_delay,
+        retry_backoff=backoff_factor,
+        retry_default=retry_default,
+        retry_timeout=retry_timeout,
+        retry_attempts=num_retries,
+        max_concurrent=max_concurrent,
+        throttle_period=throttle_period,
+        **kwargs,
     )
 
 
+@deprecated(
+    "Use `lionagi.ln.alcall` instead, function signature has changed, this will be removed in future versions."
+)
 async def bcall(
     input_: Any,
     func: Callable[..., T],
@@ -791,29 +369,31 @@ async def bcall(
     flatten_tuple_set: bool = False,
     **kwargs: Any,
 ) -> AsyncGenerator[list[T | tuple[T, float]], None]:
-    input_ = to_list(input_, flatten=True, dropna=True)
+    from .ln._async_call import bcall as _bcall
 
-    for i in range(0, len(input_), batch_size):
-        batch = input_[i : i + batch_size]  # noqa: E203
-        yield await alcall(
-            batch,
-            func,
-            sanitize_input=sanitize_input,
-            unique_input=unique_input,
-            num_retries=num_retries,
-            initial_delay=initial_delay,
-            retry_delay=retry_delay,
-            backoff_factor=backoff_factor,
-            retry_default=retry_default,
-            retry_timeout=retry_timeout,
-            max_concurrent=max_concurrent,
-            throttle_period=throttle_period,
-            flatten=flatten,
-            dropna=dropna,
-            unique_output=unique_output,
-            flatten_tuple_set=flatten_tuple_set,
-            **kwargs,
-        )
+    async for i in _bcall(
+        input_,
+        func,
+        batch_size,
+        input_flatten=sanitize_input,
+        input_dropna=sanitize_input,
+        input_unique=unique_input,
+        input_flatten_tuple_set=flatten_tuple_set,
+        output_flatten=flatten,
+        output_dropna=dropna,
+        output_unique=unique_output,
+        output_flatten_tuple_set=flatten_tuple_set,
+        delay_before_start=initial_delay,
+        retry_initial_deplay=retry_delay,
+        retry_backoff=backoff_factor,
+        retry_default=retry_default,
+        retry_timeout=retry_timeout,
+        retry_attempts=num_retries,
+        max_concurrent=max_concurrent,
+        throttle_period=throttle_period,
+        **kwargs,
+    ):
+        yield i
 
 
 def create_path(
@@ -1163,7 +743,7 @@ def _recur_to_dict(
         ]
         return type(input_)(processed)
 
-    elif isinstance(input_, type) and issubclass(input_, Enum):
+    elif isinstance(input_, type) and issubclass(input_, _Enum):
         try:
             obj_dict = _to_dict(input_, **kwargs)
             return _recur_to_dict(
@@ -1290,7 +870,7 @@ def _to_dict(
     if isinstance(input_, set):
         return _set_to_dict(input_)
 
-    if isinstance(input_, type) and issubclass(input_, Enum):
+    if isinstance(input_, type) and issubclass(input_, _Enum):
         return _enum_to_dict(input_, use_enum_values=use_enum_values)
 
     if isinstance(input_, Mapping):
@@ -1439,7 +1019,7 @@ def throttle(
     Returns:
         The throttled function.
     """
-    from lionagi.libs.concurrency.throttle import Throttle
+    from .ln.concurrency.throttle import Throttle
 
     if not is_coro_func(func):
         func = force_async(func)

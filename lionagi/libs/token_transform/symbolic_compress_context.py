@@ -2,9 +2,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
+from lionagi.ln import alcall
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import Branch
-from lionagi.utils import alcall, get_bins
+from lionagi.utils import get_bins
 
 from .base import TokenMapping, TokenMappingTemplate
 from .synthlang_.base import SynthlangFramework, SynthlangTemplate
@@ -130,13 +131,13 @@ async def symbolic_compress_context(
         _inner,
         max_concurrent=max_concurrent,
         retry_default=None,
-        num_retries=3,
-        throttle_period=throttle_period,
+        retry_attempts=3,
+        retry_backoff=2,
         retry_delay=1,
-        backoff_factor=2,
-        flatten=True,
-        dropna=True,
-        unique_output=True,
+        throttle_period=throttle_period,
+        output_flatten=True,
+        output_dropna=True,
+        output_unique=True,
     )
     text = "\n".join(results)
     text = DEFAULT_INVOKATION_PROMPT + text

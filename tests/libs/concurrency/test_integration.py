@@ -3,14 +3,14 @@
 import anyio
 import pytest
 
-from lionagi.libs.concurrency.cancel import move_on_after
-from lionagi.libs.concurrency.patterns import (
+from lionagi.ln.concurrency.cancel import move_on_after
+from lionagi.ln.concurrency.patterns import (
     ConnectionPool,
     WorkerPool,
     retry_with_timeout,
 )
-from lionagi.libs.concurrency.primitives import Event, Lock, Semaphore
-from lionagi.libs.concurrency.task import create_task_group
+from lionagi.ln.concurrency.primitives import Event, Lock, Semaphore
+from lionagi.ln.concurrency.task import create_task_group
 
 
 @pytest.mark.asyncio
