@@ -86,6 +86,31 @@ class Session(Node, Communicatable, Relational):
     ):
         self._operation_manager.register(operation, func, update=update)
 
+    def operation(self, name: str = None, *, update: bool = False):
+        """
+        Decorator to automatically register functions as operations.
+
+        Args:
+            name: Operation name. If None, uses the function's __name__.
+            update: Whether to update if operation already exists.
+
+        Usage:
+            @session.operation()
+            async def read_issue():
+                ...
+
+            @session.operation("custom_name")
+            async def some_function():
+                ...
+        """
+
+        def decorator(func: Callable) -> Callable:
+            operation_name = name if name is not None else func.__name__
+            self.register_operation(operation_name, func, update=update)
+            return func
+
+        return decorator
+
     @model_validator(mode="after")
     def _add_mail_sources(self) -> Self:
         if self.default_branch is None:
