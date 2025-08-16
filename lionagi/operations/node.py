@@ -26,7 +26,7 @@ logger = logging.getLogger("operation")
 
 
 class Operation(Node, Event):
-    operation: BranchOperations
+    operation: BranchOperations | str
     parameters: dict[str, Any] | BaseModel = Field(
         default_factory=dict,
         description="Parameters for the operation",
@@ -74,12 +74,11 @@ class Operation(Node, Event):
         return self.execution.response if self.execution else None
 
     async def invoke(self, branch: Branch):
-        meth = getattr(branch, self.operation, None)
+        meth = branch.get_operation(self.operation)
         if meth is None:
             raise ValueError(f"Unsupported operation type: {self.operation}")
 
         start = asyncio.get_event_loop().time()
-
         try:
             self.execution.status = EventStatus.PROCESSING
             self.branch_id = branch.id
