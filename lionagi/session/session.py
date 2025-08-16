@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, PrivateAttr, model_validator
 from typing_extensions import Self
 
 from lionagi.protocols.types import (
@@ -31,9 +31,9 @@ from lionagi.protocols.types import (
 )
 
 from .._errors import ItemNotFoundError
+from ..ln import lcall
 from ..service.imodel import iModel
-from ..utils import lcall
-from .branch import Branch
+from .branch import Branch, OperationManager
 
 
 class Session(Node, Communicatable, Relational):
@@ -56,6 +56,35 @@ class Session(Node, Communicatable, Relational):
         default_factory=MailManager, exclude=True
     )
     name: str = Field(default="Session")
+    user: SenderRecipient | None = None
+    _operation_manager: OperationManager = PrivateAttr(
+        default_factory=OperationManager
+    )
+
+    async def ainclude_branches(self, branches: ID[Branch].ItemSeq):
+        async with self.branches:
+            self.include_branches(branches)
+
+    def include_branches(self, branches: ID[Branch].ItemSeq):
+        def _take_in_branch(branch: Branch):
+            if not branch in self.branches:
+                self.branches.include(branch)
+                self.mail_manager.add_sources(branch)
+
+            branch.user = self.id
+            branch._operation_manager = self._operation_manager
+            if self.default_branch is None:
+                self.default_branch = branch
+
+        branches = [branches] if isinstance(branches, Branch) else branches
+
+        for i in branches:
+            _take_in_branch(i)
+
+    def register_operation(
+        self, operation: str, func: Callable, *, update: bool = False
+    ):
+        self._operation_manager.register(operation, func, update=update)
 
     @model_validator(mode="after")
     def _add_mail_sources(self) -> Self:
@@ -64,7 +93,7 @@ class Session(Node, Communicatable, Relational):
         if self.default_branch not in self.branches:
             self.branches.include(self.default_branch)
         if self.branches:
-            self.mail_manager.add_sources(self.branches)
+            self.include_branches(self.branches)
         return self
 
     def _lookup_branch_by_name(self, name: str) -> Branch | None:
@@ -102,7 +131,8 @@ class Session(Node, Communicatable, Relational):
         progress: Progression = None,
         tool_manager: ActionManager = None,
         tools: Tool | Callable | list = None,
-        **kwargs,  # additional branch parameters
+        as_default_branch: bool = False,
+        **kwargs,
     ) -> Branch:
         kwargs["system"] = system
         kwargs["system_sender"] = system_sender
@@ -116,13 +146,9 @@ class Session(Node, Communicatable, Relational):
         kwargs["tools"] = tools
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
-        from .branch import Branch
-
         branch = Branch(**kwargs)  # type: ignore
-
-        self.branches.include(branch)
-        self.mail_manager.add_sources(branch)
-        if self.default_branch is None:
+        self.include_branches(branch)
+        if as_default_branch:
             self.default_branch = branch
         return branch
 
@@ -179,7 +205,7 @@ class Session(Node, Communicatable, Relational):
         """
         branch: Branch = self.branches[branch]
         branch_clone = branch.clone(sender=self.id)
-        self.branches.append(branch_clone)
+        self.include_branches(branch_clone)
         return branch_clone
 
     def change_default_branch(self, branch: ID.Ref):
@@ -230,10 +256,11 @@ class Session(Node, Communicatable, Relational):
             lambda x: [
                 i for i in self.branches[x].messages if i not in exclude_flag
             ],
-            sanitize_input=True,
-            flatten=True,
-            unique_input=True,
-            unique_output=True,
+            input_unique=True,
+            input_flatten=True,
+            input_dropna=True,
+            output_flatten=True,
+            output_unique=True,
         )
         return Pile(
             collections=messages, item_type={RoledMessage}, strict_type=False
@@ -269,14 +296,15 @@ class Session(Node, Communicatable, Relational):
                 lcall(
                     to_,
                     lambda x: self.mail_manager.send(ID.get_id(x)),
-                    sanitize_input=True,
-                    unique_input=True,
-                    use_input_values=True,
+                    input_unique=True,
+                    input_flatten=True,
+                    input_dropna=True,
+                    input_use_values=True,
                 )
             except Exception as e:
                 raise ValueError(f"Failed to send mail. Error: {e}")
 
-    async def acollect_send_all(self, receive_all: bool = False):
+    async def acollect_send_all(self, receive_all: bool = True):
         """
         Collect and send mail for all branches, optionally receiving all mail.
 
@@ -286,7 +314,7 @@ class Session(Node, Communicatable, Relational):
         async with self.mail_manager.sources:
             self.collect_send_all(receive_all)
 
-    def collect_send_all(self, receive_all: bool = False):
+    def collect_send_all(self, receive_all: bool = True):
         """
         Collect and send mail for all branches, optionally receiving all mail.
 
@@ -296,7 +324,8 @@ class Session(Node, Communicatable, Relational):
         self.collect()
         self.send()
         if receive_all:
-            lcall(self.branches, lambda x: x.receive_all())
+            for i in self.branches:
+                i.receive_all()
 
     def collect(self, from_: ID.RefSeq = None):
         """
@@ -316,9 +345,10 @@ class Session(Node, Communicatable, Relational):
                 lcall(
                     from_,
                     lambda x: self.mail_manager.collect(ID.get_id(x)),
-                    sanitize_input=True,
-                    unique_input=True,
-                    use_input_values=True,
+                    input_flatten=True,
+                    input_dropna=True,
+                    input_unique=True,
+                    input_use_values=True,
                 )
             except Exception as e:
                 raise ValueError(f"Failed to collect mail. Error: {e}")
