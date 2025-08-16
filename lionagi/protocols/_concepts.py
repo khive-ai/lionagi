@@ -91,4 +91,8 @@ class Ordering(ABC, Generic[E]):
         pass
 
 
+class Invariant(ABC):
+    """Base for invariants."""
+
+
 # File: lionagi/protocols/_concepts.py
