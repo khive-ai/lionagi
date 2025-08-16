@@ -54,7 +54,7 @@ def async_synchronized(func: Callable):
     return wrapper
 
 
-class Pile(Element, Collective[E], Generic[E], Adaptable, AsyncAdaptable):
+class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     """Thread-safe async-compatible, ordered collection of elements.
 
     The Pile class provides a thread-safe, async-compatible collection with:
