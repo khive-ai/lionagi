@@ -24,6 +24,8 @@ class EventStatus(str, Enum):
         PROCESSING: Action is currently being executed.
         COMPLETED: Action completed successfully.
         FAILED: Action failed during execution.
+        CANCELLED: Action was cancelled before starting
+        ABORTED: Action was aborted during execution.
     """
 
     PENDING = "pending"
