@@ -59,6 +59,14 @@ async def test_flow_true_parallelism():
     branch.id = str(uuid4())  # Use valid UUID
     branch.chat = AsyncMock(side_effect=slow_operation)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     session = Session()
     session.branches.include(branch)
     session.default_branch = branch
@@ -111,6 +119,14 @@ async def test_flow_incremental_execution():
     branch.id = str(uuid4())
     branch.chat = AsyncMock(side_effect=counting_operation)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone to return a proper branch
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -120,6 +136,14 @@ async def test_flow_incremental_execution():
         cloned._message_manager = MagicMock()
         cloned._message_manager.pile = MagicMock()
         cloned._message_manager.pile.clear = MagicMock()
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            if operation == "chat":
+                return cloned.chat
+            return None
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     branch.clone = MagicMock(side_effect=mock_clone)
@@ -198,6 +222,14 @@ async def test_flow_context_type_handling():
     branch.id = str(uuid4())
     branch.chat = AsyncMock(side_effect=context_checker)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone to return a proper branch
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -208,6 +240,14 @@ async def test_flow_context_type_handling():
         cloned._message_manager.pile = MagicMock()
         cloned._message_manager.pile.clear = MagicMock()
         cloned.metadata = {}
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            if operation == "chat":
+                return cloned.chat
+            return None
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     branch.clone = MagicMock(side_effect=mock_clone)
@@ -347,6 +387,17 @@ async def test_flow_aggregation_pattern():
     branch.operate = AsyncMock(side_effect=researcher)
     branch.communicate = AsyncMock(side_effect=synthesizer)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        operation_map = {
+            "chat": branch.chat,
+            "operate": branch.operate,
+            "communicate": branch.communicate,
+        }
+        return operation_map.get(operation)
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone to return a proper branch
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -361,6 +412,17 @@ async def test_flow_aggregation_pattern():
         cloned._message_manager.pile = MagicMock()
         cloned._message_manager.pile.clear = MagicMock()
         cloned.metadata = {}
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            operation_map = {
+                "chat": cloned.chat,
+                "operate": cloned.operate,
+                "communicate": cloned.communicate,
+            }
+            return operation_map.get(operation)
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     branch.clone = MagicMock(side_effect=mock_clone)
@@ -536,6 +598,14 @@ async def test_flow_error_recovery_with_parallelism():
     branch.id = str(uuid4())
     branch.chat = AsyncMock(side_effect=flaky_operation)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -546,6 +616,14 @@ async def test_flow_error_recovery_with_parallelism():
         cloned._message_manager.pile = MagicMock()
         cloned._message_manager.pile.clear = MagicMock()
         cloned.metadata = {}
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            if operation == "chat":
+                return cloned.chat
+            return None
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     branch.clone = MagicMock(side_effect=mock_clone)

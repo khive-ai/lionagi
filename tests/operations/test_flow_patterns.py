@@ -143,6 +143,16 @@ async def test_dynamic_fanout_pattern():
 
     orc_branch.communicate = AsyncMock(side_effect=mock_communicate)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        operation_map = {
+            "operate": orc_branch.operate,
+            "communicate": orc_branch.communicate,
+        }
+        return operation_map.get(operation)
+
+    orc_branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone method for orchestrator branch
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -155,6 +165,16 @@ async def test_dynamic_fanout_pattern():
         cloned._message_manager.pile.clear = MagicMock()
         cloned._message_manager.pile.append = MagicMock()
         cloned.metadata = {}
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            operation_map = {
+                "operate": cloned.operate,
+                "communicate": cloned.communicate,
+            }
+            return operation_map.get(operation)
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     orc_branch.clone = MagicMock(side_effect=mock_clone)
@@ -323,6 +343,14 @@ async def test_context_inheritance_pattern():
     branch._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
     branch.metadata = {}
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "operate":
+            return branch.operate
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone method
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -337,6 +365,14 @@ async def test_context_inheritance_pattern():
             return_value=iter([])
         )
         cloned.metadata = {}
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            if operation == "operate":
+                return cloned.operate
+            return None
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     branch.clone = MagicMock(side_effect=mock_clone)
@@ -520,6 +556,18 @@ async def test_mixed_operation_types():
     branch._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
     branch.metadata = {}
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        operation_map = {
+            "operate": branch.operate,
+            "parse": branch.parse,
+            "communicate": branch.communicate,
+            "chat": branch.chat,
+        }
+        return operation_map.get(operation)
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone method
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -536,6 +584,18 @@ async def test_mixed_operation_types():
             return_value=iter([])
         )
         cloned.metadata = {}
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            operation_map = {
+                "operate": cloned.operate,
+                "parse": cloned.parse,
+                "communicate": cloned.communicate,
+                "chat": cloned.chat,
+            }
+            return operation_map.get(operation)
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     branch.clone = MagicMock(side_effect=mock_clone)
@@ -664,6 +724,16 @@ async def test_flow_with_existing_graph():
     branch._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
     branch.metadata = {}
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        operation_map = {
+            "operate": branch.operate,
+            "communicate": branch.communicate,
+        }
+        return operation_map.get(operation)
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     # Mock clone method
     def mock_clone(sender=None):
         cloned = MagicMock()
@@ -678,6 +748,16 @@ async def test_flow_with_existing_graph():
             return_value=iter([])
         )
         cloned.metadata = {}
+
+        # Mock get_operation for cloned branch too
+        def cloned_get_operation(operation: str):
+            operation_map = {
+                "operate": cloned.operate,
+                "communicate": cloned.communicate,
+            }
+            return operation_map.get(operation)
+
+        cloned.get_operation = MagicMock(side_effect=cloned_get_operation)
         return cloned
 
     branch.clone = MagicMock(side_effect=mock_clone)
