@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import ClassVar, TypedDict
 
 from lionagi.ln import DataClass, Params
 from lionagi.protocols.types import Invariant
@@ -20,17 +20,26 @@ class MorphMeta(TypedDict, total=False):
 
 @dataclass(slots=True, frozen=True, init=False)
 class Morphism(Invariant):
+    ctx_cls: ClassVar[type[DataClass]]
+    """The context class for this morphism."""
 
     meta: MorphMeta
     params: Params
     branch: Branch
-    ctx: DataClass | None = None
+    ctx: DataClass
 
-    async def apply(self, **kw):
+    @property
+    def name(self) -> str:
+        return self.meta.get("name")
+
+    @property
+    def request(self) -> dict:
         _dict = self.params.to_dict()
         _dict.update(self.ctx.to_dict() if self.ctx else {})
-        _dict.update(kw)
-        return await self._apply(**_dict)
+        return _dict
+
+    async def apply(self):
+        return await self._apply(**self.request)
 
     @abstractmethod
     async def _apply(self, /, **kw):

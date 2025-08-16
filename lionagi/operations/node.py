@@ -3,10 +3,12 @@ import logging
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from typing_extensions import deprecated
 
+from lionagi.ln import get_cancelled_exc_class
+from lionagi.operations.morph import Morphism
 from lionagi.protocols.types import ID, Event, EventStatus, IDType, Node
-from lionagi.session.branch import Branch
 
 BranchOperations = Literal[
     "chat",
@@ -17,9 +19,6 @@ BranchOperations = Literal[
     "select",
     "translate",
     "interpret",
-    "act",
-    "ReActStream",
-    "instruct",
 ]
 
 logger = logging.getLogger("operation")
@@ -27,23 +26,18 @@ logger = logging.getLogger("operation")
 
 class Operation(Node, Event):
     operation: BranchOperations
-    parameters: dict[str, Any] | BaseModel = Field(
-        default_factory=dict,
-        description="Parameters for the operation",
-        exclude=True,
-    )
+    morph: Morphism = Field(exclude=True)
+    """The morphism that defines the operation."""
+
+    @deprecated("Use `morph.request` instead", version="1.0.0")
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return self.morph.request
 
     @property
     def branch_id(self) -> IDType | None:
         if a := self.metadata.get("branch_id"):
             return ID.get_id(a)
-
-    @branch_id.setter
-    def branch_id(self, value: str | UUID | IDType | None):
-        if value is None:
-            self.metadata.pop("branch_id", None)
-        else:
-            self.metadata["branch_id"] = str(value)
 
     @property
     def graph_id(self) -> str | None:
@@ -59,39 +53,27 @@ class Operation(Node, Event):
 
     @property
     def request(self) -> dict:
-        # Convert parameters to dict if it's a BaseModel
-        params = self.parameters
-        if hasattr(params, "model_dump"):
-            params = params.model_dump()
-        elif hasattr(params, "dict"):
-            params = params.dict()
-
-        return params if isinstance(params, dict) else {}
+        return self.morph.request
 
     @property
     def response(self):
         """Get the response from the execution."""
         return self.execution.response if self.execution else None
 
-    async def invoke(self, branch: Branch):
-        meth = getattr(branch, self.operation, None)
-        if meth is None:
-            raise ValueError(f"Unsupported operation type: {self.operation}")
-
+    async def invoke(self):
         start = asyncio.get_event_loop().time()
 
         try:
             self.execution.status = EventStatus.PROCESSING
-            self.branch_id = branch.id
-            response = await self._invoke(meth)
-
+            response = await self.morph.apply()
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
 
-        except asyncio.CancelledError:
-            self.execution.error = "Operation cancelled"
-            self.execution.status = EventStatus.FAILED
-            raise
+        except get_cancelled_exc_class() as e:
+            self.execution.error = str(e)
+            self.execution.status = EventStatus.ABORTED
+            logger.warning(f"Operation aborted: {e}")
+            raise e
 
         except Exception as e:
             self.execution.error = str(e)

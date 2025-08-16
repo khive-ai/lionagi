@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, JsonValue
 
@@ -51,6 +51,7 @@ _DEFAULT_CHAT_PARAMS = ChatParams()
 
 @dataclass(slots=True, frozen=True)
 class ChatMorphism(Morphism):
+    ctx_cls: ClassVar[type[DataClass]] = ChatContext
 
     meta: MorphMeta = field(
         default_factory=lambda: MorphMeta(
@@ -65,4 +66,6 @@ class ChatMorphism(Morphism):
     async def _apply(self, **kw):
         from .chat import chat
 
+        if "chat_model" in kw:
+            kw["imodel"] = kw.pop("chat_model")
         return await chat(self.branch, **kw)
