@@ -2,10 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import contextlib
+import json
 from enum import Enum
 from typing import Any
 
 from pydantic import Field, field_serializer
+
+from lionagi.utils import to_dict
 
 from .element import Element
 
@@ -79,6 +83,38 @@ class Execution:
             f"response={self.response}, error={self.error})"
         )
 
+    def to_dict(self) -> dict:
+        """Converts the execution state to a dictionary.
+
+        Returns:
+            dict: A dictionary representation of the execution state.
+        """
+        res_ = ...
+
+        if not isinstance(
+            self.response,
+            (str, bytes, bytearray, int, float, type(None), Enum),
+        ):
+            with contextlib.suppress(Exception):
+                res_ = to_dict(
+                    self.response, recursive=True, recursive_python_only=False
+                )
+                res_ = json.dumps(res_)
+            if res_ is ...:
+                with contextlib.suppress(Exception):
+                    res_ = repr(self.response)
+            if res_ is ...:
+                with contextlib.suppress(Exception):
+                    res_ = str(self.response)
+
+        res_ = res_ if res_ is not ... else "<unserializable>"
+        return {
+            "status": self.status.value,
+            "duration": self.duration,
+            "response": res_,
+            "error": self.error,
+        }
+
 
 class Event(Element):
     """Extends Element with an execution state.
@@ -101,12 +137,7 @@ class Event(Element):
             dict: The serialized data containing status, duration, response,
             and error fields.
         """
-        return {
-            "status": val.status.value,
-            "duration": val.duration,
-            "response": val.response,
-            "error": val.error,
-        }
+        return self.execution.to_dict()
 
     @property
     def response(self) -> Any:
