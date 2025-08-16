@@ -6,6 +6,7 @@ from ._concepts import (
     Collective,
     Communicatable,
     Condition,
+    Invariant,
     Manager,
     Observable,
     Observer,
@@ -115,4 +116,5 @@ __all__ = (
     "MailManager",
     "DataLogger",
     "DataLoggerConfig",
+    "Invariant",
 )
