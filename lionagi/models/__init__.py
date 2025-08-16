@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from .base_model import BaseModel
 from .field_model import FieldModel
 from .hashable_model import HashableModel
 from .model_params import ModelParams
@@ -16,4 +17,5 @@ __all__ = (
     "Note",
     "SchemaModel",
     "HashableModel",
+    "BaseModel",
 )

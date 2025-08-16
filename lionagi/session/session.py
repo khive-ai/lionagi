@@ -50,12 +50,13 @@ class Session(Node, Communicatable, Relational):
     branches: Pile[Branch] = Field(
         default_factory=lambda: Pile(item_type={Branch}, strict_type=False)
     )
-    default_branch: Any = Field(default=None, exclude=True)
+    default_branch: Branch = Field(default=None, exclude=True)
     mail_transfer: Exchange = Field(default_factory=Exchange)
     mail_manager: MailManager = Field(
         default_factory=MailManager, exclude=True
     )
     name: str = Field(default="Session")
+    user: SenderRecipient | None = None
 
     @model_validator(mode="after")
     def _add_mail_sources(self) -> Self:
@@ -65,6 +66,8 @@ class Session(Node, Communicatable, Relational):
             self.branches.include(self.default_branch)
         if self.branches:
             self.mail_manager.add_sources(self.branches)
+            for i in self.branches:
+                i.user = self.id
         return self
 
     def _lookup_branch_by_name(self, name: str) -> Branch | None:
@@ -72,6 +75,25 @@ class Session(Node, Communicatable, Relational):
             if branch.name == name:
                 return branch
         return None
+
+    async def ainclude_branches(self, branches: ID[Branch].ItemSeq):
+        async with self.branches:
+            self.include_branches(branches)
+
+    def include_branches(self, branches: ID[Branch].ItemSeq):
+        def _take_in_branch(branch: Branch):
+            if not branch in self.branches:
+                self.branches.include(branch)
+                self.mail_manager.add_sources(branch)
+
+            branch.user = self.id
+            if self.default_branch is None:
+                self.default_branch = branch
+
+        branches = [branches] if isinstance(branches, Branch) else branches
+
+        for i in branches:
+            _take_in_branch(i)
 
     def get_branch(
         self, branch: ID.Ref | str, default: Any = ..., /
@@ -102,6 +124,7 @@ class Session(Node, Communicatable, Relational):
         progress: Progression = None,
         tool_manager: ActionManager = None,
         tools: Tool | Callable | list = None,
+        as_default_branch: bool = False,
         **kwargs,  # additional branch parameters
     ) -> Branch:
         kwargs["system"] = system
@@ -116,13 +139,9 @@ class Session(Node, Communicatable, Relational):
         kwargs["tools"] = tools
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
-        from .branch import Branch
-
         branch = Branch(**kwargs)  # type: ignore
-
-        self.branches.include(branch)
-        self.mail_manager.add_sources(branch)
-        if self.default_branch is None:
+        self.include_branches(branch)
+        if as_default_branch:
             self.default_branch = branch
         return branch
 
@@ -140,7 +159,7 @@ class Session(Node, Communicatable, Relational):
                 else str(branch)[:10] + "..."
             )
             raise ItemNotFoundError(f"Branch {_s}.. does not exist.")
-        branch: Branch = self.branches[branch]
+        branch = self.branches[branch]
 
         self.branches.exclude(branch)
         self.mail_manager.delete_source(branch.id)
