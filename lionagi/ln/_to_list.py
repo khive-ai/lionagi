@@ -1,6 +1,7 @@
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum as _Enum
-from typing import Any, ClassVar, Iterable, Mapping
+from typing import Any, ClassVar
 
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType

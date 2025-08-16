@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field, JsonValue, PrivateAttr
 from lionagi.config import settings
 from lionagi.fields import Instruct
 from lionagi.libs.schema.as_readable import as_readable
-from lionagi.models.field_model import FieldModel
-from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
+from lionagi.models import FieldModel
+from lionagi.protocols.action.tool import FuncTool
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
@@ -42,6 +42,8 @@ from lionagi.protocols.types import (
     RoledMessage,
     SenderRecipient,
     System,
+    Tool,
+    ToolRef,
 )
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.types import iModel, iModelManager

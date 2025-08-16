@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Any, Callable
+from typing import Any
 
 __all__ = ("is_coro_func",)
 

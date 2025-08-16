@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Callable, ClassVar
+from typing import Any, ClassVar
 
 import anyio
 from pydantic import BaseModel

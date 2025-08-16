@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
+_UNLIMITED_EXTENSIONS = 200
+
+
 async def ReAct(
     branch: "Branch",
     instruct: Instruct | dict[str, Any],
@@ -39,7 +42,7 @@ async def ReAct(
     intermediate_listable: bool = False,
     reasoning_effort: Literal["low", "medium", "high"] = None,
     extension_allowed: bool = True,
-    max_extensions: int | None = 3,
+    max_extensions: int | None = 5,
     response_kwargs: dict | None = None,
     display_as: Literal["json", "yaml"] = "yaml",
     return_analysis: bool = False,
@@ -131,6 +134,7 @@ async def ReActStream(
     reasoning_effort: Literal["low", "medium", "high"] = None,
     extension_allowed: bool = True,
     max_extensions: int | None = 3,
+    response_model: iModel | None = None,
     response_kwargs: dict | None = None,
     analysis_model: iModel | None = None,
     verbose_analysis: bool = False,
@@ -247,11 +251,11 @@ async def ReActStream(
         yield analysis
 
     # Validate and clamp max_extensions if needed
-    if max_extensions and max_extensions > 100:
+    if max_extensions and max_extensions > _UNLIMITED_EXTENSIONS:
         logging.warning(
-            "max_extensions should not exceed 100; defaulting to 100."
+            f"max_extensions should not exceed {_UNLIMITED_EXTENSIONS}; defaulting to {_UNLIMITED_EXTENSIONS}."
         )
-        max_extensions = 100
+        max_extensions = _UNLIMITED_EXTENSIONS
 
     # Step 2: Possibly loop through expansions if extension_needed
     extensions = max_extensions
@@ -346,10 +350,13 @@ async def ReActStream(
         response_format = Analysis
 
     try:
+        params = response_kwargs or {}
+        if response_model:
+            params["chat_model"] = response_model
         out = await branch.operate(
             instruction=answer_prompt,
             response_format=response_format,
-            **(response_kwargs or {}),
+            **params,
         )
         if isinstance(analysis, dict) and all(
             i is None for i in analysis.values()
