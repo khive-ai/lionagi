@@ -1,5 +1,6 @@
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Iterable, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from ._models import Params
 from ._to_list import to_list

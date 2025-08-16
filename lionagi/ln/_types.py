@@ -31,7 +31,7 @@ class _SingletonMeta(type):
     allowing safe identity checks with 'is' operator.
     """
 
-    _cache: dict[type, "SingletonType"] = {}
+    _cache: dict[type, SingletonType] = {}
 
     def __call__(cls, *a, **kw):
         if cls not in cls._cache:
