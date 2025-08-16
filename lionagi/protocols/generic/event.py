@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import Field, field_serializer
 
+from lionagi.ln import Unset
 from lionagi.utils import to_dict
 
 from .element import Element
@@ -18,6 +19,9 @@ __all__ = (
     "Execution",
     "Event",
 )
+
+
+_SIMPLE_TYPE = (str, bytes, bytearray, int, float, type(None), Enum)
 
 
 class EventStatus(str, Enum):
@@ -89,29 +93,35 @@ class Execution:
         Returns:
             dict: A dictionary representation of the execution state.
         """
-        res_ = ...
+        res_ = Unset
+        json_serializable = True
 
-        if not isinstance(
-            self.response,
-            (str, bytes, bytearray, int, float, type(None), Enum),
-        ):
-            with contextlib.suppress(Exception):
-                res_ = to_dict(
-                    self.response, recursive=True, recursive_python_only=False
-                )
-                res_ = json.dumps(res_)
-            if res_ is ...:
+        if not isinstance(self.response, _SIMPLE_TYPE):
+            json_serializable = False
+            try:
+                # check whether response is JSON serializable
+                json.dumps(self.response)
+                res_ = self.response
+                json_serializable = True
+            except Exception:
                 with contextlib.suppress(Exception):
-                    res_ = repr(self.response)
-            if res_ is ...:
-                with contextlib.suppress(Exception):
-                    res_ = str(self.response)
+                    # attempt to convert to dict
+                    d_ = to_dict(
+                        self.response,
+                        recursive=True,
+                        recursive_python_only=False,
+                    )
+                    json.dumps(d_)
+                    res_ = d_
+                    json_serializable = True
 
-        res_ = res_ if res_ is not ... else "<unserializable>"
+        if res_ is Unset and not json_serializable:
+            res_ = "<unserializable>"
+
         return {
             "status": self.status.value,
             "duration": self.duration,
-            "response": res_,
+            "response": res_ or self.response,
             "error": self.error,
         }
 
@@ -137,7 +147,7 @@ class Event(Element):
             dict: The serialized data containing status, duration, response,
             and error fields.
         """
-        return self.execution.to_dict()
+        return val.to_dict()
 
     @property
     def response(self) -> Any:
