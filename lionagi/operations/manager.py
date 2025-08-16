@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from lionagi.ln import DataClass
 from lionagi.protocols._concepts import Manager
-from lionagi.session.branch import Branch
 
 from .morph import Morphism
 from .node import Operation
