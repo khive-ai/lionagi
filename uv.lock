@@ -2027,9 +2027,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiocache", specifier = ">=0.12.0" },
-    { name = "aiohttp", specifier = ">=3.12.0" },
+    { name = "aiohttp", specifier = ">=3.11.0" },
     { name = "aiosqlite", marker = "extra == 'sqlite'", specifier = ">=0.21.0" },
-    { name = "anyio", specifier = ">=4.8.0" },
+    { name = "anyio", specifier = ">=4.7.0" },
     { name = "backoff", specifier = ">=2.2.1" },
     { name = "claude-code-sdk", marker = "extra == 'claude-code'", specifier = ">=0.0.15" },
     { name = "datamodel-code-generator", marker = "extra == 'schema'", specifier = ">=0.31.2" },
