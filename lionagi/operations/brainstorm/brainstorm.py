@@ -12,10 +12,11 @@ from lionagi.fields.instruct import (
     Instruct,
     InstructResponse,
 )
+from lionagi.ln import alcall
 from lionagi.protocols.generic.element import ID
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
-from lionagi.utils import alcall, to_list
+from lionagi.utils import to_list
 
 from ..utils import prepare_instruct, prepare_session
 from .prompt import PROMPT

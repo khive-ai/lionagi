@@ -31,18 +31,6 @@ def lcall(
     Maps a function over input elements and processes results. Can sanitize input
     and output using various filtering options.
 
-    Args:
-        input_: Single item or iterable to process.
-        func: Function to apply or single-item iterable containing function.
-        *args: Additional positional arguments passed to func.
-        sanitize_input: If True, sanitize input using to_list.
-        unique_input: If True with sanitize_input, remove input duplicates.
-        flatten: If True, flatten output nested structures.
-        dropna: If True, remove None values from output.
-        unique_output: If True with flatten/dropna, remove output duplicates.
-        flatten_tuple_set: If True, flatten tuples and sets.
-        **kwargs: Additional keyword arguments passed to func.
-
     Raises:
         ValueError: If func is not callable or unique_output used incorrectly.
         TypeError: If func or input processing fails.

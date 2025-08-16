@@ -243,7 +243,6 @@ async def bcall(
 
 @dataclass(slots=True, init=False, frozen=True)
 class AlcallParams(Params):
-
     # ClassVar attributes
     _none_as_sentinel: ClassVar[bool] = True
     _func: ClassVar[Any] = alcall
@@ -283,7 +282,6 @@ class AlcallParams(Params):
 
 @dataclass(slots=True, init=False, frozen=True)
 class BcallParams(AlcallParams):
-
     _func: ClassVar[Any] = bcall
 
     batch_size: int

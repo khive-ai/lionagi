@@ -268,9 +268,6 @@ def lcall(
     )
 
 
-@deprecated(
-    "Use `lionagi.ln.alcall` instead, function signature has changed, this will be removed in future versions."
-)
 async def alcall(
     input_: list[Any],
     func: Callable[..., T],

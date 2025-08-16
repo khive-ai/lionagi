@@ -11,10 +11,10 @@ from lionagi.fields.instruct import (
     Instruct,
     InstructResponse,
 )
+from lionagi.ln import alcall
 from lionagi.protocols.types import ID
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
-from lionagi.utils import alcall
 
 from ..utils import prepare_instruct, prepare_session
 from .prompt import EXPANSION_PROMPT, PLAN_PROMPT
@@ -366,8 +366,8 @@ async def plan(
                 parallel_chunk_results = await alcall(
                     all_chunks,
                     execute_chunk_sequentially,
-                    flatten=True,
-                    dropna=True,
+                    output_flatten=True,
+                    output_dropna=True,
                 )
 
                 out.execute = parallel_chunk_results

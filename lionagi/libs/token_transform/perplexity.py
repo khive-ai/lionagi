@@ -5,11 +5,12 @@ from timeit import default_timer as timer
 import numpy as np
 from pydantic import BaseModel
 
+from lionagi.ln import alcall, lcall
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.generic.log import Log
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.imodel import iModel
-from lionagi.utils import alcall, lcall, to_dict, to_list
+from lionagi.utils import to_dict, to_list
 
 
 @dataclass
