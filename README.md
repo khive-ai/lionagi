@@ -225,7 +225,7 @@ We welcome issues, ideas, and pull requests:
 
 ```
 @software{Li_LionAGI_2023,
-  author = {Haiyang Li, Liangbingyan Luo},
+  author = {Haiyang Li},
   month = {12},
   year = {2023},
   title = {LionAGI: Towards Automated General Intelligence},
