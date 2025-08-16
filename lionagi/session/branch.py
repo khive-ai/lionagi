@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from enum import Enum
 from typing import Any, Literal
 
@@ -14,6 +14,7 @@ from lionagi.config import settings
 from lionagi.fields import Instruct
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.models.field_model import FieldModel
+from lionagi.operations.manager import OperationManager
 from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
 from lionagi.protocols.types import (
     ID,
@@ -49,7 +50,7 @@ from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
 from lionagi.utils import UNDEFINED
 from lionagi.utils import alcall as alcall_legacy
-from lionagi.utils import copy
+from lionagi.utils import copy, is_coro_func
 
 from .prompts import LION_SYSTEM_MESSAGE
 
@@ -111,6 +112,7 @@ class Branch(Element, Communicatable, Relational):
     _action_manager: ActionManager | None = PrivateAttr(None)
     _imodel_manager: iModelManager | None = PrivateAttr(None)
     _log_manager: LogManager | None = PrivateAttr(None)
+    _operation_manager: OperationManager | None = PrivateAttr(None)
 
     def __init__(
         self,
@@ -231,6 +233,8 @@ class Branch(Element, Communicatable, Relational):
         else:
             self._log_manager = LogManager(**Settings.Config.LOG, logs=logs)
 
+        self._operation_manager = OperationManager()
+
     # -------------------------------------------------------------------------
     # Properties to expose managers and core data
     # -------------------------------------------------------------------------
@@ -303,6 +307,11 @@ class Branch(Element, Communicatable, Relational):
         keyed by their tool names or IDs.
         """
         return self._action_manager.registry
+
+    def get_operation(self, operation: str) -> Callable | None:
+        if hasattr(self, operation):
+            return getattr(self, operation)
+        return self._operation_manager.registry.get(operation)
 
     # -------------------------------------------------------------------------
     # Cloning

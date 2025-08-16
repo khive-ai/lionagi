@@ -140,6 +140,14 @@ async def test_operation_invoke_chat():
 
     branch.chat = AsyncMock(side_effect=mock_chat)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     await op.invoke(branch)
 
     # Verify operation was called
@@ -166,6 +174,14 @@ async def test_operation_invoke_with_basemodel_params():
         return {"operation": "operate", "result": "success"}
 
     branch.operate = AsyncMock(side_effect=mock_operate)
+
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "operate":
+            return branch.operate
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     await op.invoke(branch)
 
@@ -195,6 +211,14 @@ async def test_operation_invoke_streaming():
             yield f"stream_chunk_{i}"
 
     branch.ReActStream = mock_stream
+
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "ReActStream":
+            return branch.ReActStream
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     await op.invoke(branch)
 
@@ -227,6 +251,24 @@ async def test_operation_invoke_all_operations():
     branch.interpret = AsyncMock(return_value={"interpretation": "complete"})
     branch.act = AsyncMock(return_value={"action": "taken"})
     branch.instruct = AsyncMock(return_value="instruction_result")
+
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        operation_map = {
+            "chat": branch.chat,
+            "operate": branch.operate,
+            "communicate": branch.communicate,
+            "parse": branch.parse,
+            "ReAct": branch.ReAct,
+            "select": branch.select,
+            "translate": branch.translate,
+            "interpret": branch.interpret,
+            "act": branch.act,
+            "instruct": branch.instruct,
+        }
+        return operation_map.get(operation)
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     operations_and_expected = [
         ("chat", "chat_response: test"),
@@ -277,6 +319,14 @@ async def test_operation_invoke_exception_handling():
 
     branch.chat = AsyncMock(side_effect=failing_method)
 
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
     op = Operation(
         operation="chat", parameters={"instruction": "This will fail"}
     )
@@ -301,6 +351,14 @@ async def test_operation_invoke_cancellation():
         return "should_not_reach_here"
 
     branch.chat = AsyncMock(side_effect=slow_method)
+
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     op = Operation(operation="chat")
 
@@ -370,6 +428,14 @@ async def test_operation_concurrent_invocations():
         return f"chat_response: {kwargs.get('instruction', 'default')}"
 
     branch.chat = AsyncMock(side_effect=mock_chat)
+
+    # Mock get_operation to return the correct async method
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
+
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     # Create multiple operations
     ops = [
