@@ -197,7 +197,7 @@ class APICalling(Event):
 
         except get_cancelled_exc_class():
             self.execution.error = "API call cancelled"
-            self.execution.status = EventStatus.FAILED
+            self.execution.status = EventStatus.CANCELLED
             raise
 
         except Exception as e:

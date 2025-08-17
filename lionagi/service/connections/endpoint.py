@@ -148,6 +148,8 @@ class Endpoint:
                 "chat_model",
                 "imodel",
                 "branch",
+                "aggregation_sources",
+                "aggregation_count",
             }
             payload = {
                 k: v for k, v in payload.items() if k not in non_api_params
