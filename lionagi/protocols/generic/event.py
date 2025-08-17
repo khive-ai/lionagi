@@ -32,12 +32,14 @@ class EventStatus(str, Enum):
         PROCESSING: Action is currently being executed.
         COMPLETED: Action completed successfully.
         FAILED: Action failed during execution.
+        SKIPPED: Action was skipped due to unmet conditions.
     """
 
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    SKIPPED = "skipped"
     CANCELLED = "cancelled"
     ABORTED = "aborted"
 

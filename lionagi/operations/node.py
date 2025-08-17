@@ -3,6 +3,7 @@ import logging
 from typing import Any, Literal
 from uuid import UUID
 
+from anyio import get_cancelled_exc_class
 from pydantic import BaseModel, Field
 
 from lionagi.protocols.types import ID, Event, EventStatus, IDType, Node
@@ -87,9 +88,9 @@ class Operation(Node, Event):
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
 
-        except asyncio.CancelledError:
+        except get_cancelled_exc_class():
             self.execution.error = "Operation cancelled"
-            self.execution.status = EventStatus.FAILED
+            self.execution.status = EventStatus.CANCELLED
             raise
 
         except Exception as e:

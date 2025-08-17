@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
+from anyio import get_cancelled_exc_class
 from pydantic import BaseModel
 
 from lionagi.operations.node import Operation
@@ -367,11 +368,11 @@ async def test_operation_invoke_cancellation():
     await asyncio.sleep(0.1)  # Let it start
     task.cancel()
 
-    with pytest.raises(asyncio.CancelledError):
+    with pytest.raises(get_cancelled_exc_class()):
         await task
 
     # Verify cancellation was handled
-    assert op.execution.status == EventStatus.FAILED
+    assert op.execution.status == EventStatus.CANCELLED
     assert op.execution.error == "Operation cancelled"
 
 
