@@ -158,7 +158,7 @@ def test_strict_mode():
     strict_pile = Pile(
         collections=[MockElement(value=i) for i in range(3)],
         item_type=MockElement,
-        strict=True,
+        strict_type=True,
     )
     with pytest.raises(TypeError):
         strict_pile.include(Element())  # Not a MockElement
