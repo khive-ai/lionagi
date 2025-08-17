@@ -5,7 +5,7 @@ def check_async_postgres_available():
         from sqlalchemy.ext.asyncio import create_async_engine
 
         return True
-    except ImportError:
+    except Exception:
         return ImportError(
             "This adapter requires postgres option to be installed. "
             'Please install them using `uv pip install "lionagi[postgres]"`.'
@@ -19,7 +19,7 @@ def check_postgres_available():
         from sqlalchemy.orm import DeclarativeBase
 
         return True
-    except ImportError:
+    except Exception:
         return ImportError(
             "This adapter requires postgres option to be installed. "
             'Please install them using `uv pip install "lionagi[postgres]"`.'
