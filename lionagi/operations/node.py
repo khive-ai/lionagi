@@ -66,7 +66,14 @@ class Operation(Node, Event):
         elif hasattr(params, "dict"):
             params = params.dict()
 
-        return params if isinstance(params, dict) else {}
+        if isinstance(params, dict):
+            # Filter out internal aggregation metadata that shouldn't be sent to API
+            filtered_params = {
+                k: v for k, v in params.items()
+                if k not in ["aggregation_sources", "aggregation_count"]
+            }
+            return filtered_params
+        return {}
 
     @property
     def response(self):
