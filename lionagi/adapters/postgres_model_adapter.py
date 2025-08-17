@@ -7,19 +7,19 @@ PostgreSQL persistence for lionagi Nodes.
 
 from __future__ import annotations
 
-from typing import Any, Union, get_args, get_origin
+from typing import Union, get_args, get_origin
 
 from pydantic import BaseModel
 
-try:
-    from pydapter.model_adapters.postgres_model import PostgresModelAdapter
-    from sqlalchemy import String
-    from sqlalchemy.orm import DeclarativeBase
-except ImportError:
-    raise ImportError(
-        "This adapter requires postgres option to be installed. "
-        'Please install them using `uv pip install "lionagi[postgres]"`.'
-    )
+from ._utils import check_postgres_available
+
+_POSTGRES_AVAILABLE = check_postgres_available()
+if isinstance(_POSTGRES_AVAILABLE, ImportError):
+    raise _POSTGRES_AVAILABLE
+
+from pydapter.model_adapters.postgres_model import PostgresModelAdapter
+from sqlalchemy import String
+from sqlalchemy.orm import DeclarativeBase
 
 
 class LionAGIPostgresAdapter(PostgresModelAdapter):
