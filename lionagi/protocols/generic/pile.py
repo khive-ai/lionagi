@@ -16,17 +16,23 @@ from collections.abc import (
 )
 from functools import wraps
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 import pandas as pd
-from pydantic import Field
+from pydantic import Field, field_serializer, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydapter import Adaptable, AsyncAdaptable
-from typing_extensions import Self, override
+from typing_extensions import Self, deprecated, override
 
-from lionagi._errors import ItemExistsError, ItemNotFoundError
+from lionagi._errors import ItemExistsError, ItemNotFoundError, ValidationError
 from lionagi.libs.concurrency import Lock as ConcurrencyLock
-from lionagi.utils import UNDEFINED, is_same_dtype, to_list
+from lionagi.utils import (
+    UNDEFINED,
+    is_same_dtype,
+    is_union_type,
+    to_list,
+    union_members,
+)
 
 from .._concepts import Observable
 from .element import ID, Collective, E, Element, IDType, validate_order
@@ -34,6 +40,8 @@ from .progression import Progression
 
 D = TypeVar("D")
 T = TypeVar("T", bound=E)
+
+_ADAPATER_REGISTERED = False
 
 
 def synchronized(func: Callable):
@@ -52,6 +60,123 @@ def async_synchronized(func: Callable):
             return await func(self, *args, **kwargs)
 
     return wrapper
+
+
+def _validate_item_type(value, /) -> set[type[T]] | None:
+    if value is None:
+        return None
+
+    value = to_list_type(value)
+    out = set()
+
+    from lionagi.utils import import_module
+
+    for i in value:
+        subcls = i
+        if isinstance(i, str):
+            try:
+                mod, imp = i.rsplit(".", 1)
+                subcls = import_module(mod, import_name=imp)
+            except Exception as e:
+                raise ValidationError.from_value(
+                    i,
+                    expected="A subclass of Observable.",
+                    cause=e,
+                ) from e
+        if isinstance(subcls, type):
+            if is_union_type(subcls):
+                members = union_members(subcls)
+                for m in members:
+                    if not issubclass(m, Observable):
+                        raise ValidationError.from_value(
+                            m, expected="A subclass of Observable."
+                        )
+                    out.add(m)
+            elif not issubclass(subcls, Observable):
+                raise ValidationError.from_value(
+                    subcls, expected="A subclass of Observable."
+                )
+            else:
+                out.add(subcls)
+        else:
+            raise ValidationError.from_value(
+                i, expected="A subclass of Observable."
+            )
+
+    if len(value) != len(set(value)):
+        raise ValidationError("Detected duplicated item types in item_type.")
+
+    if len(value) > 0:
+        return out
+
+
+def _validate_progression(
+    value: Any, collections: dict[IDType, T], /
+) -> Progression:
+    if not value:
+        return Progression(order=list(collections.keys()))
+
+    prog = None
+    if isinstance(value, dict):
+        try:
+            prog = Progression.from_dict(value)
+            value = list(prog)
+        except Exception:
+            # If we can't create Progression from dict, try to extract order field
+            value = to_list_type(value.get("order", []))
+    elif isinstance(value, Progression):
+        prog = value
+        value = list(prog)
+    else:
+        value = to_list_type(value)
+
+    value_set = set(value)
+    if len(value_set) != len(value):
+        raise ValueError("There are duplicate elements in the order")
+    if len(value_set) != len(collections.keys()):
+        raise ValueError(
+            "The length of the order does not match the length of the pile"
+        )
+
+    for i in value_set:
+        if ID.get_id(i) not in collections.keys():
+            raise ValueError(
+                f"The order does not match the pile. {i} not found"
+            )
+    return prog or Progression(order=value)
+
+
+def _validate_collections(
+    value: Any, item_type: set | None, strict_type: bool, /
+) -> dict[str, T]:
+    if not value:
+        return {}
+
+    value = to_list_type(value)
+
+    result = {}
+    for i in value:
+        if isinstance(i, dict):
+            i = Element.from_dict(i)
+
+        if item_type:
+            if strict_type:
+                if type(i) not in item_type:
+                    raise TypeError(
+                        f"Item {i} is not one of {item_type}, no subclasses allowed."
+                    )
+            else:
+                if not any(issubclass(type(i), t) for t in item_type):
+                    raise TypeError(
+                        f"Item {i} is not one of {item_type} or the subclasses"
+                    )
+        else:
+            if not isinstance(i, Observable):
+                raise ValueError(f"Invalid pile item {i}")
+
+        result[i.id] = i
+
+    return result
 
 
 class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
@@ -79,13 +204,19 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     progression: Progression = Field(
         default_factory=Progression,
         description="Progression specifying the order of items in the pile.",
-        exclude=True,
     )
     strict_type: bool = Field(
         default=False,
         description="Specify if enforce a strict type check",
         frozen=True,
     )
+
+    _EXTRA_FIELDS: ClassVar[set[str]] = {
+        "collections",
+        "item_type",
+        "progression",
+        "strict_type",
+    }
 
     def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
@@ -95,6 +226,29 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     def __pydantic_private__(self) -> dict[str, FieldInfo]:
         return self.__pydantic_extra__()
+
+    @classmethod
+    def _validate_before(cls, data: dict[str, Any]) -> dict[str, Any]:
+        item_type = _validate_item_type(data.get("item_type"))
+        strict_type = data.get("strict_type", False)
+        collections = _validate_collections(
+            data.get("collections"), item_type, strict_type
+        )
+        progression = None
+        if "order" in data:
+            progression = _validate_progression(data["order"], collections)
+        else:
+            progression = _validate_progression(
+                data.get("progression"), collections
+            )
+
+        return {
+            "collections": collections,
+            "item_type": item_type,
+            "progression": progression,
+            "strict_type": strict_type,
+            **{k: v for k, v in data.items() if k not in cls._EXTRA_FIELDS},
+        }
 
     @override
     def __init__(
@@ -113,22 +267,33 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             order: Initial order of items (as Progression).
             strict_type: If True, enforce strict type checking.
         """
-        _config = {}
-        if "id" in kwargs:
-            _config["id"] = kwargs["id"]
-        if "created_at" in kwargs:
-            _config["created_at"] = kwargs["created_at"]
-
-        super().__init__(strict_type=strict_type, **_config)
-        self.item_type = self._validate_item_type(item_type)
-
-        if isinstance(collections, list) and is_same_dtype(collections, dict):
-            collections = [Element.from_dict(i) for i in collections]
-
-        self.collections = self._validate_pile(
-            collections or kwargs.get("collections", {})
+        data = Pile._validate_before(
+            {
+                "collections": collections,
+                "item_type": item_type,
+                "progression": order,
+                "strict_type": strict_type,
+                **kwargs,
+            }
         )
-        self.progression = self._validate_order(order)
+        super().__init__(**data)
+
+    @field_serializer("collections")
+    def _serialize_collections(
+        self, v: dict[IDType, T]
+    ) -> list[dict[str, Any]]:
+        return [i.to_dict() for i in v.values()]
+
+    @field_serializer("progression")
+    def _serialize_progression(self, v: Progression) -> dict[str, Any]:
+        return v.to_dict()
+
+    @field_serializer("item_type")
+    def _serialize_item_type(self, v: set[type[T]] | None) -> list[str] | None:
+        """Serialize item_type to a list of class names."""
+        if v is None:
+            return None
+        return [c.class_name(full=True) for c in v]
 
     # Sync Interface methods
     @override
@@ -147,11 +312,9 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             A new Pile instance created from the provided data.
 
         Raises:
-            ValueError: If the dictionary format is invalid.
+            ValidationError: If the dictionary format is invalid.
         """
-        items = data.pop("collections", [])
-        items = [Element.from_dict(i) for i in items]
-        return cls(collections=items, **data)
+        return cls(**data)
 
     def __setitem__(
         self,
@@ -204,22 +367,32 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         Raises:
             ValueError: If item not found.
         """
-        self._remove(item)
+        if isinstance(item, int | slice):
+            raise TypeError(
+                "Invalid item type for remove, should be ID or Item(s)"
+            )
+        if item in self:
+            self.pop(item)
+            return
+        raise ItemNotFoundError(f"{item}")
 
-    def include(
-        self,
-        item: ID.ItemSeq | ID.Item,
-        /,
-    ) -> None:
+    def include(self, item: ID.ItemSeq | ID.Item, /) -> None:
         """Include item(s) if not present.
 
         Args:
             item: Item(s) to include.
-
-        Raises:
-            TypeError: If item type not allowed.
         """
-        self._include(item)
+        item_dict = _validate_collections(
+            item, self.item_type, self.strict_type
+        )
+
+        item_order = []
+        for i in item_dict.keys():
+            if i not in self.progression:
+                item_order.append(i)
+
+        self.progression.append(item_order)
+        self.collections.update(item_dict)
 
     def exclude(
         self,
@@ -231,7 +404,13 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         Args:
             item: Item(s) to exclude.
         """
-        self._exclude(item)
+        item = to_list_type(item)
+        exclude_list = []
+        for i in item:
+            if i in self:
+                exclude_list.append(i)
+        if exclude_list:
+            self.pop(exclude_list)
 
     @synchronized
     def clear(self) -> None:
@@ -251,7 +430,12 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         Raises:
             TypeError: If item types not allowed.
         """
-        self._update(other)
+        others = _validate_collections(other, self.item_type, self.strict_type)
+        for i in others.keys():
+            if i in self.collections:
+                self.collections[i] = others[i]
+            else:
+                self.include(others[i])
 
     @synchronized
     def insert(self, index: int, item: T, /) -> None:
@@ -370,7 +554,9 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             raise TypeError(
                 f"Invalid type for Pile operation. expected <Pile>, got {type(other)}"
             )
-        other = self._validate_pile(list(other))
+        other = _validate_collections(
+            list(other), self.item_type, self.strict_type
+        )
         self.include(other)
         return self
 
@@ -526,7 +712,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         /,
     ) -> None:
         """Async remove item."""
-        self._remove(item)
+        self.remove(item)
 
     @async_synchronized
     async def ainclude(
@@ -535,7 +721,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         /,
     ) -> None:
         """Async include item(s)."""
-        self._include(item)
+        self.include(item)
         if item not in self:
             raise TypeError(f"Item {item} is not of allowed types")
 
@@ -546,7 +732,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         /,
     ) -> None:
         """Async exclude item(s)."""
-        self._exclude(item)
+        self.exclude(item)
 
     @async_synchronized
     async def aclear(self) -> None:
@@ -560,7 +746,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         /,
     ) -> None:
         """Async update with items."""
-        self._update(other)
+        self.update(other)
 
     @async_synchronized
     async def aget(
@@ -635,7 +821,9 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         key: ID.Ref | ID.RefSeq | int | slice,
         item: ID.Item | ID.ItemSeq,
     ) -> None:
-        item_dict = self._validate_pile(item)
+        item_dict = _validate_collections(
+            item, self.item_type, self.strict_type
+        )
 
         item_order = []
         for i in item_dict.keys():
@@ -745,128 +933,14 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                     raise ItemNotFoundError(f"Item not found. Error: {e}")
                 return default
 
-    def _remove(self, item: ID.Ref | ID.RefSeq):
-        if isinstance(item, int | slice):
-            raise TypeError(
-                "Invalid item type for remove, should be ID or Item(s)"
-            )
-        if item in self:
-            self.pop(item)
-            return
-        raise ItemNotFoundError(f"{item}")
-
-    def _include(self, item: ID.ItemSeq | ID.Item):
-        item_dict = self._validate_pile(item)
-
-        item_order = []
-        for i in item_dict.keys():
-            if i not in self.progression:
-                item_order.append(i)
-
-        self.progression.append(item_order)
-        self.collections.update(item_dict)
-
-    def _exclude(self, item: ID.Ref | ID.RefSeq):
-        item = to_list_type(item)
-        exclude_list = []
-        for i in item:
-            if i in self:
-                exclude_list.append(i)
-        if exclude_list:
-            self.pop(exclude_list)
-
     def _clear(self) -> None:
         self.collections.clear()
         self.progression.clear()
 
-    def _update(self, other: ID.ItemSeq | ID.Item):
-        others = self._validate_pile(other)
-        for i in others.keys():
-            if i in self.collections:
-                self.collections[i] = others[i]
-            else:
-                self.include(others[i])
-
-    def _validate_item_type(self, value) -> set[type[T]] | None:
-        if value is None:
-            return None
-
-        value = to_list_type(value)
-
-        for i in value:
-            if not issubclass(i, Observable):
-                raise TypeError(
-                    f"Item type must be a subclass of Observable. Got {i}"
-                )
-
-        if len(value) != len(set(value)):
-            raise ValueError(
-                "Detected duplicated item types in item_type.",
-            )
-
-        if len(value) > 0:
-            return set(value)
-
-    def _validate_pile(self, value: Any) -> dict[str, T]:
-        if not value:
-            return {}
-
-        value = to_list_type(value)
-
-        result = {}
-        for i in value:
-            if isinstance(i, dict):
-                i = Element.from_dict(i)
-
-            if self.item_type:
-                if self.strict_type:
-                    if type(i) not in self.item_type:
-                        raise TypeError(
-                            f"Invalid item type in pile. Expected {self.item_type}",
-                        )
-                else:
-                    if not any(issubclass(type(i), t) for t in self.item_type):
-                        raise TypeError(
-                            "Invalid item type in pile. Expected "
-                            f"{self.item_type} or the subclasses",
-                        )
-            else:
-                if not isinstance(i, Observable):
-                    raise ValueError(f"Invalid pile item {i}")
-
-            result[i.id] = i
-
-        return result
-
-    def _validate_order(self, value: Any) -> Progression:
-        if not value:
-            return self.progression.__class__(
-                order=list(self.collections.keys())
-            )
-
-        if isinstance(value, Progression):
-            value = list(value)
-        else:
-            value = to_list_type(value)
-
-        value_set = set(value)
-        if len(value_set) != len(value):
-            raise ValueError("There are duplicate elements in the order")
-        if len(value_set) != len(self.collections.keys()):
-            raise ValueError(
-                "The length of the order does not match the length of the pile"
-            )
-
-        for i in value_set:
-            if ID.get_id(i) not in self.collections.keys():
-                raise ValueError(
-                    f"The order does not match the pile. {i} not found"
-                )
-
-        return self.progression.__class__(order=value)
-
     def _insert(self, index: int, item: ID.Item):
-        item_dict = self._validate_pile(item)
+        item_dict = _validate_collections(
+            item, self.item_type, self.strict_type
+        )
 
         item_order = []
         for i in item_dict.keys():
@@ -875,24 +949,6 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             item_order.append(i)
         self.progression.insert(index, item_order)
         self.collections.update(item_dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert pile to dictionary, properly handling collections."""
-        # Get base dict from parent class
-        dict_ = super().to_dict()
-
-        # Manually serialize collections
-        collections_list = []
-        for item in self.collections.values():
-            if hasattr(item, "to_dict"):
-                collections_list.append(item.to_dict())
-            elif hasattr(item, "model_dump"):
-                collections_list.append(item.model_dump())
-            else:
-                collections_list.append(str(item))
-
-        dict_["collections"] = collections_list
-        return dict_
 
     class AsyncPileIterator:
         def __init__(self, pile: Pile):
@@ -930,58 +986,86 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             is_same_dtype(self.collections.values())
         )
 
-    def adapt_to(self, obj_key: str, many=False, **kwargs: Any) -> Any:
-        kwargs["adapt_meth"] = "to_dict"
-        return super().adapt_to(obj_key, many=many, **kwargs)
+    def adapt_to(self, obj_key: str, many=False, **kw: Any) -> Any:
+        """Adapt to another format.
+
+        Args:
+            obj_key: Key indicating the format (e.g., 'json', 'csv').
+            many: If True, interpret to receive list of items in the collection.
+            **kw: Additional keyword arguments for adaptation.
+
+        Example:
+            >>> str_ = pile.adapt_to('json')
+            >>> df = pile.adapt_to('pd.DataFrame', many=True)
+            >>> csv_str = pile.adapt_to('csv', many=True)
+
+        Pile built-in with `json`, `csv`, `pd.DataFrame` adapters. You can add more
+        from pydapter, such as `qdrant`, `neo4j`, `postgres`, etc.
+        please visit https://khive-ai.github.io/pydapter/ for more details.
+        """
+        kw["adapt_meth"] = "to_dict"
+        return super().adapt_to(obj_key=obj_key, many=many, **kw)
 
     @classmethod
-    def adapt_from(cls, obj: Any, obj_key: str, many=False, **kwargs: Any):
-        """Create from another format."""
-        kwargs["adapt_meth"] = "from_dict"
-        return super().adapt_from(obj, obj_key, many=many, **kwargs)
+    def adapt_from(cls, obj: Any, obj_key: str, many=False, **kw: Any):
+        """Create from another format.
 
-    async def adapt_to_async(
-        self, obj_key: str, many=False, **kwargs: Any
-    ) -> Any:
-        kwargs["adapt_meth"] = "to_dict"
-        return await super().adapt_to_async(obj_key, many=many, **kwargs)
+        Args:
+            obj: Object to adapt from.
+            obj_key: Key indicating the format (e.g., 'json', 'csv').
+            many: If True, interpret to receive list of items in the collection.
+            **kw: Additional keyword arguments for adaptation.
+
+        Example:
+            >>> pile = Pile.adapt_from(str_, 'json')
+            >>> pile = Pile.adapt_from(df, 'pd.DataFrame', many=True)
+        Pile built-in with `json`, `csv`, `pd.DataFrame` adapters. You can add more
+        from pydapter, such as `qdrant`, `neo4j`, `postgres`, etc.
+        please visit https://khive-ai.github.io/pydapter/ for more details.
+        """
+        kw["adapt_meth"] = "from_dict"
+        return super().adapt_from(obj, obj_key, many=many, **kw)
+
+    async def adapt_to_async(self, obj_key: str, many=False, **kw: Any) -> Any:
+        """Asynchronously adapt to another format."""
+        kw["adapt_meth"] = "to_dict"
+        return await super().adapt_to_async(obj_key=obj_key, many=many, **kw)
 
     @classmethod
     async def adapt_from_async(
-        cls, obj: Any, obj_key: str, many=False, **kwargs: Any
+        cls, obj: Any, obj_key: str, many=False, **kw: Any
     ):
-        kwargs["adapt_meth"] = "from_dict"
-        return await super().adapt_from_async(
-            obj, obj_key, many=many, **kwargs
-        )
+        """Asynchronously create from another format."""
+        kw["adapt_meth"] = "from_dict"
+        return await super().adapt_from_async(obj, obj_key, many=many, **kw)
 
     def to_df(
-        self,
-        columns: list[str] | None = None,
-        **kwargs: Any,
+        self, columns: list[str] | None = None, **kw: Any
     ) -> pd.DataFrame:
         """Convert to DataFrame."""
         from pydapter.extras.pandas_ import DataFrameAdapter
 
         df = DataFrameAdapter.to_obj(
-            list(self.collections.values()), adapt_meth="to_dict", **kwargs
+            list(self.collections.values()), adapt_meth="to_dict", **kw
         )
         if columns:
             return df[columns]
         return df
 
-    def to_csv_file(self, fp: str | Path, **kwargs: Any) -> None:
+    @deprecated(
+        "to_csv_file is deprecated, use `pile.dump(fp, 'csv')` instead"
+    )
+    def to_csv_file(self, fp: str | Path, **kw: Any) -> None:
         """Save to CSV file."""
-        from pydapter.adapters import CsvAdapter
-
-        csv_str = CsvAdapter.to_obj(
-            list(self.collections.values()), adapt_meth="to_dict", **kwargs
-        )
+        csv_str = self.adapt_to("csv", many=True, **kw)
         with open(fp, "w") as f:
             f.write(csv_str)
 
+    @deprecated(
+        "to_json_file is deprecated, use `pile.dump(fp, 'json')` instead"
+    )
     def to_json_file(
-        self, fp: str | Path, mode: str = "w", many: bool = False, **kwargs
+        self, fp: str | Path, mode: str = "w", many: bool = False, **kw
     ):
         """Export collection to JSON file.
 
@@ -991,13 +1075,60 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             mode: File mode ('w' for write, 'a' for append).
             **kwargs: Additional arguments for json.dump() or DataFrame.to_json().
         """
-        from pydapter.adapters import JsonAdapter
-
-        json_str = JsonAdapter.to_obj(
-            self, many=many, adapt_meth="to_dict", **kwargs
-        )
+        json_str = self.adapt_to("json", many=many, **kw)
         with open(fp, mode) as f:
             f.write(json_str)
+
+    def dump(
+        self,
+        fp: str | Path | None,
+        obj_key: Literal["json", "csv", "parquet"] = "json",
+        *,
+        mode: Literal["w", "a"] = "w",
+        clear=False,
+        **kw,
+    ) -> None:
+        """Export collection to file in specified format.
+
+        Args:
+            fp: File path or buffer to write to. If None, returns string.
+                Cannot be None if obj_key is 'parquet'.
+            obj_key: Format to export ('json', 'csv', 'parquet').
+            mode: File mode ('w' for write, 'a' for append).
+            clear: If True, clear the collection after export.
+            **kw: Additional arguments for the export method, pandas kwargs
+        """
+        df = self.to_df()
+        match obj_key:
+            case "parquet":
+                df.to_parquet(fp, engine="pyarrow", index=False, **kw)
+            case "json":
+                out = df.to_json(
+                    fp, orient="records", lines=True, mode=mode, **kw
+                )
+                return out if out is not None else None
+            case "csv":
+                out = df.to_csv(fp, index=False, mode=mode, **kw)
+                return out if out is not None else None
+            case _:
+                raise ValueError(
+                    f"Unsupported obj_key: {obj_key}. Supported keys are 'json', 'csv', 'parquet'."
+                )
+
+        if clear:
+            self.clear()
+
+    @async_synchronized
+    async def adump(
+        self,
+        fp: str | Path,
+        *,
+        obj_key: Literal["json", "csv", "parquet"] = "json",
+        mode: Literal["w", "a"] = "w",
+        clear=False,
+        **kw,
+    ) -> None:
+        return self.dump(fp, obj_key=obj_key, mode=mode, clear=clear, **kw)
 
 
 def to_list_type(value: Any, /) -> list[Any]:
@@ -1016,5 +1147,18 @@ def to_list_type(value: Any, /) -> list[Any]:
         return list(value)
     return [value]
 
+
+if not _ADAPATER_REGISTERED:
+    from pydapter.adapters import CsvAdapter, JsonAdapter
+    from pydapter.extras.pandas_ import DataFrameAdapter
+
+    Pile.register_adapter(CsvAdapter)
+    Pile.register_adapter(JsonAdapter)
+    Pile.register_adapter(DataFrameAdapter)
+    _ADAPATER_REGISTERED = True
+
+Pile = Pile
+
+__all__ = ("Pile",)
 
 # File: lionagi/protocols/generic/pile.py
