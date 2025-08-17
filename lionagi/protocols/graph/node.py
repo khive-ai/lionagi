@@ -114,7 +114,7 @@ if not _ADAPATER_REGISTERED:
 
     from lionagi.adapters._utils import check_async_postgres_available
 
-    if check_async_postgres_available():
+    if check_async_postgres_available() is True:
         from lionagi.adapters.async_postgres_adapter import (
             LionAGIAsyncPostgresAdapter,
         )
