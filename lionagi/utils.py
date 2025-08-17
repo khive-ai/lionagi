@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 import uuid
 from collections.abc import (
     AsyncGenerator,
@@ -28,7 +29,15 @@ from enum import Enum as _Enum
 from functools import partial
 from inspect import isclass
 from pathlib import Path
-from typing import Any, Literal, TypeVar, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
@@ -88,6 +97,8 @@ __all__ = (
     "StringEnum",
     "Enum",
     "hash_dict",
+    "is_union_type",
+    "union_members",
 )
 
 
@@ -189,6 +200,40 @@ def is_same_dtype(
         result = all(isinstance(e, dtype) for e in input_)
 
     return (result, dtype) if return_dtype else result
+
+
+def is_union_type(tp) -> bool:
+    """True for typing.Union[...] and PEP 604 unions (A | B)."""
+    origin = get_origin(tp)
+    return origin is Union or origin is getattr(
+        types, "UnionType", object()
+    )  # Py3.10+
+
+
+NoneType = type(None)
+_UnionType = getattr(types, "UnionType", None)  # for A | B (PEP 604)
+
+
+def _unwrap_annotated(tp):
+    while get_origin(tp) is Annotated:
+        tp = get_args(tp)[0]
+    return tp
+
+
+def union_members(
+    tp, *, unwrap_annotated: bool = True, drop_none: bool = False
+) -> tuple[type, ...]:
+    """Return the member types of a Union (typing.Union or A|B). Empty tuple if not a Union."""
+    tp = _unwrap_annotated(tp) if unwrap_annotated else tp
+    origin = get_origin(tp)
+    if origin is not Union and origin is not _UnionType:
+        return ()
+    members = get_args(tp)
+    if unwrap_annotated:
+        members = tuple(_unwrap_annotated(m) for m in members)
+    if drop_none:
+        members = tuple(m for m in members if m is not NoneType)
+    return members
 
 
 async def custom_error_handler(

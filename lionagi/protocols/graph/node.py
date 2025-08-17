@@ -9,22 +9,13 @@ from typing import Any
 
 from pydantic import field_validator
 from pydapter import Adaptable, AsyncAdaptable
-from pydapter.adapters import JsonAdapter, TomlAdapter
-from pydapter.extras.pandas_ import SeriesAdapter
 
 from lionagi._class_registry import LION_CLASS_REGISTRY
 
 from .._concepts import Relational
 from ..generic.element import Element
 
-NODE_DEFAULT_ADAPTERS = (
-    JsonAdapter,
-    SeriesAdapter,
-    TomlAdapter,
-)
-
-
-__all__ = ("Node",)
+_ADAPATER_REGISTERED = False
 
 
 class Node(Element, Relational, AsyncAdaptable, Adaptable):
@@ -112,5 +103,28 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         kwargs["adapt_meth"] = "from_dict"
         return super().adapt_from(obj, obj_key=obj_key, many=many, **kwargs)
 
+
+if not _ADAPATER_REGISTERED:
+    from pydapter.adapters import JsonAdapter, TomlAdapter
+    from pydapter.extras.pandas_ import SeriesAdapter
+
+    Node.register_adapter(JsonAdapter)
+    Node.register_adapter(TomlAdapter)
+    Node.register_adapter(SeriesAdapter)
+
+    from lionagi.adapters._utils import check_async_postgres_available
+
+    if check_async_postgres_available() is True:
+        from lionagi.adapters.async_postgres_adapter import (
+            LionAGIAsyncPostgresAdapter,
+        )
+
+        Node.register_async_adapter(LionAGIAsyncPostgresAdapter)
+
+    _ADAPATER_REGISTERED = True
+
+Node = Node
+
+__all__ = ("Node",)
 
 # File: lionagi/protocols/graph/node.py

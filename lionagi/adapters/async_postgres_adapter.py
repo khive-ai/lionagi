@@ -12,16 +12,16 @@ from typing import Any, ClassVar, TypeVar
 
 from pydapter.exceptions import QueryError
 
-try:
-    import sqlalchemy as sa
-    from pydapter.extras.async_postgres_ import AsyncPostgresAdapter
-    from sqlalchemy.ext.asyncio import create_async_engine
-except ImportError:
-    raise ImportError(
-        "This adapter requires postgres option to be installed. "
-        'Please install them using `uv pip install "lionagi[postgres]"`.'
-    )
+from ._utils import check_async_postgres_available
 
+_ASYNC_POSTGRES_AVAILABLE = check_async_postgres_available()
+
+if isinstance(_ASYNC_POSTGRES_AVAILABLE, ImportError):
+    raise _ASYNC_POSTGRES_AVAILABLE
+
+import sqlalchemy as sa
+from pydapter.extras.async_postgres_ import AsyncPostgresAdapter
+from sqlalchemy.ext.asyncio import create_async_engine
 
 T = TypeVar("T")
 

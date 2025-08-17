@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from lionagi._errors import ItemNotFoundError
+from lionagi._errors import ItemNotFoundError, ValidationError
 from lionagi.protocols.types import ID, Element, Node, Pile, Progression
 
 
@@ -55,7 +55,7 @@ def test_initialization_with_item_type():
     )
     assert p.item_type == {MockElement}
 
-    with pytest.raises(TypeError):
+    with pytest.raises(ValidationError):
         Pile(collections=[1, 2, 3], item_type=MockElement)
 
 
@@ -158,9 +158,9 @@ def test_strict_mode():
     strict_pile = Pile(
         collections=[MockElement(value=i) for i in range(3)],
         item_type=MockElement,
-        strict=True,
+        strict_type=True,
     )
-    with pytest.raises(TypeError):
+    with pytest.raises(ValidationError):
         strict_pile.include(Element())  # Not a MockElement
 
 
