@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import pandas as pd
 from jinja2 import Template
-from pydantic import BaseModel, Field, JsonValue, PrivateAttr
+from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
 
 from lionagi.config import settings
 from lionagi.fields import Instruct
@@ -393,6 +393,10 @@ class Branch(Element, Communicatable, Relational):
         tools = [tools] if not isinstance(tools, list) else tools
         for tool in tools:
             self._register_tool(tool, update=update)
+
+    @field_serializer("user")
+    def _serialize_user(self, v):
+        return str(v) if v else None
 
     # -------------------------------------------------------------------------
     # Conversion / Serialization
