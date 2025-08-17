@@ -76,7 +76,7 @@ class DependencyAwareExecutor:
         """Execute the operation graph."""
         if not self.graph.is_acyclic():
             raise ValueError("Graph must be acyclic for flow execution")
-        
+
         # Validate edge conditions before execution
         self._validate_edge_conditions()
 
@@ -100,20 +100,21 @@ class DependencyAwareExecutor:
 
         # Return results - only include actually completed operations
         completed_ops = [
-            op_id for op_id in self.results.keys()
+            op_id
+            for op_id in self.results.keys()
             if op_id not in self.skipped_operations
         ]
-        
+
         result = {
             "completed_operations": completed_ops,
             "operation_results": self.results,
             "final_context": self.context,
             "skipped_operations": list(self.skipped_operations),
         }
-        
+
         # Validate results before returning
         self._validate_execution_results(result)
-        
+
         return result
 
     async def _preallocate_all_branches(self):
@@ -210,15 +211,17 @@ class DependencyAwareExecutor:
         try:
             # Check if this operation should be skipped due to edge conditions
             should_execute = await self._check_edge_conditions(operation)
-            
+
             if not should_execute:
                 # Mark as skipped
                 operation.execution.status = EventStatus.SKIPPED
                 self.skipped_operations.add(operation.id)
-                
+
                 if self.verbose:
-                    print(f"Skipping operation due to edge conditions: {str(operation.id)[:8]}")
-                
+                    print(
+                        f"Skipping operation due to edge conditions: {str(operation.id)[:8]}"
+                    )
+
                 # Signal completion so dependent operations can proceed
                 self.completion_events[operation.id].set()
                 return
@@ -271,7 +274,7 @@ class DependencyAwareExecutor:
     async def _check_edge_conditions(self, operation: Operation) -> bool:
         """
         Check if operation should execute based on edge conditions.
-        
+
         Returns True if at least one valid path exists to this operation,
         or if there are no incoming edges (head nodes).
         Returns False if all incoming edges have failed conditions.
@@ -282,37 +285,37 @@ class DependencyAwareExecutor:
             for edge in self.graph.internal_edges.values()
             if edge.tail == operation.id
         ]
-        
+
         # If no incoming edges, this is a head node - always execute
         if not incoming_edges:
             return True
-        
+
         # Check each incoming edge
         has_valid_path = False
-        
+
         for edge in incoming_edges:
             # Wait for the head operation to complete first
             if edge.head in self.completion_events:
                 await self.completion_events[edge.head].wait()
-            
+
             # Check if the head operation was skipped
             if edge.head in self.skipped_operations:
                 continue  # This path is not valid
-            
+
             # Build context for edge condition evaluation
             result_value = self.results.get(edge.head)
             if result_value is not None and not isinstance(
                 result_value, (str, int, float, bool)
             ):
                 result_value = to_dict(result_value, recursive=True)
-            
+
             ctx = {"result": result_value, "context": self.context}
-            
+
             # Use edge.check_condition() which handles None conditions
             if await edge.check_condition(ctx):
                 has_valid_path = True
                 break  # At least one valid path found
-        
+
         return has_valid_path
 
     async def _wait_for_dependencies(self, operation: Operation):
@@ -353,7 +356,7 @@ class DependencyAwareExecutor:
                 # Skip if predecessor was skipped
                 if pred.id in self.skipped_operations:
                     continue
-                    
+
                 if pred.id in self.results:
                     result = self.results[pred.id]
                     if result is not None and not isinstance(
@@ -424,8 +427,10 @@ class DependencyAwareExecutor:
                     ):
                         branch._message_manager.pile.clear()
                         for msg in primary_branch._message_manager.pile:
-                            if hasattr(msg, 'clone'):
-                                branch._message_manager.pile.append(msg.clone())
+                            if hasattr(msg, "clone"):
+                                branch._message_manager.pile.append(
+                                    msg.clone()
+                                )
                             else:
                                 branch._message_manager.pile.append(msg)
 
@@ -448,30 +453,31 @@ class DependencyAwareExecutor:
         if hasattr(self, "_default_branch") and self._default_branch:
             return self._default_branch
         return self.session.default_branch
-    
+
     def _validate_edge_conditions(self):
         """Validate that all edge conditions are properly configured."""
         for edge in self.graph.internal_edges.values():
             if edge.condition is not None:
                 # Ensure condition is an EdgeCondition instance
                 from lionagi.protocols.graph.edge import EdgeCondition
+
                 if not isinstance(edge.condition, EdgeCondition):
                     raise TypeError(
                         f"Edge {edge.id} has invalid condition type: {type(edge.condition)}. "
                         "Must be EdgeCondition or None."
                     )
-                
+
                 # Ensure condition has apply method
-                if not hasattr(edge.condition, 'apply'):
+                if not hasattr(edge.condition, "apply"):
                     raise AttributeError(
                         f"Edge {edge.id} condition missing 'apply' method."
                     )
-    
+
     def _validate_execution_results(self, results: dict[str, Any]):
         """Validate execution results for consistency."""
         completed = set(results.get("completed_operations", []))
         skipped = set(results.get("skipped_operations", []))
-        
+
         # Check for operations in both lists
         overlap = completed & skipped
         if overlap:
@@ -479,7 +485,7 @@ class DependencyAwareExecutor:
                 f"Operations {overlap} appear in both completed and skipped lists! "
                 "This indicates a bug in edge condition handling."
             )
-        
+
         # Verify skipped operations have proper status
         for node in self.graph.internal_nodes.values():
             if isinstance(node, Operation) and node.id in skipped:

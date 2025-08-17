@@ -255,7 +255,9 @@ class OperationGraphBuilder:
 
         # Add aggregation metadata - convert IDType to strings for JSON serialization
         agg_params = {
-            "aggregation_sources": [str(s) for s in sources],  # Convert IDType to strings
+            "aggregation_sources": [
+                str(s) for s in sources
+            ],  # Convert IDType to strings
             "aggregation_count": len(sources),
             **parameters,
         }
