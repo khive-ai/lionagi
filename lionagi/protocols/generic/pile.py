@@ -162,13 +162,15 @@ def _validate_collections(
         if item_type:
             if strict_type:
                 if type(i) not in item_type:
-                    raise TypeError(
-                        f"Item {i} is not one of {item_type}, no subclasses allowed."
+                    raise ValidationError.from_value(
+                        i,
+                        expected=f"One of {item_type}, no subclasses allowed.",
                     )
             else:
                 if not any(issubclass(type(i), t) for t in item_type):
-                    raise TypeError(
-                        f"Item {i} is not one of {item_type} or the subclasses"
+                    raise ValidationError.from_value(
+                        i,
+                        expected=f"One of {item_type} or the subclasses",
                     )
         else:
             if not isinstance(i, Observable):
