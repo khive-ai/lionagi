@@ -12,9 +12,7 @@ using Events for synchronization and CapacityLimiter for concurrency control.
 import os
 from typing import Any
 
-from lionagi.ln.concurrency.primitives import CapacityLimiter
-from lionagi.ln.concurrency.primitives import Event as ConcurrencyEvent
-from lionagi.ln.concurrency.task import create_task_group
+from lionagi.ln import AlcallParams, CapacityLimiter, ConcurrencyEvent
 from lionagi.operations.node import Operation
 from lionagi.protocols.types import EventStatus, Graph
 from lionagi.session.branch import Branch
@@ -36,6 +34,7 @@ class DependencyAwareExecutor:
         max_concurrent: int = 5,
         verbose: bool = False,
         default_branch: Branch | None = None,
+        alcall_params: AlcallParams | None = None,
     ):
         """Initialize the executor.
 
@@ -52,6 +51,7 @@ class DependencyAwareExecutor:
         self.context = context or {}
         self.max_concurrent = max_concurrent
         self.verbose = verbose
+        self._alcall = alcall_params or AlcallParams()
         self._default_branch = default_branch
 
         # Track results and completion
@@ -92,11 +92,12 @@ class DependencyAwareExecutor:
         )
         limiter = CapacityLimiter(capacity)
 
-        # Execute all operations using structured concurrency
-        async with create_task_group() as tg:
-            for node in self.graph.internal_nodes.values():
-                if isinstance(node, Operation):
-                    await tg.start_soon(self._execute_operation, node, limiter)
+        nodes = [
+            n
+            for n in self.graph.internal_nodes.values()
+            if isinstance(n, Operation)
+        ]
+        await self._alcall(nodes, self._execute_operation, limiter=limiter)
 
         # Return results - only include actually completed operations
         completed_ops = [
@@ -507,6 +508,7 @@ async def flow(
     parallel: bool = True,
     max_concurrent: int = None,
     verbose: bool = False,
+    alcall_params: AlcallParams | None = None,
 ) -> dict[str, Any]:
     """Execute a graph using structured concurrency primitives.
 
@@ -521,6 +523,7 @@ async def flow(
         parallel: Whether to execute independent operations in parallel
         max_concurrent: Max concurrent operations (1 if not parallel)
         verbose: Enable verbose logging
+        alcall_params: Parameters for async parallel call execution
 
     Returns:
         Execution results with completed operations and final context
@@ -528,8 +531,7 @@ async def flow(
 
     # Handle concurrency limits
     if not parallel:
-        max_concurrent = 1  # Force sequential execution
-    # If max_concurrent is None, it means no limit
+        max_concurrent = 1
 
     # Execute using the dependency-aware executor
     executor = DependencyAwareExecutor(
@@ -539,6 +541,7 @@ async def flow(
         max_concurrent=max_concurrent,
         verbose=verbose,
         default_branch=branch,
+        alcall_params=alcall_params,
     )
 
     return await executor.execute()

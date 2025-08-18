@@ -37,7 +37,7 @@ async def alcall(
     retry_initial_deplay: float = 0,
     retry_backoff: float = 1,
     retry_default: Any = Unset,
-    retry_timeout: float = 0,
+    retry_timeout: float = None,
     retry_attempts: int = 0,
     max_concurrent: int | None = None,
     throttle_period: float | None = None,
@@ -277,8 +277,8 @@ class AlcallParams(Params):
     async def __call__(
         self, input_: list[Any], func: Callable[..., T], **kw
     ) -> list[T]:
-        f = self.as_partial()
-        return await f(input_, func, **kw)
+        kwargs = {**self.default_kw(), **kw}
+        return await alcall(input_, func, **kwargs)
 
 
 @dataclass(slots=True, init=False, frozen=True)
@@ -290,5 +290,7 @@ class BcallParams(AlcallParams):
     async def __call__(
         self, input_: list[Any], func: Callable[..., T], **kw
     ) -> list[T]:
-        f = self.as_partial()
-        return await f(input_, func, self.batch_size, **kw)
+        kwargs = {**self.default_kw(), **kw}
+        func = self._func
+
+        return await func(input_, func, self.batch_size, **kwargs)
