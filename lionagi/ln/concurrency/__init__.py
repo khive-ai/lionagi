@@ -24,6 +24,7 @@ from .resource_tracker import (
 from .task import TaskGroup, create_task_group
 from .utils import is_coro_func
 
+ConcurrencyEvent = Event
 __all__ = (
     "TaskGroup",
     "create_task_group",
@@ -48,4 +49,5 @@ __all__ = (
     "cleanup_check",
     "get_global_tracker",
     "is_coro_func",
+    "ConcurrencyEvent",
 )
