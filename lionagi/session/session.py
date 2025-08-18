@@ -387,6 +387,7 @@ class Session(Node, Communicatable, Relational):
         max_concurrent: int = 5,
         verbose: bool = False,
         default_branch: Branch | ID.Ref | None = None,
+        alcall_params: Any = None,
     ) -> dict[str, Any]:
         """
         Execute a graph-based workflow using multi-branch orchestration.
@@ -401,7 +402,7 @@ class Session(Node, Communicatable, Relational):
             max_concurrent: Maximum concurrent operations (branches)
             verbose: Enable verbose logging
             default_branch: Branch to use as default (defaults to self.default_branch)
-            **kwargs: Additional arguments passed to operations
+            alcall_params: Parameters for async parallel call execution
 
         Returns:
             Execution results with completed operations and final context
@@ -421,6 +422,7 @@ class Session(Node, Communicatable, Relational):
             parallel=parallel,
             max_concurrent=max_concurrent,
             verbose=verbose,
+            alcall_params=alcall_params,
         )
 
 
