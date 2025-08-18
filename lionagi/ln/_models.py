@@ -26,16 +26,24 @@ class Params:
     )
     """Class variable cache to store allowed keys for parameters."""
 
+    def __init__(self, **kwargs: Any):
+        """Initialize the Params object with keyword arguments."""
+        # Set all attributes from kwargs, allowing for sentinel values
+        for k, v in kwargs.items():
+            if k in self.allowed():
+                object.__setattr__(self, k, v)
+            else:
+                raise ValueError(f"Invalid parameter: {k}")
+
+        # Validate after setting all attributes
+        self._validate()
+
     @classmethod
     def _is_sentinel(cls, value: Any) -> bool:
         """Check if a value is a sentinel (Undefined or Unset)."""
         if value is None and cls._none_as_sentinel:
             return True
         return is_sentinel(value)
-
-    def __post_init__(self):
-        """Post-initialization to ensure all fields are set."""
-        self._validate()
 
     @classmethod
     def allowed(cls) -> set[str]:
