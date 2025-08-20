@@ -1,5 +1,11 @@
 from ._async_call import AlcallParams, BcallParams, alcall, bcall
 from ._hash import hash_dict
+from ._json_dump import (
+    DEFAULT_SERIALIZER,
+    DEFAULT_SERIALIZER_OPTION,
+    get_orjson_default,
+    json_dumps,
+)
 from ._list_call import LcallParams, lcall
 from ._models import DataClass, Params
 from ._to_list import ToListParams, to_list
@@ -46,4 +52,8 @@ __all__ = (
     "bcall",
     "AlcallParams",
     "BcallParams",
+    "get_orjson_default",
+    "DEFAULT_SERIALIZER",
+    "DEFAULT_SERIALIZER_OPTION",
+    "json_dumps",
 )
