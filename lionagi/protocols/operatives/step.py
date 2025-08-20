@@ -2,34 +2,17 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
 from lionagi.fields.action import (
     ACTION_REQUESTS_FIELD,
     ACTION_REQUIRED_FIELD,
     ACTION_RESPONSES_FIELD,
-    ActionRequestModel,
-    ActionResponseModel,
 )
-from lionagi.fields.reason import REASON_FIELD, Reason
+from lionagi.fields.reason import REASON_FIELD
 from lionagi.models import FieldModel, ModelParams
 from lionagi.protocols.operatives.operative import Operative
-
-
-class StepModel(BaseModel):
-    """Model representing a single operational step with optional reasoning and actions."""
-
-    title: str
-    description: str
-    reason: Reason | None = Field(**REASON_FIELD.to_dict())
-    action_requests: list[ActionRequestModel] = Field(
-        **ACTION_REQUESTS_FIELD.to_dict()
-    )
-    action_required: bool = Field(**ACTION_REQUIRED_FIELD.to_dict())
-    action_responses: list[ActionResponseModel] = Field(
-        **ACTION_RESPONSES_FIELD.to_dict()
-    )
 
 
 class Step:
