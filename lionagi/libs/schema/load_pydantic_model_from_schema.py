@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, PydanticUserError
 
+from lionagi import ln
 from lionagi.utils import is_import_installed
 
 _HAS_DATAMODEL_CODE_GENERATOR = is_import_installed("datamodel_code_generator")
@@ -98,7 +99,7 @@ def load_pydantic_model_from_schema(
                         sanitized_title  # Update the name to use
                     )
             schema_dict = schema
-            schema_input_data = json.dumps(schema)
+            schema_input_data = ln.json_dumps(schema_dict)
         except TypeError as e:
             error_msg = "Invalid dictionary provided for schema"
             raise ValueError(error_msg) from e

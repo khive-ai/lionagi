@@ -22,6 +22,7 @@ from typing import Any, Literal
 from json_repair import repair_json
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from lionagi import ln
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.utils import is_coro_func, is_import_installed
 
@@ -238,7 +239,7 @@ class ClaudeCodeRequest(BaseModel):
             continue_conversation = True
             prompt = messages[-1]["content"]
             if isinstance(prompt, (dict, list)):
-                prompt = json.dumps(prompt)
+                prompt = ln.json_dumps(prompt)
 
         # 2. else, use entire messages except system message
         else:
@@ -248,7 +249,7 @@ class ClaudeCodeRequest(BaseModel):
                 if message["role"] != "system":
                     content = message["content"]
                     prompts.append(
-                        json.dumps(content)
+                        ln.json_dumps(content)
                         if isinstance(content, (dict, list))
                         else content
                     )

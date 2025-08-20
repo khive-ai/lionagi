@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -78,6 +77,8 @@ def save_chunks(
     random_hash_digits: int,
 ) -> None:
     """Helper function to save chunks to files."""
+    from lionagi import ln
+
     output_path = Path(output_dir)
     for i, chunk in enumerate(chunks):
         file_path = create_path(
@@ -88,7 +89,7 @@ def save_chunks(
             random_hash_digits=random_hash_digits,
         )
         save_to_file(
-            json.dumps(chunk, ensure_ascii=False, indent=2),
+            ln.json_dumps(chunk),
             directory=file_path.parent,
             filename=file_path.name,
             verbose=verbose,

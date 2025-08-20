@@ -4,11 +4,11 @@
 
 from __future__ import annotations
 
-import json
 import warnings
 
 from pydantic import BaseModel
 
+from lionagi import ln
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
@@ -264,12 +264,14 @@ def _verbose_output(res) -> str:
                 str_ += f"Claude:\n{text}"
 
             if isinstance(block, cc_types.ToolUseBlock):
-                input = (
-                    json.dumps(block.input, indent=2)
-                    if isinstance(block.input, dict)
-                    else str(block.input)
-                )
-                input = input[:200] + "..." if len(input) > 200 else input
+                inp_ = None
+
+                if isinstance(block.input, dict | list):
+                    inp_ = ln.json_dumps(block.input)
+                else:
+                    inp_ = str(block.input)
+
+                input = inp_[:200] + "..." if len(inp_) > 200 else inp_
                 str_ += (
                     f"Tool Use: {block.name} - {block.id}\n  - Input: {input}"
                 )
