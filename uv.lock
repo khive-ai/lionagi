@@ -1933,7 +1933,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.15.7"
+version = "0.15.8"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -2030,12 +2030,12 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.0" },
     { name = "aiosqlite", marker = "extra == 'sqlite'", specifier = ">=0.21.0" },
     { name = "anyio", specifier = ">=4.7.0" },
-    { name = "backoff", specifier = ">=2.2.1" },
+    { name = "backoff", specifier = ">=2.0.0" },
     { name = "claude-code-sdk", marker = "extra == 'claude-code'", specifier = ">=0.0.15" },
     { name = "datamodel-code-generator", marker = "extra == 'schema'", specifier = ">=0.31.2" },
     { name = "docling", marker = "extra == 'reader'", specifier = ">=2.15.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.10.5" },
-    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "jinja2", specifier = ">=3.0.0" },
     { name = "json-repair", specifier = ">=0.40.0" },
     { name = "lionagi", extras = ["claude-code"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["graph"], marker = "extra == 'all'" },
@@ -2052,14 +2052,14 @@ requires-dist = [
     { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
     { name = "opencv-python", marker = "extra == 'unstructured'", specifier = ">=4.2.0.34" },
     { name = "pillow", specifier = ">=11.0.0" },
-    { name = "psutil", specifier = ">=7.0.0" },
+    { name = "psutil", specifier = ">=6.0.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
     { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.0" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
-    { name = "tiktoken", specifier = ">=0.8.0" },
-    { name = "toml", specifier = ">=0.9.0" },
+    { name = "tiktoken", specifier = ">=0.9.0" },
+    { name = "toml", specifier = ">=0.8.0" },
     { name = "xmltodict", marker = "extra == 'xml'", specifier = ">=0.12.0" },
 ]
 provides-extras = ["reader", "tools", "ollama", "claude-code", "mcp", "rich", "schema", "postgres", "sqlite", "graph", "xml", "unstructured", "all"]
