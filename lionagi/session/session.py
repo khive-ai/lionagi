@@ -7,7 +7,13 @@ from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
-from pydantic import Field, JsonValue, PrivateAttr, model_validator
+from pydantic import (
+    Field,
+    JsonValue,
+    PrivateAttr,
+    field_serializer,
+    model_validator,
+)
 from typing_extensions import Self
 
 from lionagi.protocols.types import (
@@ -51,7 +57,7 @@ class Session(Node, Communicatable, Relational):
         default_factory=lambda: Pile(item_type={Branch}, strict_type=False)
     )
     default_branch: Any = Field(default=None, exclude=True)
-    mail_transfer: Exchange = Field(default_factory=Exchange)
+    mail_transfer: Exchange = Field(default_factory=Exchange, exclude=True)
     mail_manager: MailManager = Field(
         default_factory=MailManager, exclude=True
     )
@@ -60,6 +66,12 @@ class Session(Node, Communicatable, Relational):
     _operation_manager: OperationManager = PrivateAttr(
         default_factory=OperationManager
     )
+
+    @field_serializer("user")
+    def _serialize_user(self, value: SenderRecipient | None) -> JsonValue:
+        if value is None:
+            return None
+        return str(value)
 
     async def ainclude_branches(self, branches: ID[Branch].ItemSeq):
         async with self.branches:

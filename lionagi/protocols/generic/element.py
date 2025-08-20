@@ -4,11 +4,12 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Mapping, Sequence
-from datetime import datetime
 from typing import Any, Generic, TypeAlias, TypeVar
 from uuid import UUID, uuid4
 
+import orjson
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -17,10 +18,11 @@ from pydantic import (
     field_validator,
 )
 
+from lionagi import ln
 from lionagi._class_registry import get_class
 from lionagi._errors import IDError
 from lionagi.settings import Settings
-from lionagi.utils import UNDEFINED, time, to_dict
+from lionagi.utils import time, to_dict
 
 from .._concepts import Collective, Observable, Ordering
 
@@ -29,6 +31,7 @@ __all__ = (
     "Element",
     "ID",
     "validate_order",
+    "DEFAULT_ELEMENT_SERIALIZER",
 )
 
 
@@ -173,15 +176,6 @@ class Element(BaseModel, Observable):
         If a `lion_class` field is present in `metadata`, it must match the
         fully qualified name of this class. Converts `metadata` to a dict
         if needed.
-
-        Args:
-            val (dict): The initial metadata value.
-
-        Returns:
-            dict: A valid dictionary of metadata.
-
-        Raises:
-            ValueError: If the metadata is invalid or has a class mismatch.
         """
         if not val:
             return {}
@@ -196,7 +190,7 @@ class Element(BaseModel, Observable):
         return val
 
     @field_validator("created_at", mode="before")
-    def _coerce_created_at(cls, val: float | datetime | None) -> float:
+    def _coerce_created_at(cls, val: float | dt.datetime | None) -> float:
         """Coerces `created_at` to a float-based timestamp.
 
         Args:
@@ -212,7 +206,7 @@ class Element(BaseModel, Observable):
             return time(tz=Settings.Config.TIMEZONE, type_="timestamp")
         if isinstance(val, float):
             return val
-        if isinstance(val, datetime):
+        if isinstance(val, dt.datetime):
             return val.timestamp()
         try:
             return float(val)  # type: ignore
@@ -245,33 +239,24 @@ class Element(BaseModel, Observable):
         return str(val)
 
     @property
-    def created_datetime(self) -> datetime:
+    def created_datetime(self) -> dt.datetime:
         """Returns the creation time as a datetime object.
 
         Returns:
             datetime: The creation time in UTC.
         """
-        return datetime.fromtimestamp(self.created_at)
+        return dt.datetime.fromtimestamp(self.created_at)
 
     def __eq__(self, other: Any) -> bool:
-        """Compares two Element instances by their ID.
-
-        Args:
-            other (Any): Another object for comparison.
-
-        Returns:
-            bool: True if both share the same ID, False otherwise.
-        """
+        """Compares two Element instances by their ID."""
         if not isinstance(other, Element):
-            return NotImplemented
+            raise NotImplementedError(
+                f"Cannot compare Element with {type(other)}"
+            )
         return self.id == other.id
 
     def __hash__(self) -> int:
-        """Returns a hash of this element's ID.
-
-        Returns:
-            int: The hash of the ID, making elements usable as dictionary keys.
-        """
+        """Returns a hash of this element's ID."""
         return hash(self.id)
 
     def __bool__(self) -> bool:
@@ -282,42 +267,28 @@ class Element(BaseModel, Observable):
     def class_name(cls, full: bool = False) -> str:
         """Returns this class's name.
 
-        Args:
-            full (bool):
-                If True, returns the fully qualified class name; otherwise,
-                returns only the class name.
-
-        Returns:
-            str: The class name or fully qualified name.
+        full (bool): If True, returns the fully qualified class name; otherwise,
+            returns only the class name.
         """
         if full:
             return str(cls).split("'")[1]
         return cls.__name__
 
     def to_dict(self) -> dict:
-        """Converts this Element to a dictionary.
-
-        All fields are included except those set to `UNDEFINED`.
-
-        Returns:
-            dict: The dictionary representation of this Element.
-        """
+        """Converts this Element to a dictionary."""
         dict_ = self.model_dump()
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
-        return {k: v for k, v in dict_.items() if v is not UNDEFINED}
+        return {k: v for k, v in dict_.items() if ln.not_sentinel(v)}
 
     @classmethod
     def from_dict(cls, data: dict, /) -> Element:
         """Deserializes a dictionary into an Element or subclass of Element.
 
         If `lion_class` in `metadata` refers to a subclass, this method
-        attempts to create an instance of that subclass.
+        is polymorphic, it will attempt to create an instance of that subclass.
 
         Args:
             data (dict): A dictionary of field data.
-
-        Returns:
-            Element: An Element or a subclass instance loaded from `data`.
         """
         metadata = data.pop("metadata", {})
         if "lion_class" in metadata:
@@ -349,6 +320,26 @@ class Element(BaseModel, Observable):
                         return subcls_type.from_dict(data)
         data["metadata"] = metadata
         return cls.model_validate(data)
+
+    def to_json(self) -> str:
+        """Converts this Element to a JSON string."""
+        dict_ = self.to_dict()
+        return orjson.dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER).decode()
+
+    def from_json(cls, json_str: str) -> Element:
+        """Deserializes a JSON string into an Element or subclass of Element."""
+        data = orjson.loads(json_str)
+        return cls.from_dict(data)
+
+
+DEFAULT_ELEMENT_SERIALIZER = ln.get_orjson_default(
+    order=[IDType, Element, BaseModel],
+    additional={
+        IDType: lambda o: str(o),
+        Element: lambda o: o.to_dict(),
+        BaseModel: lambda o: o.model_dump(mode="json"),
+    },
+)
 
 
 def validate_order(order: Any) -> list[IDType]:

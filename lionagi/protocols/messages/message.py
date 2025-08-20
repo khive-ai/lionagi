@@ -11,6 +11,8 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, Template
 from pydantic import Field, PrivateAttr, field_serializer
 
+from lionagi import ln
+
 from .._concepts import Sendable
 from ..generic.element import Element, IDType
 from ..generic.log import Log
@@ -114,7 +116,7 @@ class RoledMessage(Node, Sendable):
             if isinstance(self.template, Template):
                 return self.template.render(**self.content)
         except Exception:
-            return json.dumps(self.content)
+            return ln.json_dumps(self.content)
 
     @classmethod
     def create(cls, **kwargs):

@@ -70,7 +70,6 @@ class Params:
             _validate_strict(k)
 
     def default_kw(self) -> Any:
-
         # create a partial function with the current parameters
         dict_ = self.to_dict()
 
