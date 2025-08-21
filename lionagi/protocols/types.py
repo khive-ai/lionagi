@@ -49,7 +49,7 @@ from .messages.manager import (
     SenderRecipient,
     System,
 )
-from .operatives.step import Operative, Step, StepModel
+from .operatives.step import Operative, Step
 
 __all__ = (
     "Collective",
@@ -107,7 +107,6 @@ __all__ = (
     "Report",
     "Operative",
     "Step",
-    "StepModel",
     "ActionManager",
     "Tool",
     "FunctionCalling",
