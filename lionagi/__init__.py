@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 
 from . import _types as types
 from . import ln as ln
-from .operations import Operation
-from .operations import OperationGraphBuilder as Builder
+from .operations.node import Operation
+from .operations.builder import OperationGraphBuilder as Builder
 from .service.imodel import iModel
 from .session.session import Branch, Session
 from .version import __version__

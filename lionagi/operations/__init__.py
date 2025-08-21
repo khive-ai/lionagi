@@ -8,6 +8,8 @@ from .flow import flow
 from .node import BranchOperations, Operation
 from .plan.plan import PlanOperation, plan
 
+Builder = OperationGraphBuilder
+
 __all__ = (
     "ExpansionStrategy",
     "OperationGraphBuilder",
@@ -19,4 +21,5 @@ __all__ = (
     "PlanOperation",
     "brainstorm",
     "BrainstormOperation",
+    "Builder",
 )
