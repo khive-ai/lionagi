@@ -659,7 +659,14 @@ def to_dict(self) -> dict[str, Any]:
 
     # Convert metadata to dictionary
     for meta in self.metadata:
-        if meta.key not in ("nullable", "listable", "validator", "name", "validator_kwargs", "annotation"):
+        if meta.key not in (
+            "nullable",
+            "listable",
+            "validator",
+            "name",
+            "validator_kwargs",
+            "annotation",
+        ):
             result[meta.key] = meta.value
 
     return result
