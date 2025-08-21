@@ -16,7 +16,6 @@ from typing import Annotated, Any
 from typing_extensions import Self, override
 
 from .._errors import ValidationError
-from ..utils import UNDEFINED
 
 # Cache of valid Pydantic Field parameters
 _PYDANTIC_FIELD_PARAMS: set[str] | None = None
@@ -660,12 +659,15 @@ def to_dict(self) -> dict[str, Any]:
 
     # Convert metadata to dictionary
     for meta in self.metadata:
-        if meta.key not in ("nullable", "listable", "validator"):
+        if meta.key not in (
+            "nullable",
+            "listable",
+            "validator",
+            "name",
+            "validator_kwargs",
+            "annotation",
+        ):
             result[meta.key] = meta.value
-
-    # Add annotation if available
-    if hasattr(self, "annotation"):
-        result["annotation"] = self.base_type
 
     return result
 
