@@ -392,79 +392,75 @@ class MessageManager(Manager):
 
     @property
     def last_response(self) -> AssistantResponse | None:
-        """
-        Retrieve the most recent `AssistantResponse`.
-        """
-        for mid in reversed(self.messages.progression):
-            if isinstance(self.messages[mid], AssistantResponse):
-                return self.messages[mid]
+        """Retrieve the most recent `AssistantResponse`."""
+        res = self.messages.filter_by_type(
+            item_type=AssistantResponse,
+            strict_type=True,
+            as_pile=False,
+            reversed=True,
+            num_items=1,
+        )
+        if len(res) == 1:
+            return res[0]
         return None
 
     @property
     def last_instruction(self) -> Instruction | None:
-        """
-        Retrieve the most recent `Instruction`.
-        """
-        for mid in reversed(self.messages.progression):
-            if isinstance(self.messages[mid], Instruction):
-                return self.messages[mid]
+        """Retrieve the most recent `Instruction`."""
+        res = self.messages.filter_by_type(
+            item_type=Instruction,
+            strict_type=True,
+            as_pile=False,
+            reversed=True,
+            num_items=1,
+        )
+        if len(res) == 1:
+            return res[0]
         return None
 
     @property
     def assistant_responses(self) -> Pile[AssistantResponse]:
         """All `AssistantResponse` messages in the manager."""
-        return Pile(
-            collections=[
-                self.messages[mid]
-                for mid in self.messages.progression
-                if isinstance(self.messages[mid], AssistantResponse)
-            ]
+        return self.messages.filter_by_type(
+            item_type=AssistantResponse,
+            strict_type=True,
+            as_pile=True,
         )
 
     @property
     def actions(self) -> Pile[ActionRequest | ActionResponse]:
         """All action messages in the manager."""
-        return Pile(
-            collections=[
-                self.messages[mid]
-                for mid in self.messages.progression
-                if isinstance(
-                    self.messages[mid], (ActionRequest, ActionResponse)
-                )
-            ]
+        return self.messages.filter_by_type(
+            item_type={ActionRequest, ActionResponse},
+            strict_type=True,
+            as_pile=True,
         )
 
     @property
     def action_requests(self) -> Pile[ActionRequest]:
         """All `ActionRequest` messages in the manager."""
-        return Pile(
-            collections=[
-                self.messages[mid]
-                for mid in self.messages.progression
-                if isinstance(self.messages[mid], ActionRequest)
-            ]
+        return self.messages.filter_by_type(
+            item_type=ActionRequest,
+            strict_type=True,
+            as_pile=True,
         )
 
     @property
     def action_responses(self) -> Pile[ActionResponse]:
         """All `ActionResponse` messages in the manager."""
-        return Pile(
-            collections=[
-                self.messages[mid]
-                for mid in self.messages.progression
-                if isinstance(self.messages[mid], ActionResponse)
-            ]
+        return self.messages.filter_by_type(
+            item_type=ActionResponse,
+            strict_type=True,
+            as_pile=True,
         )
 
     @property
     def instructions(self) -> Pile[Instruction]:
         """All `Instruction` messages in the manager."""
-        return Pile(
-            collections=[
-                self.messages[mid]
-                for mid in self.messages.progression
-                if isinstance(self.messages[mid], Instruction)
-            ]
+        return self.messages.filter_by_type(
+            item_type=Instruction,
+            strict_type=True,
+            as_pile=True,
         )
 
     def remove_last_instruction_tool_schemas(self) -> None:

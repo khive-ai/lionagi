@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 import pandas as pd
-from pydantic import Field, field_serializer, field_validator, model_validator
+from pydantic import Field, field_serializer
 from pydantic.fields import FieldInfo
 from pydapter import Adaptable, AsyncAdaptable
 from typing_extensions import Self, deprecated, override
@@ -1131,6 +1131,43 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         **kw,
     ) -> None:
         return self.dump(fp, obj_key=obj_key, mode=mode, clear=clear, **kw)
+
+    def filter_by_type(
+        self,
+        item_type: type[T] | list | set,
+        strict_type: bool = False,
+        as_pile: bool = False,
+        reversed: bool = False,
+        num_items: int | None = None,
+    ) -> list[T]:
+        item_type = (
+            set(item_type) if not isinstance(item_type, set) else item_type
+        )
+        meth = None
+
+        if strict_type:
+            meth = lambda item: type(item) in item_type
+        else:
+            meth = lambda item: any(isinstance(item, t) for t in item_type)
+
+        out = []
+        prog = (
+            list(self.progression)
+            if not reversed
+            else reversed(list(self.progression))
+        )
+        for i in prog:
+            item = self.collections[i]
+            if meth(item):
+                out.append(item)
+            if num_items is not None and len(out) == num_items:
+                break
+
+        if as_pile:
+            return self.__class__(
+                collections=out, item_type=item_type, strict_type=strict_type
+            )
+        return out
 
 
 def to_list_type(value: Any, /) -> list[Any]:
