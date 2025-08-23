@@ -397,7 +397,7 @@ class MessageManager(Manager):
             item_type=AssistantResponse,
             strict_type=True,
             as_pile=False,
-            reversed=True,
+            reverse=True,
             num_items=1,
         )
         if len(res) == 1:
@@ -411,7 +411,7 @@ class MessageManager(Manager):
             item_type=Instruction,
             strict_type=True,
             as_pile=False,
-            reversed=True,
+            reverse=True,
             num_items=1,
         )
         if len(res) == 1:
@@ -477,7 +477,7 @@ class MessageManager(Manager):
         Example method to merge the content of recent ActionResponses
         into an instruction's context.
         """
-        for i in reversed(self.messages.progression):
+        for i in reversed(list(self.messages.progression)):
             if isinstance(self.messages[i], ActionResponse):
                 instruction.context.append(self.messages[i].content)
             else:
