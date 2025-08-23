@@ -14,7 +14,7 @@ from lionagi._errors import ItemNotFoundError
 from .._concepts import Ordering
 from .element import ID, Element, IDError, IDType, validate_order
 
-E = TypeVar("E", bound=Element)
+T = TypeVar("T", bound=Element)
 
 
 __all__ = (
@@ -23,7 +23,7 @@ __all__ = (
 )
 
 
-class Progression(Element, Ordering[E], Generic[E]):
+class Progression(Element, Ordering[T], Generic[T]):
     """Tracks an ordered sequence of item IDs, with optional naming.
 
     This class extends `Element` and implements `Ordering`, providing
@@ -39,7 +39,7 @@ class Progression(Element, Ordering[E], Generic[E]):
             An optional human-readable identifier for the progression.
     """
 
-    order: list[ID[E].ID] = Field(
+    order: list[ID[T].ID] = Field(
         default_factory=list,
         title="Order",
         description="A sequence of IDs representing the progression.",
@@ -358,7 +358,7 @@ class Progression(Element, Ordering[E], Generic[E]):
             raise ValueError("Can only extend with another Progression.")
         self.order.extend(other.order)
 
-    def __add__(self, other: Any) -> Progression[E]:
+    def __add__(self, other: Any) -> Progression[T]:
         """Returns a new Progression with IDs from both this and `other`.
 
         Args:
@@ -371,7 +371,7 @@ class Progression(Element, Ordering[E], Generic[E]):
         new_refs = validate_order(other)
         return Progression(order=self.order + new_refs)
 
-    def __radd__(self, other: Any) -> Progression[E]:
+    def __radd__(self, other: Any) -> Progression[T]:
         """Returns a new Progression with IDs from `other` + this.
 
         Args:
@@ -396,7 +396,7 @@ class Progression(Element, Ordering[E], Generic[E]):
         self.append(other)
         return self
 
-    def __sub__(self, other: Any) -> Progression[E]:
+    def __sub__(self, other: Any) -> Progression[T]:
         """Returns a new Progression excluding specified IDs.
 
         Args:
@@ -435,7 +435,7 @@ class Progression(Element, Ordering[E], Generic[E]):
         for i in reversed(item_):
             self.order.insert(index, ID.get_id(i))
 
-    def __reverse__(self) -> Progression[E]:
+    def __reversed__(self) -> Progression[T]:
         """Returns a new reversed Progression.
 
         Returns:
@@ -456,19 +456,19 @@ class Progression(Element, Ordering[E], Generic[E]):
             return NotImplemented
         return (self.order == other.order) and (self.name == other.name)
 
-    def __gt__(self, other: Progression[E]) -> bool:
+    def __gt__(self, other: Progression[T]) -> bool:
         """Compares if this progression is "greater" by ID order."""
         return self.order > other.order
 
-    def __lt__(self, other: Progression[E]) -> bool:
+    def __lt__(self, other: Progression[T]) -> bool:
         """Compares if this progression is "less" by ID order."""
         return self.order < other.order
 
-    def __ge__(self, other: Progression[E]) -> bool:
+    def __ge__(self, other: Progression[T]) -> bool:
         """Compares if this progression is >= the other by ID order."""
         return self.order >= other.order
 
-    def __le__(self, other: Progression[E]) -> bool:
+    def __le__(self, other: Progression[T]) -> bool:
         """Compares if this progression is <= the other by ID order."""
         return self.order <= other.order
 
