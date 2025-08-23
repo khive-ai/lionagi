@@ -4,10 +4,10 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from pydantic import field_validator
+import orjson
+from pydantic import BaseModel, field_serializer, field_validator
 from pydapter import Adaptable, AsyncAdaptable
 
 from lionagi._class_registry import LION_CLASS_REGISTRY
@@ -44,7 +44,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             return None
         if isinstance(value, str):
             try:
-                loaded = json.loads(value)
+                loaded = orjson.loads(value)
                 if not isinstance(loaded, list):
                     raise ValueError
                 return [float(x) for x in loaded]
@@ -102,6 +102,22 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         """
         kwargs["adapt_meth"] = "from_dict"
         return super().adapt_from(obj, obj_key=obj_key, many=many, **kwargs)
+
+    @field_serializer("content")
+    def _serialize_content(self, value: Any) -> Any:
+        if isinstance(value, Element):
+            return value.to_dict()
+        if isinstance(value, BaseModel):
+            return value.model_dump()
+        return value
+
+    @field_validator("content", mode="before")
+    def _validate_content(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "lion_class" in value.get(
+            "metadata", {}
+        ):
+            return Element.from_dict(value)
+        return value
 
 
 if not _ADAPATER_REGISTERED:
