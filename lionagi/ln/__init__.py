@@ -1,4 +1,6 @@
 from ._async_call import AlcallParams, BcallParams, alcall, bcall
+from ._extract_json import extract_json
+from ._fuzzy_json import fuzzy_json
 from ._hash import hash_dict
 from ._json_dump import (
     DEFAULT_SERIALIZER,
@@ -80,4 +82,6 @@ __all__ = (
     "get_global_tracker",
     "is_coro_func",
     "ConcurrencyEvent",
+    "fuzzy_json",
+    "extract_json",
 )

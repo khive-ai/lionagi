@@ -2,18 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import contextlib
 import copy as _copy
 import dataclasses
-import functools
 import importlib.util
 import json
 import logging
-import re
-import shutil
-import subprocess
-import sys
 import types
 import uuid
 from collections.abc import (
@@ -23,7 +17,6 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from enum import Enum as _Enum
 from functools import partial
@@ -44,16 +37,10 @@ from pydantic_core import PydanticUndefinedType
 from typing_extensions import deprecated
 
 from .libs.validate.xml_parser import xml_to_dict
-from .ln import (
-    DataClass,
-    Enum,
-    KeysDict,
-    Params,
-    Undefined,
-    UndefinedType,
-    hash_dict,
-    to_list,
-)
+from .ln import DataClass, Enum, KeysDict, Params, Undefined, UndefinedType
+from .ln import extract_json as to_json
+from .ln import fuzzy_json as fuzzy_parse_json
+from .ln import hash_dict, to_list
 from .ln.concurrency import is_coro_func
 from .settings import Settings
 
@@ -99,6 +86,7 @@ __all__ = (
     "hash_dict",
     "is_union_type",
     "union_members",
+    "to_json",
 )
 
 
@@ -313,6 +301,9 @@ def lcall(
     )
 
 
+@deprecated(
+    "Use `lionagi.ln.alcall` instead, function signature has changed, this will be removed in future versions."
+)
 async def alcall(
     input_: list[Any],
     func: Callable[..., T],
@@ -512,119 +503,6 @@ def create_path(
         )
 
     return full_path
-
-
-def fuzzy_parse_json(
-    str_to_parse: str, /
-) -> dict[str, Any] | list[dict[str, Any]]:
-    """
-    Attempt to parse a JSON string, trying a few minimal "fuzzy" fixes if needed.
-
-    Steps:
-    1. Parse directly with json.loads.
-    2. Replace single quotes with double quotes, normalize spacing, and try again.
-    3. Attempt to fix unmatched brackets using fix_json_string.
-    4. If all fail, raise ValueError.
-
-    Args:
-        str_to_parse: The JSON string to parse
-
-    Returns:
-        Parsed JSON (dict or list of dicts)
-
-    Raises:
-        ValueError: If the string cannot be parsed as valid JSON
-        TypeError: If the input is not a string
-    """
-    _check_valid_str(str_to_parse)
-
-    # 1. Direct attempt
-    with contextlib.suppress(Exception):
-        return json.loads(str_to_parse)
-
-    # 2. Try cleaning: replace single quotes with double and normalize
-    cleaned = _clean_json_string(str_to_parse.replace("'", '"'))
-    with contextlib.suppress(Exception):
-        return json.loads(cleaned)
-
-    # 3. Try fixing brackets
-    fixed = fix_json_string(cleaned)
-    with contextlib.suppress(Exception):
-        return json.loads(fixed)
-
-    # If all attempts fail
-    raise ValueError("Invalid JSON string")
-
-
-def _check_valid_str(str_to_parse: str, /):
-    if not isinstance(str_to_parse, str):
-        raise TypeError("Input must be a string")
-    if not str_to_parse.strip():
-        raise ValueError("Input string is empty")
-
-
-def _clean_json_string(s: str) -> str:
-    """Basic normalization: replace unescaped single quotes, trim spaces, ensure keys are quoted."""
-    # Replace unescaped single quotes with double quotes
-    # '(?<!\\)'" means a single quote not preceded by a backslash
-    s = re.sub(r"(?<!\\)'", '"', s)
-    # Collapse multiple whitespaces
-    s = re.sub(r"\s+", " ", s)
-    # Ensure keys are quoted
-    # This attempts to find patterns like { key: value } and turn them into {"key": value}
-    s = re.sub(r'([{,])\s*([^"\s]+)\s*:', r'\1"\2":', s)
-    return s.strip()
-
-
-def fix_json_string(str_to_parse: str, /) -> str:
-    """Try to fix JSON string by ensuring brackets are matched properly."""
-    if not str_to_parse:
-        raise ValueError("Input string is empty")
-
-    brackets = {"{": "}", "[": "]"}
-    open_brackets = []
-    pos = 0
-    length = len(str_to_parse)
-
-    while pos < length:
-        char = str_to_parse[pos]
-
-        if char == "\\":
-            pos += 2  # Skip escaped chars
-            continue
-
-        if char == '"':
-            pos += 1
-            # skip string content
-            while pos < length:
-                if str_to_parse[pos] == "\\":
-                    pos += 2
-                    continue
-                if str_to_parse[pos] == '"':
-                    pos += 1
-                    break
-                pos += 1
-            continue
-
-        if char in brackets:
-            open_brackets.append(brackets[char])
-        elif char in brackets.values():
-            if not open_brackets:
-                # Extra closing bracket
-                # Better to raise error than guess
-                raise ValueError("Extra closing bracket found.")
-            if open_brackets[-1] != char:
-                # Mismatched bracket
-                raise ValueError("Mismatched brackets.")
-            open_brackets.pop()
-
-        pos += 1
-
-    # Add missing closing brackets if any
-    if open_brackets:
-        str_to_parse += "".join(reversed(open_brackets))
-
-    return str_to_parse
 
 
 def to_dict(
@@ -947,63 +825,6 @@ def _to_dict(
     return dict(input_)
 
 
-# Precompile the regex for extracting JSON code blocks
-_JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
-
-
-def to_json(
-    input_data: str | list[str], /, *, fuzzy_parse: bool = False
-) -> dict[str, Any] | list[dict[str, Any]]:
-    """
-    Extract and parse JSON content from a string or markdown code blocks.
-
-    Attempts direct JSON parsing first. If that fails, looks for JSON content
-    within markdown code blocks denoted by ```json.
-
-    Args:
-        input_data (str | list[str]): The input string or list of strings to parse.
-        fuzzy_parse (bool): If True, attempts fuzzy JSON parsing on failed attempts.
-
-    Returns:
-        dict or list of dicts:
-            - If a single JSON object is found: returns a dict.
-            - If multiple JSON objects are found: returns a list of dicts.
-            - If no valid JSON found: returns an empty list.
-    """
-
-    # If input_data is a list, join into a single string
-    if isinstance(input_data, list):
-        input_str = "\n".join(input_data)
-    else:
-        input_str = input_data
-
-    # 1. Try direct parsing
-    try:
-        if fuzzy_parse:
-            return fuzzy_parse_json(input_str)
-        return json.loads(input_str)
-    except Exception:
-        pass
-
-    # 2. Attempt extracting JSON blocks from markdown
-    matches = _JSON_BLOCK_PATTERN.findall(input_str)
-    if not matches:
-        return []
-
-    # If only one match, return single dict; if multiple, return list of dicts
-    if len(matches) == 1:
-        data_str = matches[0]
-        return (
-            fuzzy_parse_json(data_str) if fuzzy_parse else json.loads(data_str)
-        )
-
-    # Multiple matches
-    if fuzzy_parse:
-        return [fuzzy_parse_json(m) for m in matches]
-    else:
-        return [json.loads(m) for m in matches]
-
-
 def get_bins(input_: list[str], upper: int) -> list[list[int]]:
     """Organizes indices of strings into bins based on a cumulative upper limit.
 
@@ -1028,79 +849,6 @@ def get_bins(input_: list[str], upper: int) -> list[list[int]]:
     if current_bin:
         bins.append(current_bin)
     return bins
-
-
-def force_async(fn: Callable[..., T]) -> Callable[..., Callable[..., T]]:
-    """
-    Convert a synchronous function to an asynchronous function
-    using a thread pool.
-
-    Args:
-        fn: The synchronous function to convert.
-
-    Returns:
-        The asynchronous version of the function.
-    """
-    pool = ThreadPoolExecutor()
-
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        future = pool.submit(fn, *args, **kwargs)
-        return asyncio.wrap_future(future)  # Make it awaitable
-
-    return wrapper
-
-
-def throttle(
-    func: Callable[..., T], period: float
-) -> Callable[..., Callable[..., T]]:
-    """
-    Throttle function execution to limit the rate of calls.
-
-    Args:
-        func: The function to throttle.
-        period: The minimum time interval between consecutive calls.
-
-    Returns:
-        The throttled function.
-    """
-    from .ln.concurrency.throttle import Throttle
-
-    if not is_coro_func(func):
-        func = force_async(func)
-    throttle_instance = Throttle(period)
-
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        await throttle_instance(func)(*args, **kwargs)
-        return await func(*args, **kwargs)
-
-    return wrapper
-
-
-def max_concurrent(
-    func: Callable[..., T], limit: int
-) -> Callable[..., Callable[..., T]]:
-    """
-    Limit the concurrency of function execution using a semaphore.
-
-    Args:
-        func: The function to limit concurrency for.
-        limit: The maximum number of concurrent executions.
-
-    Returns:
-        The function wrapped with concurrency control.
-    """
-    if not is_coro_func(func):
-        func = force_async(func)
-    semaphore = asyncio.Semaphore(limit)
-
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        async with semaphore:
-            return await func(*args, **kwargs)
-
-    return wrapper
 
 
 def breakdown_pydantic_annotation(
@@ -1140,87 +888,6 @@ def _is_pydantic_model(x: Any) -> bool:
         return isclass(x) and issubclass(x, BaseModel)
     except TypeError:
         return False
-
-
-def run_package_manager_command(
-    args: Sequence[str],
-) -> subprocess.CompletedProcess[bytes]:
-    """Run a package manager command, using uv if available, otherwise falling back to pip."""
-    # Check if uv is available in PATH
-    uv_path = shutil.which("uv")
-
-    if uv_path:
-        # Use uv if available
-        try:
-            return subprocess.run(
-                [uv_path] + list(args),
-                check=True,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError:
-            # If uv fails, fall back to pip
-            print("uv command failed, falling back to pip...")
-
-    # Fall back to pip
-    return subprocess.run(
-        [sys.executable, "-m", "pip"] + list(args),
-        check=True,
-        capture_output=True,
-    )
-
-
-def check_import(
-    package_name: str,
-    module_name: str | None = None,
-    import_name: str | None = None,
-    pip_name: str | None = None,
-    attempt_install: bool = True,
-    error_message: str = "",
-):
-    """
-    Check if a package is installed, attempt to install if not.
-
-    Args:
-        package_name: The name of the package to check.
-        module_name: The specific module to import (if any).
-        import_name: The specific name to import from the module (if any).
-        pip_name: The name to use for pip installation (if different).
-        attempt_install: Whether to attempt installation if not found.
-        error_message: Custom error message to use if package not found.
-
-    Raises:
-        ImportError: If the package is not found and not installed.
-        ValueError: If the import fails after installation attempt.
-    """
-    if not is_import_installed(package_name):
-        if attempt_install:
-            logging.info(
-                f"Package {package_name} not found. Attempting to install.",
-            )
-            try:
-                return install_import(
-                    package_name=package_name,
-                    module_name=module_name,
-                    import_name=import_name,
-                    pip_name=pip_name,
-                )
-            except ImportError as e:
-                raise ValueError(
-                    f"Failed to install {package_name}: {e}"
-                ) from e
-        else:
-            logging.info(
-                f"Package {package_name} not found. {error_message}",
-            )
-            raise ImportError(
-                f"Package {package_name} not found. {error_message}",
-            )
-
-    return import_module(
-        package_name=package_name,
-        module_name=module_name,
-        import_name=import_name,
-    )
 
 
 def import_module(
@@ -1265,50 +932,6 @@ def import_module(
         raise ImportError(
             f"Failed to import module {full_import_path}: {e}"
         ) from e
-
-
-def install_import(
-    package_name: str,
-    module_name: str | None = None,
-    import_name: str | None = None,
-    pip_name: str | None = None,
-):
-    """
-    Attempt to import a package, installing it if not found.
-
-    Args:
-        package_name: The name of the package to import.
-        module_name: The specific module to import (if any).
-        import_name: The specific name to import from the module (if any).
-        pip_name: The name to use for pip installation (if different).
-
-    Raises:
-        ImportError: If the package cannot be imported or installed.
-        subprocess.CalledProcessError: If pip installation fails.
-    """
-    pip_name = pip_name or package_name
-
-    try:
-        return import_module(
-            package_name=package_name,
-            module_name=module_name,
-            import_name=import_name,
-        )
-    except ImportError:
-        logging.info(f"Installing {pip_name}...")
-        try:
-            run_package_manager_command(["install", pip_name])
-            return import_module(
-                package_name=package_name,
-                module_name=module_name,
-                import_name=import_name,
-            )
-        except subprocess.CalledProcessError as e:
-            raise ImportError(f"Failed to install {pip_name}: {e}") from e
-        except ImportError as e:
-            raise ImportError(
-                f"Failed to import {pip_name} after installation: {e}"
-            ) from e
 
 
 def is_import_installed(package_name: str) -> bool:
