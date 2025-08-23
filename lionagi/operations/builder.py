@@ -453,6 +453,16 @@ def visualize_graph(
     figsize=(14, 10),
 ):
     """Visualization with improved layout for complex graphs."""
+    from lionagi.protocols.graph.graph import (
+        _MATPLIB_AVAILABLE,
+        _NETWORKX_AVAILABLE,
+    )
+
+    if _MATPLIB_AVAILABLE is not True:
+        raise _MATPLIB_AVAILABLE
+    if _NETWORKX_AVAILABLE is not True:
+        raise _NETWORKX_AVAILABLE
+
     import matplotlib.pyplot as plt
     import networkx as nx
     import numpy as np
