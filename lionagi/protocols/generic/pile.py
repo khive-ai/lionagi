@@ -988,6 +988,12 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             is_same_dtype(self.collections.values())
         )
 
+    @classmethod
+    def list_adapters(cls) -> list[str]:
+        syn_ = cls._adapter_registry._reg.keys()
+        asy_ = cls._async_registry._reg.keys()
+        return list(set(syn_) | set(asy_))
+
     def adapt_to(self, obj_key: str, many=False, **kw: Any) -> Any:
         """Adapt to another format.
 
@@ -1137,23 +1143,35 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         item_type: type[T] | list | set,
         strict_type: bool = False,
         as_pile: bool = False,
-        reversed: bool = False,
+        reverse: bool = False,
         num_items: int | None = None,
     ) -> list[T]:
-        item_type = (
-            set(item_type) if not isinstance(item_type, set) else item_type
-        )
+        if isinstance(item_type, type):
+            if is_union_type(item_type):
+                item_type = set(union_members(item_type))
+            else:
+                item_type = {item_type}
+
+        if isinstance(item_type, list | tuple):
+            item_type = set(item_type)
+
+        if not isinstance(item_type, set):
+            raise TypeError("item_type must be a type or a list/set of types")
+
         meth = None
 
         if strict_type:
             meth = lambda item: type(item) in item_type
         else:
-            meth = lambda item: any(isinstance(item, t) for t in item_type)
+            meth = (
+                lambda item: any(isinstance(item, t) for t in item_type)
+                is True
+            )
 
         out = []
         prog = (
             list(self.progression)
-            if not reversed
+            if not reverse
             else reversed(list(self.progression))
         )
         for i in prog:
