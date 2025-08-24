@@ -62,7 +62,8 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
     async def adapt_to_async(
         self, obj_key: str, many=False, **kwargs: Any
     ) -> Any:
-        kwargs["adapt_meth"] = "to_dict"
+        kwargs["adapt_meth"] = "as_jsonable"
+        kwargs["mode"] = "json"
         return await super().adapt_to_async(
             obj_key=obj_key, many=many, **kwargs
         )
@@ -84,7 +85,8 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         """
         Convert this Node to another format using a registered adapter.
         """
-        kwargs["adapt_meth"] = "to_dict"
+        kwargs["adapt_meth"] = "as_jsonable"
+        kwargs["mode"] = "json"
         return super().adapt_to(obj_key=obj_key, many=many, **kwargs)
 
     @classmethod

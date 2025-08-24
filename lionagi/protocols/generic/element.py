@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Mapping, Sequence
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any, Generic, Literal, TypeAlias, TypeVar
 from uuid import UUID, uuid4
 
 import orjson
@@ -274,11 +274,20 @@ class Element(BaseModel, Observable):
             return str(cls).split("'")[1]
         return cls.__name__
 
-    def to_dict(self) -> dict:
-        """Converts this Element to a dictionary."""
+    def _to_dict(self) -> dict:
         dict_ = self.model_dump()
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
         return {k: v for k, v in dict_.items() if ln.not_sentinel(v)}
+
+    def to_dict(self, mode: Literal["python", "json"] = "python") -> dict:
+        """Converts this Element to a dictionary."""
+        if mode == "python":
+            return self._to_dict()
+        return orjson.loads(self.to_json(decode=False))
+
+    def as_jsonable(self) -> dict:
+        """Converts this Element to a JSON-serializable dictionary."""
+        return self.to_dict(mode="json")
 
     @classmethod
     def from_dict(cls, data: dict, /) -> Element:
@@ -318,10 +327,16 @@ class Element(BaseModel, Observable):
         data["metadata"] = metadata
         return cls.model_validate(data)
 
-    def to_json(self) -> str:
+    def to_json(self, decode: bool = True) -> str:
         """Converts this Element to a JSON string."""
-        dict_ = self.to_dict()
-        return orjson.dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER).decode()
+        dict_ = self._to_dict()
+        if decode:
+            return orjson.dumps(
+                dict_,
+                default=DEFAULT_ELEMENT_SERIALIZER,
+                option=ln.DEFAULT_SERIALIZER_OPTION,
+            ).decode()
+        return orjson.dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER)
 
     def from_json(cls, json_str: str) -> Element:
         """Deserializes a JSON string into an Element or subclass of Element."""
