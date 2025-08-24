@@ -1933,7 +1933,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.15.10"
+version = "0.15.11"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -2054,7 +2054,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "psutil", specifier = ">=6.0.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.0" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.2" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
@@ -3571,16 +3571,16 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "1.0.0"
+version = "1.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "pydantic" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/8c/eb67316611541091ab2a25dbf85a0a2df01dfd50a13d517e4e3f6cc05ba8/pydapter-1.0.0.tar.gz", hash = "sha256:d0d326a5ce58e9e6404ddd39d54ed24c1c66cb2c40718a019a2765f41a84efa6", size = 399720, upload-time = "2025-07-23T20:09:37.868Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/f1/7a13a39e25020112faadb1c1791aca897a44374f65e442822f56520f955b/pydapter-1.0.2.tar.gz", hash = "sha256:08106d3e14def55320f02b796d8091bff484cc8c20fc8d844cc2649d7adb82fc", size = 410114, upload-time = "2025-08-24T17:23:31.422Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/86/f98cebec0b3fac042791c45e1f4943637904324194721d684743915d8f92/pydapter-1.0.0-py3-none-any.whl", hash = "sha256:b8e673689572252a849e1b6e969e9354047729e1691c36a015b26bd1e63273e5", size = 91874, upload-time = "2025-07-23T20:09:36.201Z" },
+    { url = "https://files.pythonhosted.org/packages/25/ef/37e15a6d24921dc688a74593bee6c74012ab16e54578a6897e29e2734362/pydapter-1.0.2-py3-none-any.whl", hash = "sha256:fb4e3dd3bc5a65c6209c37f643b6112ba90d97bb9ff8814cf048d3d142cc2710", size = 95588, upload-time = "2025-08-24T17:23:29.841Z" },
 ]
 
 [package.optional-dependencies]
