@@ -8,10 +8,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Literal
 
-from lionagi.utils import lcall
+from lionagi import ln
 
+from ._utils import check_docling_available
 from .chunk import chunk_content
 from .save import save_chunks
+
+_HAS_DOCLING = check_docling_available()
 
 
 def dir_to_files(
@@ -206,24 +209,24 @@ def chunk(
             reader_tool = lambda x: Path(x).read_text(encoding="utf-8")
 
         if reader_tool == "docling":
-            from lionagi.libs.package.imports import check_import
+            if _HAS_DOCLING is not True:
+                raise _HAS_DOCLING
 
-            DocumentConverter = check_import(
-                "docling",
-                module_name="document_converter",
-                import_name="DocumentConverter",
+            from docling.document_converter import (  # noqa: F401
+                DocumentConverter,
             )
+
             converter = DocumentConverter()
             reader_tool = lambda x: converter.convert(
                 x
             ).document.export_to_markdown()
 
-        texts = lcall(files, reader_tool)
+        texts = ln.lcall(files, reader_tool)
 
     else:
         texts = [text]
 
-    chunks = lcall(
+    chunks = ln.lcall(
         texts,
         chunk_content,
         chunk_by=chunk_by,
@@ -244,15 +247,15 @@ def chunk(
         output_file = Path(output_file)
         if output_file.suffix == ".csv":
             p = Pile(chunks)
-            p.to_csv_file(output_file)
+            p.dump(output_file, "csv")
 
-        elif output_file.suffix == ".json":
+        if output_file.suffix == "json":
             p = Pile(chunks)
-            p.to_json_file(output_file, use_pd=True)
+            p.dump(output_file, "json")
 
-        elif output_file.suffix in Pile.list_adapters():
+        if output_file.suffix == ".parquet":
             p = Pile(chunks)
-            p.adapt_to(output_file.suffix, fp=output_file)
+            p.dump(output_file, "parquet")
 
         else:
             raise ValueError(f"Unsupported output file format: {output_file}")

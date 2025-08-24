@@ -1,4 +1,6 @@
 from ._async_call import AlcallParams, BcallParams, alcall, bcall
+from ._extract_json import extract_json
+from ._fuzzy_json import fuzzy_json
 from ._hash import hash_dict
 from ._json_dump import (
     DEFAULT_SERIALIZER,
@@ -56,4 +58,30 @@ __all__ = (
     "DEFAULT_SERIALIZER",
     "DEFAULT_SERIALIZER_OPTION",
     "json_dumps",
+    "TaskGroup",
+    "create_task_group",
+    "CancelScope",
+    "move_on_after",
+    "fail_after",
+    "ConnectionPool",
+    "WorkerPool",
+    "parallel_requests",
+    "retry_with_timeout",
+    "Lock",
+    "Semaphore",
+    "CapacityLimiter",
+    "Event",
+    "Condition",
+    "get_cancelled_exc_class",
+    "shield",
+    "ResourceTracker",
+    "resource_leak_detector",
+    "track_resource",
+    "untrack_resource",
+    "cleanup_check",
+    "get_global_tracker",
+    "is_coro_func",
+    "ConcurrencyEvent",
+    "fuzzy_json",
+    "extract_json",
 )

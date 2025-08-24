@@ -173,13 +173,12 @@ class ReaderTool(LionTool):
     system_tool_name = "reader_tool"
 
     def __init__(self):
-        from lionagi.libs.package.imports import check_import
+        from lionagi.libs.file.process import _HAS_DOCLING
 
-        DocumentConverter = check_import(
-            "docling",
-            module_name="document_converter",
-            import_name="DocumentConverter",
-        )
+        if _HAS_DOCLING is not True:
+            raise _HAS_DOCLING
+
+        from docling.document_converter import DocumentConverter
 
         super().__init__()
         self.converter = DocumentConverter()

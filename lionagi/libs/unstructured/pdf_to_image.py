@@ -1,4 +1,4 @@
-from lionagi.utils import check_import, is_import_installed
+from lionagi.utils import import_module, is_import_installed
 
 _HAS_PDF2IMAGE = is_import_installed("pdf2image")
 
@@ -25,7 +25,7 @@ def pdf_to_images(
 
     import os
 
-    convert_from_path = check_import(
+    convert_from_path = import_module(
         "pdf2image", import_name="convert_from_path"
     )
 

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import deque
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import Field, field_serializer, field_validator, model_validator
 from typing_extensions import Self
@@ -17,11 +17,17 @@ from ..generic.pile import Pile
 from .edge import Edge
 from .node import Node
 
+T = TypeVar("T", bound=Node)
+
+from ._utils import check_matplotlib_available, check_networkx_available
+
+_NETWORKX_AVAILABLE = check_networkx_available()
+_MATPLIB_AVAILABLE = check_matplotlib_available()
 __all__ = ("Graph",)
 
 
-class Graph(Element, Relational):
-    internal_nodes: Pile[Node] = Field(
+class Graph(Element, Relational, Generic[T]):
+    internal_nodes: Pile[T] = Field(
         default_factory=lambda: Pile(item_type={Node}, strict_type=False),
         title="Internal Nodes",
         description="A collection of nodes in the graph.",
@@ -214,13 +220,10 @@ class Graph(Element, Relational):
 
     def to_networkx(self, **kwargs) -> Any:
         """Convert the graph to a NetworkX graph object."""
-        try:
-            from networkx import DiGraph  # type: ignore
+        if _NETWORKX_AVAILABLE is not True:
+            raise _NETWORKX_AVAILABLE
 
-        except ImportError:
-            from lionagi.libs.package.imports import check_import
-
-            DiGraph = check_import("networkx", import_name="DiGraph")
+        from networkx import DiGraph  # type: ignore
 
         g = DiGraph(**kwargs)
         for node in self.internal_nodes:
@@ -245,20 +248,13 @@ class Graph(Element, Relational):
         **kwargs,
     ):
         """Display the graph using NetworkX and Matplotlib."""
-
-        try:
-            import matplotlib.pyplot as plt  # type: ignore
-            import networkx as nx  # type: ignore
-        except ImportError:
-            from lionagi.libs.package.imports import check_import
-
-            check_import("matplotlib")
-            check_import("networkx")
-
-            import matplotlib.pyplot as plt  # type: ignore
-            import networkx as nx  # type: ignore
-
         g = self.to_networkx(**kwargs)
+        if _MATPLIB_AVAILABLE is not True:
+            raise _MATPLIB_AVAILABLE
+
+        import matplotlib.pyplot as plt  # type: ignore
+        import networkx as nx  # type: ignore
+
         pos = nx.spring_layout(g)
         nx.draw(
             g,

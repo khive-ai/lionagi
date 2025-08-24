@@ -320,13 +320,13 @@ def string_similarity(
     # Sort by score (descending) and index (ascending) for stable ordering
     results.sort(key=lambda x: (-x.score, x.index))
 
-    # Return results
-    if return_most_similar:
-        return results[0].word
-
     # Filter exact matches for case sensitive comparisons
     if case_sensitive:
         max_score = results[0].score
         results = [r for r in results if r.score == max_score]
+
+    # Return results
+    if return_most_similar:
+        return results[0].word
 
     return [r.word for r in results]

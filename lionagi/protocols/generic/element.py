@@ -22,7 +22,7 @@ from lionagi import ln
 from lionagi._class_registry import get_class
 from lionagi._errors import IDError
 from lionagi.settings import Settings
-from lionagi.utils import time, to_dict
+from lionagi.utils import import_module, time, to_dict
 
 from .._concepts import Collective, Observable, Ordering
 
@@ -308,9 +308,6 @@ class Element(BaseModel, Observable):
                         return subcls_type.from_dict(data)
 
                 except Exception:
-                    # Fallback attempt: direct import if not in registry
-                    from lionagi.libs.package.imports import import_module
-
                     mod, imp = subcls.rsplit(".", 1)
                     subcls_type = import_module(mod, import_name=imp)
                     data["metadata"] = metadata
