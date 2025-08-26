@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.15.11"
+version = "0.15.12"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -14,7 +14,7 @@ dependencies = [
     "backoff>=2.0.0",
     "jinja2>=3.0.0",
     "json-repair>=0.40.0",
-    "pillow>=11.0.0",
+    "pillow>=10.0.0",
     "psutil>=6.0.0",
     "pydantic-settings>=2.8.0",
     "pydapter[pandas]>=1.0.2",
@@ -54,6 +54,13 @@ dev = [
     "tqdm>=4.67.1",
     "pytest-cov>=6.1.1",
     "ruff>=0.12.0",
+    "mkdocs>=1.6.1",
+    "mkdocs-material[imaging]>=9.6.18",
+    "mkdocs-minify-plugin>=0.8.0",
+    "mkdocs-git-revision-date-localized-plugin>=1.4.7",
+    "mkdocs-git-committers-plugin-2>=2.5.0",
+    "mkdocstrings>=0.30.0",
+    "mkdocstrings-python>=1.17.0",
 ]
 
 [project.optional-dependencies]
