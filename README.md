@@ -8,7 +8,7 @@
 
 # LION - Language InterOperable Network
 
-## An Agentic Intelligence SDK
+## An AGentic Intelligence SDK
 
 LionAGI is a robust framework for orchestrating multi-step AI operations with
 precise control. Bring together multiple models, advanced ReAct reasoning, tool
