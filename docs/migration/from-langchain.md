@@ -297,17 +297,17 @@ except Exception as e:
 
 ## Key Simplifications
 
-**No LCEL Syntax**: Direct function calls instead of pipe operators **No State
-Management**: Automatic memory and context handling\
-**No Complex Setup**: Simple imports and initialization **No External
-Dependencies**: Built-in observability and debugging **No Manual
-Orchestration**: Automatic parallel execution
+- **No LCEL Syntax**: Direct function calls instead of pipe operators  
+- **No State Management**: Automatic memory and context handling  
+- **No Complex Setup**: Simple imports and initialization  
+- **No External Dependencies**: Built-in observability and debugging  
+- **No Manual Orchestration**: Automatic parallel execution
 
 ## Migration Benefits
 
-✅ **90% Less Code**: Remove LCEL, state management, memory setup\
-✅ **Natural Async**: Built for async/await from the ground up\
-✅ **Automatic Parallelism**: No complex graph configuration needed\
-✅ **Simpler Debugging**: Direct access to execution state\
-✅ **Built-in Memory**: No manual memory management required\
+✅ **90% Less Code**: Remove LCEL, state management, memory setup  
+✅ **Natural Async**: Built for async/await from the ground up  
+✅ **Automatic Parallelism**: No complex graph configuration needed  
+✅ **Simpler Debugging**: Direct access to execution state  
+✅ **Built-in Memory**: No manual memory management required  
 ✅ **Cost Tracking**: Native usage monitoring vs external tools

@@ -340,8 +340,8 @@ analysis = builder.add_operation("communicate", branch=analyst, instruction="Ana
 
 ### 3. **Memory Management**
 
-**LangGraph**: Manual state passing, complex message handling\
-**LionAGI**: Automatic memory management per branch
+- **LangGraph**: Manual state passing, complex message handling
+- **LionAGI**: Automatic memory management per branch
 
 ```python
 # LionAGI: Each branch maintains independent memory

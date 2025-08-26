@@ -1,0 +1,136 @@
+/* LionAGI Documentation Custom Styles */
+
+/* Better spacing and readability */
+.md-content {
+    max-width: 1200px;
+    font-size: 1rem;
+    line-height: 1.7;
+}
+
+.md-typeset h1 {
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 2.2rem;
+}
+
+.md-typeset h2 {
+    font-weight: 600;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    padding-top: 0.5rem;
+    border-top: 2px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset h3 {
+    font-weight: 600;
+    margin-top: 2rem;
+    margin-bottom: 0.8rem;
+}
+
+/* Better code blocks */
+.md-typeset pre {
+    border-radius: 8px;
+    margin: 1.5em 0;
+}
+
+.md-typeset code {
+    font-size: 0.9em;
+    padding: 0.15em 0.3em;
+}
+
+/* Improve navigation sidebar */
+.md-nav--primary .md-nav__title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+.md-nav__item--nested > .md-nav__link {
+    font-weight: 600;
+}
+
+.md-sidebar--primary .md-sidebar__scrollwrap {
+    padding: 1rem 0;
+}
+
+/* Better tables */
+.md-typeset table {
+    font-size: 0.95rem;
+    margin: 1.5em 0;
+}
+
+.md-typeset table th {
+    font-weight: 600;
+    background: var(--md-default-bg-color);
+    border-bottom: 2px solid var(--md-default-fg-color--lightest);
+}
+
+/* Improve blockquotes */
+.md-typeset blockquote {
+    border-left: 4px solid var(--md-accent-fg-color);
+    padding: 0.5em 1em;
+    margin: 1.5em 0;
+    font-style: normal;
+    background: var(--md-code-bg-color);
+}
+
+/* Better spacing for lists */
+.md-typeset ul li,
+.md-typeset ol li {
+    margin: 0.5em 0;
+}
+
+/* Highlight important sections */
+.md-typeset hr {
+    margin: 3rem 0;
+    border: 0;
+    height: 2px;
+    background: linear-gradient(90deg, 
+        transparent, 
+        var(--md-default-fg-color--lightest) 20%, 
+        var(--md-default-fg-color--lightest) 80%, 
+        transparent);
+}
+
+/* Make emojis in headers more visible */
+.md-typeset h2 .twemoji,
+.md-typeset h3 .twemoji {
+    height: 1.2em;
+    vertical-align: -0.2em;
+    margin-right: 0.3em;
+}
+
+/* Quick decision boxes */
+.md-typeset > div[style*="margin: 2em"] {
+    padding: 1.5rem;
+    background: var(--md-code-bg-color);
+    border-radius: 8px;
+    border-left: 4px solid var(--md-accent-fg-color);
+}
+
+/* Improve admonitions */
+.md-typeset .admonition,
+.md-typeset details {
+    font-size: 0.95rem;
+    margin: 1.5em 0;
+}
+
+/* Better contrast for inline code */
+.md-typeset code:not(.hljs) {
+    background-color: var(--md-code-bg-color);
+    color: var(--md-code-fg-color);
+    border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Navigation improvements */
+.md-nav__link--active {
+    font-weight: 600;
+    color: var(--md-accent-fg-color);
+}
+
+.md-nav__item .md-nav__link--active {
+    background: var(--md-default-fg-color--lightest);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+}

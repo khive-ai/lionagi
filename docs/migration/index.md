@@ -46,7 +46,7 @@ builder.add_operation(operation=existing_workflow)
 
 ## Why Migrate?
 
-**Parallel Execution**: LionAGI runs operations concurrently by default\
-**Simpler Code**: Less boilerplate, cleaner abstractions\
-**Framework Agnostic**: Orchestrate any tool, not just one ecosystem\
-**Production Ready**: Built-in monitoring, error handling, performance control
+- **Parallel Execution**: LionAGI runs operations concurrently by default
+- **Simpler Code**: Less boilerplate, cleaner abstractions
+- **Framework Agnostic**: Orchestrate any tool, not just one ecosystem
+- **Production Ready**: Built-in monitoring, error handling, performance control

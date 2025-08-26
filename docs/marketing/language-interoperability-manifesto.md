@@ -5,8 +5,8 @@
 Every AI team faces the same impossible choice: **Pick one framework and live
 with its limitations forever.**
 
-Choose LangChain? You're locked out of CrewAI's multi-agent patterns.\
-Go with AutoGen? No access to LlamaIndex's RAG capabilities.\
+Choose LangChain? You're locked out of CrewAI's multi-agent patterns.  
+Go with AutoGen? No access to LlamaIndex's RAG capabilities.  
 Build on LangGraph? DSPy's prompt optimization is off-limits.
 
 **The result?** Teams rewrite everything when they need capabilities their
@@ -73,9 +73,9 @@ headaches.
 Here's the revolutionary part: **Any existing workflow becomes a LionAGI custom
 operation**.
 
-CrewAI workflow? Wrap it.\
-AutoGen conversation? Orchestrate it.\
-Custom Python functions? Coordinate them.\
+CrewAI workflow? Wrap it.  
+AutoGen conversation? Orchestrate it.  
+Custom Python functions? Coordinate them.  
 External APIs? Include them.
 
 ```python
@@ -170,7 +170,7 @@ Our documentation shows exactly how to:
 - Integrate multiple AI tools seamlessly
 - Build production systems that leverage everything
 
-**The age of AI framework lock-in is over.**\
+**The age of AI framework lock-in is over.**  
 **The age of Language Interoperability has begun.**
 
 Welcome to LION. 🦁

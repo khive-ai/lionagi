@@ -1,49 +1,58 @@
 # LionAGI
 
-Multi-agent orchestration that treats coordination as a graph problem, not a
-conversation problem.
+> **Central coordination engine for arbitrary orchestration patterns**
 
-## Quick Example
+<div style="margin: 2em 0;">
+<strong>LionAGI is evolving:</strong> From a collection of operations to a coordination engine where you define operations and we orchestrate them - agentic or otherwise.
+</div>
+
+---
+
+## ⚡ The Orchestration Engine Mindset
 
 ```python
-import asyncio
-from lionagi import Branch, iModel
+from lionagi import Branch, Operation
 
-async def multi_perspective_analysis():
-    # Create specialized agents
-    technical = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You analyze technical feasibility"
-    )
-    business = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You analyze business impact"
-    )
-    user = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You analyze user experience"
-    )
-    
-    question = "Should we rewrite our backend in Rust?"
-    
-    # Get all perspectives in parallel
-    tech_view, biz_view, user_view = await asyncio.gather(
-        technical.chat(question),
-        business.chat(question),
-        user.chat(question)
-    )
-    
-    return {"technical": tech_view, "business": biz_view, "user": user_view}
+# Step 1: Define YOUR operations (not limited to what we provide)
+class YourCustomAnalysis(Operation):
+    async def execute(self, data):
+        # Exactly how YOU want analysis done
+        # Can use ML, APIs, databases, other frameworks, anything
+        return your_analysis_logic(data)
 
-result = asyncio.run(multi_perspective_analysis())
+class YourCustomSynthesis(Operation):
+    async def execute(self, results):
+        # YOUR synthesis logic
+        return your_synthesis_logic(results)
+
+# Step 2: LionAGI orchestrates them
+branch = Branch()  # Minimal interface: just chat, communicate, operate, react
+
+# Sequential orchestration
+analysis = await branch.operate(YourCustomAnalysis(), data=my_data)
+synthesis = await branch.operate(YourCustomSynthesis(), results=analysis)
+
+# Or parallel orchestration
+from lionagi.patterns import compose_parallel
+
+parallel_op = compose_parallel(
+    YourCustomAnalysis(),
+    AnotherOperation(),
+    ThirdOperation()
+)
+results = await branch.operate(parallel_op, data=my_data)
+
+# The key: You define operations. We provide the orchestration engine.
 ```
 
-## What LionAGI Does Well
+## 🎯 What LionAGI Does Well
 
-- **Parallel execution**: Run multiple agents simultaneously
-- **Clear dependencies**: Define what depends on what
-- **Isolated state**: Each agent maintains its own context
-- **Predictable workflows**: Graphs, not conversations
+| Feature | What It Means |
+|---------|---------------|
+| **Parallel Execution** | Run multiple agents simultaneously without blocking |
+| **Clear Dependencies** | Explicitly define execution order and data flow |
+| **Isolated State** | Each agent maintains independent context and memory |
+| **Predictable Workflows** | Deterministic graphs instead of unpredictable conversations |
 
 ## Get Started
 

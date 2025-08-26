@@ -1,7 +1,12 @@
 # Sessions and Branches
 
-A Session is your workspace for orchestrating multiple AI agents, while a Branch
-is a single agent with its own memory, tools, and capabilities.
+Understanding the core abstractions of LionAGI's orchestration engine.
+
+## The Evolution
+
+### Branch: From Toolbox to Space
+
+A `Branch` is evolving from a collection of methods to a **computational space** where operations happen.
 
 ## Quick Example
 

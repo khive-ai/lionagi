@@ -1,9 +1,12 @@
 # Why LionAGI?
 
-## The Core Difference
+## The Fundamental Shift
 
-LionAGI treats multi-agent coordination as a graph problem, not a conversation
-problem.
+LionAGI is evolving into an **orchestration engine** - you bring the operations, we provide the coordination machinery.
+
+### The Core Difference
+
+While others provide operations, LionAGI provides orchestration. We treat coordination as a graph problem, not a conversation problem.
 
 ## What This Means in Practice
 

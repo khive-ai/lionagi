@@ -14,10 +14,10 @@ Guidance specifically for AI agents working with LionAGI.
 
 ## Key Concepts for AI Agents
 
-**Think in Graphs**: LionAGI uses dependency graphs, not sequential chains
-**Leverage Parallelism**: Multiple operations can run simultaneously\
-**Use Builder Pattern**: Construct workflows declaratively **Handle Context**:
-Each Branch maintains persistent memory
+- **Think in Graphs**: LionAGI uses dependency graphs, not sequential chains
+- **Leverage Parallelism**: Multiple operations can run simultaneously  
+- **Use Builder Pattern**: Construct workflows declaratively
+- **Handle Context**: Each Branch maintains persistent memory
 
 ## Common Agent Workflows
 
