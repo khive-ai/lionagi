@@ -320,16 +320,19 @@ response = await agent.communicate("Explain machine learning")  # Will recall pr
 ## Choosing Vector Stores
 
 **Local Development:**
+
 - ChromaDB: Easy setup, good for prototyping
 - FAISS: High performance, research-grade
 - In-memory: Simple testing and demos
 
 **Production Cloud:**
+
 - Pinecone: Managed service, great scaling
 - Weaviate: Open source, GraphQL API
 - Qdrant: Rust-based, high performance
 
 **Hybrid Approaches:**
+
 - Local + Cloud: Development locally, production in cloud
 - Multi-store: Different stores for different use cases
 - Fallback: Local backup when cloud unavailable

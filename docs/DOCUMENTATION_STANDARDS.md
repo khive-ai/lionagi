@@ -1,16 +1,17 @@
 # LionAGI Documentation Standards
 
-*Practical guidelines for writing docs that actually help.*
+_Practical guidelines for writing docs that actually help._
 
 ## Core Principle
 
-**Show, don't tell.** Every page should have working code that solves a real problem.
+**Show, don't tell.** Every page should have working code that solves a real
+problem.
 
 ## Page Types & Templates
 
 ### 1. Pattern Pages (`/patterns/`)
 
-```markdown
+````markdown
 # [Pattern Name]
 
 When you need to [problem this solves].
@@ -28,6 +29,7 @@ async def pattern_name():
 # Usage
 result = await pattern_name()
 ```
+````
 
 ## When It Works
 
@@ -37,8 +39,8 @@ result = await pattern_name()
 ## Success Rate
 
 ~95% based on [context]
-```
 
+````
 ### 2. Cookbook Pages (`/cookbook/`)
 
 ```markdown
@@ -56,7 +58,7 @@ result = await pattern_name()
 # Full implementation
 # Can be 50-200 lines
 # Must be copy-paste ready
-```
+````
 
 ## Results
 
@@ -68,8 +70,8 @@ result = await pattern_name()
 
 - To adapt for X: [change this]
 - To scale up: [modify that]
-```
 
+````
 ### 3. Concept Pages (`/core-concepts/`)
 
 ```markdown
@@ -81,7 +83,7 @@ result = await pattern_name()
 
 ```python
 # Minimal example showing the concept
-```
+````
 
 ## Key Points
 
@@ -94,8 +96,8 @@ result = await pattern_name()
 ```python
 # Realistic example
 ```
-```
 
+````
 ### 4. Quickstart Pages
 
 ```markdown
@@ -105,7 +107,7 @@ result = await pattern_name()
 
 ```bash
 uv add lionagi
-```
+````
 
 ## First Example
 
@@ -118,8 +120,8 @@ uv add lionagi
 - Try [pattern]
 - Read about [concept]
 - See [cookbook example]
-```
 
+````
 ## Code Standards
 
 ### Every Code Block Must:
@@ -144,7 +146,7 @@ async def example():
 
 # Run it
 # result = asyncio.run(example())
-```
+````
 
 ```python
 # BAD: Fragment without context
@@ -177,12 +179,9 @@ Help AI agents understand when to use patterns:
 ```markdown
 ## When to Use
 
-IF task requires parallel analysis:
-    USE fan-out-in pattern
-ELIF task needs step-by-step building:
-    USE sequential-analysis pattern
-ELSE:
-    USE single-branch ReAct
+IF task requires parallel analysis: USE fan-out-in pattern ELIF task needs
+step-by-step building: USE sequential-analysis pattern ELSE: USE single-branch
+ReAct
 ```
 
 ### Executable Templates
@@ -233,18 +232,21 @@ Before merging any doc:
 ## Examples of Good Docs
 
 ### Good Pattern Doc
+
 - Clear problem statement
 - Complete working code
 - Success metrics
 - When to use/not use
 
 ### Good Cookbook Entry
+
 - Specific real-world scenario
 - Full implementation
 - Actual results
 - How to customize
 
 ### Good Concept Page
+
 - Simple definition
 - Minimal example
 - Key points only
@@ -253,16 +255,19 @@ Before merging any doc:
 ## Maintenance
 
 ### Quarterly Review
+
 - Update success metrics
 - Fix broken examples
 - Remove outdated patterns
 - Add new proven patterns
 
 ### Continuous
+
 - Fix errors when found
 - Add clarifications from support questions
 - Update for API changes
 
 ---
 
-**Remember**: If you wouldn't copy-paste it into your own project, don't put it in the docs.
+**Remember**: If you wouldn't copy-paste it into your own project, don't put it
+in the docs.

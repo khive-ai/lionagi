@@ -5,14 +5,17 @@ Core classes and functions for LionAGI framework.
 ## Core Modules
 
 ### Session
+
 ```python
 from lionagi import Session
 
 session = Session()
 ```
+
 Workspace for coordinating multiple branches and managing graph execution.
 
-### Branch  
+### Branch
+
 ```python
 from lionagi import Branch, iModel
 
@@ -21,18 +24,24 @@ branch = Branch(
     system="You are a helpful assistant"
 )
 ```
-Individual agent abstraction with persistent memory, tools, and specialized behavior.
+
+Individual agent abstraction with persistent memory, tools, and specialized
+behavior.
 
 ### Builder
+
 ```python
 from lionagi import Builder
 
 builder = Builder()
 node = builder.add_operation("communicate", instruction="Hello")
 ```
-Graph construction pattern for building complex multi-agent workflows with dependencies.
+
+Graph construction pattern for building complex multi-agent workflows with
+dependencies.
 
 ### iModel
+
 ```python
 from lionagi import iModel
 
@@ -45,17 +54,21 @@ model = iModel(provider="anthropic", model="claude-3-5-sonnet-20241022")
 # Claude Code
 model = iModel(provider="claude_code", model="sonnet")
 ```
+
 Universal model interface supporting OpenAI, Anthropic, Ollama, and Claude Code.
 
 ## Operations
 
 ### communicate
+
 ```python
 result = await branch.communicate("What is 2 + 2?")
 ```
+
 Direct conversation with a single branch.
 
 ### ReAct
+
 ```python
 result = await branch.ReAct(
     instruct={"instruction": "Research AI trends"},
@@ -63,20 +76,24 @@ result = await branch.ReAct(
     max_extensions=3
 )
 ```
+
 Reasoning + Acting workflow for systematic problem solving with tools.
 
 ### operate
+
 ```python
 result = await branch.operate(
     instruct=Instruct(instruction="Analyze data", context=data),
     response_format=AnalysisReport
 )
 ```
+
 Structured operation with Pydantic output validation.
 
 ## Tools
 
 ### Function Tools
+
 ```python
 def multiply(x: float, y: float) -> float:
     return x * y
@@ -85,6 +102,7 @@ branch = Branch(tools=[multiply])  # Direct function passing
 ```
 
 ### ReaderTool
+
 ```python
 from lionagi.tools.types import ReaderTool
 
@@ -96,6 +114,7 @@ result = await branch.ReAct(
 ```
 
 ### Custom Tool Class
+
 ```python
 from lionagi import Tool
 from pydantic import BaseModel
@@ -116,6 +135,7 @@ search_tool = Tool(
 ## Graph Execution
 
 ### Basic Flow
+
 ```python
 from lionagi import Session, Builder
 
@@ -130,6 +150,7 @@ result = await session.flow(builder.get_graph())
 ```
 
 ### Parallel Flow
+
 ```python
 # Parallel research
 topics = ["AI", "ML", "NLP"]
@@ -152,6 +173,7 @@ result = await session.flow(builder.get_graph())
 ## Data Types
 
 ### Instruct
+
 ```python
 from lionagi.types import Instruct
 
@@ -163,6 +185,7 @@ instruct = Instruct(
 ```
 
 ### Node
+
 ```python
 # Access node data after execution
 graph = builder.get_graph()

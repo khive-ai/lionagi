@@ -1,13 +1,18 @@
 # Migrating from LangGraph to LionAGI
 
-A practical guide for LangGraph users to leverage LionAGI's superior orchestration capabilities.
+A practical guide for LangGraph users to leverage LionAGI's superior
+orchestration capabilities.
 
 ## Why Consider Migration?
 
-LangGraph is powerful but can be complex for multi-agent workflows. LionAGI offers:
+LangGraph is powerful but can be complex for multi-agent workflows. LionAGI
+offers:
+
 - **Simpler abstractions**: Less boilerplate, cleaner code
-- **Parallel by default**: Automatic concurrency without complex state management  
-- **Better production features**: Built-in monitoring, error handling, performance control
+- **Parallel by default**: Automatic concurrency without complex state
+  management
+- **Better production features**: Built-in monitoring, error handling,
+  performance control
 - **Framework agnostic**: Orchestrate LangGraph alongside other tools
 
 ## Migration Approaches
@@ -205,11 +210,13 @@ synthesis = builder.add_aggregation(
 ### 1. Reduced Complexity
 
 **Before (LangGraph)**:
+
 - Manual state management
 - Complex routing logic
 - Verbose graph setup
 
 **After (LionAGI)**:
+
 - Automatic memory management
 - Simple dependencies
 - Clean abstractions
@@ -242,7 +249,7 @@ except Exception as e:
 ### Step 1: Analyze Your LangGraph Workflow
 
 1. Identify your agents/nodes
-2. Map out state dependencies  
+2. Map out state dependencies
 3. Note any parallel operations
 4. Identify conditional logic
 
@@ -280,7 +287,7 @@ result = await session.flow(builder.get_graph(), max_concurrent=3)
 ## Migration Checklist
 
 - [ ] Map LangGraph nodes to LionAGI branches
-- [ ] Convert state management to dependencies  
+- [ ] Convert state management to dependencies
 - [ ] Identify parallel operations
 - [ ] Add error handling
 - [ ] Test output equivalence
@@ -290,13 +297,15 @@ result = await session.flow(builder.get_graph(), max_concurrent=3)
 ## When Not to Migrate
 
 Consider keeping LangGraph if:
+
 - You have simple, working workflows that don't need orchestration
 - Your use case doesn't require parallel execution
 - You're heavily invested in LangChain ecosystem features
 
 ## Best of Both Worlds
 
-Remember: You don't have to choose! LionAGI can orchestrate your existing LangGraph workflows alongside other tools:
+Remember: You don't have to choose! LionAGI can orchestrate your existing
+LangGraph workflows alongside other tools:
 
 ```python
 # Orchestrate everything together
@@ -319,8 +328,8 @@ LionAGI enhances your existing investments rather than replacing them.
 
 ### 2. **Parallel Execution**
 
-**LangGraph**: Sequential by design, complex to parallelize
-**LionAGI**: Parallel by default, automatic dependency resolution
+**LangGraph**: Sequential by design, complex to parallelize **LionAGI**:
+Parallel by default, automatic dependency resolution
 
 ```python
 # LionAGI: Automatic parallelization
@@ -331,7 +340,7 @@ analysis = builder.add_operation("communicate", branch=analyst, instruction="Ana
 
 ### 3. **Memory Management**
 
-**LangGraph**: Manual state passing, complex message handling  
+**LangGraph**: Manual state passing, complex message handling\
 **LionAGI**: Automatic memory management per branch
 
 ```python
@@ -342,8 +351,8 @@ researcher.communicate("Follow up")  # Automatically has context
 
 ### 4. **Framework Agnostic**
 
-**LangGraph**: Locked into LangChain ecosystem
-**LionAGI**: Can orchestrate ANY framework as custom operations
+**LangGraph**: Locked into LangChain ecosystem **LionAGI**: Can orchestrate ANY
+framework as custom operations
 
 ```python
 # Wrap existing LangGraph workflow as LionAGI operation
@@ -357,8 +366,8 @@ builder.add_operation(operation=langgraph_operation, ...)
 
 ### 5. **Production Ready**
 
-**LangGraph**: Complex debugging, hard to monitor
-**LionAGI**: Built-in observability, error handling, performance control
+**LangGraph**: Complex debugging, hard to monitor **LionAGI**: Built-in
+observability, error handling, performance control
 
 ```python
 # LionAGI: Built-in monitoring and control
@@ -371,7 +380,8 @@ result = await session.flow(
 
 ## Migration Path
 
-Don't throw away your LangGraph investment! LionAGI can orchestrate your existing LangGraph workflows:
+Don't throw away your LangGraph investment! LionAGI can orchestrate your
+existing LangGraph workflows:
 
 ```python
 from lionagi import Session, Builder
@@ -405,22 +415,23 @@ result = await session.flow(builder.get_graph())
 
 ## Performance Comparison
 
-| Feature | LangGraph | LionAGI |
-|---------|-----------|---------|
-| Parallel Execution | Manual/Complex | Automatic |
-| Setup Complexity | High | Low |
-| State Management | Manual | Automatic |
-| Error Handling | Manual | Built-in |
-| Framework Lock-in | Yes | No |
-| Migration Cost | High | Zero |
-| Debugging | Complex | Simple |
-| Production Monitoring | Manual | Built-in |
+| Feature               | LangGraph      | LionAGI   |
+| --------------------- | -------------- | --------- |
+| Parallel Execution    | Manual/Complex | Automatic |
+| Setup Complexity      | High           | Low       |
+| State Management      | Manual         | Automatic |
+| Error Handling        | Manual         | Built-in  |
+| Framework Lock-in     | Yes            | No        |
+| Migration Cost        | High           | Zero      |
+| Debugging             | Complex        | Simple    |
+| Production Monitoring | Manual         | Built-in  |
 
 ## When to Choose LionAGI
 
 - **Parallel workflows**: LionAGI excels at concurrent execution
 - **Complex orchestration**: Multiple agents, dependencies, synthesis
-- **Production systems**: Built-in monitoring, error handling, performance control
+- **Production systems**: Built-in monitoring, error handling, performance
+  control
 - **Multi-framework**: Orchestrate LangChain, CrewAI, AutoGen together
 - **Enterprise**: Clean architecture, maintainable code, team scalability
 

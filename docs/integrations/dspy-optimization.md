@@ -4,8 +4,9 @@ Use DSPy for prompt optimization within LionAGI workflows.
 
 ## Why DSPy + LionAGI?
 
-**DSPy**: Best-in-class prompt optimization, automatic compilation, few-shot learning
-**LionAGI**: Superior orchestration, parallel execution, multi-agent coordination
+**DSPy**: Best-in-class prompt optimization, automatic compilation, few-shot
+learning **LionAGI**: Superior orchestration, parallel execution, multi-agent
+coordination
 
 **Together**: Optimized prompts with intelligent orchestration.
 
@@ -360,4 +361,5 @@ result = await session.flow(builder.get_graph())
 5. **Scalable**: Built-in performance controls
 6. **Hybrid Workflows**: Mix DSPy with other AI operations
 
-DSPy provides the prompt optimization, LionAGI provides the orchestration intelligence.
+DSPy provides the prompt optimization, LionAGI provides the orchestration
+intelligence.

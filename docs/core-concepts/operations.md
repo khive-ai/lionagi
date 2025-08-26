@@ -1,6 +1,7 @@
 # Operations
 
-Operations are the building blocks of LionAGI workflows - tasks that branches execute.
+Operations are the building blocks of LionAGI workflows - tasks that branches
+execute.
 
 ```python
 from lionagi import Builder
@@ -108,6 +109,7 @@ builder.add_operation(
 
 ## Best Practices
 
-- Use `chat` for simple tasks, `operate` for structured output, `ReAct` for tool use
+- Use `chat` for simple tasks, `operate` for structured output, `ReAct` for tool
+  use
 - Minimize dependencies to maximize parallelism
 - Set appropriate timeouts and retry parameters

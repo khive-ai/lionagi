@@ -2,11 +2,13 @@
 
 ## The Core Difference
 
-LionAGI treats multi-agent coordination as a graph problem, not a conversation problem.
+LionAGI treats multi-agent coordination as a graph problem, not a conversation
+problem.
 
 ## What This Means in Practice
 
 ### Other Frameworks: Sequential Chains
+
 ```python
 # LangChain approach
 chain = Agent1 >> Agent2 >> Agent3  # Always sequential
@@ -14,6 +16,7 @@ result = chain.run(input)  # If Agent2 fails, everything stops
 ```
 
 ### LionAGI: Parallel Graphs
+
 ```python
 # LionAGI approach
 builder = Builder("analysis")
@@ -28,6 +31,7 @@ result = await session.flow(builder.get_graph())  # Parallel execution
 ## Key Technical Advantages
 
 ### 1. True Parallel Execution
+
 ```python
 # This actually runs in parallel
 results = await asyncio.gather(
@@ -38,6 +42,7 @@ results = await asyncio.gather(
 ```
 
 ### 2. Dependency Management
+
 ```python
 # Define complex dependencies easily
 research = builder.add_operation("chat", instruction="Research the topic")
@@ -47,7 +52,9 @@ final = builder.add_operation("chat", depends_on=[research, analysis, review])
 ```
 
 ### 3. Isolated Agent State
+
 Each Branch maintains its own:
+
 - Conversation history
 - System prompt
 - Tools
@@ -61,6 +68,7 @@ await agent2.chat("Remember Y")
 ```
 
 ### 4. Flexible Orchestration
+
 ```python
 # Same agents, different workflows
 for strategy in ["parallel", "sequential", "tournament"]:
@@ -72,16 +80,19 @@ for strategy in ["parallel", "sequential", "tournament"]:
 ### Task: Analyze 50 documents
 
 **Sequential Approach (most frameworks):**
+
 - Time: 50 × 3 seconds = 150 seconds
 - Failure handling: Stops on first error
 
 **LionAGI Parallel Approach:**
+
 - Time: 3 seconds (all 50 in parallel)
 - Failure handling: Continues with successful docs
 
 ### Task: Multi-perspective analysis
 
 **Conversation-based (AutoGen, CrewAI):**
+
 ```python
 # Agents talk to each other, hard to control
 agent1: "I think..."
@@ -91,6 +102,7 @@ agent3: "Actually..."
 ```
 
 **Graph-based (LionAGI):**
+
 ```python
 # Clear, predictable execution
 perspectives = await gather(agent1.analyze(), agent2.analyze(), agent3.analyze())
@@ -100,12 +112,14 @@ synthesis = await synthesizer.combine(perspectives)
 ## When LionAGI Makes Sense
 
 ### Good Fit
+
 - Need multiple perspectives on the same problem
 - Want parallel processing for speed
 - Require predictable, reproducible workflows
 - Building production systems
 
 ### Not Ideal For
+
 - Simple single-agent tasks
 - Pure chatbot applications
 - Experimental conversational AI
@@ -115,6 +129,7 @@ synthesis = await synthesizer.combine(perspectives)
 ### From Sequential to Parallel
 
 **Before (sequential):**
+
 ```python
 def analyze_sequential(doc):
     extracted = extractor.process(doc)     # 2 sec
@@ -124,6 +139,7 @@ def analyze_sequential(doc):
 ```
 
 **After (parallel where possible):**
+
 ```python
 async def analyze_parallel(doc):
     # Extraction must happen first
@@ -141,9 +157,12 @@ async def analyze_parallel(doc):
 ## The Bottom Line
 
 LionAGI is built for developers who need:
+
 - Predictable multi-agent workflows
 - Parallel execution for performance
 - Clear separation of agent concerns
 - Production-ready orchestration
 
-If you're building toy examples or chatbots, other frameworks might be simpler. If you're building systems that need to work reliably at scale, LionAGI provides the right abstractions.
+If you're building toy examples or chatbots, other frameworks might be simpler.
+If you're building systems that need to work reliably at scale, LionAGI provides
+the right abstractions.

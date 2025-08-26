@@ -27,6 +27,7 @@ synthesis = builder.add_operation(
 
 result = await session.flow(builder.get_graph())
 ```
+
             name=f"researcher_{i+1}"
         )
         
@@ -37,10 +38,10 @@ result = await session.flow(builder.get_graph())
             **instruction.to_dict()
         )
         research_nodes.append(node)
-    
+
     # Execute research
     await session.flow(builder.get_graph())
-    
+
     # Extract findings
     def get_context(node_id):
         graph = builder.get_graph()
@@ -49,12 +50,12 @@ result = await session.flow(builder.get_graph())
         if (branch and len(branch.messages) > 0 and 
             isinstance(msg := branch.messages[-1], AssistantResponse)):
             return f"""
-Response: {msg.model_response.get("result") or "Not available"}
-Summary: {msg.model_response.get("summary") or "Not available"}
-            """.strip()
-    
+
+Response: {msg.model_response.get("result") or "Not available"} Summary:
+{msg.model_response.get("summary") or "Not available"} """.strip()
+
     ctx = [get_context(i) for i in research_nodes]
-    
+
     # Fan-in: Synthesize
     synthesis = builder.add_operation(
         "communicate",
@@ -63,17 +64,16 @@ Summary: {msg.model_response.get("summary") or "Not available"}
         instruction="Synthesize findings into comprehensive analysis",
         context=[i for i in ctx if i is not None]
     )
-    
+
     final_result = await session.flow(builder.get_graph())
     return final_result["operation_results"][synthesis]
 
 # Usage
-result = await fan_out_in_analysis(
-    "Analyze competitive AI framework landscape",
-    "Focus on Python frameworks from last 2 years"
-)
-```
 
+result = await fan_out_in_analysis( "Analyze competitive AI framework
+landscape", "Focus on Python frameworks from last 2 years" )
+
+````
 ## Production Implementation with Cost Tracking
 
 ```python
@@ -157,17 +157,19 @@ Summary: {msg.model_response.get("summary") or "Not available"}
         return None
 
 asyncio.run(production_fan_out_in())
-```
+````
 
 ## When to Use
 
 **Perfect for:**
+
 - Complex research requiring multiple perspectives
-- Code reviews from security/performance/style angles  
+- Code reviews from security/performance/style angles
 - Market analysis with different domain experts
 - Large dataset investigation needing parallel approaches
 
 **Pattern indicators:**
+
 - Problem benefits from simultaneous analysis
 - Individual tasks can run independently
 - Final answer requires synthesis of perspectives
@@ -193,6 +195,7 @@ asyncio.run(production_fan_out_in())
 ## Key Implementation Notes
 
 ### Context Extraction Pattern
+
 ```python
 def get_context(node_id):
     graph = builder.get_graph()
@@ -204,6 +207,7 @@ def get_context(node_id):
 ```
 
 ### Cost Tracking Pattern
+
 ```python
 costs = 0
 def track_costs(msg):
@@ -212,6 +216,7 @@ def track_costs(msg):
 ```
 
 ### Error Handling
+
 ```python
 try:
     result = await session.flow(builder.get_graph())
@@ -225,9 +230,10 @@ except Exception as e:
 ## Performance Characteristics
 
 - **Speed**: 3-4x faster than sequential for complex analysis
-- **Quality**: Higher insights through diverse perspectives  
+- **Quality**: Higher insights through diverse perspectives
 - **Success Rate**: ~95% completion rate
 - **Scale**: Optimal with 3-5 parallel researchers
 - **Cost**: Proportional to number of researchers
 
-Fan-out/in delivers comprehensive analysis through parallel specialization, making complex investigations both faster and more thorough.
+Fan-out/in delivers comprehensive analysis through parallel specialization,
+making complex investigations both faster and more thorough.

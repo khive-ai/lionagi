@@ -214,4 +214,5 @@ if len(results) >= minimum_required:
     return results
 ```
 
-Error handling focuses on practical patterns: basic try/catch blocks, retry logic, fallback strategies, and accepting partial results.
+Error handling focuses on practical patterns: basic try/catch blocks, retry
+logic, fallback strategies, and accepting partial results.

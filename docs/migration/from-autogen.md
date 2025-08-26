@@ -5,6 +5,7 @@ Direct comparisons showing AutoGen patterns and LionAGI equivalents.
 ## Two-Agent Conversation
 
 **AutoGen:**
+
 ```python
 from autogen import ConversableAgent, LLMConfig
 
@@ -21,6 +22,7 @@ human.initiate_chat(assistant, message="Hello! What's 2 + 2?")
 ```
 
 **LionAGI:**
+
 ```python
 from lionagi import Branch, iModel
 
@@ -35,6 +37,7 @@ response = await assistant.communicate("Hello! What's 2 + 2?")
 ## Multi-Agent GroupChat
 
 **AutoGen:**
+
 ```python
 from autogen import AssistantAgent, GroupChat, GroupChatManager
 
@@ -48,6 +51,7 @@ user.initiate_chat(manager, message="Generate a Python function")
 ```
 
 **LionAGI:**
+
 ```python
 from lionagi import Session, Builder
 
@@ -73,6 +77,7 @@ result = await session.flow(builder.get_graph())
 ## Tool Integration
 
 **AutoGen:**
+
 ```python
 from autogen import ConversableAgent, register_function
 from datetime import datetime
@@ -89,6 +94,7 @@ result = executor.initiate_chat(date_agent, message="What day was March 25, 1995
 ```
 
 **LionAGI:**
+
 ```python
 from lionagi import Branch
 from datetime import datetime
@@ -111,6 +117,7 @@ result = await date_branch.ReAct(
 ## Parallel Research Workflow
 
 **AutoGen:**
+
 ```python
 # Sequential GroupChat approach
 agents = [researcher1, researcher2, analyst]
@@ -120,6 +127,7 @@ result = user.initiate_chat(manager, message="Research AI trends")
 ```
 
 **LionAGI:**
+
 ```python
 from lionagi import Session, Builder
 import asyncio
@@ -149,6 +157,7 @@ result = await session.flow(builder.get_graph())
 ## State Management
 
 **AutoGen:**
+
 ```python
 def state_transition(last_speaker, groupchat):
     messages = groupchat.messages
@@ -165,6 +174,7 @@ groupchat = GroupChat(
 ```
 
 **LionAGI:**
+
 ```python
 # Explicit dependencies handle state transitions
 architect_node = builder.add_operation("communicate", instruction="Design system")
@@ -176,9 +186,11 @@ await session.flow(builder.get_graph())
 
 ## Enterprise Advantages
 
-**AutoGen's "Too Auto" Problem**: AutoGen makes autonomous decisions that lack enterprise controls
+**AutoGen's "Too Auto" Problem**: AutoGen makes autonomous decisions that lack
+enterprise controls
 
 **LionAGI's Enterprise Features:**
+
 ```python
 # Explicit control over agent behavior
 session = Session()
@@ -213,18 +225,22 @@ for node_id, node in builder.get_graph().internal_nodes.items():
     print(f"Node {node_id}: {len(branch.messages)} messages")
 ```
 
-**Enterprise Requirements:**
-✅ **Predictable Costs**: Built-in usage tracking vs AutoGen's unknown spending  
-✅ **Deterministic Flow**: Explicit dependencies vs AutoGen's autonomous decisions  
-✅ **Audit Compliance**: Full execution logs vs AutoGen's black-box conversations  
-✅ **Error Recovery**: Granular failure handling vs AutoGen's all-or-nothing  
+**Enterprise Requirements:** ✅ **Predictable Costs**: Built-in usage tracking
+vs AutoGen's unknown spending\
+✅ **Deterministic Flow**: Explicit dependencies vs AutoGen's autonomous
+decisions\
+✅ **Audit Compliance**: Full execution logs vs AutoGen's black-box
+conversations\
+✅ **Error Recovery**: Granular failure handling vs AutoGen's all-or-nothing\
 ✅ **Resource Control**: Bounded execution vs AutoGen's unlimited autonomy
 
 ## Key Migration Points
 
-**Conversation → Graph**: AutoGen's linear conversations become explicit dependency graphs
-**Agents → Branches**: ConversableAgent functionality maps to Branch instances  
-**GroupChat → Builder**: Multi-agent coordination uses Builder pattern with dependencies
-**Speaker Selection → Dependencies**: State transitions become explicit `depends_on` relationships
-**Initiate Chat → Session Flow**: Conversation starts become graph execution
-**Autonomous → Controlled**: Replace AutoGen's unpredictable autonomy with enterprise controls
+**Conversation → Graph**: AutoGen's linear conversations become explicit
+dependency graphs **Agents → Branches**: ConversableAgent functionality maps to
+Branch instances\
+**GroupChat → Builder**: Multi-agent coordination uses Builder pattern with
+dependencies **Speaker Selection → Dependencies**: State transitions become
+explicit `depends_on` relationships **Initiate Chat → Session Flow**:
+Conversation starts become graph execution **Autonomous → Controlled**: Replace
+AutoGen's unpredictable autonomy with enterprise controls

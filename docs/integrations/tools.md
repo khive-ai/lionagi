@@ -396,26 +396,31 @@ composite_agent = Branch(
 ## Tool Development Best Practices
 
 **Error Handling:**
+
 - Always wrap tool functions in try/except blocks
 - Return meaningful error messages
 - Implement graceful degradation
 
 **Type Safety:**
+
 - Use type hints for all parameters and return values
 - Validate input parameters before processing
 - Document expected input/output formats
 
 **Security:**
+
 - Validate all external inputs
 - Use secure methods for file operations
 - Implement proper authentication for API tools
 
 **Performance:**
+
 - Use connection pooling for database/API tools
 - Implement caching where appropriate
 - Set reasonable timeouts for external operations
 
 **Testing:**
+
 - Test tools independently before integration
 - Mock external dependencies for testing
 - Verify error handling scenarios

@@ -5,6 +5,7 @@ Quick solutions to common LionAGI issues.
 ## Installation Issues
 
 **Import Error: Module not found**
+
 ```python
 # Error: ModuleNotFoundError: No module named 'lionagi'
 pip install lionagi
@@ -14,6 +15,7 @@ pip install git+https://github.com/khive-ai/lionagi.git
 ```
 
 **Missing Optional Dependencies**
+
 ```python
 # Error: docling not available
 pip install lionagi[pdf]  # For PDF processing
@@ -26,6 +28,7 @@ pip install networkx
 ```
 
 **Python Version Issues**
+
 ```bash
 # LionAGI requires Python 3.10+
 python --version  # Check version
@@ -35,6 +38,7 @@ pip install lionagi  # Only works on 3.10+
 ## API Key Errors
 
 **OpenAI Authentication**
+
 ```python
 import os
 from lionagi import Branch, iModel
@@ -46,6 +50,7 @@ branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
 ```
 
 **Multiple Providers**
+
 ```python
 # Different ways to set keys
 os.environ["ANTHROPIC_API_KEY"] = "your-anthropic-key"
@@ -58,6 +63,7 @@ model = iModel(provider="openai", model="gpt-4o-mini", api_key="your-key")
 ## Async/Await Problems
 
 **Missing await**
+
 ```python
 # ❌ Wrong - missing await
 branch = Branch()
@@ -68,6 +74,7 @@ result = await branch.communicate("Hello")
 ```
 
 **Running in Jupyter**
+
 ```python
 # Jupyter handles async automatically
 branch = Branch()
@@ -89,6 +96,7 @@ result = asyncio.run(main())
 ```
 
 **Mixing sync/async**
+
 ```python
 # ❌ Wrong - can't await in sync function
 def sync_function():
@@ -104,6 +112,7 @@ async def async_function():
 ## Performance Issues
 
 **Slow Parallel Execution**
+
 ```python
 # ❌ Slow - sequential execution
 results = []
@@ -119,6 +128,7 @@ results = await asyncio.gather(*tasks)
 ```
 
 **Graph vs Direct Calls**
+
 ```python
 # Use graphs for complex workflows
 from lionagi import Session, Builder
@@ -134,6 +144,7 @@ results = await session.flow(builder.get_graph())
 ```
 
 **Model Rate Limits**
+
 ```python
 # Add delays between requests
 import asyncio
@@ -152,6 +163,7 @@ async def rate_limited_call():
 ## Memory Issues
 
 **Token Limit Exceeded**
+
 ```python
 # ❌ Error: Context too long
 long_message = "very long text..." * 1000
@@ -169,6 +181,7 @@ for chunk in chunks:
 ```
 
 **Branch Memory Accumulation**
+
 ```python
 # Branch remembers all messages
 branch = Branch()
@@ -186,6 +199,7 @@ def get_fresh_branch():
 ## Graph Execution Issues
 
 **Circular Dependencies**
+
 ```python
 # ❌ Error: Circular dependency
 node_a = builder.add_operation("communicate", depends_on=[node_b])
@@ -197,6 +211,7 @@ node_b = builder.add_operation("communicate", depends_on=[node_a], instruction="
 ```
 
 **Empty Graph Results**
+
 ```python
 # Check graph execution
 try:
@@ -216,6 +231,7 @@ except Exception as e:
 ## Cost Tracking Issues
 
 **Missing Cost Data**
+
 ```python
 def get_costs(node_id, builder, session):
     try:
@@ -235,6 +251,7 @@ def get_costs(node_id, builder, session):
 ## Error Diagnosis
 
 **Enable Verbose Logging**
+
 ```python
 import logging
 logging.basicConfig(level=logging.DEBUG)
@@ -244,6 +261,7 @@ result = await session.flow(builder.get_graph(), verbose=True)
 ```
 
 **Debugging Graph State**
+
 ```python
 # Check graph structure
 graph = builder.get_graph()
@@ -257,7 +275,8 @@ print(f"Branches: {len(session.branches)}")
 
 ## Getting Help
 
-**GitHub Issues**: Report bugs at [khive-ai/lionagi/issues](https://github.com/khive-ai/lionagi/issues)
+**GitHub Issues**: Report bugs at
+[khive-ai/lionagi/issues](https://github.com/khive-ai/lionagi/issues)
 
 **Check Version**: `pip show lionagi` for installed version
 

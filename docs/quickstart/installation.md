@@ -5,11 +5,13 @@ uv add lionagi
 ```
 
 Set your API key:
+
 ```bash
 OPENAI_API_KEY=your-key-here
 ```
 
 Test it works:
+
 ```python
 from lionagi import Branch, iModel
 

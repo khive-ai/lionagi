@@ -1,6 +1,7 @@
 # Academic Claim Extraction
 
-ReAct-based claim extraction with sequential document analysis and structured outputs.
+ReAct-based claim extraction with sequential document analysis and structured
+outputs.
 
 ## Basic Claim Extraction
 
@@ -409,26 +410,31 @@ pipeline_results = await production_claim_extraction_pipeline(
 ## Key Features
 
 **ReAct Integration:**
+
 - Systematic reasoning before extraction
 - Tool-assisted document analysis
 - Progressive understanding building
 
 **Structured Outputs:**
+
 - Pydantic models for reliable parsing
 - Type-safe claim categorization
 - Consistent data formats
 
 **Sequential Processing:**
+
 - Document exploration → analysis → extraction
 - Context-aware claim identification
 - Dependency-based operation flow
 
 **Validation Pipeline:**
+
 - Evidence searching and cross-referencing
 - Confidence scoring for claims
 - Multi-source verification
 
 **Production Ready:**
+
 - Error handling and recovery
 - Parallel processing support
 - Comprehensive logging and monitoring

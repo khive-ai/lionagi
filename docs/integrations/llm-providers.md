@@ -7,11 +7,13 @@ Comprehensive guide to all supported LLM providers in LionAGI.
 ### Setup
 
 Set your OpenAI API key:
+
 ```bash
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
 Or use a `.env` file:
+
 ```env
 OPENAI_API_KEY=your-api-key-here
 ```
@@ -229,6 +231,7 @@ asyncio.run(structured_code_review())
 ### Setup
 
 Install Ollama and dependencies:
+
 ```bash
 # Install Ollama
 curl -fsSL https://ollama.ai/install.sh | sh
@@ -569,13 +572,13 @@ class ProviderFactory:
 
 ### Performance Characteristics
 
-| Provider | Latency | Context | Strengths | Best For |
-|----------|---------|---------|-----------|----------|
-| **GPT-4o-mini** | Fast | 128K | Balanced, cost-effective | General development |
-| **GPT-4** | Medium | 128K | Reasoning, complex tasks | Critical applications |
-| **Claude 3.5 Sonnet** | Medium | 200K | Code, analysis, safety | Code review, analysis |
-| **Gemini 1.5 Pro** | Medium | 2M | Multimodal, large context | Document processing |
-| **Ollama/Local** | Varies | Varies | Privacy, no API costs | Sensitive data, offline |
+| Provider              | Latency | Context | Strengths                 | Best For                |
+| --------------------- | ------- | ------- | ------------------------- | ----------------------- |
+| **GPT-4o-mini**       | Fast    | 128K    | Balanced, cost-effective  | General development     |
+| **GPT-4**             | Medium  | 128K    | Reasoning, complex tasks  | Critical applications   |
+| **Claude 3.5 Sonnet** | Medium  | 200K    | Code, analysis, safety    | Code review, analysis   |
+| **Gemini 1.5 Pro**    | Medium  | 2M      | Multimodal, large context | Document processing     |
+| **Ollama/Local**      | Varies  | Varies  | Privacy, no API costs     | Sensitive data, offline |
 
 ### Cost Optimization
 

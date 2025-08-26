@@ -220,4 +220,5 @@ result = await session.flow(
 )
 ```
 
-Flow composition enables sophisticated workflows by combining sequential dependencies, parallel execution, and multi-branch coordination.
+Flow composition enables sophisticated workflows by combining sequential
+dependencies, parallel execution, and multi-branch coordination.

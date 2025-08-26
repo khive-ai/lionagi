@@ -124,6 +124,7 @@ result = await session.flow(graph, verbose=False)
 ```
 
 **Track key metrics**:
+
 - Execution times and success rates
 - Message history and memory usage
 - Error patterns and frequencies
@@ -135,4 +136,5 @@ print(f"Completed: {len(result['completed_operations'])}")
 print(f"Skipped: {len(result['skipped_operations'])}")
 ```
 
-LionAGI provides observability through verbose logging, message inspection, performance tracking, and error monitoring.
+LionAGI provides observability through verbose logging, message inspection,
+performance tracking, and error monitoring.

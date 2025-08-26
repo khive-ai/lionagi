@@ -259,21 +259,25 @@ async def fault_tolerant_workflow():
 ## Best Practices
 
 **Connection Management:**
+
 - Use connection pooling for high-throughput scenarios
 - Implement proper timeout handling
 - Cache MCP responses when appropriate
 
 **Error Handling:**
+
 - Implement retry logic with exponential backoff
 - Graceful degradation when MCP servers unavailable
 - Comprehensive logging for debugging
 
 **Performance:**
+
 - Parallel MCP calls when possible
 - Optimize payload sizes for network efficiency
 - Monitor MCP server response times
 
 **Security:**
+
 - Validate all MCP server responses
 - Use secure connections (TLS) for production
 - Implement proper authentication mechanisms

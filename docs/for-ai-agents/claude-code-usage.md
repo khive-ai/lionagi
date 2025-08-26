@@ -143,6 +143,7 @@ print(f"Total cost: ${costs:.4f}")
 ## Integration Patterns
 
 **Single Agent Analysis:**
+
 ```python
 cc_model = iModel(**BASE_CONFIG)
 investigator = Branch(
@@ -157,6 +158,7 @@ response = await investigator.communicate(
 ```
 
 **Multi-Workspace Setup:**
+
 ```python
 # Orchestrator workspace
 orc_model = create_cc("orchestrator")
@@ -171,6 +173,7 @@ researchers = [
 ## Common Patterns
 
 **File Analysis:**
+
 ```python
 prompt = """
 Read the specified directory structure.
@@ -182,6 +185,7 @@ response = await branch.communicate(prompt)
 ```
 
 **Error Handling:**
+
 ```python
 try:
     result = await session.flow(builder.get_graph())
@@ -196,7 +200,7 @@ except Exception as e:
 ## Best Practices
 
 - Use workspace isolation for multi-agent scenarios
-- Track costs with `total_cost_usd` extraction  
+- Track costs with `total_cost_usd` extraction
 - Handle errors with traceback for debugging
 - Keep configurations clean and reusable
 - Leverage Claude Code's file access capabilities
@@ -204,18 +208,21 @@ except Exception as e:
 ## Troubleshooting
 
 **Permission Issues:**
+
 ```python
 # Use bypass for development
 "permission_mode": "bypassPermissions"
 ```
 
 **Workspace Conflicts:**
+
 ```python
 # Separate workspaces per agent
 ws=f"{CC_WORKSPACE}/{unique_subdir}"
 ```
 
 **Cost Monitoring:**
+
 ```python
 # Extract from model response
 total_cost = msg.model_response.get("total_cost_usd", 0)

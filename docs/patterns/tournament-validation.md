@@ -1,10 +1,12 @@
 # Tournament Validation Pattern
 
-Competitive refinement where multiple agents propose solutions, then compete for the best result.
+Competitive refinement where multiple agents propose solutions, then compete for
+the best result.
 
 ## When to Use This Pattern
 
 Use tournament validation when:
+
 - Quality matters more than speed
 - Multiple valid approaches exist
 - Objective evaluation criteria can be defined
@@ -218,6 +220,7 @@ Create hybrid solution combining strengths: {refined_proposals}
 ## Best Practices
 
 ### Clear Evaluation Criteria
+
 ```python
 # Define specific, measurable criteria
 evaluation_criteria = {
@@ -229,6 +232,7 @@ evaluation_criteria = {
 ```
 
 ### Diverse Perspectives
+
 ```python
 # Different specialties and approaches
 competitors = [
@@ -240,6 +244,7 @@ competitors = [
 ```
 
 ### Objective Judging
+
 ```python
 # Use specific scoring rubrics
 judge_prompt = """
@@ -254,6 +259,7 @@ Provide scores and reasoning.
 ```
 
 ### Iterative Refinement
+
 ```python
 # Allow winners to improve based on feedback
 refinement_prompt = f"""
@@ -264,8 +270,11 @@ Refine to address concerns while maintaining strengths.
 
 ## When to Use
 
-**Perfect for:** High-stakes decisions, creative problems, quality-critical tasks, complex analysis, innovation challenges
+**Perfect for:** High-stakes decisions, creative problems, quality-critical
+tasks, complex analysis, innovation challenges
 
-**Key advantage:** Competitive dynamics drive higher quality through diverse perspectives, objective evaluation, and iterative refinement.
+**Key advantage:** Competitive dynamics drive higher quality through diverse
+perspectives, objective evaluation, and iterative refinement.
 
-Tournament validation creates the highest quality solutions by leveraging competition and collaborative improvement.
+Tournament validation creates the highest quality solutions by leveraging
+competition and collaborative improvement.

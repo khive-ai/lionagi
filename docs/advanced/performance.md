@@ -149,11 +149,13 @@ result = await session.flow(builder.get_graph(), max_concurrent=5)
 ```
 
 **Control concurrency** based on your needs:
+
 - Start with `max_concurrent=3-5`
 - Adjust based on API rate limits
 - Monitor for optimal settings
 
 **Optimize token usage**:
+
 - Use appropriate models for task complexity
 - Clear message history when context not needed
 - Batch similar operations together
@@ -168,4 +170,5 @@ result = await session.flow(graph, verbose=True)
 print(f"Completed: {len(result['completed_operations'])}")
 ```
 
-Performance optimization focuses on parallel execution, concurrency control, and efficient resource usage.
+Performance optimization focuses on parallel execution, concurrency control, and
+efficient resource usage.

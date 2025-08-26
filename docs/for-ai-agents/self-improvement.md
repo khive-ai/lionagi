@@ -413,24 +413,30 @@ asyncio.run(knowledge_example())
 ## Best Practices for Self-Improvement
 
 ### 1. Track Key Metrics
+
 - Execution time
-- Success/failure rates  
+- Success/failure rates
 - Pattern effectiveness
 - Resource usage
 
 ### 2. Analyze Patterns
+
 - Compare different approaches for similar tasks
 - Identify what makes patterns successful
 - Learn from failures and mistakes
 
 ### 3. Build Feedback Loops
+
 - Record execution results
 - Update recommendations based on performance
 - Continuously refine pattern selection
 
 ### 4. Persist Learning
+
 - Save successful pattern combinations
 - Remember failed approaches to avoid repeating
 - Build knowledge base over time
 
-Self-improvement in LionAGI orchestration comes from systematically tracking execution results, analyzing pattern effectiveness, and building persistent knowledge to make better orchestration decisions over time.
+Self-improvement in LionAGI orchestration comes from systematically tracking
+execution results, analyzing pattern effectiveness, and building persistent
+knowledge to make better orchestration decisions over time.

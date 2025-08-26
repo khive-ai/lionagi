@@ -1,6 +1,7 @@
 # Research Synthesis
 
-Parallel research with expert synthesis - the natural pattern for comprehensive analysis.
+Parallel research with expert synthesis - the natural pattern for comprehensive
+analysis.
 
 ## Basic Research Synthesis
 
@@ -194,15 +195,18 @@ except Exception as e:
 
 ## When to Use
 
-**Perfect for:** Complex topics, literature reviews, market research, technical analysis requiring domain expertise
+**Perfect for:** Complex topics, literature reviews, market research, technical
+analysis requiring domain expertise
 
-**Execution Flow:** 
-Task Decomposition → Parallel Researchers → Context Extraction → Synthesis
+**Execution Flow:** Task Decomposition → Parallel Researchers → Context
+Extraction → Synthesis
 
 **Key Benefits:**
+
 - 3-4x faster than sequential research
 - Higher quality through diverse perspectives
 - Systematic evidence gathering
 - Cost-efficient parallel execution
 
-Research synthesis leverages the fan-out/fan-in pattern for comprehensive analysis through specialized parallel research with intelligent synthesis.
+Research synthesis leverages the fan-out/fan-in pattern for comprehensive
+analysis through specialized parallel research with intelligent synthesis.

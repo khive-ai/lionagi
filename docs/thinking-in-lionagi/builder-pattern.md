@@ -271,4 +271,6 @@ result = await session.flow(
 )
 ```
 
-The Builder pattern in LionAGI enables sophisticated workflows through incremental construction, dependency management, and controlled parallel execution.
+The Builder pattern in LionAGI enables sophisticated workflows through
+incremental construction, dependency management, and controlled parallel
+execution.

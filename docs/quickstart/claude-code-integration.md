@@ -135,16 +135,19 @@ print(f"Total workflow cost: ${total_cost:.4f}")
 ## Best Practices
 
 **Workspace Isolation:**
+
 - Use separate workspace subdirectories per agent
-- Isolate orchestrator from researchers  
+- Isolate orchestrator from researchers
 - Clean workspace management for complex flows
 
 **Permission Management:**
+
 - Use `bypassPermissions` for development
 - Configure `allowed_tools` for production
 - Manage CLI themes and verbosity per workspace
 
 **Integration Patterns:**
+
 - Leverage Claude Code's file access capabilities
 - Use workspace directories for agent coordination
 - Cost tracking with `total_cost_usd` extraction
