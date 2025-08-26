@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from lionagi.base.morphism import Morphism

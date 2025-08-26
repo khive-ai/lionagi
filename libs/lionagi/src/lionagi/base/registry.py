@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 _REG: dict[str, type] = {}
 
 

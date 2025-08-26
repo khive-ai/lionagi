@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol, Tuple
 
 import msgspec
+
 from lionagi.base.ipu import StrictIPU, default_invariants
 from lionagi.base.morphism import Morphism
 from lionagi.base.registry import register

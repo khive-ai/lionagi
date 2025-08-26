@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import copy
 import time
-from typing import Any,  Protocol
+from typing import Any, Protocol
+
+import msgspec
 
 from .graph import OpNode
 from .policy import policy_check
 from .types import Branch, Observation
-
-import msgspec
 
 
 class Invariant(Protocol):

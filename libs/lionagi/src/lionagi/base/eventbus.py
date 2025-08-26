@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .graph import OpNode
