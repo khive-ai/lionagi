@@ -24,7 +24,7 @@ class Expr(Node):
 class Literal(Expr):
     """Literal values"""
 
-    value: Union[str, int, float, bool]
+    value: str | int | float | bool
 
 
 @dataclass
@@ -39,7 +39,7 @@ class SemanticOp(Expr):
     """Semantic operations: similar(), synthesize(), etc."""
 
     op: str
-    args: List[Expr]
+    args: list[Expr]
 
 
 @dataclass
@@ -56,7 +56,7 @@ class FuncCall(Expr):
     """Function calls"""
 
     name: str
-    args: List[Expr]
+    args: list[Expr]
 
 
 # Statements
@@ -88,8 +88,8 @@ class If(Stmt):
     """Conditional: IF condition; then_body; ELSE; else_body;"""
 
     condition: Expr
-    then_body: List[Stmt]
-    else_body: Optional[List[Stmt]] = None
+    then_body: list[Stmt]
+    else_body: list[Stmt] | None = None
 
 
 @dataclass
@@ -97,7 +97,7 @@ class Do(Stmt):
     """Action: DO action WITH params(*context);"""
 
     action: str
-    params: List[Expr]
+    params: list[Expr]
 
 
 @dataclass
@@ -112,7 +112,7 @@ class ExprStmt(Stmt):
 class Program(Node):
     """Root program node"""
 
-    stmts: List[Stmt]
+    stmts: list[Stmt]
 
 
 # Context Types
@@ -120,7 +120,7 @@ class Program(Node):
 class Context:
     """Execution context"""
 
-    vars: Dict[str, Any]
+    vars: dict[str, Any]
     confidence_threshold: float = 0.8
 
 
@@ -130,4 +130,4 @@ class Result:
 
     value: Any
     confidence: float
-    reasoning: Optional[str] = None
+    reasoning: str | None = None

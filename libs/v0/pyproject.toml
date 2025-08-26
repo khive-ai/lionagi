@@ -15,7 +15,6 @@ dependencies = [
     "jinja2>=3.0.0",
     "json-repair>=0.40.0",
     "pillow>=10.0.0",
-    "psutil>=6.0.0",
     "pydantic-settings>=2.8.0",
     "pydapter[pandas]>=1.0.2",
     "python-dotenv>=1.1.0",

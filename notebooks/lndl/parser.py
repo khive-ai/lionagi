@@ -22,7 +22,7 @@ class ParseError(Exception):
 class Parser:
     """Parser for LNDL cognitive programming language"""
 
-    def __init__(self, tokens: List[Token]):
+    def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.pos = 0
 
@@ -77,7 +77,7 @@ class Parser:
 
         return Program(statements)
 
-    def parse_statement(self) -> Optional[Stmt]:
+    def parse_statement(self) -> Stmt | None:
         """Parse a statement"""
         self.skip_newlines()
 
@@ -101,10 +101,7 @@ class Parser:
             return self.parse_do_statement()
 
         # Assignment statement: var = expression (without 'let' keyword)
-        elif (
-            self.match(TokenType.ID)
-            and self.peek_token().type == TokenType.ASSIGN
-        ):
+        elif self.match(TokenType.ID) and self.peek_token().type == TokenType.ASSIGN:
             return self.parse_assignment_statement()
 
         # Expression statement (function calls, etc.)
@@ -133,9 +130,7 @@ class Parser:
         content = ""
         while not self.match(TokenType.LVAR_END):
             if self.match(TokenType.EOF):
-                raise ParseError(
-                    "Unclosed cognitive variable", self.current_token()
-                )
+                raise ParseError("Unclosed cognitive variable", self.current_token())
             # Collect content (this is simplified - in practice you'd handle this better)
             content += self.current_token().value + " "
             self.advance()
@@ -250,9 +245,7 @@ class Parser:
         """Parse relational expressions: >, <, >=, <= (higher precedence)"""
         expr = self.parse_arithmetic()
 
-        while self.match(
-            TokenType.GT, TokenType.LT, TokenType.GTE, TokenType.LTE
-        ):
+        while self.match(TokenType.GT, TokenType.LT, TokenType.GTE, TokenType.LTE):
             operator = self.current_token().value
             self.advance()
             right = self.parse_arithmetic()
@@ -347,7 +340,7 @@ class Parser:
             self.current_token(),
         )
 
-    def parse_argument_list(self) -> List[Expr]:
+    def parse_argument_list(self) -> list[Expr]:
         """Parse comma-separated argument list"""
         args = []
 

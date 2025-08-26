@@ -97,15 +97,15 @@ class Lexer:
         self.pos = 0
         self.line = 1
         self.column = 1
-        self.tokens: List[Token] = []
+        self.tokens: list[Token] = []
 
-    def current_char(self) -> Optional[str]:
+    def current_char(self) -> str | None:
         """Get current character"""
         if self.pos >= len(self.text):
             return None
         return self.text[self.pos]
 
-    def peek_char(self, offset: int = 1) -> Optional[str]:
+    def peek_char(self, offset: int = 1) -> str | None:
         """Peek at character ahead"""
         peek_pos = self.pos + offset
         if peek_pos >= len(self.text):
@@ -196,7 +196,7 @@ class Lexer:
 
         return result.strip()
 
-    def tokenize(self) -> List[Token]:
+    def tokenize(self) -> list[Token]:
         """Tokenize LNDL source code"""
         while self.current_char():
             # Skip whitespace
@@ -230,10 +230,7 @@ class Lexer:
 
             # Cognitive variable end: <lvar/>
             if self.text[self.pos : self.pos + 6] == "<lvar/":
-                if (
-                    self.pos + 6 < len(self.text)
-                    and self.text[self.pos + 6] == ">"
-                ):
+                if self.pos + 6 < len(self.text) and self.text[self.pos + 6] == ">":
                     self.tokens.append(
                         Token(
                             TokenType.LVAR_END,
@@ -253,9 +250,7 @@ class Lexer:
                 self.column += 3
 
                 # Skip optional language identifier (like 'lndl')
-                while (
-                    self.current_char() and self.current_char() not in "\n\r"
-                ):
+                while self.current_char() and self.current_char() not in "\n\r":
                     self.advance()
 
                 # Skip the rest - we'll just ignore code block markers
@@ -310,13 +305,9 @@ class Lexer:
             # Single character tokens
             char = self.current_char()
             if char == ";":
-                self.tokens.append(
-                    Token(TokenType.SEMI, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.SEMI, char, self.line, self.column))
             elif char == ",":
-                self.tokens.append(
-                    Token(TokenType.COMMA, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.COMMA, char, self.line, self.column))
             elif char == "(":
                 self.tokens.append(
                     Token(TokenType.LPAREN, char, self.line, self.column)
@@ -326,9 +317,7 @@ class Lexer:
                     Token(TokenType.RPAREN, char, self.line, self.column)
                 )
             elif char == "*":
-                self.tokens.append(
-                    Token(TokenType.STAR, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.STAR, char, self.line, self.column))
             elif char == "=":
                 if self.peek_char() == "=":
                     self.tokens.append(
@@ -360,17 +349,11 @@ class Lexer:
                         Token(TokenType.LT, char, self.line, self.column)
                     )
             elif char == "+":
-                self.tokens.append(
-                    Token(TokenType.PLUS, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.PLUS, char, self.line, self.column))
             elif char == "-":
-                self.tokens.append(
-                    Token(TokenType.MINUS, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.MINUS, char, self.line, self.column))
             elif char == ":":
-                self.tokens.append(
-                    Token(TokenType.COLON, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.COLON, char, self.line, self.column))
             else:
                 # Unknown character
                 self.tokens.append(

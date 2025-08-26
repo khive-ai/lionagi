@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+from uuid import UUID, uuid4
+
+from .morphism import Morphism
+
+
+@dataclass(slots=True)
+class OpNode:
+    id: UUID = field(default_factory=uuid4)
+    m: Morphism = field(default=None)  # type: ignore
+    deps: set[UUID] = field(default_factory=set)
+    params: dict[str, Any] = field(default_factory=dict)  # <-- new
+
+
+@dataclass(slots=True)
+class OpGraph:
+    nodes: dict[UUID, OpNode] = field(default_factory=dict)
+    roots: set[UUID] = field(default_factory=set)
+
+    def validate_dag(self) -> list[UUID]:
+        """Kahn topological sort; raises on cycle or invalid roots."""
+        indeg: dict[UUID, int] = {k: 0 for k in self.nodes}
+        for nid, node in self.nodes.items():
+            for d in node.deps:
+                if d not in self.nodes:
+                    raise ValueError(f"Missing dependency node: {d}")
+                indeg[nid] += 1
+        q: list[UUID] = [n for n, deg in indeg.items() if deg == 0 and n in self.roots]
+        if not q and self.nodes:
+            # if roots not provided, allow any 0-indegree as start
+            q = [n for n, deg in indeg.items() if deg == 0]
+        order: list[UUID] = []
+        while q:
+            u = q.pop()
+            order.append(u)
+            for v, node in self.nodes.items():
+                if u in node.deps:
+                    indeg[v] -= 1
+                    if indeg[v] == 0:
+                        q.append(v)
+        if len(order) != len(self.nodes):
+            raise ValueError("Cycle detected or invalid roots")
+        return order

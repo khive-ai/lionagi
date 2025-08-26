@@ -246,21 +246,13 @@ def main():
     # Step 4: Verify generation
     verification_passed = verify_generation()
     if not verification_passed:
-        print(
-            "⚠️  Warning: Generated models have Pydantic compatibility issues"
-        )
+        print("⚠️  Warning: Generated models have Pydantic compatibility issues")
         print("   Known issues:")
         print("   - Discriminated union conflicts in complex schemas")
-        print(
-            "   - This is a compatibility issue between datamodel-code-generator"
-        )
+        print("   - This is a compatibility issue between datamodel-code-generator")
         print("     and the current OpenAI schema complexity")
-        print(
-            "   - Models can still be used for type hints and basic validation"
-        )
-        print(
-            "   - Consider using openai-python package directly for runtime usage"
-        )
+        print("   - Models can still be used for type hints and basic validation")
+        print("   - Consider using openai-python package directly for runtime usage")
 
     # Step 5: Show file information
     get_file_info()
@@ -272,9 +264,7 @@ def main():
     print("\n📝 Notes:")
     print("   - File is configured to be ignored by git")
     print("   - Will be regenerated during CI/CD build processes")
-    print(
-        "   - Use for type hints; consider openai-python for runtime validation"
-    )
+    print("   - Use for type hints; consider openai-python for runtime validation")
 
 
 if __name__ == "__main__":

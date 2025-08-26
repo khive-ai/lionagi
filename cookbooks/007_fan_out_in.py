@@ -1,6 +1,7 @@
-from lionagi import Branch, Builder, Operation, Session, iModel
 from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
 from lionagi.protocols.types import AssistantResponse
+
+from lionagi import Branch, Builder, Operation, Session, iModel
 
 CC_WORKSPACE = ".khive/workspace"
 
@@ -20,7 +21,7 @@ def create_cc(
         verbose_output=verbose_output,
         add_dir="../../../",
         permission_mode=permission_mode,
-        cli_display_theme="dark",
+        cli_display_theme="light",
         auto_finish=auto_finish,
     )
 

@@ -1,0 +1,68 @@
+[project]
+name = "lionagi"
+version = "1.0.0-alpha"
+description = "An AGentic Intelligence SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers=[
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "anyio>=4.7.0",
+    "msgspec>=0.19.0",
+    "pydapter>=1.0.2",
+    "python-dotenv>=1.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "black[jupyter]>=25.1.0",
+    "ipykernel>=6.30.1",
+    "ipywidgets>=8.1.7",
+    "isort>=6.0.1",
+    "pre-commit>=4.3.0",
+    "ruff>=0.12.10",
+    "tqdm>=4.67.1",
+]
+
+[project.optional-dependencies]
+postgres = [
+    "pydapter[postgres]",
+]
+
+graph = [
+    "matplotlib>=3.7.0",
+    "networkx>=3.0.0",
+]
+
+sqlite = [
+    "aiosqlite>=0.18.0",
+]
+
+all = [
+    "lionagi[postgres]",
+    "lionagi[graph]",
+]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lionagi"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
