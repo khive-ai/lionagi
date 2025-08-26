@@ -7,7 +7,6 @@ copyright: Copyright &copy; 2024-2025 Ocean Li and LionAGI Contributors
 
 theme:
   name: material
-  custom_dir: docs/overrides
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
