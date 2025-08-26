@@ -26,6 +26,7 @@ def select_orchestration_pattern(task_requirements):
 Clear rules for AI agents to follow:
 
 ### Rule 1: Single Task → Direct Execution
+
 ```python
 from lionagi import Branch, iModel
 import asyncio
@@ -45,6 +46,7 @@ async def single_task_rule():
 ```
 
 ### Rule 2: Independent Tasks → Parallel Execution
+
 ```python
 async def parallel_rule():
     """Rule: Multiple independent tasks = asyncio.gather"""
@@ -71,6 +73,7 @@ async def parallel_rule():
 ```
 
 ### Rule 3: Dependencies → Builder Graph
+
 ```python
 from lionagi import Session, Builder
 
@@ -112,6 +115,7 @@ async def dependency_rule():
 ```
 
 ### Rule 4: Multiple Perspectives → Fan-Out/Fan-In
+
 ```python
 async def multiple_perspectives_rule():
     """Rule: Need different viewpoints = specialized branches + aggregation"""
@@ -171,6 +175,7 @@ async def multiple_perspectives_rule():
 Copy-paste templates for common orchestration patterns:
 
 ### Template 1: Simple Parallel Processing
+
 ```python
 async def parallel_template(tasks: list[str]):
     """Template for independent parallel tasks"""
@@ -186,6 +191,7 @@ async def parallel_template(tasks: list[str]):
 ```
 
 ### Template 2: Sequential Pipeline
+
 ```python
 async def sequential_template(pipeline_steps: list[str]):
     """Template for sequential dependent tasks"""
@@ -210,6 +216,7 @@ async def sequential_template(pipeline_steps: list[str]):
 ```
 
 ### Template 3: Multi-Expert Analysis
+
 ```python
 async def multi_expert_template(task: str, expert_roles: list[str]):
     """Template for multiple expert perspectives"""
@@ -246,6 +253,7 @@ async def multi_expert_template(task: str, expert_roles: list[str]):
 ```
 
 ### Template 4: Research → Analysis → Report
+
 ```python
 async def research_analysis_report_template(topic: str):
     """Template for research-analysis-report workflow"""
@@ -285,6 +293,7 @@ async def research_analysis_report_template(topic: str):
 How to verify orchestration decisions were correct:
 
 ### Execution Success Metrics
+
 ```python
 def evaluate_orchestration_success(result: dict) -> dict:
     """Evaluate if orchestration was successful"""
@@ -312,6 +321,7 @@ def evaluate_orchestration_success(result: dict) -> dict:
 ```
 
 ### Pattern Effectiveness Check
+
 ```python
 def check_pattern_effectiveness(task_type: str, pattern_used: str, execution_time: float) -> bool:
     """Check if chosen pattern was effective"""
@@ -406,20 +416,25 @@ asyncio.run(learning_example())
 ## Quick Reference
 
 **When to orchestrate:**
+
 - Multiple independent tasks → Use asyncio.gather
 - Task dependencies → Use Builder with depends_on
 - Multiple perspectives needed → Use specialized branches
 - Complex multi-phase workflow → Use Builder graph
 
 **When NOT to orchestrate:**
+
 - Single simple question → Use direct branch.communicate()
 - Quick conversational exchange → Use direct execution
 - No parallelism or dependencies → Keep it simple
 
 **Success indicators:**
+
 - Completion rate > 80%
 - Execution time within expected bounds
 - All required perspectives captured
 - Results quality meets requirements
 
-Orchestration in LionAGI should be used when it adds clear value through parallelism, specialization, or dependency management - not for simple tasks that can be handled directly.
+Orchestration in LionAGI should be used when it adds clear value through
+parallelism, specialization, or dependency management - not for simple tasks
+that can be handled directly.

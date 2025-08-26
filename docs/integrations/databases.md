@@ -7,6 +7,7 @@ Persisting agent state and data across sessions.
 ### Setup
 
 Install PostgreSQL dependencies:
+
 ```bash
 uv add lionagi[postgres]
 ```
@@ -69,7 +70,8 @@ async def retrieve_session_history(adapter, session_id: str):
 ### Troubleshooting
 
 - **Connection Issues**: Verify PostgreSQL is running: `pg_isready -h localhost`
-- **Permission Denied**: Check user permissions: `GRANT ALL ON DATABASE lionagi_db TO your_user;`
+- **Permission Denied**: Check user permissions:
+  `GRANT ALL ON DATABASE lionagi_db TO your_user;`
 - **SSL Errors**: Add `sslmode=require` to connection string for cloud databases
 
 ## SQLite
@@ -77,6 +79,7 @@ async def retrieve_session_history(adapter, session_id: str):
 ### Setup
 
 Install SQLite dependencies:
+
 ```bash
 uv add lionagi[sqlite]
 ```
@@ -492,4 +495,5 @@ class OptimizedDatabaseManager:
 5. **Monitor Performance**: Track query performance and optimize slow queries
 6. **Handle Failures**: Implement retry logic for database operations
 7. **Data Validation**: Validate data before storing in the database
-8. **Concurrency Control**: Use transactions for operations that modify multiple records
+8. **Concurrency Control**: Use transactions for operations that modify multiple
+   records

@@ -1,6 +1,7 @@
 # Your First Flow
 
-Let's build something useful: multiple AI agents working together to analyze a problem from different angles.
+Let's build something useful: multiple AI agents working together to analyze a
+problem from different angles.
 
 ## Basic Multi-Agent Pattern
 
@@ -203,6 +204,7 @@ asyncio.run(iterative_refinement())
 ## Common Patterns
 
 ### Research Team
+
 ```python
 researcher = Branch(system="You find relevant information")
 fact_checker = Branch(system="You verify accuracy")
@@ -210,6 +212,7 @@ summarizer = Branch(system="You create concise summaries")
 ```
 
 ### Creative Team
+
 ```python
 writer = Branch(system="You write engaging content")
 editor = Branch(system="You improve clarity and flow")
@@ -217,6 +220,7 @@ reviewer = Branch(system="You ensure quality standards")
 ```
 
 ### Analysis Team
+
 ```python
 data_analyst = Branch(system="You analyze quantitative data")
 strategist = Branch(system="You identify strategic implications")
@@ -229,17 +233,20 @@ risk_assessor = Branch(system="You identify potential risks")
 2. **Complementary Skills**: Create branches that complement each other
 3. **Iterative Refinement**: Use conversation memory for multi-round improvement
 4. **Parallel When Possible**: Use `asyncio.gather()` for independent tasks
-5. **Sequential When Needed**: Use dependencies for tasks that build on each other
+5. **Sequential When Needed**: Use dependencies for tasks that build on each
+   other
 
 ## Next Steps
 
 - Explore [patterns](../patterns/) for proven multi-agent workflows
 - Check the [cookbook](../cookbook/) for complete examples
-- Learn about [Sessions and Branches](../core-concepts/sessions-and-branches.md) in depth
+- Learn about [Sessions and Branches](../core-concepts/sessions-and-branches.md)
+  in depth
 
 ## Try It Yourself
 
 Start with the basic multi-agent pattern above and experiment:
+
 - Change the system prompts to create different expert types
 - Add more branches for additional perspectives
 - Try different coordination patterns

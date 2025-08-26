@@ -296,17 +296,20 @@ results = await batch_save(students, "batch_students")
 ## Key Patterns
 
 **Node Creation:**
+
 1. Define Pydantic model for data structure
 2. Create Node class with content field
 3. Register appropriate async adapter
 
 **Database Operations:**
+
 - `adapt_to_async()` for save/update operations
-- `adapt_from_async()` for query operations  
+- `adapt_from_async()` for query operations
 - Automatic table creation and schema management
 - Support for PostgreSQL, SQLite, and Supabase
 
 **Production Considerations:**
+
 - Connection pooling for performance
 - Error handling with graceful degradation
 - Batch operations for efficiency

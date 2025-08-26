@@ -1,11 +1,13 @@
 # LlamaIndex Integration
 
-Use LlamaIndex for RAG (Retrieval-Augmented Generation) within LionAGI workflows.
+Use LlamaIndex for RAG (Retrieval-Augmented Generation) within LionAGI
+workflows.
 
 ## Why LlamaIndex + LionAGI?
 
 **LlamaIndex**: Best-in-class RAG capabilities, document indexing, retrieval
-**LionAGI**: Superior orchestration, parallel execution, multi-agent coordination
+**LionAGI**: Superior orchestration, parallel execution, multi-agent
+coordination
 
 **Together**: Powerful RAG workflows with intelligent orchestration.
 
@@ -258,9 +260,11 @@ batch_op = builder.add_operation(
 ## Key Benefits
 
 1. **Zero Migration**: Keep your existing LlamaIndex code unchanged
-2. **Superior Orchestration**: LionAGI handles parallel execution, dependencies, error handling
+2. **Superior Orchestration**: LionAGI handles parallel execution, dependencies,
+   error handling
 3. **Multi-Source**: Easily orchestrate multiple RAG sources
 4. **Scalable**: Built-in performance controls and monitoring
 5. **Flexible**: Mix RAG with other AI operations seamlessly
 
-LlamaIndex provides the RAG capabilities, LionAGI provides the orchestration intelligence.
+LlamaIndex provides the RAG capabilities, LionAGI provides the orchestration
+intelligence.

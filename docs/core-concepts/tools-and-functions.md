@@ -56,4 +56,5 @@ def calculate(expression: str) -> float:
 agent = Branch(tools=[search, calculate])
 ```
 
-That's it. LionAGI makes tools simple - just pass your functions to the `tools` parameter.
+That's it. LionAGI makes tools simple - just pass your functions to the `tools`
+parameter.

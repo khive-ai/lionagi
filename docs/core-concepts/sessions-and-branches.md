@@ -1,6 +1,7 @@
 # Sessions and Branches
 
-A Session is your workspace for orchestrating multiple AI agents, while a Branch is a single agent with its own memory, tools, and capabilities.
+A Session is your workspace for orchestrating multiple AI agents, while a Branch
+is a single agent with its own memory, tools, and capabilities.
 
 ## Quick Example
 
@@ -241,4 +242,6 @@ branch = await get_user_branch("123")
 response = await branch.chat("Hello")
 ```
 
-Sessions provide workspace coordination while Branches encapsulate individual agent capabilities and memory, enabling flexible orchestration patterns with clear boundaries.
+Sessions provide workspace coordination while Branches encapsulate individual
+agent capabilities and memory, enabling flexible orchestration patterns with
+clear boundaries.

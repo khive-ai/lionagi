@@ -1,6 +1,7 @@
 # Brainstorming Workflows
 
-Creative ideation using parallel agents with divergent → convergent thinking patterns.
+Creative ideation using parallel agents with divergent → convergent thinking
+patterns.
 
 ## Basic Brainstorming Pattern
 
@@ -159,6 +160,7 @@ curation = await curator.communicate(f"Top 7 from: {all_ideas}")
 ## Best Practices
 
 ### Diverse Agent Personalities
+
 ```python
 # Different thinking styles
 agents = [
@@ -170,6 +172,7 @@ agents = [
 ```
 
 ### Clear Ideation Prompts
+
 ```python
 # Good: Specific, actionable
 "Generate 5 solutions for X under $Y budget in Z time"
@@ -179,6 +182,7 @@ agents = [
 ```
 
 ### Structured Synthesis
+
 ```python
 synthesis_prompt = f"""
 Review ideas: {all_ideas}
@@ -190,10 +194,14 @@ Create 3 refined concepts that:
 ```
 
 ### Balance Divergence and Convergence
-**Pattern:** Divergent (generate many) → Convergent (refine/combine) → Select (develop)
+
+**Pattern:** Divergent (generate many) → Convergent (refine/combine) → Select
+(develop)
 
 ## When to Use
 
-**Perfect for:** Product development, problem solving, strategic planning, content creation, process improvement
+**Perfect for:** Product development, problem solving, strategic planning,
+content creation, process improvement
 
-AI brainstorming leverages parallel processing and diverse perspectives for faster, higher-quality ideation through structured synthesis phases.
+AI brainstorming leverages parallel processing and diverse perspectives for
+faster, higher-quality ideation through structured synthesis phases.

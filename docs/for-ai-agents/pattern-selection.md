@@ -23,6 +23,7 @@ if dependencies or aggregation_needed:
 ## Pattern Characteristics
 
 ### Direct Execution
+
 Best for single, straightforward tasks.
 
 ```python
@@ -43,12 +44,14 @@ asyncio.run(direct_pattern())
 ```
 
 **When to use:**
+
 - Single analysis or question
 - No dependencies on other operations
 - Quick, standalone tasks
 - Conversational interactions
 
 ### Parallel Execution (asyncio.gather)
+
 Best for multiple independent tasks.
 
 ```python
@@ -76,12 +79,14 @@ asyncio.run(parallel_pattern())
 ```
 
 **When to use:**
+
 - Multiple independent tasks
 - No dependencies between operations
 - Bulk processing
 - Maximum parallelism needed
 
 ### Builder Graphs
+
 Best for complex workflows with dependencies.
 
 ```python
@@ -124,6 +129,7 @@ asyncio.run(builder_pattern())
 ```
 
 **When to use:**
+
 - Operations depend on each other
 - Need to aggregate/synthesize results
 - Multi-phase workflows
@@ -131,15 +137,16 @@ asyncio.run(builder_pattern())
 
 ## Pattern Comparison
 
-| Pattern | Best For | Avoid When | Complexity | Performance |
-|---------|----------|------------|------------|-------------|
-| **Direct** | Single tasks, conversations | Multiple operations | Low | Fast |
-| **Gather** | Independent parallel tasks | Dependencies exist | Medium | Very Fast |
-| **Builder** | Complex workflows, dependencies | Simple single tasks | High | Optimized |
+| Pattern     | Best For                        | Avoid When          | Complexity | Performance |
+| ----------- | ------------------------------- | ------------------- | ---------- | ----------- |
+| **Direct**  | Single tasks, conversations     | Multiple operations | Low        | Fast        |
+| **Gather**  | Independent parallel tasks      | Dependencies exist  | Medium     | Very Fast   |
+| **Builder** | Complex workflows, dependencies | Simple single tasks | High       | Optimized   |
 
 ## Selection Examples
 
 ### Example 1: Simple Analysis
+
 ```python
 # Task: "Analyze this code for security issues"
 # Pattern: Direct execution
@@ -153,6 +160,7 @@ async def security_analysis():
 ```
 
 ### Example 2: Multiple Independent Reviews
+
 ```python
 # Task: Review code for security, performance, style
 # Pattern: Parallel execution
@@ -171,6 +179,7 @@ async def multi_review():
 ```
 
 ### Example 3: Research → Analysis → Report
+
 ```python
 # Task: Multi-step workflow with dependencies
 # Pattern: Builder graph
@@ -217,6 +226,7 @@ Is it a single operation?
 ## Common Mistakes
 
 ### Over-engineering Simple Tasks
+
 ```python
 # Bad: Builder for single task
 builder = Builder("simple")
@@ -228,6 +238,7 @@ result = await branch.communicate("Hello")
 ```
 
 ### Missing Parallelism Opportunities
+
 ```python
 # Bad: Sequential when could be parallel
 result1 = await branch.communicate("Task 1")
@@ -241,6 +252,7 @@ results = await asyncio.gather(
 ```
 
 ### Forcing Dependencies
+
 ```python
 # Bad: Unnecessary dependencies
 step2 = builder.add_operation(..., depends_on=[step1])  # Not needed

@@ -5,6 +5,7 @@ LangChain's complex abstraction layers → LionAGI's direct simplicity.
 ## Basic LLM Chain
 
 **LangChain (Verbose LCEL):**
+
 ```python
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -24,6 +25,7 @@ result = chain.invoke({"input": "What is 2 + 2?"})
 ```
 
 **LionAGI (Direct):**
+
 ```python
 from lionagi import Branch, iModel
 
@@ -38,6 +40,7 @@ result = await assistant.communicate("What is 2 + 2?")
 ## Agent with Tools
 
 **LangChain (Complex Setup):**
+
 ```python
 from langchain.agents import create_openai_functions_agent, AgentExecutor
 from langchain_openai import ChatOpenAI
@@ -67,6 +70,7 @@ result = agent_executor.invoke({"input": "What is 25 times 4?"})
 ```
 
 **LionAGI (Clean):**
+
 ```python
 from lionagi import Branch
 
@@ -92,6 +96,7 @@ result = await agent.ReAct(
 ## Multi-Agent RAG Workflow
 
 **LangChain (LangGraph Required):**
+
 ```python
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
@@ -128,6 +133,7 @@ result = app.invoke({"messages": [HumanMessage(content="Research AI trends")]})
 ```
 
 **LionAGI (Natural Graph):**
+
 ```python
 from lionagi import Session, Builder
 
@@ -151,6 +157,7 @@ result = await session.flow(builder.get_graph())
 ## Parallel Processing
 
 **LangChain (Complex State Management):**
+
 ```python
 from langgraph.graph import StateGraph
 from typing import Annotated
@@ -192,6 +199,7 @@ app = workflow.compile()
 ```
 
 **LionAGI (Automatic Parallel):**
+
 ```python
 # Natural parallel execution
 topics = ["transformers", "multimodal", "reasoning"]
@@ -216,6 +224,7 @@ result = await session.flow(builder.get_graph())  # Automatic parallel
 ## Memory and Context
 
 **LangChain (Manual Memory Management):**
+
 ```python
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import BaseMessage
@@ -239,6 +248,7 @@ chain_with_memory = ConversationChain(
 ```
 
 **LionAGI (Built-in Memory):**
+
 ```python
 # Automatic persistent memory
 assistant = Branch(
@@ -253,6 +263,7 @@ response2 = await assistant.communicate("What did I just say?")  # Remembers con
 ## Error Handling and Debugging
 
 **LangChain (Limited Observability):**
+
 ```python
 import langsmith
 from langchain_openai import ChatOpenAI
@@ -269,6 +280,7 @@ except Exception as e:
 ```
 
 **LionAGI (Rich Error Context):**
+
 ```python
 try:
     result = await session.flow(builder.get_graph())
@@ -285,17 +297,17 @@ except Exception as e:
 
 ## Key Simplifications
 
-**No LCEL Syntax**: Direct function calls instead of pipe operators
-**No State Management**: Automatic memory and context handling  
-**No Complex Setup**: Simple imports and initialization
-**No External Dependencies**: Built-in observability and debugging
-**No Manual Orchestration**: Automatic parallel execution
+**No LCEL Syntax**: Direct function calls instead of pipe operators **No State
+Management**: Automatic memory and context handling\
+**No Complex Setup**: Simple imports and initialization **No External
+Dependencies**: Built-in observability and debugging **No Manual
+Orchestration**: Automatic parallel execution
 
 ## Migration Benefits
 
-✅ **90% Less Code**: Remove LCEL, state management, memory setup  
-✅ **Natural Async**: Built for async/await from the ground up  
-✅ **Automatic Parallelism**: No complex graph configuration needed  
-✅ **Simpler Debugging**: Direct access to execution state  
-✅ **Built-in Memory**: No manual memory management required  
+✅ **90% Less Code**: Remove LCEL, state management, memory setup\
+✅ **Natural Async**: Built for async/await from the ground up\
+✅ **Automatic Parallelism**: No complex graph configuration needed\
+✅ **Simpler Debugging**: Direct access to execution state\
+✅ **Built-in Memory**: No manual memory management required\
 ✅ **Cost Tracking**: Native usage monitoring vs external tools

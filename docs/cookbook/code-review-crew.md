@@ -150,6 +150,7 @@ result = await session.flow(builder.get_graph())
 ## Best Practices
 
 ### Specialized Systems
+
 ```python
 # Good: Clear specialization
 security = Branch(system="Focus only on security vulnerabilities")
@@ -160,6 +161,7 @@ generic = Branch(system="Review all aspects of code")
 ```
 
 ### Structured Output
+
 ```python
 instruction = """
 Review this code for security issues:
@@ -172,6 +174,7 @@ Format response as:
 ```
 
 ### Advanced Parallel Execution
+
 ```python
 # LionAGI TaskGroup (recommended)
 async with ln.create_task_group() as tg:
@@ -186,4 +189,5 @@ reviews = await asyncio.gather(
 )
 ```
 
-Multi-agent code review leverages specialized expertise in parallel, catching issues that single reviewers might miss.
+Multi-agent code review leverages specialized expertise in parallel, catching
+issues that single reviewers might miss.

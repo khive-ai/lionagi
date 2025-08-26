@@ -5,6 +5,7 @@ Build complex understanding step-by-step through dependent operations.
 ## When to Use This Pattern
 
 Use sequential analysis when:
+
 - Each step builds upon previous findings
 - Processing requires logical progression
 - Context accumulation improves quality
@@ -145,6 +146,7 @@ result = await session.flow(builder.get_graph())
 ## Best Practices
 
 ### Clear Dependencies
+
 ```python
 # Good: Clear progression
 step1 = builder.add_operation("communicate", instruction="Extract facts")
@@ -153,6 +155,7 @@ step3 = builder.add_operation("communicate", instruction="Draw conclusions", dep
 ```
 
 ### Consistent Context
+
 ```python
 # Use same branch for context continuity
 analyzer = Branch(
@@ -162,6 +165,7 @@ analyzer = Branch(
 ```
 
 ### Quality Assessment
+
 ```python
 # Include data assessment as first step
 assess_data = builder.add_operation(
@@ -172,8 +176,11 @@ assess_data = builder.add_operation(
 
 ## When to Use
 
-**Perfect for:** Document analysis, research workflows, investigations, decision making, problem solving
+**Perfect for:** Document analysis, research workflows, investigations, decision
+making, problem solving
 
-**Key advantage:** Each step builds meaningfully on previous work, leading to more thorough and accurate results than parallel analysis.
+**Key advantage:** Each step builds meaningfully on previous work, leading to
+more thorough and accurate results than parallel analysis.
 
-Sequential analysis creates structured understanding through logical progression and context accumulation.
+Sequential analysis creates structured understanding through logical progression
+and context accumulation.

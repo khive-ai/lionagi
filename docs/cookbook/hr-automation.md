@@ -409,21 +409,25 @@ restored_agents = await load_hr_workflow_state()
 ## Key Benefits
 
 **Multi-Agent Collaboration:**
+
 - Specialized roles with domain expertise
 - Natural feedback loops between agents
 - Iterative improvement of decisions
 
 **Feedback Integration:**
+
 - Cross-agent review and refinement
 - Multiple perspectives on each decision
 - Continuous improvement through iteration
 
 **State Management:**
+
 - Complete audit trail of decisions
 - Ability to pause/resume workflows
 - Historical analysis of HR patterns
 
 **Production Features:**
+
 - Policy integration with tool usage
 - Compliance checking and documentation
 - Scalable workflow orchestration

@@ -160,7 +160,8 @@ specialist = Branch(
 )
 ```
 
-**Use `communicate()` for stateful conversations**, `chat()` for independent queries:
+**Use `communicate()` for stateful conversations**, `chat()` for independent
+queries:
 
 ```python
 # Stateful conversation
@@ -181,4 +182,5 @@ research_team = {
 }
 ```
 
-LionAGI automatically handles conversation state, letting you focus on building intelligent workflows without managing message details.
+LionAGI automatically handles conversation state, letting you focus on building
+intelligent workflows without managing message details.

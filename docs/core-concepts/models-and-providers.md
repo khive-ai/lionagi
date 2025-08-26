@@ -1,6 +1,7 @@
 # Models and Providers
 
-LionAGI's `iModel` provides a unified interface for working with different LLM providers.
+LionAGI's `iModel` provides a unified interface for working with different LLM
+providers.
 
 ## Basic Usage
 
@@ -185,4 +186,5 @@ CONFIGS = {
 dev_assistant = Branch(chat_model=CONFIGS["development"])
 ```
 
-LionAGI's iModel provides a consistent interface across providers while handling API differences and configuration automatically.
+LionAGI's iModel provides a consistent interface across providers while handling
+API differences and configuration automatically.

@@ -5,8 +5,9 @@ Tool-augmented reasoning with retrieval for knowledge-intensive tasks.
 ## When to Use This Pattern
 
 Use ReAct with RAG when:
+
 - Tasks require external knowledge or data
-- Multi-step reasoning is needed  
+- Multi-step reasoning is needed
 - Information must be gathered and synthesized
 - Complex problem-solving requires both thinking and acting
 
@@ -105,6 +106,7 @@ analysis = builder.add_operation(
 ## Key Patterns
 
 ### Tool Selection Strategy
+
 ```python
 # Phase-based tool usage
 information_gathering = ["search", "retrieve", "extract"]
@@ -113,6 +115,7 @@ synthesis_phase = ["verify", "synthesize", "conclude"]
 ```
 
 ### Reasoning Control
+
 ```python
 instruct = {
     "instruction": "Clear task definition",
@@ -122,6 +125,7 @@ instruct = {
 ```
 
 ### Performance Limits
+
 ```python
 max_extensions=5  # Prevent infinite reasoning loops
 reason=True      # Include reasoning traces
@@ -129,9 +133,10 @@ reason=True      # Include reasoning traces
 
 ## Best Practices
 
-**Tool Design**: Return structured data with consistent formats
-**Reasoning Guidance**: Provide clear step-by-step instructions  
-**Context Management**: Keep context focused and relevant
-**Error Handling**: Set reasonable limits on reasoning steps
+**Tool Design**: Return structured data with consistent formats **Reasoning
+Guidance**: Provide clear step-by-step instructions\
+**Context Management**: Keep context focused and relevant **Error Handling**:
+Set reasonable limits on reasoning steps
 
-ReAct with RAG enables systematic information gathering and reasoning for complex, knowledge-intensive tasks.
+ReAct with RAG enables systematic information gathering and reasoning for
+complex, knowledge-intensive tasks.

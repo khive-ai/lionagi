@@ -5,6 +5,7 @@ Dynamic workflow paths based on runtime conditions and decision points.
 ## When to Use This Pattern
 
 Use conditional flows when:
+
 - Different inputs need different processing paths
 - Decision points determine next steps
 - Workflow adapts based on intermediate results
@@ -141,6 +142,7 @@ except Exception:
 ## Best Practices
 
 ### Clear Decision Criteria
+
 ```python
 # Good: Specific, measurable criteria
 "Rate complexity as 'simple' (1-3 steps) or 'complex' (4+ steps)"
@@ -150,6 +152,7 @@ except Exception:
 ```
 
 ### Explicit Routing Logic
+
 ```python
 # Clear routing based on parsed results
 if "urgent" in priority_assessment.lower():
@@ -159,6 +162,7 @@ else:
 ```
 
 ### Always Have Fallbacks
+
 ```python
 # Graceful degradation
 try:
@@ -169,8 +173,11 @@ except Exception:
 
 ## When to Use
 
-**Perfect for:** Content routing, difficulty adaptation, quality control, error recovery, resource optimization
+**Perfect for:** Content routing, difficulty adaptation, quality control, error
+recovery, resource optimization
 
-**Key advantage:** Runtime decision-making optimizes processing paths and handles varying input conditions intelligently.
+**Key advantage:** Runtime decision-making optimizes processing paths and
+handles varying input conditions intelligently.
 
-Conditional flows create adaptive workflows that route processing based on content, quality thresholds, and error conditions.
+Conditional flows create adaptive workflows that route processing based on
+content, quality thresholds, and error conditions.

@@ -5,6 +5,7 @@ CrewAI's verbose role-based agents → LionAGI's clean graph orchestration.
 ## Basic Agent Creation
 
 **CrewAI (Verbose):**
+
 ```python
 from crewai import Agent, Task, Crew
 
@@ -26,6 +27,7 @@ result = crew.kickoff()
 ```
 
 **LionAGI (Clean):**
+
 ```python
 from lionagi import Branch, iModel
 
@@ -40,6 +42,7 @@ result = await coder.communicate("Create a Python function to analyze data")
 ## Multi-Agent Research
 
 **CrewAI (Complex Setup):**
+
 ```python
 researcher = Agent(
     role="Senior Research Analyst",
@@ -77,6 +80,7 @@ result = crew.kickoff()
 ```
 
 **LionAGI (Simple Graph):**
+
 ```python
 from lionagi import Session, Builder
 
@@ -100,6 +104,7 @@ result = await session.flow(builder.get_graph())
 ## Parallel Research Crew
 
 **CrewAI (Sequential by Default):**
+
 ```python
 # CrewAI runs tasks sequentially unless explicitly configured
 agents = [researcher1, researcher2, researcher3]
@@ -115,6 +120,7 @@ result = crew.kickoff()
 ```
 
 **LionAGI (Parallel by Nature):**
+
 ```python
 # Automatic parallel execution
 research_nodes = []
@@ -137,6 +143,7 @@ result = await session.flow(builder.get_graph())  # Parallel execution
 ## Tool Integration
 
 **CrewAI (Limited):**
+
 ```python
 from crewai_tools import SerperDevTool
 
@@ -151,6 +158,7 @@ agent = Agent(
 ```
 
 **LionAGI (Flexible):**
+
 ```python
 def custom_search(query: str) -> str:
     # Any custom logic
@@ -170,6 +178,7 @@ result = await researcher.ReAct(
 ## Error Handling
 
 **CrewAI (Basic):**
+
 ```python
 # Limited error handling options
 try:
@@ -179,6 +188,7 @@ except Exception as e:
 ```
 
 **LionAGI (Robust):**
+
 ```python
 import asyncio
 
@@ -202,12 +212,14 @@ async def robust_workflow():
 ## Cost and Performance Tracking
 
 **CrewAI (Not Built-in):**
+
 ```python
 # No built-in cost tracking
 # Must implement custom solutions
 ```
 
 **LionAGI (Native Support):**
+
 ```python
 from lionagi.protocols.messages.assistant_response import AssistantResponse
 
@@ -231,17 +243,17 @@ print(f"Total workflow cost: ${costs:.4f}")
 
 ## Key Advantages
 
-**Shorter Code**: LionAGI requires 70% less boilerplate than CrewAI
-**Natural Parallelism**: Built-in parallel execution vs CrewAI's sequential default
-**Flexible Tools**: Convert any function vs limited tool ecosystem
-**Direct Control**: Graph-based dependencies vs rigid role assignments
-**Cost Tracking**: Native monitoring vs manual implementation
-**Error Recovery**: Robust async patterns vs basic exception handling
+**Shorter Code**: LionAGI requires 70% less boilerplate than CrewAI **Natural
+Parallelism**: Built-in parallel execution vs CrewAI's sequential default
+**Flexible Tools**: Convert any function vs limited tool ecosystem **Direct
+Control**: Graph-based dependencies vs rigid role assignments **Cost Tracking**:
+Native monitoring vs manual implementation **Error Recovery**: Robust async
+patterns vs basic exception handling
 
 ## Migration Benefits
 
-✅ **Less Configuration**: No verbose roles, goals, backstories  
-✅ **Better Performance**: Automatic parallel execution  
-✅ **More Control**: Explicit dependencies and error handling  
-✅ **Cost Visibility**: Built-in usage tracking  
+✅ **Less Configuration**: No verbose roles, goals, backstories\
+✅ **Better Performance**: Automatic parallel execution\
+✅ **More Control**: Explicit dependencies and error handling\
+✅ **Cost Visibility**: Built-in usage tracking\
 ✅ **Simpler Code**: Focus on logic, not boilerplate

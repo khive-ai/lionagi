@@ -4,10 +4,13 @@ Deep dive into LionAGI's advanced features and capabilities.
 
 ## What You'll Learn
 
-This section covers advanced concepts for building production-ready multi-agent systems:
+This section covers advanced concepts for building production-ready multi-agent
+systems:
 
-- **[Custom Operations](custom-operations.md)** - Build specialized operations for your workflows
-- **[Flow Composition](flow-composition.md)** - Compose complex multi-agent flows  
+- **[Custom Operations](custom-operations.md)** - Build specialized operations
+  for your workflows
+- **[Flow Composition](flow-composition.md)** - Compose complex multi-agent
+  flows
 - **[Performance](performance.md)** - Optimize your LionAGI workflows
 - **[Error Handling](error-handling.md)** - Handle failures gracefully
 - **[Observability](observability.md)** - Monitor and debug your workflows
@@ -20,4 +23,6 @@ This section covers advanced concepts for building production-ready multi-agent 
 
 ## Next Steps
 
-After mastering these advanced topics, explore our [Integration guides](../integrations/index.md) to connect LionAGI with external services.
+After mastering these advanced topics, explore our
+[Integration guides](../integrations/index.md) to connect LionAGI with external
+services.

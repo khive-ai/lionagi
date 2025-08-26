@@ -4,7 +4,8 @@ Understanding the Branch abstraction - your agents with memory and tools.
 
 ## What is a Branch?
 
-A Branch is LionAGI's core agent abstraction with persistent memory, tools, and specialized behavior.
+A Branch is LionAGI's core agent abstraction with persistent memory, tools, and
+specialized behavior.
 
 ```python
 from lionagi import Branch, iModel
@@ -25,7 +26,8 @@ print(f"Messages in memory: {len(branch.messages)}")
 
 ## Key Advantage: Persistent Memory
 
-Unlike stateless API calls, Branches maintain conversation context automatically.
+Unlike stateless API calls, Branches maintain conversation context
+automatically.
 
 ```python
 # LionAGI Branch - stateful conversations
@@ -196,4 +198,5 @@ session = Session()
 session.include_branches([branch1, branch2, branch3])
 ```
 
-Branches provide stateful, specialized agents with persistent memory, custom tools, and clear behavioral roles for sophisticated multi-agent workflows.
+Branches provide stateful, specialized agents with persistent memory, custom
+tools, and clear behavioral roles for sophisticated multi-agent workflows.
