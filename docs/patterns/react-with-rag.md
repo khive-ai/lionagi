@@ -133,10 +133,10 @@ reason=True      # Include reasoning traces
 
 ## Best Practices
 
-**Tool Design**: Return structured data with consistent formats **Reasoning
-Guidance**: Provide clear step-by-step instructions\
-**Context Management**: Keep context focused and relevant **Error Handling**:
-Set reasonable limits on reasoning steps
+- **Tool Design**: Return structured data with consistent formats
+- **Reasoning Guidance**: Provide clear step-by-step instructions
+- **Context Management**: Keep context focused and relevant
+- **Error Handling**: Set reasonable limits on reasoning steps
 
 ReAct with RAG enables systematic information gathering and reasoning for
 complex, knowledge-intensive tasks.

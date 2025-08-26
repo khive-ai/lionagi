@@ -225,22 +225,19 @@ for node_id, node in builder.get_graph().internal_nodes.items():
     print(f"Node {node_id}: {len(branch.messages)} messages")
 ```
 
-**Enterprise Requirements:** ✅ **Predictable Costs**: Built-in usage tracking
-vs AutoGen's unknown spending\
-✅ **Deterministic Flow**: Explicit dependencies vs AutoGen's autonomous
-decisions\
-✅ **Audit Compliance**: Full execution logs vs AutoGen's black-box
-conversations\
-✅ **Error Recovery**: Granular failure handling vs AutoGen's all-or-nothing\
+**Enterprise Requirements:** 
+
+✅ **Predictable Costs**: Built-in usage tracking vs AutoGen's unknown spending  
+✅ **Deterministic Flow**: Explicit dependencies vs AutoGen's autonomous decisions  
+✅ **Audit Compliance**: Full execution logs vs AutoGen's black-box conversations  
+✅ **Error Recovery**: Granular failure handling vs AutoGen's all-or-nothing  
 ✅ **Resource Control**: Bounded execution vs AutoGen's unlimited autonomy
 
 ## Key Migration Points
 
-**Conversation → Graph**: AutoGen's linear conversations become explicit
-dependency graphs **Agents → Branches**: ConversableAgent functionality maps to
-Branch instances\
-**GroupChat → Builder**: Multi-agent coordination uses Builder pattern with
-dependencies **Speaker Selection → Dependencies**: State transitions become
-explicit `depends_on` relationships **Initiate Chat → Session Flow**:
-Conversation starts become graph execution **Autonomous → Controlled**: Replace
-AutoGen's unpredictable autonomy with enterprise controls
+- **Conversation → Graph**: AutoGen's linear conversations become explicit dependency graphs  
+- **Agents → Branches**: ConversableAgent functionality maps to Branch instances  
+- **GroupChat → Builder**: Multi-agent coordination uses Builder pattern with dependencies  
+- **Speaker Selection → Dependencies**: State transitions become explicit `depends_on` relationships  
+- **Initiate Chat → Session Flow**: Conversation starts become graph execution  
+- **Autonomous → Controlled**: Replace AutoGen's unpredictable autonomy with enterprise controls

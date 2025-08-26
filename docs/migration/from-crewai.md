@@ -252,8 +252,8 @@ patterns vs basic exception handling
 
 ## Migration Benefits
 
-✅ **Less Configuration**: No verbose roles, goals, backstories\
-✅ **Better Performance**: Automatic parallel execution\
-✅ **More Control**: Explicit dependencies and error handling\
-✅ **Cost Visibility**: Built-in usage tracking\
+✅ **Less Configuration**: No verbose roles, goals, backstories  
+✅ **Better Performance**: Automatic parallel execution  
+✅ **More Control**: Explicit dependencies and error handling  
+✅ **Cost Visibility**: Built-in usage tracking  
 ✅ **Simpler Code**: Focus on logic, not boilerplate
