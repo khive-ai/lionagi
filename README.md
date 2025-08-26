@@ -2,7 +2,7 @@
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/lionagi?color=blue)
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 
-[Documentation](https://lion-agi.github.io/lionagi/) |
+[Documentation](https://khive-ai.github.io/lionagi/) |
 [Discord](https://discord.gg/JDj9ENhUE8) |
 [PyPI](https://pypi.org/project/lionagi/)
 
