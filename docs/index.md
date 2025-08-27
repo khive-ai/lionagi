@@ -11,38 +11,42 @@
 ## ⚡ The Orchestration Engine Mindset
 
 ```python
-from lionagi import Branch, Operation
-
-# Step 1: Define YOUR operations (not limited to what we provide)
-class YourCustomAnalysis(Operation):
-    async def execute(self, data):
-        # Exactly how YOU want analysis done
-        # Can use ML, APIs, databases, other frameworks, anything
-        return your_analysis_logic(data)
-
-class YourCustomSynthesis(Operation):
-    async def execute(self, results):
-        # YOUR synthesis logic
-        return your_synthesis_logic(results)
-
-# Step 2: LionAGI orchestrates them
-branch = Branch()  # Minimal interface: just chat, communicate, operate, react
-
-# Sequential orchestration
-analysis = await branch.operate(YourCustomAnalysis(), data=my_data)
-synthesis = await branch.operate(YourCustomSynthesis(), results=analysis)
-
-# Or parallel orchestration
+from lionagi import Branch, iModel
 import asyncio
 
-# Run operations in parallel
-results = await asyncio.gather(
-    branch.operate(YourCustomAnalysis(), data=my_data),
-    branch.operate(AnotherOperation(), data=my_data),
-    branch.operate(ThirdOperation(), data=my_data)
+# Step 1: Create specialized branches for different analysis types
+analysis_branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    system="You are a data analyst who finds patterns and insights in data."
 )
 
-# The key: You define operations. We provide the orchestration engine.
+synthesis_branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4o-mini"), 
+    system="You synthesize multiple analyses into actionable recommendations."
+)
+
+# Step 2: LionAGI orchestrates your workflow
+my_data = "Sales data shows 30% increase in Q4..."
+
+# Sequential orchestration - each step builds on the last
+analysis = await analysis_branch.communicate(
+    instruction="Analyze this business data for key trends",
+    context={"data": my_data}
+)
+
+synthesis = await synthesis_branch.communicate(
+    instruction="Create strategic recommendations from this analysis", 
+    context={"analysis_results": analysis}
+)
+
+# Or parallel orchestration - run multiple analyses simultaneously  
+results = await asyncio.gather(
+    analysis_branch.communicate(instruction="Find revenue patterns", context={"data": my_data}),
+    analysis_branch.communicate(instruction="Identify customer trends", context={"data": my_data}),
+    analysis_branch.communicate(instruction="Analyze operational metrics", context={"data": my_data})
+)
+
+# The key: You define the workflow. LionAGI provides reliable orchestration.
 ```
 
 ## 🎯 What LionAGI Does Well
