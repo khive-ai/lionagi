@@ -1,14 +1,28 @@
 from __future__ import annotations
 
+import os.path
 from fnmatch import fnmatch
 
 from .morphism import Morphism
 from .types import Branch
 
 
+def _normalize_path(path: str) -> str:
+    """Normalize path to prevent directory traversal attacks."""
+    if not path or not path.startswith("/"):
+        return path
+    # Use os.path.normpath to resolve .. and . components
+    normalized = os.path.normpath(path)
+    # Ensure it's still an absolute path after normalization
+    return normalized if normalized.startswith("/") else path
+
+
 def _split(s: str) -> tuple[str, str]:
     """Split 'domain.action[:resource]' -> ('domain.action', 'resource-or-empty')."""
     d, _, r = s.partition(":")
+    # Normalize resource path if it looks like a file path
+    if r and r.startswith("/"):
+        r = _normalize_path(r)
     return d, r
 
 

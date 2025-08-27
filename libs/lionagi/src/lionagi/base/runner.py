@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from lionagi.ln.concurrency import create_task_group, fail_after
+from lionagi.ln.concurrency import create_task_group, fail_after, is_coro_func
 
 from .eventbus import EventBus, emit_node_finish, emit_node_start
 from .graph import OpGraph, OpNode
@@ -133,7 +133,11 @@ class Runner:
         req_fn = getattr(node.m, "required_rights", None)
         if callable(req_fn):
             try:
-                r = req_fn(**kwargs)
+                # Support both sync and async required_rights() methods
+                if is_coro_func(req_fn):
+                    r = await req_fn(**kwargs)
+                else:
+                    r = req_fn(**kwargs)
                 if r:
                     override_reqs = set(r)
             except Exception as e:

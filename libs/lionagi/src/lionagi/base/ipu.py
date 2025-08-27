@@ -1,21 +1,33 @@
 from __future__ import annotations
 
 import copy
+import logging
 import time
 from typing import Any, Protocol
 
 import msgspec
 
+from lionagi.ln.concurrency import is_coro_func
+
 from .graph import OpNode
 from .policy import policy_check
 from .types import Branch, Observation
 
+# Set up logger for IPU
+logger = logging.getLogger(__name__)
+
 
 class Invariant(Protocol):
+    """Polyglot invariant protocol - supports both sync and async methods."""
+
     name: str
 
     def pre(self, br: Branch, node: OpNode) -> bool: ...
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool: ...
+
+    # Optional async versions - invariants can implement either sync or async
+    async def async_pre(self, br: Branch, node: OpNode) -> bool: ...
+    async def async_post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool: ...
 
 
 class IPU(Protocol):
@@ -243,27 +255,283 @@ class ResultSizeBound:
         return size <= int(limit)
 
 
+# ---- Exception Classes ----
+
+
+class InvariantViolationError(Exception):
+    """Raised when an invariant check fails in strict mode."""
+
+    pass
+
+
+# ---- Adapter Classes for TDD Interface ----
+
+
+class CtxWriteSetInvariant:
+    """Adapter class that wraps CtxWriteSet with the expected test interface."""
+
+    def __init__(self):
+        self._impl = CtxWriteSet()
+        self._snapshots = {}
+
+    def pre_check(self, branch, operation_context):
+        """Take snapshot and return (success, message) tuple."""
+        try:
+            # Create a mock node for the existing interface
+            mock_node = type(
+                "MockNode",
+                (),
+                {
+                    "id": operation_context.get("node_id", "test_node"),
+                    "m": type(
+                        "MockMorphism",
+                        (),
+                        {"ctx_writes": operation_context.get("ctx_writes")},
+                    )(),
+                },
+            )()
+
+            # Take snapshot using existing implementation
+            success = self._impl.pre(branch, mock_node)
+            return success, ("Snapshot taken successfully" if success else "Snapshot failed")
+        except Exception as e:
+            return False, str(e)
+
+    def post_check(self, branch, operation_context, result):
+        """Check constraints and return (success, message) tuple."""
+        try:
+            # Create a mock node for the existing interface
+            mock_node = type(
+                "MockNode",
+                (),
+                {
+                    "id": operation_context.get("node_id", "test_node"),
+                    "m": type(
+                        "MockMorphism",
+                        (),
+                        {"ctx_writes": operation_context.get("ctx_writes")},
+                    )(),
+                },
+            )()
+
+            # Get the snapshot key for this branch/node combination
+            snapshot_key = (branch.id, mock_node.id)
+            before_ctx = self._impl._snap.get(snapshot_key, {})
+
+            # Check using existing implementation
+            success = self._impl.post(branch, mock_node, result)
+            if success:
+                return True, "Context writes within allowed set"
+            else:
+                # Provide more detailed error message about which keys were written
+                allowed = set(operation_context.get("ctx_writes", []))
+                current_keys = set(branch.ctx.keys())
+                before_keys = set(before_ctx.keys())
+
+                # Find new keys and modified keys
+                added_keys = current_keys - before_keys
+                modified_keys = {
+                    k
+                    for k in (current_keys & before_keys)
+                    if branch.ctx.get(k) != before_ctx.get(k)
+                }
+                changed_keys = added_keys | modified_keys
+                undeclared_keys = changed_keys - allowed
+
+                if undeclared_keys:
+                    key_list = ", ".join(sorted(undeclared_keys))
+                    return (
+                        False,
+                        f"Detected writes to undeclared context keys: {key_list}",
+                    )
+                else:
+                    return False, "Detected writes to undeclared context keys"
+        except Exception as e:
+            return False, str(e)
+
+
+class CapabilityMonotonicityInvariant:
+    """Adapter class that wraps CapabilityMonotonicity with the expected test interface."""
+
+    def __init__(self):
+        self._snapshots = {}
+
+    def pre_check(self, branch, operation_context):
+        """Take capability snapshot and return (success, message) tuple."""
+        try:
+            # Take snapshot of current capabilities
+            snapshot_key = (branch.id, operation_context.get("node_id", "test_node"))
+            self._snapshots[snapshot_key] = set(branch.capabilities)
+            return True, "Capability snapshot taken"
+        except Exception as e:
+            return False, str(e)
+
+    def post_check(self, branch, operation_context, result):
+        """Check for capability escalation and return (success, message) tuple."""
+        try:
+            # Get the snapshot
+            snapshot_key = (branch.id, operation_context.get("node_id", "test_node"))
+            pre_caps = self._snapshots.get(snapshot_key, set())
+            post_caps = set(branch.capabilities)
+
+            # Check if capabilities were reduced or stayed the same (monotonicity)
+            # Escalation means post_caps has capabilities not in pre_caps
+            escalated = post_caps - pre_caps
+
+            if escalated:
+                escalated_list = ", ".join(sorted(escalated))
+                return (
+                    False,
+                    f"Capability escalation detected - privilege escalation forbidden: {escalated_list}",
+                )
+            else:
+                return True, "No capability escalation detected"
+        except Exception as e:
+            return False, str(e)
+
+
+class ResultShapeInvariant:
+    """Adapter class that wraps ResultShape with the expected test interface."""
+
+    def __init__(self, expected_schema=None):
+        self._impl = ResultShape()
+        self.expected_schema = expected_schema
+
+    def pre_check(self, branch, operation_context):
+        """ResultShape pre-check always passes."""
+        return True, "ResultShape pre-check passed"
+
+    def post_check(self, branch, operation_context, result):
+        """Check result shape and return (success, message) tuple."""
+        try:
+            # Create a mock node with the expected schema
+            mock_node = type(
+                "MockNode",
+                (),
+                {
+                    "id": operation_context.get("node_id", "test_node"),
+                    "m": type("MockMorphism", (), {"result_schema": self.expected_schema})(),
+                },
+            )()
+
+            success = self._impl.post(branch, mock_node, result)
+            if success:
+                return True, "Result shape validation passed"
+            else:
+                return (
+                    False,
+                    "Result shape validation failed - type mismatch or missing fields",
+                )
+        except Exception as e:
+            return False, f"Result validation error: {str(e)}"
+
+
 # ---- Implementations ----
 
 
 class LenientIPU:
     name = "LenientIPU"
 
-    def __init__(self, invariants: list[Invariant]):
+    def __init__(self, invariants):
+        # Accept both Invariant protocol objects and test-style invariants
         self.invariants = invariants
+
+    async def _call_invariant_pre(self, inv, br: Branch, node: OpNode) -> bool:
+        """Normalize sync/async calls for invariant pre checks."""
+        # Check if invariant has async_pre method and it's coroutine
+        if hasattr(inv, "async_pre") and is_coro_func(inv.async_pre):
+            return await inv.async_pre(br, node)
+        # Check if pre method is async (backwards compatibility)
+        elif hasattr(inv, "pre") and is_coro_func(inv.pre):
+            return await inv.pre(br, node)
+        # Default to sync pre method
+        elif hasattr(inv, "pre"):
+            return inv.pre(br, node)
+        else:
+            logger.warning(f"Invariant {getattr(inv, 'name', 'Unknown')} has no pre method")
+            return True
+
+    async def _call_invariant_post(
+        self, inv, br: Branch, node: OpNode, result: dict[str, Any]
+    ) -> bool:
+        """Normalize sync/async calls for invariant post checks."""
+        # Check if invariant has async_post method and it's coroutine
+        if hasattr(inv, "async_post") and is_coro_func(inv.async_post):
+            return await inv.async_post(br, node, result)
+        # Check if post method is async (backwards compatibility)
+        elif hasattr(inv, "post") and is_coro_func(inv.post):
+            return await inv.post(br, node, result)
+        # Default to sync post method
+        elif hasattr(inv, "post"):
+            return inv.post(br, node, result)
+        else:
+            logger.warning(f"Invariant {getattr(inv, 'name', 'Unknown')} has no post method")
+            return True
 
     async def before_node(self, br: Branch, node: OpNode) -> None:
         for inv in self.invariants:
-            ok = inv.pre(br, node)
+            ok = await self._call_invariant_pre(inv, br, node)
             if not ok:
                 # Log only in lenient mode
-                print(f"[WARN][{inv.name}] pre-phase violation at node {node.id}")
+                logger.warning(f"[WARN][{inv.name}] pre-phase violation at node {node.id}")
 
     async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None:
         for inv in self.invariants:
-            ok = inv.post(br, node, result)
+            ok = await self._call_invariant_post(inv, br, node, result)
             if not ok:
-                print(f"[WARN][{inv.name}] post-phase violation at node {node.id}")
+                logger.warning(f"[WARN][{inv.name}] post-phase violation at node {node.id}")
+
+    def enter_node(self, branch: Branch, operation_context: dict) -> None:
+        """TDD interface method for pre-node checks."""
+        for inv in self.invariants:
+            try:
+                # Check if invariant has pre_check method (test interface) or pre method (protocol interface)
+                if hasattr(inv, "pre_check"):
+                    valid, message = inv.pre_check(branch, operation_context)
+                    if not valid:
+                        logger.warning(
+                            f"[{getattr(inv, '__class__', {}).get('__name__', 'Unknown')}] pre-check violation: {message}"
+                        )
+                elif hasattr(inv, "pre"):
+                    # Create mock node for protocol interface
+                    mock_node = type(
+                        "MockNode",
+                        (),
+                        {"id": operation_context.get("node_id", "test_node")},
+                    )()
+                    ok = inv.pre(branch, mock_node)
+                    if not ok:
+                        logger.warning(
+                            f"[{getattr(inv, 'name', 'Unknown')}] pre-phase violation at node {mock_node.id}"
+                        )
+            except Exception as e:
+                logger.warning(f"Invariant check error: {e}")
+
+    def exit_node(self, branch: Branch, operation_context: dict, result: dict) -> None:
+        """TDD interface method for post-node checks."""
+        for inv in self.invariants:
+            try:
+                # Check if invariant has post_check method (test interface) or post method (protocol interface)
+                if hasattr(inv, "post_check"):
+                    valid, message = inv.post_check(branch, operation_context, result)
+                    if not valid:
+                        logger.warning(
+                            f"[{getattr(inv, '__class__', {}).get('__name__', 'Unknown')}] post-check violation: {message}"
+                        )
+                elif hasattr(inv, "post"):
+                    # Create mock node for protocol interface
+                    mock_node = type(
+                        "MockNode",
+                        (),
+                        {"id": operation_context.get("node_id", "test_node")},
+                    )()
+                    ok = inv.post(branch, mock_node, result)
+                    if not ok:
+                        logger.warning(
+                            f"[{getattr(inv, 'name', 'Unknown')}] post-phase violation at node {mock_node.id}"
+                        )
+            except Exception as e:
+                logger.warning(f"Invariant check error: {e}")
 
     async def on_observation(self, obs: Observation) -> None:
         pass
@@ -274,24 +542,76 @@ class StrictIPU(LenientIPU):
 
     async def before_node(self, br: Branch, node: OpNode) -> None:
         for inv in self.invariants:
-            if not inv.pre(br, node):
+            ok = await self._call_invariant_pre(inv, br, node)
+            if not ok:
                 raise AssertionError(f"Invariant failed (pre): {inv.name} at node {node.id}")
 
     async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None:
         for inv in self.invariants:
-            if not inv.post(br, node, result):
+            ok = await self._call_invariant_post(inv, br, node, result)
+            if not ok:
                 raise AssertionError(f"Invariant failed (post): {inv.name} at node {node.id}")
+
+    def enter_node(self, branch: Branch, operation_context: dict) -> None:
+        """TDD interface method for pre-node checks - raises InvariantViolationError on failure."""
+        for inv in self.invariants:
+            try:
+                # Check if invariant has pre_check method (test interface) or pre method (protocol interface)
+                if hasattr(inv, "pre_check"):
+                    valid, message = inv.pre_check(branch, operation_context)
+                    if not valid:
+                        raise InvariantViolationError(message)
+                elif hasattr(inv, "pre"):
+                    # Create mock node for protocol interface
+                    mock_node = type(
+                        "MockNode",
+                        (),
+                        {"id": operation_context.get("node_id", "test_node")},
+                    )()
+                    ok = inv.pre(branch, mock_node)
+                    if not ok:
+                        raise InvariantViolationError(
+                            f"Invariant failed (pre): {getattr(inv, 'name', 'Unknown')} at node {mock_node.id}"
+                        )
+            except InvariantViolationError:
+                raise
+            except Exception as e:
+                raise InvariantViolationError(f"Invariant check error: {e}")
+
+    def exit_node(self, branch: Branch, operation_context: dict, result: dict) -> None:
+        """TDD interface method for post-node checks - raises InvariantViolationError on failure."""
+        for inv in self.invariants:
+            try:
+                # Check if invariant has post_check method (test interface) or post method (protocol interface)
+                if hasattr(inv, "post_check"):
+                    valid, message = inv.post_check(branch, operation_context, result)
+                    if not valid:
+                        raise InvariantViolationError(message)
+                elif hasattr(inv, "post"):
+                    # Create mock node for protocol interface
+                    mock_node = type(
+                        "MockNode",
+                        (),
+                        {"id": operation_context.get("node_id", "test_node")},
+                    )()
+                    ok = inv.post(branch, mock_node, result)
+                    if not ok:
+                        raise InvariantViolationError(
+                            f"Invariant failed (post): {getattr(inv, 'name', 'Unknown')} at node {mock_node.id}"
+                        )
+            except InvariantViolationError:
+                raise
+            except Exception as e:
+                raise InvariantViolationError(f"Invariant check error: {e}")
 
 
 def default_invariants() -> list[Invariant]:
-    # Baselines + advanced (advanced enforce only when morphisms opt-in with attributes)
     return [
         BranchIsolation(),
         CapabilityMonotonicity(),
         DeterministicLineage(),
         ObservationCompleteness(),
         PolicyGatePresent(),
-        # Advanced:
         LatencyBound(),
         ResultShape(),
         CtxWriteSet(),

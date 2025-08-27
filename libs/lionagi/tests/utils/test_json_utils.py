@@ -16,7 +16,11 @@ class TestFuzzyJsonParsing:
         GIVEN input='{"a": 1}' THEN returns {"a": 1}.
         """
         assert fuzzy_json('{"a": 1}') == {"a": 1}, "Valid JSON must parse correctly"
-        assert fuzzy_json("[1, 2, 3]") == [1, 2, 3], "Valid JSON array must parse correctly"
+        assert fuzzy_json("[1, 2, 3]") == [
+            1,
+            2,
+            3,
+        ], "Valid JSON array must parse correctly"
         assert fuzzy_json('{"nested": {"key": "value"}}') == {
             "nested": {"key": "value"}
         }, "Nested JSON must parse"
@@ -35,7 +39,10 @@ class TestFuzzyJsonParsing:
         assert fuzzy_json('  {  "a"  :  1  }  ') == {"a": 1}, "Extra whitespace must be handled"
 
         # Unquoted keys
-        assert fuzzy_json("{a: 1, b: 2}") == {"a": 1, "b": 2}, "Unquoted keys must be quoted"
+        assert fuzzy_json("{a: 1, b: 2}") == {
+            "a": 1,
+            "b": 2,
+        }, "Unquoted keys must be quoted"
 
         # Combined
         assert fuzzy_json(" {'a': 1, b: '2'} ") == {
@@ -103,7 +110,11 @@ class TestFuzzyJsonParsing:
 
         # Trailing commas (valid in some parsers)
         assert fuzzy_json('{"a": 1,}') == {"a": 1}, "Trailing commas should be handled"
-        assert fuzzy_json("[1, 2, 3,]") == [1, 2, 3], "Trailing commas in arrays should be handled"
+        assert fuzzy_json("[1, 2, 3,]") == [
+            1,
+            2,
+            3,
+        ], "Trailing commas in arrays should be handled"
 
     def test_escaped_characters(self):
         """Test handling of escaped characters."""
@@ -261,7 +272,15 @@ Second block:
         assert extract_json(lines) == {"key": "value"}, "List input must be joined and processed"
 
         # Multiple blocks in list form
-        lines_multi = ["```json", '{"a": 1}', "```", "Middle", "```json", '{"b": 2}', "```"]
+        lines_multi = [
+            "```json",
+            '{"a": 1}',
+            "```",
+            "Middle",
+            "```json",
+            '{"b": 2}',
+            "```",
+        ]
 
         result = extract_json(lines_multi, return_one_if_single=False)
         assert result == [{"a": 1}, {"b": 2}], "Multiple blocks from list input"

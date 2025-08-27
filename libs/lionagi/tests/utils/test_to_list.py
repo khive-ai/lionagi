@@ -82,7 +82,11 @@ class TestToListCoercion:
 
         # Set
         result = to_list({1, 2, 3})
-        assert set(result) == {1, 2, 3}, "Set input should return list with same elements"
+        assert set(result) == {
+            1,
+            2,
+            3,
+        }, "Set input should return list with same elements"
         assert len(result) == 3, "Set input should preserve all elements"
 
         # Range
@@ -150,7 +154,11 @@ class TestToListTransformations:
         input_with_model = ["xy", {"m": 2}, [model_obj]]
 
         result2 = to_list(input_with_model, flatten=True)
-        assert result2 == ["xy", {"m": 2}, model_obj], "Pydantic models must not be flattened"
+        assert result2 == [
+            "xy",
+            {"m": 2},
+            model_obj,
+        ], "Pydantic models must not be flattened"
 
     def test_flatten_tuple_set_control(self):
         """Test: FlattenTupleSetControl
@@ -184,7 +192,10 @@ class TestToListTransformations:
         ], "Frozensets not flattened when flatten_tuple_set=False"
 
         result4 = to_list(input_with_frozenset, flatten=True, flatten_tuple_set=True)
-        assert set(result4) == {3, 4}, "Frozensets flattened when flatten_tuple_set=True"
+        assert set(result4) == {
+            3,
+            4,
+        }, "Frozensets flattened when flatten_tuple_set=True"
 
     def test_dropna_behavior(self):
         """Test: DropNaBehavior
