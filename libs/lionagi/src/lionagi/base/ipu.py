@@ -63,11 +63,13 @@ class CapabilityMonotonicity:
         self._pre_caps: set[str] = set()
 
     def pre(self, br: Branch, node: OpNode) -> bool:
-        self._pre_caps = {r for c in br.caps for r in c.rights}
+        # Use live rights view to capture runtime capability changes
+        self._pre_caps = set(br.capabilities)
         return True
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
-        post_caps = {r for c in br.caps for r in c.rights}
+        # Compare against live rights view to detect privilege escalation
+        post_caps = set(br.capabilities)
         return post_caps.issubset(self._pre_caps) or post_caps == self._pre_caps
 
 
@@ -92,7 +94,12 @@ class ObservationCompleteness:
         return True
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
-        return (br.id, node.id) in self._started
+        # Check if we observed the start, then clean up to prevent memory leaks
+        token = (br.id, node.id)
+        was_started = token in self._started
+        # Clean up the token to prevent unbounded growth across many nodes/branches
+        self._started.discard(token)
+        return was_started
 
 
 class PolicyGatePresent:

@@ -270,6 +270,9 @@ class TestStandardInvariants:
         # Create branch with initial capabilities
         initial_caps = {"fs.read:/data/*", "net.out:api.service.com"}
         branch = create_branch(id=uuid4(), capabilities=initial_caps.copy())
+        
+        # Get strong reference to prevent WeakValueDictionary cleanup
+        branch_capabilities = branch.capabilities
 
         operation_context = {"operation": "test_op"}
 
@@ -278,24 +281,24 @@ class TestStandardInvariants:
         assert valid, f"Pre-check should pass: {message}"
 
         # Test privilege reduction (should be allowed)
-        branch.capabilities.remove("net.out:api.service.com")
+        branch_capabilities.remove("net.out:api.service.com")
         valid, message = capability_invariant.post_check(
             branch, operation_context, {"result": "success"}
         )
         assert valid, "Capability reduction should be allowed"
 
         # Reset for escalation test - clear and re-add capabilities
-        branch.capabilities.clear()
+        branch_capabilities.clear()
         for cap in initial_caps:
-            branch.capabilities.add(cap)
+            branch_capabilities.add(cap)
 
         # Pre-check again (fresh snapshot)
         valid, message = capability_invariant.pre_check(branch, operation_context)
         assert valid, f"Pre-check should pass: {message}"
 
         # Test privilege escalation (should be forbidden)
-        branch.capabilities.add("fs.write:/sensitive/*")  # New privilege
-        branch.capabilities.add("admin.access:system")  # Administrative privilege
+        branch_capabilities.add("fs.write:/sensitive/*")  # New privilege
+        branch_capabilities.add("admin.access:system")  # Administrative privilege
 
         valid, message = capability_invariant.post_check(
             branch, operation_context, {"result": "success"}

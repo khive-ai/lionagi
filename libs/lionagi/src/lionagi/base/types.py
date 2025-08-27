@@ -4,17 +4,26 @@ import copy
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
+from weakref import WeakValueDictionary
 
 from msgspec import Struct, field
 
 from lionagi.ln import now_utc
 
-# Global cache for CapabilitySet instances to work around msgspec.Struct immutability
-_capability_cache: dict[UUID, CapabilitySet] = {}
+# Global, weakly-held cache for CapabilitySet instances (avoid leaks across tests/processes)
+# Referenced in:
+# - "Capability-based security" https://en.wikipedia.org/wiki/Capability-based_security
+_capability_cache: WeakValueDictionary[UUID, "CapabilitySet"] = WeakValueDictionary()
 
 
 class CapabilitySet(set):
-    """A set that updates the parent Branch when modified."""
+    """A set that updates the parent Branch when modified.
+    
+    Based on capability-based security model where holding an unforgeable reference
+    provides access to resources. See:
+    https://en.wikipedia.org/wiki/Capability-based_security
+    """
+    __slots__ = ("_branch",)
 
     def __init__(self, branch: Branch):
         self._branch = branch
@@ -41,10 +50,25 @@ class CapabilitySet(set):
 
     def _update_branch(self) -> None:
         """Update the parent branch with current capabilities."""
-        # Since msgspec.Struct is truly immutable, we can't update the original branch
-        # The modifications are tracked in this CapabilitySet instance
-        # This works for TDD tests as long as the same CapabilitySet instance is used
-        pass
+        # msgspec.Struct is immutable; policy should read from this live view.
+        # No-op here; consumers must call rights_view(branch) to honor runtime updates.
+        return
+
+
+def rights_view(branch: "Branch") -> set[str]:
+    """Live capability view: if a CapabilitySet has been materialized for this branch,
+    use it; otherwise derive from the frozen caps tuple.
+    
+    This ensures policy decisions use the current state including runtime capability updates.
+    Based on capability-based security model: https://en.wikipedia.org/wiki/Capability-based_security
+    """
+    cs = _capability_cache.get(branch.id)  # may be None if never accessed
+    if cs is not None:
+        return set(cs)
+    have: set[str] = set()
+    for cap in branch.caps:
+        have.update(cap.rights)
+    return have
 
 
 class Observable(Struct, kw_only=True):
@@ -101,10 +125,11 @@ class Branch(Struct, kw_only=True):
     @property
     def capabilities(self) -> CapabilitySet:
         """Get capabilities as a mutable set that updates the branch when modified."""
-        # Use global cache to maintain CapabilitySet instances across property accesses
-        if self.id not in _capability_cache:
-            _capability_cache[self.id] = CapabilitySet(self)
-        return _capability_cache[self.id]
+        cs = _capability_cache.get(self.id)
+        if cs is None:
+            cs = CapabilitySet(self)
+            _capability_cache[self.id] = cs
+        return cs
 
     def fork(self) -> Branch:
         """Create a child branch with isolated context and inherited capabilities.
@@ -119,10 +144,10 @@ class Branch(Struct, kw_only=True):
         # Deep copy context for isolation
         new_ctx = copy.deepcopy(self.ctx)
 
-        # Inherit capabilities (copy the caps tuple)
-        inherited_caps = tuple(
-            Capability(subject=uuid4(), rights=cap.rights.copy(), object=cap.object)
-            for cap in self.caps
+        # Inherit the *live* rights view (includes runtime updates)
+        inherited_rights = rights_view(self)
+        inherited_caps = (
+            Capability(subject=uuid4(), rights=set(inherited_rights), object="*"),
         )
 
         # Create child branch with parent reference

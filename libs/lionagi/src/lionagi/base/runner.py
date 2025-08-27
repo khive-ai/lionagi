@@ -70,7 +70,19 @@ class Runner:
             PermissionError: If security policy denies execution
         """
         g.validate_dag()
-        ready: set = set(g.roots)
+        
+        # Initialize 'ready' from roots if provided; otherwise, from all zero-indegree nodes
+        # This ensures DAGs without explicit roots can still execute from natural starting points
+        if g.roots:
+            ready: set = set(g.roots)
+        else:
+            # Calculate indegree to find natural starting nodes (zero dependencies)
+            indeg = {k: 0 for k in g.nodes}
+            for v, node in g.nodes.items():
+                for u in node.deps:
+                    indeg[v] += 1
+            ready = {n for n, d in indeg.items() if d == 0}
+        
         done: set = set()
         results: dict[Any, Any] = {}
 
@@ -106,6 +118,12 @@ class Runner:
         except Exception as e:
             logger.error(f"Node {node.id} execution failed: {e}")
             results[node.id] = {"error": str(e), "failed": True}
+            # Emit error event for observability - isolated to prevent cascade failures
+            try:
+                await self.bus.emit("node.error", br, node, {"error": str(e), "type": type(e).__name__})
+            except Exception:
+                # Swallow event emission errors to prevent masking the original error
+                pass
             raise
 
     async def _exec_node(self, br: Branch, node: OpNode) -> tuple[Any, dict]:

@@ -21,7 +21,21 @@ class OpGraph:
     roots: set[UUID] = field(default_factory=set)
 
     def validate_dag(self) -> list[UUID]:
-        """Kahn topological sort; raises on cycle or invalid roots."""
+        """Kahn's algorithm for topological sorting; raises on cycle or invalid roots.
+        
+        Implements Kahn's 1962 algorithm for topological sort using in-degree counting.
+        Guarantees DAG validation and returns nodes in dependency-respecting order.
+        
+        Algorithm reference:
+        - Kahn, A. B. (1962). "Topological sorting of large networks"
+        - Wikipedia: https://en.wikipedia.org/wiki/Topological_sorting#Kahn's_algorithm
+        
+        Returns:
+            Topologically sorted list of node IDs
+            
+        Raises:
+            ValueError: If cycle detected or missing dependency nodes
+        """
         indeg: dict[UUID, int] = {k: 0 for k in self.nodes}
         for nid, node in self.nodes.items():
             for d in node.deps:

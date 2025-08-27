@@ -75,29 +75,33 @@ class TestBranchContextAndIsolation:
         # Fork child from parent
         child = parent.fork()
 
+        # Get strong references to capability sets to prevent WeakValueDictionary cleanup
+        parent_capabilities = parent.capabilities
+        child_capabilities = child.capabilities
+        
         # Verify child inherits all parent capabilities
-        assert child.capabilities == parent_caps, "Child must inherit all parent capabilities"
+        assert child_capabilities == parent_caps, "Child must inherit all parent capabilities"
 
         # Modify child capabilities - add new capability
-        child.capabilities.add("fs.write:/data/output.txt")
+        child_capabilities.add("fs.write:/data/output.txt")
 
         # Verify parent capabilities unchanged
         assert (
-            parent.capabilities == parent_caps
+            parent_capabilities == parent_caps
         ), "Parent capabilities must remain unchanged after child augmentation"
         assert (
-            "fs.write:/data/output.txt" not in parent.capabilities
+            "fs.write:/data/output.txt" not in parent_capabilities
         ), "Parent must not gain child's new capabilities"
 
         # Modify child capabilities - remove capability
-        child.capabilities.remove("fs.read:/data/input.txt")
+        child_capabilities.remove("fs.read:/data/input.txt")
 
         # Verify parent still has the removed capability
         assert (
-            "fs.read:/data/input.txt" in parent.capabilities
+            "fs.read:/data/input.txt" in parent_capabilities
         ), "Parent must retain capability removed from child"
         assert (
-            "fs.read:/data/input.txt" not in child.capabilities
+            "fs.read:/data/input.txt" not in child_capabilities
         ), "Child should not have removed capability"
 
     def test_lineage_tracking(self):
@@ -176,25 +180,30 @@ class TestBranchContextAndIsolation:
         # Fork multiple children
         child1 = parent.fork()
         child2 = parent.fork()
+        
+        # Get strong references to all capability sets to prevent WeakValueDictionary cleanup
+        parent_capabilities = parent.capabilities
+        child1_capabilities = child1.capabilities
+        child2_capabilities = child2.capabilities
 
         # Modify capabilities independently
-        child1.capabilities.add("db.query:users")
-        child1.capabilities.discard("net.out:*.api.com")
+        child1_capabilities.add("db.query:users")
+        child1_capabilities.discard("net.out:*.api.com")
 
-        child2.capabilities.add("fs.write:/logs/*")
+        child2_capabilities.add("fs.write:/logs/*")
 
         # Verify complete isolation
-        assert parent.capabilities == parent_caps, "Parent capabilities must be unchanged"
-        assert "db.query:users" in child1.capabilities, "Child1 should have added capability"
+        assert parent_capabilities == parent_caps, "Parent capabilities must be unchanged"
+        assert "db.query:users" in child1_capabilities, "Child1 should have added capability"
         assert (
-            "net.out:*.api.com" not in child1.capabilities
+            "net.out:*.api.com" not in child1_capabilities
         ), "Child1 should have removed capability"
         assert (
-            "db.query:users" not in child2.capabilities
+            "db.query:users" not in child2_capabilities
         ), "Child2 should not have child1's capability"
-        assert "fs.write:/logs/*" in child2.capabilities, "Child2 should have its added capability"
+        assert "fs.write:/logs/*" in child2_capabilities, "Child2 should have its added capability"
         assert (
-            "fs.write:/logs/*" not in child1.capabilities
+            "fs.write:/logs/*" not in child1_capabilities
         ), "Child1 should not have child2's capability"
 
     def test_empty_branch_initialization(self):

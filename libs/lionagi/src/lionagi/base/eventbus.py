@@ -20,6 +20,13 @@ EVENT_HANDLER_TIMEOUT_S = 2.0
 class EventBus:
     """Robust in-proc pub/sub with timeout protection and fault isolation.
 
+    Implements structured concurrency patterns for reliable event handling.
+    Uses structured concurrency task groups to guarantee cleanup and prevent resource leaks.
+    
+    References:
+    - Structured concurrency: https://en.wikipedia.org/wiki/Structured_concurrency
+    - Python Trio/AnyIO patterns: https://trio.readthedocs.io/
+
     Features:
     - Handlers run concurrently with individual timeout protection
     - Handler failures are isolated and logged, not propagated
@@ -45,7 +52,8 @@ class EventBus:
         Handlers run concurrently with timeout protection.
         Handler failures are logged but don't affect other handlers.
         """
-        handlers = self._subs.get(topic, [])
+        # Copy handler list to avoid surprises if subscribe/unsubscribe happens during emit
+        handlers = list(self._subs.get(topic, []))
         if not handlers:
             return
 

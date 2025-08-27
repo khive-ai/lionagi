@@ -4,7 +4,7 @@ import os.path
 from fnmatch import fnmatch
 
 from .morphism import Morphism
-from .types import Branch
+from .types import Branch, rights_view
 
 
 def _normalize_path(path: str) -> str:
@@ -32,8 +32,14 @@ def _is_prefix_star(p: str) -> bool:
 
 
 def _covers_resource(have_res: str, req_res: str) -> bool:
-    """
-    Conservative coverage:
+    """Conservative capability pattern matching for resource coverage.
+    
+    Implements secure wildcard matching based on capability-based security principles.
+    Pattern matching uses conservative semantics to prevent privilege escalation.
+    
+    References:
+    - Capability-based security: https://en.wikipedia.org/wiki/Capability-based_security
+    - fnmatch algorithm: https://docs.python.org/3/library/fnmatch.html
 
     - If have has NO resource -> covers all in that domain/action.
     - If req has NO resource  -> only have with NO resource covers it.
@@ -94,5 +100,6 @@ def policy_check(
     )
     if not reqs:
         return True
-    have = {r for c in branch.caps for r in c.rights}
+    # Use the live capability view so runtime changes are honored
+    have = rights_view(branch)
     return all(any(_covers(h, r) for h in have) for r in reqs)
