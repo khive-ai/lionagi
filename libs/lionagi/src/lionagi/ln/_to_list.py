@@ -129,24 +129,47 @@ def to_list(
     if unique:
         seen = set()
         out = []
-        try:
-            return [x for x in processed if not (x in seen or seen.add(x))]
-        except TypeError:
-            for i in processed:
-                hash_value = None
-                try:
-                    hash_value = hash(i)
-                except TypeError:
-                    # Handle msgspec.Struct (V1 standard), BaseModel (legacy), and Mapping
-                    if isinstance(i, (msgspec.Struct, BaseModel, Mapping)):
-                        hash_value = hash_dict(i)
-                    else:
-                        raise ValueError(
-                            "Unhashable type encountered in list unique value processing."
-                        )
-                if hash_value not in seen:
-                    seen.add(hash_value)
-                    out.append(i)
-            return out
+        # Try direct hashable approach first
+        use_hash_fallback = False
+        for i in processed:
+            try:
+                if not use_hash_fallback:
+                    # Direct approach - try to use the item as hash key
+                    if i not in seen:
+                        seen.add(i)
+                        out.append(i)
+                else:
+                    # Hash-based approach for unhashable items
+                    hash_value = (
+                        hash(i)
+                        if hasattr(i, "__hash__") and i.__hash__ is not None
+                        else hash_dict(i)
+                    )
+                    if hash_value not in seen:
+                        seen.add(hash_value)
+                        out.append(i)
+            except TypeError:
+                # Switch to hash-based approach and restart
+                if not use_hash_fallback:
+                    use_hash_fallback = True
+                    seen = set()
+                    out = []
+                    # Restart from beginning with hash-based approach
+                    for j in processed:
+                        try:
+                            hash_value = hash(j)
+                        except TypeError:
+                            # Handle msgspec.Struct (V1 standard), BaseModel (legacy), and Mapping
+                            if isinstance(j, (msgspec.Struct, BaseModel, Mapping)):
+                                hash_value = hash_dict(j)
+                            else:
+                                raise ValueError(
+                                    "Unhashable type encountered in list unique value processing."
+                                )
+                        if hash_value not in seen:
+                            seen.add(hash_value)
+                            out.append(j)
+                    break
+        return out
 
     return processed

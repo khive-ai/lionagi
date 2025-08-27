@@ -5,10 +5,10 @@ from .ipu import IPU, Invariant, LenientIPU, StrictIPU, default_invariants
 from .morphism import Morphism
 from .policy import policy_check
 from .runner import Runner
-from .types import Branch, Capability, Obj, Observation
+from .types import Branch, Capability, Observable, Observation
 
 __all__ = [
-    "Obj",
+    "Observable",
     "Observation",
     "Capability",
     "Branch",

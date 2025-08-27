@@ -80,6 +80,10 @@ class UndefinedType(SingletonType):
     def __str__(self) -> Literal["Undefined"]:
         return "Undefined"
 
+    def __reduce__(self):
+        """Ensure pickle preservation of singleton identity."""
+        return "Undefined"
+
 
 class UnsetType(SingletonType):
     """Sentinel for a key present but value not yet provided.
@@ -105,6 +109,10 @@ class UnsetType(SingletonType):
         return "Unset"
 
     def __str__(self) -> Literal["Unset"]:
+        return "Unset"
+
+    def __reduce__(self):
+        """Ensure pickle preservation of singleton identity."""
         return "Unset"
 
 

@@ -52,12 +52,22 @@ def extract_json(
     # If only one match, return single dict; if multiple, return list of dicts
     if return_one_if_single and len(matches) == 1:
         data_str = matches[0]
-        if fuzzy_parse:
-            return fuzzy_json(data_str)
-        return _decoder.decode(data_str.encode("utf-8"))
+        try:
+            if fuzzy_parse:
+                return fuzzy_json(data_str)
+            return _decoder.decode(data_str.encode("utf-8"))
+        except Exception:
+            return []
 
     # Multiple matches
-    if fuzzy_parse:
-        return [fuzzy_json(m) for m in matches]
-    else:
-        return [_decoder.decode(m.encode("utf-8")) for m in matches]
+    results = []
+    for m in matches:
+        try:
+            if fuzzy_parse:
+                results.append(fuzzy_json(m))
+            else:
+                results.append(_decoder.decode(m.encode("utf-8")))
+        except Exception:
+            # Skip invalid JSON blocks
+            continue
+    return results

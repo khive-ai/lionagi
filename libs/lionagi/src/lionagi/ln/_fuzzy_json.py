@@ -64,6 +64,8 @@ def _clean_json_string(s: str) -> str:
     s = re.sub(r"(?<!\\)'", '"', s)
     # Collapse multiple whitespaces
     s = re.sub(r"\s+", " ", s)
+    # Remove trailing commas before closing brackets/braces
+    s = re.sub(r",\s*([}\]])", r"\1", s)
     # Ensure keys are quoted
     # This attempts to find patterns like { key: value } and turn them into {"key": value}
     s = re.sub(r'([{,])\s*([^"\s]+)\s*:', r'\1"\2":', s)
