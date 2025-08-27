@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping
+from collections.abc import Mapping
+from typing import Any, Dict
 
 from lionagi.base.morphism import Morphism
 from lionagi.base.types import Branch
@@ -8,10 +9,15 @@ from lionagi.ops.core import BaseOp
 
 
 def _build_call_kwargs(
-    br: Branch, runtime_kw: Dict[str, Any], bind: Mapping[str, str], defaults: Mapping[str, Any]
-) -> Dict[str, Any]:
+    br: Branch,
+    runtime_kw: dict[str, Any],
+    bind: Mapping[str, str],
+    defaults: Mapping[str, Any],
+) -> dict[str, Any]:
     # 1) from ctx via binding
-    call_kw: Dict[str, Any] = {param: br.ctx[src] for param, src in bind.items() if src in br.ctx}
+    call_kw: dict[str, Any] = {
+        param: br.ctx[src] for param, src in bind.items() if src in br.ctx
+    }
     # 2) default literals for any missing
     for k, v in defaults.items():
         call_kw.setdefault(k, v)
@@ -44,10 +50,10 @@ class BoundOp(BaseOp):
         call_kw = _build_call_kwargs(br, kw, self.bind, self.defaults)
         return await self.inner.pre(br, **call_kw)
 
-    async def apply(self, br: Branch, **kw) -> Dict[str, Any]:
+    async def apply(self, br: Branch, **kw) -> dict[str, Any]:
         call_kw = _build_call_kwargs(br, kw, self.bind, self.defaults)
         return await self.inner.apply(br, **call_kw)
 
-    async def post(self, br: Branch, result: Dict[str, Any]) -> bool:
+    async def post(self, br: Branch, result: dict[str, Any]) -> bool:
         # post doesn't need new kwargs, pass result through
         return await self.inner.post(br, result)

@@ -31,5 +31,7 @@ async def emit_node_start(bus: EventBus, br: Branch, node: OpNode) -> None:
     await bus.emit("node.start", br, node)
 
 
-async def emit_node_finish(bus: EventBus, br: Branch, node: OpNode, result: dict) -> None:
+async def emit_node_finish(
+    bus: EventBus, br: Branch, node: OpNode, result: dict
+) -> None:
     await bus.emit("node.finish", br, node, result)

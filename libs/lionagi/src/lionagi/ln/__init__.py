@@ -1,12 +1,15 @@
-from .concurrency import *
 from ._utils import now_utc
-
+from .concurrency import *
 
 __all__ = (
     "CancelScope",
     "fail_after",
     "move_on_after",
+    "fail_at",
+    "move_on_at",
+    "effective_deadline",
     "get_cancelled_exc_class",
+    "is_cancelled",
     "shield",
     "TaskGroup",
     "create_task_group",
@@ -14,6 +17,8 @@ __all__ = (
     "Semaphore",
     "CapacityLimiter",
     "Queue",
+    "Event",
+    "Condition",
     "gather",
     "race",
     "bounded_map",
@@ -23,5 +28,6 @@ __all__ = (
     "untrack_resource",
     "LeakInfo",
     "LeakTracker",
-    "now_utc"
+    "is_coro_func",
+    "now_utc",
 )

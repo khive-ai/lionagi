@@ -51,7 +51,9 @@ class Runner:
             if not batch:
                 raise RuntimeError("No executable nodes (cycle or bad roots)")
             ready -= {n.id for n in batch}
-            tasks = [asyncio.create_task(self._exec_node(br, n, results)) for n in batch]
+            tasks = [
+                asyncio.create_task(self._exec_node(br, n, results)) for n in batch
+            ]
             finished = await asyncio.gather(*tasks)
             for nid, _ in finished:
                 done.add(nid)

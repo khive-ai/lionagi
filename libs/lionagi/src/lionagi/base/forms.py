@@ -21,7 +21,7 @@ def parse_assignment(
     for seg in [s.strip() for s in expr.split(";") if s.strip()]:
         if "->" not in seg:
             raise ValueError(f"Invalid segment: {seg!r}")
-        left, right = [x.strip() for x in seg.split("->", 1)]
+        left, right = (x.strip() for x in seg.split("->", 1))
         ins = [t.strip() for t in left.split(",") if t.strip()]
         outs = [t.strip() for t in right.split(",") if t.strip()]
         steps.append((ins, outs))
@@ -58,7 +58,9 @@ class Form(BaseForm, kw_only=True):
     task: str = ""  # optional: intent description
 
     def parse(self) -> None:
-        self.input_fields, self.output_fields, self.steps = parse_assignment(self.assignment)
+        self.input_fields, self.output_fields, self.steps = parse_assignment(
+            self.assignment
+        )
 
     def check_inputs(self) -> None:
         missing = [k for k in self.input_fields if k not in self.values]

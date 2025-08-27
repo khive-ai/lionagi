@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Callable, Dict
+from collections.abc import Callable
+from typing import Dict
 
 from lionagi.base.runner import Runner
 from lionagi.base.types import Branch
@@ -11,7 +12,7 @@ from lionagi.forms.spec import FormSpec, final_outputs, required_inputs
 async def run_form(
     br: Branch,
     form: FormSpec,
-    registry: Dict[str, MorphismFactory],
+    registry: dict[str, MorphismFactory],
     runner: Runner | None = None,
 ) -> dict:
     """
@@ -28,10 +29,15 @@ async def run_form(
     # early input check
     missing = sorted([k for k in req if k not in br.ctx])
     if missing:
-        raise ValueError(f"Form '{form.name}': missing required inputs in Branch.ctx: {missing}")
+        raise ValueError(
+            f"Form '{form.name}': missing required inputs in Branch.ctx: {missing}"
+        )
 
     if runner is None:
-        from lionagi.base.ipu import StrictIPU, default_invariants  # keep your existing names
+        from lionagi.base.ipu import (  # keep your existing names
+            StrictIPU,
+            default_invariants,
+        )
 
         runner = Runner(ipu=StrictIPU(default_invariants()))
 

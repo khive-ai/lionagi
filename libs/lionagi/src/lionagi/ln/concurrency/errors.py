@@ -10,9 +10,21 @@ import anyio
 T = TypeVar("T")
 
 
+__all__ = (
+    "get_cancelled_exc_class",
+    "is_cancelled",
+    "shield",
+)
+
+
 def get_cancelled_exc_class() -> type[BaseException]:
     """Return the backend-native cancellation exception class."""
     return anyio.get_cancelled_exc_class()
+
+
+def is_cancelled(exc: BaseException) -> bool:
+    """True if this is the backend-native cancellation exception."""
+    return isinstance(exc, anyio.get_cancelled_exc_class())
 
 
 async def shield(func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:

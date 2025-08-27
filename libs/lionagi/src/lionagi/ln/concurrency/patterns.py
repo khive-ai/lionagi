@@ -1,12 +1,30 @@
-"""Concurrency patterns built on anyio primitives."""
+"""Lion Async Concurrency Patterns - Structured concurrency coordination utilities.
+
+This module provides async coordination patterns built on AnyIO's structured
+concurrency primitives. All patterns are backend-neutral (asyncio/trio).
+
+Key Features:
+- gather: Concurrent execution with fail-fast or exception collection
+- race: First-to-complete coordination
+- bounded_map: Concurrent mapping with rate limiting
+- as_completed: Stream results as they become available
+- retry: Deadline-aware exponential backoff
+
+Note on Structural Concurrency:
+These patterns follow structured concurrency principles where possible, but
+some patterns (notably as_completed) have fundamental limitations when used
+with early breaks. See individual function docstrings for details.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable, Sequence
-from typing import AsyncIterator, TypeVar
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from typing import TypeVar
 
 import anyio
 
+from .cancel import effective_deadline
+from .errors import is_cancelled
 from .primitives import CapacityLimiter
 from .task import create_task_group
 
@@ -14,87 +32,156 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-async def gather(*aws: Awaitable[T], return_exceptions: bool = False) -> list[T | BaseException]:
-    """Collect results in call order. Cancel peers on first error unless returning exceptions."""
-    results: list[T | BaseException] = [None] * len(aws)  # type: ignore[list-item]
-    first_exc: BaseException | None = None
+__all__ = (
+    "gather",
+    "race",
+    "bounded_map",
+    "as_completed",
+    "retry",
+)
+
+
+async def gather(
+    *aws: Awaitable[T], return_exceptions: bool = False
+) -> list[T | BaseException]:
+    """Run awaitables concurrently, return list of results.
+
+    Args:
+        *aws: Awaitables to execute concurrently
+        return_exceptions: If True, exceptions are returned as results
+                           If False, first exception cancels all tasks and re-raises
+
+    Returns:
+        List of results in same order as input awaitables
+    """
+    if not aws:
+        return []
+
+    results: list[T | BaseException | None] = [None] * len(aws)
 
     async def _runner(idx: int, aw: Awaitable[T]) -> None:
-        nonlocal first_exc
         try:
             results[idx] = await aw
         except BaseException as exc:
             results[idx] = exc
-            if not return_exceptions and first_exc is None:
-                first_exc = exc
+            if not return_exceptions:
+                raise  # Propagate to the TaskGroup
 
-    async with create_task_group() as tg:
-        for i, aw in enumerate(aws):
-            tg.start_soon(_runner, i, aw)
+    try:
+        async with create_task_group() as tg:
+            for i, aw in enumerate(aws):
+                tg.start_soon(_runner, i, aw)
+    except ExceptionGroup as eg:
         if not return_exceptions:
+            # Find the first "real" exception and raise it.
+            non_cancel_excs = [e for e in eg.exceptions if not is_cancelled(e)]
+            if non_cancel_excs:
+                raise non_cancel_excs[0]
+            raise  # Re-raise group if all were cancellations
 
-            async def _watch() -> None:
-                nonlocal first_exc
-                while first_exc is None:
-                    await anyio.sleep(0)
-                tg.cancel_scope.cancel()
-
-            tg.start_soon(_watch)
-
-    if first_exc is not None and not return_exceptions:
-        raise first_exc
-    return results
+    return results  # type: ignore
 
 
 async def race(*aws: Awaitable[T]) -> T:
-    """Return the first successful result; cancel the rest."""
+    """Run awaitables concurrently, return result of first completion.
+
+    Returns the first result to complete, whether success or failure.
+    All other tasks are cancelled when first task completes.
+    If first completion is an exception, it's re-raised.
+
+    Note: This returns first *completion*, not first *success*.
+    For first-success semantics, consider implementing a first_success variant.
+    """
+    if not aws:
+        raise ValueError("race() requires at least one awaitable")
     send, recv = anyio.create_memory_object_stream(0)
 
     async def _runner(aw: Awaitable[T]) -> None:
-        res = await aw
-        await send.send(res)
+        try:
+            res = await aw
+            await send.send((True, res))
+        except BaseException as exc:
+            await send.send((False, exc))
 
     async with send, recv, create_task_group() as tg:
         for aw in aws:
             tg.start_soon(_runner, aw)
-        winner = await recv.receive()
+        ok, payload = await recv.receive()
         tg.cancel_scope.cancel()
-        return winner
+
+    # Raise outside the TaskGroup context to avoid ExceptionGroup wrapping
+    if ok:
+        return payload  # type: ignore[return-value]
+    raise payload  # type: ignore[misc]
 
 
 async def bounded_map(
-    func: Callable[[T], Awaitable[R]], items: Iterable[T], *, limit: int
-) -> list[R]:
-    """Apply func over items with up to ``limit`` concurrent tasks. Preserve order."""
+    func: Callable[[T], Awaitable[R]],
+    items: Iterable[T],
+    *,
+    limit: int,
+    return_exceptions: bool = False,
+) -> list[R | BaseException]:
+    """Apply async function to items with concurrency limit.
+
+    Args:
+        func: Async function to apply to each item
+        items: Items to process
+        limit: Maximum concurrent operations
+        return_exceptions: If True, exceptions are returned as results.
+                           If False, first exception cancels all tasks and re-raises.
+
+    Returns:
+        List of results in same order as input items.
+        If return_exceptions is True, exceptions are included in results.
+    """
     if limit <= 0:
         raise ValueError("limit must be >= 1")
 
     seq = list(items)
-    out: list[R] = [None] * len(seq)  # type: ignore[list-item]
+    if not seq:
+        return []
+
+    out: list[R | BaseException | None] = [None] * len(seq)
     limiter = CapacityLimiter(limit)
 
     async def _runner(i: int, x: T) -> None:
-        async with anyio.create_task_group() as inner:
-            # Use limiter as async context by acquiring/releasing
-            await limiter.acquire()
+        async with limiter:
             try:
                 out[i] = await func(x)
-            finally:
-                limiter.release()
+            except BaseException as exc:
+                out[i] = exc
+                if not return_exceptions:
+                    raise  # Propagate to the TaskGroup
 
-    async with create_task_group() as tg:
-        for i, x in enumerate(seq):
-            tg.start_soon(_runner, i, x)
+    try:
+        async with create_task_group() as tg:
+            for i, x in enumerate(seq):
+                tg.start_soon(_runner, i, x)
+    except ExceptionGroup as eg:
+        if not return_exceptions:
+            non_cancel_excs = [e for e in eg.exceptions if not is_cancelled(e)]
+            if non_cancel_excs:
+                raise non_cancel_excs[0]
+            raise
 
-    return out
+    return out  # type: ignore
 
 
 async def as_completed(
     aws: Sequence[Awaitable[T]], *, limit: int | None = None
 ) -> AsyncIterator[tuple[int, T]]:
-    """Yield (index, result) pairs in completion order. Optional concurrency limit."""
+    """Process completions as they occur.
+
+    WARNING: This pattern violates structured concurrency when used with early break.
+    Breaking from 'async for' will NOT cancel remaining tasks due to the async
+    generator + TaskGroup anti-pattern. All tasks will continue to completion.
+
+    This is a known limitation of structured concurrency frameworks.
+    See: https://anyio.readthedocs.io/en/stable/cancellation.html
+    """
     n = len(aws)
-    send, recv = anyio.create_memory_object_stream(0)
+    send, recv = anyio.create_memory_object_stream(n)
     limiter = CapacityLimiter(limit) if limit else None
 
     async def _runner(i: int, aw: Awaitable[T]) -> None:
@@ -107,11 +194,15 @@ async def as_completed(
             if limiter:
                 limiter.release()
 
+    # Cancel producers if the consumer breaks early (generator close).
     async with send, recv, create_task_group() as tg:
         for i, aw in enumerate(aws):
             tg.start_soon(_runner, i, aw)
-        for _ in range(n):
-            yield await recv.receive()
+        try:
+            for _ in range(n):
+                yield await recv.receive()
+        finally:
+            tg.cancel_scope.cancel()
 
 
 async def retry(
@@ -123,18 +214,47 @@ async def retry(
     retry_on: tuple[type[BaseException], ...] = (Exception,),
     jitter: float = 0.1,
 ) -> T:
-    """Exponential backoff retry with jitter."""
+    """Deadline-aware exponential backoff retry.
+
+    If an ambient effective deadline exists, cap each sleep so the retry loop
+    never outlives its parent scope.
+
+    Args:
+        fn: Async function to retry (takes no args)
+        attempts: Maximum retry attempts
+        base_delay: Initial delay between retries
+        max_delay: Maximum delay between retries
+        retry_on: Exception types that trigger retry
+        jitter: Random jitter added to delay (0.0 to 1.0)
+
+    Returns:
+        Result of successful function call
+
+    Raises:
+        Last exception if all attempts fail
+    """
     attempt = 0
+    deadline = effective_deadline()
     while True:
         try:
             return await fn()
-        except retry_on:
+        except retry_on as exc:
             attempt += 1
             if attempt >= attempts:
                 raise
+
             delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
             if jitter:
                 import random
 
-                delay += random.random() * jitter
+                delay *= 1 + random.random() * jitter
+
+            # Cap by ambient deadline if one exists
+            if deadline is not None:
+                remaining = deadline - anyio.current_time()
+                if remaining <= 0:
+                    # Out of time; surface the last error
+                    raise
+                delay = min(delay, remaining)
+
             await anyio.sleep(delay)

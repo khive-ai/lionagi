@@ -23,7 +23,9 @@ class IPU(Protocol):
     invariants: list[Invariant]
 
     async def before_node(self, br: Branch, node: OpNode) -> None: ...
-    async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None: ...
+    async def after_node(
+        self, br: Branch, node: OpNode, result: dict[str, Any]
+    ) -> None: ...
     async def on_observation(self, obs: Observation) -> None: ...
 
 
@@ -180,7 +182,9 @@ class CtxWriteSet:
         before = self._snap.pop((br.id, node.id), {})
         after = br.ctx
         added = set(after.keys()) - set(before.keys())
-        modified = {k for k in (set(after.keys()) & set(before.keys())) if after[k] != before[k]}
+        modified = {
+            k for k in (set(after.keys()) & set(before.keys())) if after[k] != before[k]
+        }
         changed = added | modified
         return changed.issubset(set(allowed))
 
@@ -241,7 +245,9 @@ class LenientIPU:
                 # Log only in lenient mode
                 print(f"[WARN][{inv.name}] pre-phase violation at node {node.id}")
 
-    async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None:
+    async def after_node(
+        self, br: Branch, node: OpNode, result: dict[str, Any]
+    ) -> None:
         for inv in self.invariants:
             ok = inv.post(br, node, result)
             if not ok:
@@ -257,12 +263,18 @@ class StrictIPU(LenientIPU):
     async def before_node(self, br: Branch, node: OpNode) -> None:
         for inv in self.invariants:
             if not inv.pre(br, node):
-                raise AssertionError(f"Invariant failed (pre): {inv.name} at node {node.id}")
+                raise AssertionError(
+                    f"Invariant failed (pre): {inv.name} at node {node.id}"
+                )
 
-    async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None:
+    async def after_node(
+        self, br: Branch, node: OpNode, result: dict[str, Any]
+    ) -> None:
         for inv in self.invariants:
             if not inv.post(br, node, result):
-                raise AssertionError(f"Invariant failed (post): {inv.name} at node {node.id}")
+                raise AssertionError(
+                    f"Invariant failed (post): {inv.name} at node {node.id}"
+                )
 
 
 def default_invariants() -> list[Invariant]:

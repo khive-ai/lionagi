@@ -3,24 +3,23 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
-from msgspec import field, Struct
 
-import lionagi.ln as ln
+from lionagi.ln import now_utc
+from msgspec import Struct, field
 
 
 class Observable(Struct, kw_only=True):
     """Observable atom: stable id + timestamp + lineage."""
 
     id: UUID = field(default_factory=uuid4)
-    ts: datetime = field(default_factory=ln.now_utc)
+    ts: datetime = field(default_factory=now_utc)
     lineage: tuple[UUID, ...] = field(default_factory=tuple)
     tags: tuple[str, ...] = field(default_factory=tuple)
 
 
 class Observation(Struct, kw_only=True):
-
     id: UUID = field(default_factory=uuid4)
-    ts: datetime = field(default_factory=ln.now_utc)
+    ts: datetime = field(default_factory=now_utc)
     lineage: tuple[UUID, ...] = field(default_factory=tuple)
     tags: tuple[str, ...] = field(default_factory=tuple)
 
@@ -29,15 +28,6 @@ class Observation(Struct, kw_only=True):
     what: str = ""
     """such as "node.start" | "node.finish" | ..."""
     payload: dict[str, Any] = field(default_factory=dict)
-
-
-
-
-
-
-class Observation
-
-
 
 
 class Capability(Struct, kw_only=True):
