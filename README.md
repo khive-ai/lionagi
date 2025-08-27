@@ -38,12 +38,12 @@ pip install lionagi # or install directly
 from lionagi import Branch, iModel
 
 # Pick a model
-gpt41 = iModel(provider="openai", model="gpt-4.1-mini")
+gpt4o = iModel(provider="openai", model="gpt-4o-mini")
 
 # Create a Branch (conversation context)
 hunter = Branch(
   system="you are a hilarious dragon hunter who responds in 10 words rhymes.",
-  chat_model=gpt41,
+  chat_model=gpt4o,
 )
 
 # Communicate asynchronously
@@ -90,6 +90,9 @@ pip install "lionagi[reader]"
 ```python
 from lionagi.tools.types import ReaderTool
 
+# Define model first
+gpt4o = iModel(provider="openai", model="gpt-4o-mini")
+
 branch = Branch(chat_model=gpt4o, tools=ReaderTool)
 result = await branch.ReAct(
     instruct={
@@ -130,7 +133,7 @@ sonnet = iModel(
   max_tokens=1000,                    # max_tokens is required for anthropic models
 )
 
-branch = Branch(chat_model=gpt41)
+branch = Branch(chat_model=gpt4o)
 analysis = await branch.communicate("Analyze these stats", chat_model=sonnet) # Switch mid-flow
 ```
 

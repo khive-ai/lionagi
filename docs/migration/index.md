@@ -4,10 +4,22 @@ Migrate from other AI frameworks to LionAGI.
 
 ## Available Migration Guides
 
-- **[From LangChain](from-langchain.md)** - Migrate LangChain workflows to
-  LionAGI
-- **[From CrewAI](from-crewai.md)** - Convert CrewAI crews to LionAGI workflows
-- **[From AutoGen](from-autogen.md)** - Adapt AutoGen conversations for LionAGI
+!!! tip "Choose Your Migration Path"
+    **Coming from LangChain/LangGraph?** → [LangChain Migration Guide](from-langchain.md) - Reduce complexity by 90%  
+    **Coming from CrewAI?** → [CrewAI Migration Guide](from-crewai.md) - Keep your crew concepts, gain performance  
+    **Coming from AutoGen?** → [AutoGen Migration Guide](from-autogen.md) - Replace conversations with graphs
+
+### [From LangChain](from-langchain.md)
+
+Escape LCEL complexity and gain true parallel execution. Perfect if you're tired of complex state management and want cleaner abstractions.
+
+### [From CrewAI](from-crewai.md)  
+
+Keep your agent crew concepts while gaining LionAGI's superior orchestration. Ideal if you like CrewAI's simplicity but need better performance.
+
+### [From AutoGen](from-autogen.md)
+
+Replace unpredictable agent conversations with deterministic workflow graphs. Great if you want AutoGen's multi-agent power with production reliability.
 
 ## Migration Philosophy
 

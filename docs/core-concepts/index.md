@@ -1,8 +1,17 @@
 # Core Concepts
 
-Understand how LionAGI works under the hood.
+!!! info "You're in Step 3 of the Learning Path"
+    You've learned [why LionAGI is different](../thinking-in-lionagi/why-lionagi.md). Now let's understand the practical mechanics that make it work.
+
+Understanding LionAGI's core abstractions is essential for building effective multi-agent workflows. These concepts work together to provide the parallel execution, memory isolation, and flexible orchestration that make LionAGI powerful.
 
 ## Key Abstractions
+
+!!! tip "Learning Order"
+    Read these in order for best understanding:  
+    1. **Sessions & Branches** (the foundation)  
+    2. **Operations** (how work gets done)  
+    3. **Messages & Memory** (how context works)
 
 ### [Sessions and Branches](sessions-and-branches.md)
 
@@ -57,3 +66,11 @@ Session (Workspace)
     ├── Operations
     └── Dependencies
 ```
+
+---
+
+!!! success "Ready to Build Workflows?"
+    Now that you understand the core concepts, it's time to see them in action:
+    
+    **Next:** [Patterns](../patterns/) - Learn proven multi-agent workflow patterns  
+    **Or:** [Cookbook](../cookbook/) - Jump to complete working examples
