@@ -1,6 +1,9 @@
 # Patterns
 
-Proven multi-agent workflows that solve common problems.
+!!! info "You're in Step 4 of the Learning Path"
+    You've mastered the [core concepts](../core-concepts/). Now let's apply them with proven workflow patterns that solve real-world problems.
+
+These patterns represent battle-tested approaches to common multi-agent scenarios. Each pattern includes complete working code, use cases, and performance characteristics.
 
 ## Available Patterns
 
@@ -66,3 +69,11 @@ Sequential (extract) → Conditional (classify) → Fan-Out (process by type)
 ```
 Fan-Out (options) → Tournament (evaluate) → Sequential (implement)
 ```
+
+---
+
+!!! success "Ready for Production Examples?"
+    You've learned the patterns - now see them implemented in complete, production-ready workflows:
+    
+    **Next:** [Cookbook](../cookbook/) - Complete working examples you can copy and modify  
+    **Or:** [Advanced Topics](../advanced/) - Deep dive into custom operations and optimization

@@ -77,28 +77,26 @@ result = await branch.operate(any_operation, **params)
 
 ### 2. Natural Composition
 ```python
-from lionagi.patterns import compose_sequential, compose_parallel
+import asyncio
 
-# Build complex from simple
-research_pipeline = compose_sequential(
-    GatherSources(),
-    ValidateSources(),
-    AnalyzeData(),
-    GenerateInsights(),
-    CreateReport()
-)
+# Build complex from simple - Sequential pipeline
+async def research_pipeline(branch, topic):
+    # Execute operations sequentially, passing data through pipeline
+    data = topic
+    for operation in [GatherSources(), ValidateSources(), AnalyzeData(), GenerateInsights(), CreateReport()]:
+        data = await branch.operate(operation, data=data)
+    return data
 
 # Or parallel processing
-multi_analysis = compose_parallel(
-    StatisticalAnalysis(),
-    SentimentAnalysis(),
-    TrendAnalysis(),
-    CompetitorAnalysis()
+analyses = await asyncio.gather(
+    branch.operate(StatisticalAnalysis(), data=market_data),
+    branch.operate(SentimentAnalysis(), data=market_data),
+    branch.operate(TrendAnalysis(), data=market_data),
+    branch.operate(CompetitorAnalysis(), data=market_data)
 )
 
-# They're just operations
-result = await branch.operate(research_pipeline, topic="AI trends")
-analyses = await branch.operate(multi_analysis, data=market_data)
+# Execute the pipeline
+result = await research_pipeline(branch, "AI trends")
 ```
 
 ### 3. Cross-Branch Orchestration
@@ -203,11 +201,15 @@ langchain_op = LangChainWrapper(my_chain)
 crew_op = CrewAIWrapper(my_crew)
 autogen_op = AutoGenWrapper(my_agents)
 
-# Orchestrate across frameworks
-result = await branch.operate(
-    compose_sequential(langchain_op, crew_op, autogen_op),
-    initial_input=data
-)
+# Orchestrate across frameworks - Sequential execution
+async def multi_framework_pipeline(branch, data):
+    # Execute framework operations sequentially
+    current_data = data
+    for op in [langchain_op, crew_op, autogen_op]:
+        current_data = await branch.operate(op, data=current_data)
+    return current_data
+
+result = await multi_framework_pipeline(branch, data)
 ```
 
 ## Key Takeaways

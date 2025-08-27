@@ -1,6 +1,9 @@
 # Integrations
 
-Connect LionAGI with external services and frameworks.
+!!! info "For Production Systems"
+    This section helps you connect LionAGI to real-world systems - databases, APIs, tools, and other AI frameworks.
+
+Connect LionAGI with external services and frameworks to build comprehensive AI systems.
 
 ## Available Integrations
 
@@ -40,3 +43,20 @@ This works with:
 - **Wrapper Operations**: Embed external tools as LionAGI operations
 - **Multi-Framework**: Coordinate multiple frameworks in single workflow
 - **Gradual Migration**: Keep existing code while gaining orchestration benefits
+
+## When You Need Integrations
+
+!!! success "Use Integrations When:"
+    - **Persistent data**: Need to store workflow results in databases
+    - **External knowledge**: RAG systems with vector stores and knowledge bases
+    - **Tool augmentation**: Agents need access to APIs, calculators, or specialized services
+    - **Framework combination**: Want to orchestrate existing LangChain/CrewAI workflows
+    - **Production deployment**: Need monitoring, logging, and enterprise infrastructure
+
+## Getting Started
+
+!!! tip "Integration Strategy"
+    **Start simple**: Begin with [LLM Providers](llm-providers.md) and [Tools](tools.md)  
+    **Add persistence**: Connect [Databases](databases.md) for workflow state  
+    **Scale up**: Add [Vector Stores](vector-stores.md) for knowledge-intensive workflows  
+    **Orchestrate**: Integrate existing frameworks with [meta-orchestration patterns](#meta-orchestration)

@@ -15,12 +15,14 @@ uv add lionagi[postgres]
 ### Basic Usage
 
 ```python
-from lionagi.adapters import AsyncPostgresAdapter
-from lionagi.session import Session
+# Note: Database integration requires custom implementation
+# This is a conceptual example - actual implementation varies
+from pydapter.extras.async_postgres_ import AsyncPostgresAdapter
+from lionagi import Branch, iModel
 import asyncio
 
 async def main():
-    # Database connection
+    # Database connection using pydapter
     adapter = AsyncPostgresAdapter(
         host="localhost",
         port=5432,
@@ -29,15 +31,17 @@ async def main():
         password="your_password"
     )
     
-    # Initialize session with persistence
-    session = Session(
-        imodel="gpt-4o-mini",
-        persist_path="postgresql://user:pass@localhost/lionagi_db"
+    # Create branch with model
+    branch = Branch(
+        chat_model=iModel(provider="openai", model="gpt-4o-mini")
     )
     
-    # Your session data will be automatically persisted
-    result = await session.chat("Hello, I'm testing persistence")
+    # Chat and manually persist if needed
+    result = await branch.communicate("Hello, I'm testing database integration")
     print(result)
+    
+    # Custom persistence logic would go here
+    # await adapter.insert("conversations", {"message": result, "timestamp": datetime.now()})
 
 asyncio.run(main())
 ```
@@ -87,24 +91,32 @@ uv add lionagi[sqlite]
 ### Basic Usage
 
 ```python
-from lionagi.session import Session
+# Note: Automatic persistence requires custom implementation
+from lionagi import Branch, iModel
 import aiosqlite
 import asyncio
+from datetime import datetime
 
 async def main():
-    # Local SQLite session with persistence
-    session = Session(
-        imodel="gpt-4o-mini",
-        persist_path="sqlite:///./lionagi_sessions.db"
+    # Create branch with SQLite for manual persistence
+    branch = Branch(
+        chat_model=iModel(provider="openai", model="gpt-4o-mini")
     )
     
-    # Chat with automatic persistence
-    response = await session.chat(
+    # Chat without automatic persistence
+    response = await branch.communicate(
         "Remember this: I prefer technical explanations."
     )
     
-    # Session state is saved automatically
-    await session.close()
+    # Manual persistence example
+    async with aiosqlite.connect("lionagi_sessions.db") as db:
+        await db.execute(
+            "INSERT INTO conversations (message, timestamp) VALUES (?, ?)",
+            (str(response), datetime.now())
+        )
+        await db.commit()
+    
+    print(response)
 
 asyncio.run(main())
 ```
@@ -314,7 +326,7 @@ class MongoAgentStore:
         docs = await cursor.to_list(length=50)
         return [AgentDocument(**doc) for doc in docs]
 
-# Usage with LionAGI session
+# Usage with Branch instead of fabricated Session API
 async def main():
     store = MongoAgentStore(
         "mongodb://localhost:27017",
@@ -327,16 +339,26 @@ async def main():
         ("metadata.tags", "text")
     ])
     
-    # Use with session
-    session = Session(imodel="gpt-4o-mini")
+    # Use with branch
+    branch = Branch(
+        chat_model=iModel(provider="openai", model="gpt-4o-mini")
+    )
     
-    response = await session.chat("Explain quantum computing briefly")
+    response = await branch.communicate("Explain quantum computing briefly")
     
-    # Store session data
+    # Extract messages manually for storage
+    messages = []
+    for msg in getattr(branch, 'messages', []):
+        messages.append({
+            'content': str(msg),
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    # Store branch data
     doc = AgentDocument(
         agent_id="quantum_expert",
-        session_id=session.session_id,
-        messages=session.messages_to_dict(),
+        session_id=f"session_{datetime.now().timestamp()}",
+        messages=messages,
         metadata={"topic": "quantum_computing", "complexity": "beginner"},
         created_at=datetime.now(),
         updated_at=datetime.now()
@@ -362,46 +384,54 @@ async def main():
 ### Session State Management
 
 ```python
-from lionagi.session import Session
+# Custom session state management example
+from lionagi import Branch
 from lionagi.models import FieldModel
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
 import json
 
-class SessionState(FieldModel):
-    session_id: str
-    agent_config: Dict[str, Any]
+class BranchState(FieldModel):
+    branch_id: str
+    system_prompt: str
     message_history: List[dict]
-    context_variables: Dict[str, Any]
+    metadata: Dict[str, Any]
     last_updated: datetime
 
-class DatabaseSessionManager:
+class DatabaseBranchManager:
     def __init__(self, adapter):
         self.adapter = adapter
     
-    async def save_session(self, session: Session):
-        state = SessionState(
-            session_id=session.session_id,
-            agent_config=session.get_config(),
-            message_history=session.messages_to_dict(),
-            context_variables=session.get_context(),
+    async def save_branch(self, branch: Branch, branch_id: str):
+        # Extract messages manually (example structure)
+        messages = []
+        for msg in getattr(branch, 'messages', []):
+            messages.append({
+                'role': getattr(msg, 'role', 'unknown'),
+                'content': getattr(msg, 'content', str(msg))
+            })
+        
+        state = BranchState(
+            branch_id=branch_id,
+            system_prompt=getattr(branch, 'system', ''),
+            message_history=messages,
+            metadata={'model': str(getattr(branch, 'chat_model', None))},
             last_updated=datetime.now()
         )
         
-        await self.adapter.upsert("session_states", state.model_dump())
+        await self.adapter.upsert("branch_states", state.model_dump())
     
-    async def load_session(self, session_id: str) -> Optional[Session]:
-        state_data = await self.adapter.get("session_states", session_id)
+    async def load_branch_data(self, branch_id: str) -> Optional[BranchState]:
+        state_data = await self.adapter.get("branch_states", branch_id)
         if not state_data:
             return None
             
-        state = SessionState(**state_data)
-        session = Session.from_state(state)
-        return session
+        return BranchState(**state_data)
     
-    async def cleanup_old_sessions(self, days_old: int = 30):
+    async def cleanup_old_branches(self, days_old: int = 30):
         cutoff_date = datetime.now() - timedelta(days=days_old)
         await self.adapter.delete_where(
-            "session_states", 
+            "branch_states", 
             "last_updated < %s", 
             cutoff_date
         )
@@ -453,8 +483,9 @@ class AgentKnowledgeBase:
 ### Performance Optimization
 
 ```python
-# Connection pooling for high-throughput scenarios
-from lionagi.adapters import AsyncPostgresAdapter
+# Connection pooling for high-throughput scenarios  
+# Note: Use pydapter for actual PostgreSQL connections
+from pydapter.extras.async_postgres_ import AsyncPostgresAdapter
 import asyncpg
 
 class OptimizedDatabaseManager:

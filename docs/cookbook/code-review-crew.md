@@ -77,6 +77,8 @@ quality_branch = Branch(
 
 session.include_branches([security_branch, quality_branch])
 
+# Code snippet to review (example with SQL injection vulnerability)
+user_input = "1 OR 1=1"  # Example malicious input
 code_snippet = "SELECT * FROM users WHERE id=" + user_input
 
 # Parallel review operations

@@ -5,7 +5,7 @@ Distribute work to multiple agents in parallel, then combine their results.
 ## Basic Pattern
 
 ```python
-from lionagi import Session, Builder
+from lionagi import Session, Builder, Branch, iModel
 
 session = Session()
 builder = Builder()
@@ -77,6 +77,10 @@ landscape", "Focus on Python frameworks from last 2 years" )
 ## Production Implementation with Cost Tracking
 
 ```python
+from lionagi import Branch, iModel, Session, Builder
+from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
+from lionagi.models import AssistantResponse
+
 async def production_fan_out_in():
     """Production version with error handling and cost tracking"""
     
@@ -161,19 +165,19 @@ asyncio.run(production_fan_out_in())
 
 ## When to Use
 
-**Perfect for:**
+!!! success "Perfect For"
+    - **Complex research**: Multiple perspectives on the same topic
+    - **Code reviews**: Security, performance, style analysis in parallel
+    - **Market analysis**: Different domain experts working simultaneously  
+    - **Large datasets**: Parallel investigation and analysis
 
-- Complex research requiring multiple perspectives
-- Code reviews from security/performance/style angles
-- Market analysis with different domain experts
-- Large dataset investigation needing parallel approaches
-
-**Pattern indicators:**
-
-- Problem benefits from simultaneous analysis
-- Individual tasks can run independently
-- Final answer requires synthesis of perspectives
-- Time constraints favor parallel over sequential
+!!! tip "Pattern Indicators"
+    Use fan-out/in when:
+    
+    - Problem benefits from simultaneous analysis
+    - Individual tasks can run independently  
+    - Final answer requires synthesis of perspectives
+    - Time constraints favor parallel over sequential execution
 
 ## Execution Flow
 
@@ -229,11 +233,14 @@ except Exception as e:
 
 ## Performance Characteristics
 
-- **Speed**: 3-4x faster than sequential for complex analysis
-- **Quality**: Higher insights through diverse perspectives
-- **Success Rate**: ~95% completion rate
-- **Scale**: Optimal with 3-5 parallel researchers
-- **Cost**: Proportional to number of researchers
+!!! info "Expected Performance"
+    - **Speed**: 3-4x faster than sequential for complex analysis
+    - **Quality**: Higher insights through diverse perspectives  
+    - **Success Rate**: ~95% completion rate
+    - **Scale**: Optimal with 3-5 parallel researchers
+    
+!!! note "Cost Considerations"
+    Cost scales proportionally with number of parallel researchers. Balance thoroughness vs. expense based on your use case.
 
 Fan-out/in delivers comprehensive analysis through parallel specialization,
 making complex investigations both faster and more thorough.

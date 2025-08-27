@@ -1,6 +1,9 @@
 # Cookbook
 
-Complete, working examples you can copy and modify.
+!!! info "You're in Step 5 of the Learning Path"
+    You've learned the [patterns](../patterns/). Now grab these complete, working examples that you can copy, modify, and use in production.
+
+These recipes are production-ready implementations that demonstrate LionAGI patterns in real-world scenarios. Each includes full code, expected outputs, performance metrics, and customization guidance.
 
 ## Available Recipes
 
@@ -71,3 +74,18 @@ Have a useful pattern? Submit a PR with:
 2. Clear use case
 3. Expected output
 4. Performance metrics
+
+---
+
+!!! success "Congratulations! 🎉"
+    You've completed the LionAGI learning path! You now have:
+    
+    - ✅ Understanding of LionAGI's paradigm and advantages
+    - ✅ Knowledge of core concepts and architecture  
+    - ✅ Proven patterns for common workflows
+    - ✅ Production-ready examples to build upon
+    
+    **What's next?**
+    - [Advanced Topics](../advanced/) - Custom operations, performance tuning, observability
+    - [Integrations](../integrations/) - Connect with databases, tools, and services
+    - [Migration Guides](../migration/) - If you're coming from other frameworks

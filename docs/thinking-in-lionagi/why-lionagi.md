@@ -114,18 +114,16 @@ synthesis = await synthesizer.combine(perspectives)
 
 ## When LionAGI Makes Sense
 
-### Good Fit
+!!! success "Good Fit For"
+    - **Multiple perspectives**: Research, analysis, code review from different angles
+    - **Parallel processing**: Speed up workflows with concurrent execution  
+    - **Predictable workflows**: Deterministic graphs instead of unpredictable conversations
+    - **Production systems**: Built-in monitoring, error handling, and performance control
 
-- Need multiple perspectives on the same problem
-- Want parallel processing for speed
-- Require predictable, reproducible workflows
-- Building production systems
-
-### Not Ideal For
-
-- Simple single-agent tasks
-- Pure chatbot applications
-- Experimental conversational AI
+!!! warning "Not Ideal For"
+    - **Simple single-agent tasks**: Use a basic chatbot library instead
+    - **Pure chatbot applications**: LionAGI is overkill for simple Q&A
+    - **Experimental conversational AI**: Other frameworks may be more flexible for research
 
 ## Migration Example
 

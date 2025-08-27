@@ -1,6 +1,9 @@
 # Thinking in LionAGI
 
-Learn the mental model that makes LionAGI different.
+!!! info "You're in Step 2 of the Learning Path"
+    Coming from the [Quick Start](../quickstart/)? Great! Now let's understand the mental model that makes LionAGI different from other frameworks.
+
+The key to successfully using LionAGI is understanding its fundamental paradigm shift: **from conversations to graphs, from sequential to parallel, from rigid to flexible.**
 
 ## Core Ideas
 
@@ -73,3 +76,11 @@ researcher = Agent(role="researcher")
 branch = Branch(system=context_specific_prompt)
 # Adapts to the task at hand
 ```
+
+---
+
+!!! success "Ready for Core Concepts?"
+    Now that you understand LionAGI's mental model, dive into the practical mechanics:
+    
+    **Next:** [Core Concepts](../core-concepts/) - Learn Sessions, Branches, Operations, and Memory  
+    **Or jump to:** [Patterns](../patterns/) if you want to see these concepts in action
