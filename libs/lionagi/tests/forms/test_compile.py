@@ -124,7 +124,11 @@ class TestCompileTimeDataflowChecks:
         """Test that multiple steps producing same ctx key are rejected."""
         # Two steps both map their output to same ctx key
         step_a = StepSpec(
-            name="step_a", op="op1", inputs=[], outputs=["result"], out_map={"result": "shared_key"}
+            name="step_a",
+            op="op1",
+            inputs=[],
+            outputs=["result"],
+            out_map={"result": "shared_key"},
         )
 
         step_b = StepSpec(
@@ -240,7 +244,12 @@ class TestCompileTimeDataflowChecks:
                 outputs=["transformed"],
                 out_map={"transformed": "final_data"},
             ),
-            StepSpec(name="output_step", op="output_op", inputs=["final_data"], outputs=["result"]),
+            StepSpec(
+                name="output_step",
+                op="output_op",
+                inputs=["final_data"],
+                outputs=["result"],
+            ),
         ]
 
         flow = FlowSpec(steps=steps)

@@ -199,6 +199,47 @@ class TestEventBusRobustness:
             assert "timeout" in warning_message.lower() or "slow" in warning_message.lower()
 
     @pytest.mark.anyio
+    async def test_unsubscribe_idempotent(self):
+        """Test that unsubscribe is idempotent (no error on missing handler)."""
+        bus = EventBus()
+
+        async def handler():
+            pass
+
+        # Unsubscribe from non-existent topic - should not error
+        bus.unsubscribe("missing.topic", handler)
+
+        # Unsubscribe handler that was never subscribed - should not error
+        bus.unsubscribe("test.topic", handler)
+
+        # Subscribe, unsubscribe, then unsubscribe again
+        bus.subscribe("test.topic", handler)
+        bus.unsubscribe("test.topic", handler)
+        bus.unsubscribe("test.topic", handler)  # Should be no-op
+
+    @pytest.mark.anyio
+    async def test_per_emit_timeout_override(self):
+        """Test per-emit timeout override functionality."""
+        bus = EventBus(handler_timeout=0.01)  # Very short default - 10ms
+        events = []
+
+        async def moderately_slow_handler(arg):
+            await anyio.sleep(0.05)  # 50ms delay
+            events.append(arg)
+
+        bus.subscribe("timeout_test", moderately_slow_handler)
+
+        # Should timeout with default (10ms)
+        await bus.emit("timeout_test", "default_timeout")
+        await anyio.sleep(0.1)  # Wait for any completion
+        assert len(events) == 0, "Should timeout with default setting"
+
+        # Should succeed with longer override (100ms)
+        await bus.emit("timeout_test", "override_timeout", timeout_s=0.1)
+        await anyio.sleep(0.15)  # Wait for completion
+        assert "override_timeout" in events, "Should complete with timeout override"
+
+    @pytest.mark.anyio
     async def test_unsubscribe_functionality(self):
         """Test that handlers can be properly unsubscribed."""
         bus = EventBus()

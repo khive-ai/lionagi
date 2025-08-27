@@ -45,7 +45,10 @@ class TestStepSpecSemantics:
 
         # Invalid case would be handled by validation (when implemented)
         # For now, we can test the logical constraint
-        invalid_out_map = {"out1": "ctx_a", "unknown_key": "ctx_b"}  # unknown_key not in outputs
+        invalid_out_map = {
+            "out1": "ctx_a",
+            "unknown_key": "ctx_b",
+        }  # unknown_key not in outputs
 
         # The constraint that should be enforced: out_map.keys() ⊆ outputs
         outputs = ["out1", "out2"]
@@ -146,7 +149,12 @@ class TestRequiredInputsAndFinalOutputs:
     def test_final_outputs_basic(self):
         """Test final_outputs analysis with basic flow."""
         steps = [
-            StepSpec(name="step1", op="op1", inputs=[], outputs=["intermediate", "debug_info"]),
+            StepSpec(
+                name="step1",
+                op="op1",
+                inputs=[],
+                outputs=["intermediate", "debug_info"],
+            ),
             StepSpec(
                 name="step2",
                 op="op2",
@@ -220,7 +228,10 @@ class TestRequiredInputsAndFinalOutputs:
             ),
             # Parallel metadata processor
             StepSpec(
-                name="meta_processor", op="meta_op", inputs=["metadata"], outputs=["meta_report"]
+                name="meta_processor",
+                op="meta_op",
+                inputs=["metadata"],
+                outputs=["meta_report"],
             ),
         ]
 
@@ -279,7 +290,10 @@ class TestRequiredInputsAndFinalOutputs:
         """Test analysis of single-step flow."""
         single_step = [
             StepSpec(
-                name="only_step", op="only_op", inputs=["external_input"], outputs=["final_output"]
+                name="only_step",
+                op="only_op",
+                inputs=["external_input"],
+                outputs=["final_output"],
             )
         ]
 

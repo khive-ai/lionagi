@@ -64,7 +64,12 @@ class TestPolicyWildcardBehavior:
         """Test detailed wildcard prefix matching behavior."""
         test_cases = [
             # (have_right, required_right, should_allow, description)
-            ("fs.read:/app/*", "fs.read:/app/data.txt", True, "Wildcard covers specific file"),
+            (
+                "fs.read:/app/*",
+                "fs.read:/app/data.txt",
+                True,
+                "Wildcard covers specific file",
+            ),
             (
                 "fs.read:/app/*",
                 "fs.read:/app/subdir/file.txt",
@@ -89,8 +94,18 @@ class TestPolicyWildcardBehavior:
                 False,
                 "Concrete doesn't satisfy wildcard requirement",
             ),
-            ("net.out:*.api.com", "net.out:sub.api.com", True, "Wildcard covers subdomain"),
-            ("net.out:*.api.com", "net.out:api.com", False, "Wildcard doesn't cover root domain"),
+            (
+                "net.out:*.api.com",
+                "net.out:sub.api.com",
+                True,
+                "Wildcard covers subdomain",
+            ),
+            (
+                "net.out:*.api.com",
+                "net.out:api.com",
+                False,
+                "Wildcard doesn't cover root domain",
+            ),
             (
                 "net.out:*.api.com",
                 "net.out:other.com",
