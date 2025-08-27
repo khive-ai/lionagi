@@ -3,7 +3,7 @@
 > **Central coordination engine for arbitrary orchestration patterns**
 
 <div style="margin: 2em 0;">
-<strong>LionAGI is evolving:</strong> From a collection of operations to a coordination engine where you define operations and we orchestrate them - agentic or otherwise.
+<strong>LionAGI is evolving:</strong> From a collection of operations to a coordination engine where you define operations and LionAGI orchestrates them - agentic or otherwise.
 </div>
 
 ---

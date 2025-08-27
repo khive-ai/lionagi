@@ -27,8 +27,8 @@ import asyncio
 from lionagi import Branch, iModel
 
 # Create agents with distinct roles
-analyst = Branch(chat_model=iModel(model="openai/gpt-4o-mini"))
-critic = Branch(chat_model=iModel(model="openai/gpt-4o-mini"))
+analyst = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
+critic = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
 
 # Run them together in parallel
 async def analyze(topic):

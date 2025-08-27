@@ -167,10 +167,11 @@ result = await session.flow(builder.get_graph())
 ```
 
 !!! success "Why This Is Better"
-    **No state classes**: LionAGI manages complexity internally  
-    **Automatic orchestration**: Dependencies handled automatically, no manual edge configuration  
-    **Natural syntax**: Reads like what you want to accomplish  
-    **Implicit parallelism**: Research and analysis can run in parallel where LangGraph runs sequentially
+    **No state classes**: LionAGI eliminates the need for TypedDict state definitions - the framework handles data flow automatically  
+    **Zero boilerplate**: Compare 6 lines of LionAGI vs 30+ lines of LangGraph for the same workflow  
+    **Automatic orchestration**: Dependencies are declared once with `depends_on`, not manually configured with edges  
+    **Natural syntax**: Code reads like the business logic you want to accomplish, not framework mechanics  
+    **Built-in parallelism**: When dependencies allow, operations run concurrently without additional configuration
 
 ## Parallel Processing
 

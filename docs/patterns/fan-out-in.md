@@ -28,52 +28,7 @@ synthesis = builder.add_operation(
 result = await session.flow(builder.get_graph())
 ```
 
-            name=f"researcher_{i+1}"
-        )
-        
-        node = builder.add_operation(
-            "communicate",
-            depends_on=[root],
-            branch=researcher,
-            **instruction.to_dict()
-        )
-        research_nodes.append(node)
-
-    # Execute research
-    await session.flow(builder.get_graph())
-
-    # Extract findings
-    def get_context(node_id):
-        graph = builder.get_graph()
-        node = graph.internal_nodes[node_id]
-        branch = session.get_branch(node.branch_id, None)
-        if (branch and len(branch.messages) > 0 and 
-            isinstance(msg := branch.messages[-1], AssistantResponse)):
-            return f"""
-
-Response: {msg.model_response.get("result") or "Not available"} Summary:
-{msg.model_response.get("summary") or "Not available"} """.strip()
-
-    ctx = [get_context(i) for i in research_nodes]
-
-    # Fan-in: Synthesize
-    synthesis = builder.add_operation(
-        "communicate",
-        depends_on=research_nodes,
-        branch=orchestrator,
-        instruction="Synthesize findings into comprehensive analysis",
-        context=[i for i in ctx if i is not None]
-    )
-
-    final_result = await session.flow(builder.get_graph())
-    return final_result["operation_results"][synthesis]
-
-# Usage
-
-result = await fan_out_in_analysis( "Analyze competitive AI framework
-landscape", "Focus on Python frameworks from last 2 years" )
-
-````
+This pattern demonstrates the power of parallel processing in LionAGI. The fan-out phase creates three research operations that run simultaneously, each focusing on a different aspect. The fan-in phase waits for all research to complete, then synthesizes the findings into a comprehensive report. This approach is 3x faster than sequential processing while providing more thorough coverage than any single analysis.
 ## Production Implementation with Cost Tracking
 
 ```python
