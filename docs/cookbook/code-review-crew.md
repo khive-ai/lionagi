@@ -40,13 +40,13 @@ import lionagi as ln
 reviews = {}
 
 async def security_review():
-    reviews["security"] = await security.communicate(f"Security review: {code}")
+    reviews["security"] = await security.chat(f"Security review: {code}")
 
 async def performance_review():
-    reviews["performance"] = await performance.communicate(f"Performance review: {code}")
+    reviews["performance"] = await performance.chat(f"Performance review: {code}")
 
 async def maintainability_review():
-    reviews["maintainability"] = await maintainability.communicate(f"Code quality review: {code}")
+    reviews["maintainability"] = await maintainability.chat(f"Code quality review: {code}")
 
 async with ln.create_task_group() as tg:
     await tg.start_soon(security_review)
@@ -186,8 +186,8 @@ async with ln.create_task_group() as tg:
 
 # Or asyncio.gather() for simple cases
 reviews = await asyncio.gather(
-    security.communicate(prompt),
-    performance.communicate(prompt)
+    security.chat(prompt),
+    performance.chat(prompt)
 )
 ```
 

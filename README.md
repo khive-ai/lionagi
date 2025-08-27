@@ -16,13 +16,13 @@ integrations, and custom validations in a single coherent pipeline.
 
 ## Why LionAGI?
 
-- **Structured**: LLM interactions are validated and typed (via Pydantic).
+- **Structured**: Validate and type all LLM interactions with Pydantic.
 - **Expandable**: Integrate multiple providers (OpenAI, Anthropic, Perplexity,
   custom) with minimal friction.
-- **Controlled**: Built-in safety checks, concurrency strategies, and advanced
-  multi-step flows—like ReAct with verbose outputs.
-- **Transparent**: Real-time logging, message introspection, and easy debugging
-  of tool usage.
+- **Controlled**: Use built-in safety checks, concurrency strategies, and advanced
+  multi-step flows like ReAct.
+- **Transparent**: Debug easily with real-time logging, message introspection, and
+  tool usage tracking.
 
 ## Installation
 
@@ -69,8 +69,8 @@ res = await hunter.communicate(
     "Tell me a short dragon joke",
     response_format=Joke
 )
-print(type(response))
-print(response.joke)
+print(type(res))
+print(res.joke)
 ```
 
 ```
@@ -93,7 +93,7 @@ from lionagi.tools.types import ReaderTool
 # Define model first
 gpt4o = iModel(provider="openai", model="gpt-4o-mini")
 
-branch = Branch(chat_model=gpt4o, tools=ReaderTool)
+branch = Branch(chat_model=gpt4o, tools=[ReaderTool])
 result = await branch.ReAct(
     instruct={
       "instruction": "Summarize my PDF and compare with relevant papers.",
@@ -127,6 +127,8 @@ print(df.tail())
 ```python
 from lionagi import Branch, iModel
 
+# Define models for multi-model orchestration
+gpt4o = iModel(provider="openai", model="gpt-4o-mini")
 sonnet = iModel(
   provider="anthropic",
   model="claude-3-5-sonnet-20241022",

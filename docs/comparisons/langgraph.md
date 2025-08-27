@@ -109,6 +109,8 @@ report_op = builder.add_operation(
 result = await session.flow(builder.get_graph())
 ```
 
+**Analysis**: The LionAGI version eliminates state classes, routing functions, and manual edge configuration. Instead of 15+ lines of setup code, you get a natural workflow that reads like business logic. The `depends_on` parameter automatically handles execution order, while LangGraph requires explicit edge configuration between every node.
+
 ## Common Migration Patterns
 
 ### 1. State Management → Memory Management

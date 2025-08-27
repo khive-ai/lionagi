@@ -109,7 +109,7 @@ report_writer = session.new_branch(
 # Coordinate workflow
 async def generate_report(data):
     analysis = await data_analyst.chat(f"Analyze: {data}")
-    report = await report_writer.chat(f"Report on: {analysis}")
+    report = await report_writer.communicate(f"Report on: {analysis}")
     return {"analysis": analysis, "report": report}
 ```
 
@@ -131,8 +131,8 @@ research_agent = Branch(
 )
 
 # Maintains conversation history
-await research_agent.chat("What's the latest in renewable energy?")
-await research_agent.chat("Compare that to the previous answer")  # References history
+await research_agent.communicate("What's the latest in renewable energy?")
+await research_agent.communicate("Compare that to the previous answer")  # References history
 
 # Clone for parallel work
 clone = research_agent.clone()
