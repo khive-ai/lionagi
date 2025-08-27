@@ -43,7 +43,6 @@ def parse_assignment(
 
 
 class BaseForm(msgspec.Struct, kw_only=True):
-    # Keep an observable identity for forms as well
     id: str = msgspec.field(default_factory=lambda: __import__("uuid").uuid4().hex)
     has_processed: bool = False
 

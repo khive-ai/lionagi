@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from lionagi.ln.concurrency import create_task_group, fail_after, is_coro_func
-
+from ..ln import create_task_group, fail_after, is_coro_func
 from .eventbus import EventBus, emit_node_finish, emit_node_start
 from .graph import OpGraph, OpNode
 from .policy import policy_check
@@ -70,7 +69,7 @@ class Runner:
             PermissionError: If security policy denies execution
         """
         g.validate_dag()
-        
+
         # Initialize 'ready' from roots if provided; otherwise, from all zero-indegree nodes
         # This ensures DAGs without explicit roots can still execute from natural starting points
         if g.roots:
@@ -82,7 +81,7 @@ class Runner:
                 for u in node.deps:
                     indeg[v] += 1
             ready = {n for n, d in indeg.items() if d == 0}
-        
+
         done: set = set()
         results: dict[Any, Any] = {}
 
@@ -120,7 +119,9 @@ class Runner:
             results[node.id] = {"error": str(e), "failed": True}
             # Emit error event for observability - isolated to prevent cascade failures
             try:
-                await self.bus.emit("node.error", br, node, {"error": str(e), "type": type(e).__name__})
+                await self.bus.emit(
+                    "node.error", br, node, {"error": str(e), "type": type(e).__name__}
+                )
             except Exception:
                 # Swallow event emission errors to prevent masking the original error
                 pass

@@ -3,9 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from lionagi.base.morphism import Morphism
-from lionagi.base.types import Branch
-from lionagi.ops.core import BaseOp
+from ..base import Branch, Morphism
+from ..ops import BaseOp
 
 
 def _build_call_kwargs(
@@ -41,8 +40,15 @@ class BoundOp(BaseOp):
         self.inner = inner
         self.bind = dict(bind or {})
         self.defaults = dict(defaults or {})
+        # Propagate basic attributes
         self.requires = getattr(inner, "requires", set())
         self.io = bool(getattr(inner, "io", False))
+        # Propagate policy surface attributes for IPU invariant checking
+        self.ctx_writes = getattr(inner, "ctx_writes", None)
+        self.result_schema = getattr(inner, "result_schema", None)
+        self.result_keys = getattr(inner, "result_keys", None)
+        self.result_bytes_limit = getattr(inner, "result_bytes_limit", None)
+        self.latency_budget_ms = getattr(inner, "latency_budget_ms", None)
 
     async def pre(self, br: Branch, **kw) -> bool:
         call_kw = _build_call_kwargs(br, kw, self.bind, self.defaults)
@@ -53,5 +59,4 @@ class BoundOp(BaseOp):
         return await self.inner.apply(br, **call_kw)
 
     async def post(self, br: Branch, result: dict[str, Any]) -> bool:
-        # post doesn't need new kwargs, pass result through
         return await self.inner.post(br, result)

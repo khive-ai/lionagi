@@ -8,21 +8,22 @@ from weakref import WeakValueDictionary
 
 from msgspec import Struct, field
 
-from lionagi.ln import now_utc
+from ..ln import now_utc
 
 # Global, weakly-held cache for CapabilitySet instances (avoid leaks across tests/processes)
 # Referenced in:
 # - "Capability-based security" https://en.wikipedia.org/wiki/Capability-based_security
-_capability_cache: WeakValueDictionary[UUID, "CapabilitySet"] = WeakValueDictionary()
+_capability_cache: WeakValueDictionary[UUID, CapabilitySet] = WeakValueDictionary()
 
 
 class CapabilitySet(set):
     """A set that updates the parent Branch when modified.
-    
+
     Based on capability-based security model where holding an unforgeable reference
     provides access to resources. See:
     https://en.wikipedia.org/wiki/Capability-based_security
     """
+
     __slots__ = ("_branch",)
 
     def __init__(self, branch: Branch):
@@ -48,17 +49,36 @@ class CapabilitySet(set):
         super().remove(element)
         self._update_branch()
 
+    def clear(self) -> None:
+        """Remove all capabilities and update the parent branch."""
+        super().clear()
+        self._update_branch()
+
+    def update(self, *others) -> None:
+        """Update capabilities with union and update the parent branch."""
+        super().update(*others)
+        self._update_branch()
+
     def _update_branch(self) -> None:
         """Update the parent branch with current capabilities."""
-        # msgspec.Struct is immutable; policy should read from this live view.
-        # No-op here; consumers must call rights_view(branch) to honor runtime updates.
-        return
+        # Re-materialize caps so policy_check sees changes
+        # Keep a single aggregate capability for the branch subject
+        rights = set(self)
+        cap = Capability(subject=self._branch.id, rights=rights, object="*")
+        # Use msgspec replace to update the branch with new capabilities
+        try:
+            # Try direct assignment first (works if Struct is not frozen)
+            self._branch.caps = (cap,)
+        except (AttributeError, TypeError):
+            # If direct assignment fails, we need to use msgspec replace or similar
+            # For now, just update the cache - policy_check should use rights_view()
+            pass
 
 
-def rights_view(branch: "Branch") -> set[str]:
+def rights_view(branch: Branch) -> set[str]:
     """Live capability view: if a CapabilitySet has been materialized for this branch,
     use it; otherwise derive from the frozen caps tuple.
-    
+
     This ensures policy decisions use the current state including runtime capability updates.
     Based on capability-based security model: https://en.wikipedia.org/wiki/Capability-based_security
     """
@@ -113,7 +133,7 @@ class Branch(Struct, kw_only=True):
     summary: dict[str, Any] = field(default_factory=dict)
     caps: tuple[Capability, ...] = field(default_factory=tuple)
 
-    # For TDD compatibility - parent tracking
+    # parent tracking
     _parent: Branch | None = field(default=None)
     _capability_set: CapabilitySet | None = field(default=None)
 
@@ -146,9 +166,7 @@ class Branch(Struct, kw_only=True):
 
         # Inherit the *live* rights view (includes runtime updates)
         inherited_rights = rights_view(self)
-        inherited_caps = (
-            Capability(subject=uuid4(), rights=set(inherited_rights), object="*"),
-        )
+        inherited_caps = (Capability(subject=uuid4(), rights=set(inherited_rights), object="*"),)
 
         # Create child branch with parent reference
         child = Branch(

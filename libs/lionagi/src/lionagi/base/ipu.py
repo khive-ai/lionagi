@@ -7,8 +7,7 @@ from typing import Any, Protocol
 
 import msgspec
 
-from lionagi.ln.concurrency import is_coro_func
-
+from ..ln import is_coro_func
 from .graph import OpNode
 from .policy import policy_check
 from .types import Branch, Observation
@@ -181,7 +180,7 @@ class ResultShape:
 
         # 2) Schema (strict)
         schema = getattr(node.m, "result_schema", None)
-        if schema is not None and msgspec is not None:
+        if schema is not None:
             try:
                 # strict validation by round-tripping through msgspec decoder
                 payload = msgspec.json.encode(result)
@@ -252,7 +251,7 @@ class ResultSizeBound:
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
         limit = getattr(node.m, "result_bytes_limit", None)
-        if limit is None or msgspec is None:
+        if limit is None:
             return True
         try:
             size = len(msgspec.json.encode(result))

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 import msgspec
+from anyio import Path
 
-from lionagi.base.ipu import StrictIPU, default_invariants
-from lionagi.base.morphism import Morphism
-from lionagi.base.registry import register
-from lionagi.base.types import Branch
+from ..base import Branch, Morphism, StrictIPU, default_invariants, register
+from ..ln import fail_after, retry
 
 # ----- BaseOp -------------------------------------------------------------
 
@@ -137,6 +135,7 @@ class FSRead(BaseOp):
 
     def required_rights(self, **kw) -> set[str]:
         # Require the specific path being read (concrete resource), normalized.
+        # Note: Using pathlib for path resolution in sync context is acceptable here
         from pathlib import Path
 
         path = kw.get("path")
@@ -153,10 +152,9 @@ class FSRead(BaseOp):
         return "path" in kw and isinstance(kw["path"], str)
 
     async def apply(self, br: Branch, **kw) -> dict:
-        from pathlib import Path
-
+        # Use anyio.Path for non-blocking I/O to prevent event loop blocking
         p = Path(kw["path"]).expanduser()
-        data = p.read_text(encoding="utf-8")
+        data = await p.read_text(encoding="utf-8")
         return {"path": str(p), "data": data}
 
 
@@ -298,22 +296,17 @@ class WithRetry(BaseOp):
         return await self.inner.pre(br, **kw)
 
     async def apply(self, br: Branch, **kw) -> dict:
-        import random
+        # Use deadline-aware retry instead of manual loop with asyncio.sleep
+        # This respects ambient timeouts and latency budgets
+        async def attempt():
+            return await self.inner.apply(br, **kw)
 
-        delay = self.backoff_ms / 1000.0
-        last_err: Exception | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                return await self.inner.apply(br, **kw)
-            except Exception as e:
-                last_err = e
-                if attempt == self.retries:
-                    raise
-                d = delay * (2**attempt)
-                if self.jitter:
-                    d *= 0.5 + random.random()
-                await asyncio.sleep(d)
-        raise last_err or RuntimeError("Retry failed")
+        return await retry(
+            attempt,
+            attempts=self.retries + 1,
+            base_delay=self.backoff_ms / 1000.0,
+            jitter=0.5 if self.jitter else 0.0,
+        )
 
     async def post(self, br: Branch, res: dict) -> bool:
         return await self.inner.post(br, res)
@@ -339,7 +332,9 @@ class WithTimeout(BaseOp):
         return await self.inner.pre(br, **kw)
 
     async def apply(self, br: Branch, **kw) -> dict:
-        return await asyncio.wait_for(self.inner.apply(br, **kw), timeout=self.timeout_s)
+        # Use structured concurrency timeout instead of unsafe asyncio.wait_for
+        with fail_after(self.timeout_s):
+            return await self.inner.apply(br, **kw)
 
     async def post(self, br: Branch, res: dict) -> bool:
         return await self.inner.post(br, res)

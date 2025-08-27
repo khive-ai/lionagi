@@ -3,9 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from lionagi.base.morphism import Morphism
-from lionagi.base.types import Branch
-from lionagi.ops.core import BaseOp
+from ..base import Branch, Morphism
+from ..ops import BaseOp
 
 
 class OpThenPatch(BaseOp):
@@ -24,8 +23,23 @@ class OpThenPatch(BaseOp):
             self.patch_map = dict(patch)
         else:
             self.patch_map = {k: k for k in patch}  # identity
+
+        # Propagate basic attributes
         self.requires = getattr(inner, "requires", set())
         self.io = bool(getattr(inner, "io", False))
+
+        # Declare ctx_writes as patch targets union with inner's ctx_writes
+        patch_targets = set(self.patch_map.values())
+        inner_ctx_writes = getattr(inner, "ctx_writes", None)
+        self.ctx_writes = (
+            patch_targets if inner_ctx_writes is None else set(inner_ctx_writes) | patch_targets
+        )
+
+        # Propagate other policy surface attributes for IPU invariant checking
+        self.result_schema = getattr(inner, "result_schema", None)
+        self.result_keys = getattr(inner, "result_keys", None)
+        self.result_bytes_limit = getattr(inner, "result_bytes_limit", None)
+        self.latency_budget_ms = getattr(inner, "latency_budget_ms", None)
 
     async def pre(self, br: Branch, **kw) -> bool:
         return await self.inner.pre(br, **kw)

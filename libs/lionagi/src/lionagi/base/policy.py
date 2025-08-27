@@ -33,10 +33,10 @@ def _is_prefix_star(p: str) -> bool:
 
 def _covers_resource(have_res: str, req_res: str) -> bool:
     """Conservative capability pattern matching for resource coverage.
-    
+
     Implements secure wildcard matching based on capability-based security principles.
     Pattern matching uses conservative semantics to prevent privilege escalation.
-    
+
     References:
     - Capability-based security: https://en.wikipedia.org/wiki/Capability-based_security
     - fnmatch algorithm: https://docs.python.org/3/library/fnmatch.html

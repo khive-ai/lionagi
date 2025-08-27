@@ -8,9 +8,9 @@ class StepSpec(msgspec.Struct, frozen=True):
     Declarative step:
       - op: name to resolve in registry
       - inputs: ctx keys this step needs
-      - outputs: ctx keys this step will populate (after patch)
+      - outputs: result keys produced by the step operation; they are copied to Branch.ctx via out_map (result_key -> ctx_key); default is identity mapping
       - bind: map inner-op param -> ctx key (rename when needed)
-      - out_map: map result key -> ctx key (if result names differ)
+      - out_map: map result key -> ctx key (if result names differ from outputs)
     """
 
     name: str
@@ -25,6 +25,11 @@ class StepSpec(msgspec.Struct, frozen=True):
 class FlowSpec(msgspec.Struct, frozen=True):
     steps: list[StepSpec]
 
+    def validate(self) -> None:
+        """Validate flow specification constraints."""
+        for step in self.steps:
+            validate_step(step)
+
 
 class FormSpec(msgspec.Struct, frozen=False):
     """
@@ -36,6 +41,30 @@ class FormSpec(msgspec.Struct, frozen=False):
     flow: FlowSpec
     output_fields: list[str] = msgspec.field(default_factory=list)
     none_as_valid: bool = False
+
+
+# ---------- Validation ----------
+
+
+def validate_step(step: StepSpec) -> None:
+    """Validate individual step specification constraints."""
+    # Validate out_map keys are subset of outputs
+    if step.out_map:
+        unknown_keys = set(step.out_map.keys()) - set(step.outputs)
+        if unknown_keys:
+            raise ValueError(
+                f"Step '{step.name}': out_map keys not in outputs: {sorted(unknown_keys)}"
+            )
+
+    # Validate no duplicate outputs
+    if len(step.outputs) != len(set(step.outputs)):
+        duplicates = [x for x in step.outputs if step.outputs.count(x) > 1]
+        raise ValueError(f"Step '{step.name}': duplicate outputs: {sorted(set(duplicates))}")
+
+    # Validate no duplicate inputs
+    if len(step.inputs) != len(set(step.inputs)):
+        duplicates = [x for x in step.inputs if step.inputs.count(x) > 1]
+        raise ValueError(f"Step '{step.name}': duplicate inputs: {sorted(set(duplicates))}")
 
 
 # ---------- Flow analysis ----------
