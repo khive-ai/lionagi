@@ -4,8 +4,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from lionagi.ln import now_utc
 from msgspec import Struct, field
+
+from lionagi.ln import now_utc
 
 
 class Observable(Struct, kw_only=True):

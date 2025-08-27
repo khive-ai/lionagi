@@ -58,9 +58,7 @@ class Form(BaseForm, kw_only=True):
     task: str = ""  # optional: intent description
 
     def parse(self) -> None:
-        self.input_fields, self.output_fields, self.steps = parse_assignment(
-            self.assignment
-        )
+        self.input_fields, self.output_fields, self.steps = parse_assignment(self.assignment)
 
     def check_inputs(self) -> None:
         missing = [k for k in self.input_fields if k not in self.values]

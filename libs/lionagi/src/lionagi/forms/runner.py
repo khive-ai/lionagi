@@ -29,9 +29,7 @@ async def run_form(
     # early input check
     missing = sorted([k for k in req if k not in br.ctx])
     if missing:
-        raise ValueError(
-            f"Form '{form.name}': missing required inputs in Branch.ctx: {missing}"
-        )
+        raise ValueError(f"Form '{form.name}': missing required inputs in Branch.ctx: {missing}")
 
     if runner is None:
         from lionagi.base.ipu import (  # keep your existing names

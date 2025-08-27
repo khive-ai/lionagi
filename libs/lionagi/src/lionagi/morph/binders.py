@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Dict
+from typing import Any
 
 from lionagi.base.morphism import Morphism
 from lionagi.base.types import Branch
@@ -15,9 +15,7 @@ def _build_call_kwargs(
     defaults: Mapping[str, Any],
 ) -> dict[str, Any]:
     # 1) from ctx via binding
-    call_kw: dict[str, Any] = {
-        param: br.ctx[src] for param, src in bind.items() if src in br.ctx
-    }
+    call_kw: dict[str, Any] = {param: br.ctx[src] for param, src in bind.items() if src in br.ctx}
     # 2) default literals for any missing
     for k, v in defaults.items():
         call_kw.setdefault(k, v)

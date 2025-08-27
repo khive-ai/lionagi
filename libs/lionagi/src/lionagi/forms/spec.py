@@ -67,7 +67,5 @@ def final_outputs(flow: FlowSpec) -> set[str]:
         for later in flow.steps[idx + 1 :]:
             consumed_later.update(later.inputs)
 
-    all_ctx_outputs = (
-        set().union(*ctx_outputs_per_step) if ctx_outputs_per_step else set()
-    )
+    all_ctx_outputs = set().union(*ctx_outputs_per_step) if ctx_outputs_per_step else set()
     return all_ctx_outputs - consumed_later

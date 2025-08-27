@@ -128,7 +128,13 @@ async def test_retry_respects_attempts_count(anyio_backend):
         raise TimeoutError("x")
 
     with pytest.raises(TimeoutError):
-        await retry(always, attempts=3, base_delay=0.001, max_delay=0.002, retry_on=(TimeoutError,))
+        await retry(
+            always,
+            attempts=3,
+            base_delay=0.001,
+            max_delay=0.002,
+            retry_on=(TimeoutError,),
+        )
     assert calls["n"] == 3
 
 

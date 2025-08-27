@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Protocol, Tuple
+from typing import Any, Protocol
 
 import msgspec
+
 from lionagi.base.ipu import StrictIPU, default_invariants
 from lionagi.base.morphism import Morphism
 from lionagi.base.registry import register
@@ -95,9 +96,7 @@ class HTTPGet(BaseOp):
         latency_budget_ms: int = 5000,
     ):
         self.client = client
-        self.requires = {
-            f"net.out:{host}"
-        }  # static default (used if URL parsing fails)
+        self.requires = {f"net.out:{host}"}  # static default (used if URL parsing fails)
         self.result_bytes_limit = result_bytes_limit
         self.latency_budget_ms = latency_budget_ms
 
@@ -340,9 +339,7 @@ class WithTimeout(BaseOp):
         return await self.inner.pre(br, **kw)
 
     async def apply(self, br: Branch, **kw) -> dict:
-        return await asyncio.wait_for(
-            self.inner.apply(br, **kw), timeout=self.timeout_s
-        )
+        return await asyncio.wait_for(self.inner.apply(br, **kw), timeout=self.timeout_s)
 
     async def post(self, br: Branch, res: dict) -> bool:
         return await self.inner.post(br, res)

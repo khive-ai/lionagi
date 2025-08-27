@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Dict, Set, Tuple
 
 from lionagi.base.graph import OpGraph, OpNode
 from lionagi.morph.binders import BoundOp
@@ -28,9 +27,7 @@ def compile_flow_to_graph(
 
     for st in flow.steps:
         if st.op not in registry:
-            raise KeyError(
-                f"Registry missing factory for op '{st.op}' (step '{st.name}')"
-            )
+            raise KeyError(f"Registry missing factory for op '{st.op}' (step '{st.name}')")
         inner = registry[st.op](st)
         bound = BoundOp(inner, bind=st.bind)
         # Patch mapping: result_key -> ctx_key

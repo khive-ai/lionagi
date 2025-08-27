@@ -23,9 +23,7 @@ class IPU(Protocol):
     invariants: list[Invariant]
 
     async def before_node(self, br: Branch, node: OpNode) -> None: ...
-    async def after_node(
-        self, br: Branch, node: OpNode, result: dict[str, Any]
-    ) -> None: ...
+    async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None: ...
     async def on_observation(self, obs: Observation) -> None: ...
 
 
@@ -100,7 +98,10 @@ class PolicyGatePresent:
 
 class LatencyBound:
     """
-    Enforce per-node latency if morphism defines: `latency_budget_ms: int`.
+    Monitor per-node latency if morphism defines: `latency_budget_ms: int`.
+
+    Note: The actual proactive enforcement is done by Runner using fail_after.
+    This invariant provides monitoring and post-execution validation.
     """
 
     name = "LatencyBound"
@@ -110,6 +111,10 @@ class LatencyBound:
 
     def pre(self, br: Branch, node: OpNode) -> bool:
         self._t0[(br.id, node.id)] = time.perf_counter()
+        budget = getattr(node.m, "latency_budget_ms", None)
+        if budget and budget <= 0:
+            # Invalid budget configuration
+            return False
         return True
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
@@ -119,6 +124,17 @@ class LatencyBound:
             return True
         t0 = self._t0.pop((br.id, node.id), time.perf_counter())
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        # Log if we're close to budget (within 90%)
+        if elapsed_ms > budget * 0.9:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Node {node.id} took {elapsed_ms:.1f}ms "
+                f"(budget: {budget}ms, {elapsed_ms / budget * 100:.0f}% used)"
+            )
+
         return elapsed_ms <= float(budget)
 
 
@@ -182,9 +198,7 @@ class CtxWriteSet:
         before = self._snap.pop((br.id, node.id), {})
         after = br.ctx
         added = set(after.keys()) - set(before.keys())
-        modified = {
-            k for k in (set(after.keys()) & set(before.keys())) if after[k] != before[k]
-        }
+        modified = {k for k in (set(after.keys()) & set(before.keys())) if after[k] != before[k]}
         changed = added | modified
         return changed.issubset(set(allowed))
 
@@ -245,9 +259,7 @@ class LenientIPU:
                 # Log only in lenient mode
                 print(f"[WARN][{inv.name}] pre-phase violation at node {node.id}")
 
-    async def after_node(
-        self, br: Branch, node: OpNode, result: dict[str, Any]
-    ) -> None:
+    async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None:
         for inv in self.invariants:
             ok = inv.post(br, node, result)
             if not ok:
@@ -263,18 +275,12 @@ class StrictIPU(LenientIPU):
     async def before_node(self, br: Branch, node: OpNode) -> None:
         for inv in self.invariants:
             if not inv.pre(br, node):
-                raise AssertionError(
-                    f"Invariant failed (pre): {inv.name} at node {node.id}"
-                )
+                raise AssertionError(f"Invariant failed (pre): {inv.name} at node {node.id}")
 
-    async def after_node(
-        self, br: Branch, node: OpNode, result: dict[str, Any]
-    ) -> None:
+    async def after_node(self, br: Branch, node: OpNode, result: dict[str, Any]) -> None:
         for inv in self.invariants:
             if not inv.post(br, node, result):
-                raise AssertionError(
-                    f"Invariant failed (post): {inv.name} at node {node.id}"
-                )
+                raise AssertionError(f"Invariant failed (post): {inv.name} at node {node.id}")
 
 
 def default_invariants() -> list[Invariant]:

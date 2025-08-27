@@ -2,16 +2,25 @@ from collections.abc import Iterable, Mapping
 from enum import Enum as _Enum
 from typing import Any
 
+import msgspec
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
 
 from ._hash import hash_dict
 from ._types import UndefinedType, UnsetType
 
-__all__ = ("to_list", "ToListParams")
+__all__ = ("to_list",)
 
 
-_SKIP_TYPE = (str, bytes, bytearray, Mapping, BaseModel, _Enum)
+_SKIP_TYPE = (
+    str,
+    bytes,
+    bytearray,
+    Mapping,
+    BaseModel,
+    msgspec.Struct,
+    _Enum,
+)
 _TUPLE_SET_TYPES = (tuple, set, frozenset)
 _SKIP_TUPLE_SET = (*_SKIP_TYPE, *_TUPLE_SET_TYPES)
 _SINGLETONE_TYPES = (UndefinedType, UnsetType, PydanticUndefinedType)
@@ -102,7 +111,8 @@ def to_list(
         if isinstance(input_, Mapping):
             return list(input_.values()) if use_values and hasattr(input_, "values") else [input_]
 
-        if isinstance(input_, BaseModel):
+        # Handle both msgspec.Struct (V1 standard) and BaseModel (legacy)
+        if isinstance(input_, (msgspec.Struct, BaseModel)):
             return [input_]
 
         if isinstance(input_, Iterable) and not isinstance(input_, _BYTE_LIKE_TYPES):
@@ -127,7 +137,8 @@ def to_list(
                 try:
                     hash_value = hash(i)
                 except TypeError:
-                    if isinstance(i, (BaseModel, Mapping)):
+                    # Handle msgspec.Struct (V1 standard), BaseModel (legacy), and Mapping
+                    if isinstance(i, (msgspec.Struct, BaseModel, Mapping)):
                         hash_value = hash_dict(i)
                     else:
                         raise ValueError(

@@ -1,5 +1,6 @@
 import copy
 
+import msgspec
 from pydantic import BaseModel as PydanticBaseModel
 
 __all__ = ("hash_dict",)
@@ -12,6 +13,7 @@ _TYPE_MARKER_TUPLE = 2
 _TYPE_MARKER_SET = 3
 _TYPE_MARKER_FROZENSET = 4
 _TYPE_MARKER_PYDANTIC = 5  # Distinguishes dumped Pydantic models
+_TYPE_MARKER_MSGSPEC = 6  # Distinguishes msgspec Structs (V1 standard)
 
 
 def _generate_hashable_representation(item: any) -> any:
@@ -22,6 +24,14 @@ def _generate_hashable_representation(item: any) -> any:
     """
     if isinstance(item, _PRIMITIVE_TYPES):
         return item
+
+    # Handle msgspec Structs (V1 standard)
+    if isinstance(item, msgspec.Struct):
+        # Use msgspec.to_builtins for efficient conversion to built-in types
+        return (
+            _TYPE_MARKER_MSGSPEC,
+            _generate_hashable_representation(msgspec.to_builtins(item)),
+        )
 
     if isinstance(item, PydanticBaseModel):
         # Process the Pydantic model by first dumping it to a dict, then processing that dict.
