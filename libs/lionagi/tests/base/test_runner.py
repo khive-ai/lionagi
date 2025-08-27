@@ -15,7 +15,11 @@ from lionagi.base.ipu import LenientIPU, StrictIPU, default_invariants
 from lionagi.base.morphism import Morphism
 from lionagi.base.runner import Runner
 from lionagi.base.types import Branch, create_branch
-from lionagi.ln.concurrency import create_task_group, fail_after, get_cancelled_exc_class
+from lionagi.ln.concurrency import (
+    create_task_group,
+    fail_after,
+    get_cancelled_exc_class,
+)
 
 
 # Helper functions
@@ -132,7 +136,8 @@ class TestRunnerExecutionFlow:
 
         # Create graph with parallel structure: A -> (B, C)
         graph = OpGraph(
-            nodes={node_a.id: node_a, node_b.id: node_b, node_c.id: node_c}, roots={node_a.id}
+            nodes={node_a.id: node_a, node_b.id: node_b, node_c.id: node_c},
+            roots={node_a.id},
         )
 
         # Create branch and runner
@@ -189,7 +194,12 @@ class TestRunnerExecutionFlow:
         node_d = OpNode(id=uuid4(), m=TrackingMorphism("D", 0.01), deps={node_b.id, node_c.id})
 
         graph = OpGraph(
-            nodes={node_a.id: node_a, node_b.id: node_b, node_c.id: node_c, node_d.id: node_d},
+            nodes={
+                node_a.id: node_a,
+                node_b.id: node_b,
+                node_c.id: node_c,
+                node_d.id: node_d,
+            },
             roots={node_a.id},
         )
 

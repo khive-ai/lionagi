@@ -57,7 +57,10 @@ class TestBranchContextAndIsolation:
 
         # Verify parent nested structures are unchanged
         assert parent.ctx["nested"]["x"] == 1, "Parent nested dict must remain unchanged"
-        assert parent.ctx["nested"]["y"] == [1, 2], "Parent nested list must remain unchanged"
+        assert parent.ctx["nested"]["y"] == [
+            1,
+            2,
+        ], "Parent nested list must remain unchanged"
 
     def test_forking_capability_inheritance_and_isolation(self):
         """Test: ForkingCapabilityInheritanceAndIsolation
@@ -78,7 +81,7 @@ class TestBranchContextAndIsolation:
         # Get strong references to capability sets to prevent WeakValueDictionary cleanup
         parent_capabilities = parent.capabilities
         child_capabilities = child.capabilities
-        
+
         # Verify child inherits all parent capabilities
         assert child_capabilities == parent_caps, "Child must inherit all parent capabilities"
 
@@ -180,7 +183,7 @@ class TestBranchContextAndIsolation:
         # Fork multiple children
         child1 = parent.fork()
         child2 = parent.fork()
-        
+
         # Get strong references to all capability sets to prevent WeakValueDictionary cleanup
         parent_capabilities = parent.capabilities
         child1_capabilities = child1.capabilities

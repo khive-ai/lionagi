@@ -46,7 +46,12 @@ class TestOpGraphStructure:
 
         # Create graph
         graph = OpGraph(
-            nodes={node_a.id: node_a, node_b.id: node_b, node_c.id: node_c, node_d.id: node_d},
+            nodes={
+                node_a.id: node_a,
+                node_b.id: node_b,
+                node_c.id: node_c,
+                node_d.id: node_d,
+            },
             roots={node_a.id},
         )
 
@@ -114,7 +119,12 @@ class TestOpGraphStructure:
         node_d = OpNode(id=uuid4(), m=MockMorphism("D"), deps={node_b.id, node_c.id})
 
         graph = OpGraph(
-            nodes={node_a.id: node_a, node_b.id: node_b, node_c.id: node_c, node_d.id: node_d},
+            nodes={
+                node_a.id: node_a,
+                node_b.id: node_b,
+                node_c.id: node_c,
+                node_d.id: node_d,
+            },
             roots={node_a.id},
         )
 
@@ -191,7 +201,7 @@ class TestOpGraphStructure:
 
         # All nodes should be present
         assert len(order) == 7
-        assert set(order) == set(node.id for node in nodes.values())
+        assert set(order) == {node.id for node in nodes.values()}
 
     def test_auto_root_detection(self):
         """Test automatic root detection for nodes with no dependencies."""

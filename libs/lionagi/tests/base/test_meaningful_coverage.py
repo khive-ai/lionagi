@@ -21,11 +21,20 @@ import pytest
 
 from lionagi.base.eventbus import EventBus
 from lionagi.base.graph import OpGraph, OpNode
-from lionagi.base.ipu import InvariantViolationError, LenientIPU, StrictIPU, default_invariants
+from lionagi.base.ipu import (
+    InvariantViolationError,
+    LenientIPU,
+    StrictIPU,
+    default_invariants,
+)
 from lionagi.base.morphism import Morphism
 from lionagi.base.runner import Runner
 from lionagi.base.types import Branch, create_branch
-from lionagi.ln.concurrency import create_task_group, fail_after, get_cancelled_exc_class
+from lionagi.ln.concurrency import (
+    create_task_group,
+    fail_after,
+    get_cancelled_exc_class,
+)
 
 
 class MaliciousMorphism(Morphism):
@@ -92,7 +101,7 @@ class LeakyMorphism(Morphism):
             if self.leak_type == "file_handles":
                 # Open files without proper cleanup
                 for i in range(10):
-                    f = open("/dev/null", "r")
+                    f = open("/dev/null")
                     self.leaked_resources.append(f)
 
             elif self.leak_type == "memory":
@@ -528,7 +537,10 @@ class TestPerformanceBoundariesAndLimits:
             async def apply(self, branch, **kwargs) -> dict:
                 # Simulate realistic workload
                 await anyio.sleep(0.1)  # I/O simulation
-                result = {"node_id": self.node_id, "result": f"processed_{self.node_id}"}
+                result = {
+                    "node_id": self.node_id,
+                    "result": f"processed_{self.node_id}",
+                }
                 return result
 
             async def post(self, branch, result, **kwargs) -> bool:

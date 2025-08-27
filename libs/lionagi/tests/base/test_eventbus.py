@@ -319,7 +319,11 @@ class TestEventBusRobustness:
         # Test with complex nested data structure
         complex_data = {
             "nested": {"list": [1, 2, {"inner": True}], "tuple": (3, 4, 5)},
-            "set_data": {6, 7, 8},  # Note: sets might be converted depending on implementation
+            "set_data": {
+                6,
+                7,
+                8,
+            },  # Note: sets might be converted depending on implementation
         }
 
         await bus.emit("complex_data", data=complex_data)
@@ -332,7 +336,11 @@ class TestEventBusRobustness:
             2,
             {"inner": True},
         ], "Nested list should be preserved"
-        assert received_data["nested"]["tuple"] == (3, 4, 5), "Tuple should be preserved"
+        assert received_data["nested"]["tuple"] == (
+            3,
+            4,
+            5,
+        ), "Tuple should be preserved"
         assert "set_data" in received_data, "Set data should be present"
 
     @pytest.mark.anyio

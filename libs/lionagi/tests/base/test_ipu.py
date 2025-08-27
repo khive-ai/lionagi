@@ -270,7 +270,7 @@ class TestStandardInvariants:
         # Create branch with initial capabilities
         initial_caps = {"fs.read:/data/*", "net.out:api.service.com"}
         branch = create_branch(id=uuid4(), capabilities=initial_caps.copy())
-        
+
         # Get strong reference to prevent WeakValueDictionary cleanup
         branch_capabilities = branch.capabilities
 
