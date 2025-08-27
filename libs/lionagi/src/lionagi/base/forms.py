@@ -60,6 +60,8 @@ class Form(BaseForm, kw_only=True):
         self.input_fields, self.output_fields, self.steps = parse_assignment(self.assignment)
 
     def check_inputs(self) -> None:
+        if not self.input_fields and self.assignment:
+            raise ValueError("Missing inputs: Form not parsed yet - call parse() first")
         missing = [k for k in self.input_fields if k not in self.values]
         if missing:
             raise ValueError(f"Missing inputs: {missing}")

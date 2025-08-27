@@ -65,7 +65,15 @@ class LLMGenerate(BaseOp):
         return "prompt" in kw and isinstance(kw["prompt"], str)
 
     async def apply(self, br: Branch, **kw) -> dict:
-        text = await self.provider.generate(kw["prompt"])
+        result = await self.provider.generate(kw["prompt"])
+
+        # Validate against result_schema if provider returns dict
+        if isinstance(result, dict) and self.result_schema:
+            validated_result = msgspec.convert(result, self.result_schema)
+            text = validated_result.text
+        else:
+            text = result  # Assume string for backward compatibility
+
         br.ctx["last_llm"] = text
         return {"text": text}
 
@@ -153,7 +161,7 @@ class FSRead(BaseOp):
 
     async def apply(self, br: Branch, **kw) -> dict:
         # Use anyio.Path for non-blocking I/O to prevent event loop blocking
-        p = Path(kw["path"]).expanduser()
+        p = await Path(kw["path"]).expanduser()
         data = await p.read_text(encoding="utf-8")
         return {"path": str(p), "data": data}
 
