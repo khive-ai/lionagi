@@ -100,7 +100,7 @@ class TestCallContextBehavior:
         # Test .with_timeout() creates proper deadline
         ctx3 = CallContext.with_timeout(branch_id, timeout_s=5.0)
         assert ctx3.deadline_s is not None
-        assert ctx3.deadline_s > time.time()  # Should be in future
+        assert ctx3.deadline_s > time.monotonic()  # Should be in future
 
         # Validate unique call_ids
         call_ids = {ctx1.call_id, ctx2.call_id, ctx3.call_id}
@@ -112,7 +112,9 @@ class TestCallContextBehavior:
         original_call_id = ctx.call_id
 
         # Attempt to modify call_id should fail
-        with pytest.raises(AttributeError, match="can't set attribute|has no setter"):
+        with pytest.raises(
+            AttributeError, match="can't set attribute|has no setter|immutable type"
+        ):
             ctx.call_id = uuid4()
 
         # Verify call_id unchanged
@@ -170,13 +172,6 @@ class TestCallContextBehavior:
 class TestCallContextTimeManagement:
     """CallContext deadline math, timeout handling, and expiration logic."""
 
-    @pytest.fixture
-    def mock_clock(self):
-        """Mock clock for deterministic time testing."""
-        clock = anyio.testing.MockClock()
-        clock.time = 1000.0  # Start at known time
-        return clock
-
     @pytest.mark.anyio
     async def test_relative_timeout_to_absolute_deadline(self, mock_clock):
         """CRITICAL: RelativeTimeoutToAbsoluteDeadline conversion accuracy."""
@@ -210,7 +205,7 @@ class TestCallContextTimeManagement:
             ctx = CallContext.with_timeout(branch_id, timeout_s=0.1)  # 100ms
             assert ctx.deadline_s == 2000.1
             assert not ctx.is_expired
-            assert ctx.remaining_time == 0.1
+            assert abs(ctx.remaining_time - 0.1) < 1e-9
 
             # Advance time by 50ms (half the timeout)
             mock_clock.time = 2000.05
