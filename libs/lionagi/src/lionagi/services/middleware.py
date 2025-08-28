@@ -167,8 +167,9 @@ class PolicyGateMW:
                 wildcard_pattern = avail_cap.rstrip("*")
 
                 # Special case: if pattern ends with separator (., :, /), match hierarchical capabilities
-                # "api.*" should match "api.something" but NOT bare "api"
+                # "api.*" should ONLY match "api.something", NOT bare "api" (strict matching)
                 if wildcard_pattern.endswith((".", ":", "/")):
+                    # Strict hierarchical matching - separator must be present
                     if required.startswith(wildcard_pattern):
                         return True
                 else:
