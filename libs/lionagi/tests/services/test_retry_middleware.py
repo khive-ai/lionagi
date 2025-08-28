@@ -153,9 +153,7 @@ class TestRetryMWDeadlineAwareness:
         assert service.call_count == 1
 
     @pytest.mark.anyio
-    async def test_retry_succeeds_when_deadline_allows_sufficient_time(
-        self, mock_request
-    ):
+    async def test_retry_succeeds_when_deadline_allows_sufficient_time(self, mock_request):
         """Validate RetryMW succeeds with retries when deadline allows sufficient time."""
         # Create config with minimal delays for faster test
         config = RetryConfig(
@@ -166,7 +164,7 @@ class TestRetryMWDeadlineAwareness:
             jitter=False,
         )
         retry_mw = RetryMW(config)
-        
+
         # Create context with generous deadline (10 seconds)
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
@@ -184,9 +182,7 @@ class TestRetryMWDeadlineAwareness:
         assert service.call_count == 2  # One failure + one success
 
     @pytest.mark.anyio
-    async def test_deadline_awareness_with_exponential_backoff(
-        self, mock_request
-    ):
+    async def test_deadline_awareness_with_exponential_backoff(self, mock_request):
         """Validate deadline awareness works correctly with exponential backoff delays."""
         # Create config with short delays to test deadline calculations
         config = RetryConfig(
@@ -526,23 +522,22 @@ class TestRetryMWEdgeCases:
         assert service.call_count == 1  # Only one attempt
 
     @pytest.mark.anyio
-    async def test_expired_deadline_at_start_fails_immediately(
-        self, mock_request
-    ):
+    async def test_expired_deadline_at_start_fails_immediately(self, mock_request):
         """Validate already expired deadline fails immediately."""
         config = RetryConfig(max_attempts=3, base_delay=0.001, jitter=False)
         retry_mw = RetryMW(config)
 
         # Create context that's already expired (negative timeout)
         import anyio
+
         current_time = anyio.current_time()
         expired_deadline = current_time - 1.0  # 1 second in the past
         ctx = CallContext(
             call_id=uuid4(),
-            branch_id=uuid4(), 
+            branch_id=uuid4(),
             deadline_s=expired_deadline,
             capabilities=set(),
-            attrs={}
+            attrs={},
         )
 
         service = RetryTestService([RetryableError("Should not retry")])

@@ -122,7 +122,7 @@ class TestCriticalImplementationFlaws:
 
             # CRITICAL ASSERTION: Should timeout at deadline (~1s), not rate limit wait (~10s)
             assert elapsed < 1.5, f"Call waited {elapsed}s but should timeout at deadline ~1s"
-            
+
             # Clean up: wait for first call to complete
             await first_call.wait_completion()
 

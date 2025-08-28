@@ -308,7 +308,12 @@ class TestModelInteroperability:
 
     def test_model_inheritance_chain(self):
         """All models properly inherit from RequestModel and msgspec.Struct."""
-        models = [RequestModel, ChatRequestModel, CompletionRequestModel, EmbeddingRequestModel]
+        models = [
+            RequestModel,
+            ChatRequestModel,
+            CompletionRequestModel,
+            EmbeddingRequestModel,
+        ]
 
         for model_class in models:
             assert issubclass(model_class, msgspec.Struct)

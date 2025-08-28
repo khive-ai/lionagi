@@ -128,12 +128,13 @@ class TestCircuitBreakerConcurrencySafety:
             except (RetryableError, ServiceError) as e:
                 return f"failed: {type(e).__name__}"
 
-        # Execute 50 concurrent tasks  
+        # Execute 50 concurrent tasks
         results = []
+
         async def collect_result():
             result = await concurrent_call()
             results.append(result)
-            
+
         async with anyio.create_task_group() as tg:
             for _ in range(50):
                 tg.start_soon(collect_result)
@@ -169,10 +170,10 @@ class TestCircuitBreakerConcurrencySafety:
                     results.append(result)
                 except Exception as e:
                     results.append(e)
-            
+
             async def success_call():
                 try:
-                    result = await circuit_mw(mock_request, ctx, success_service.call_operation) 
+                    result = await circuit_mw(mock_request, ctx, success_service.call_operation)
                     results.append(result)
                 except Exception as e:
                     results.append(e)

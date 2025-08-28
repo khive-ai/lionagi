@@ -38,11 +38,11 @@ from lionagi.errors import PolicyError, ServiceError, TimeoutError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
-from lionagi.services.hooks import HookRegistry, HookType, HookedMiddleware
+from lionagi.services.hooks import HookedMiddleware, HookRegistry, HookType
 from lionagi.services.imodel import iModel
 from lionagi.services.middleware import CallMW, MetricsMW, PolicyGateMW
-from lionagi.services.resilience import CircuitBreakerMW, RetryMW
 from lionagi.services.provider_registry import ProviderAdapter, get_provider_registry
+from lionagi.services.resilience import CircuitBreakerMW, RetryMW
 
 # Consolidated Mock Services (replaces 800+ lines of duplicate setup)
 
@@ -103,7 +103,7 @@ class ConfigurableTestService(Service):
 
     async def call(self, req: TestRequest, *, ctx: CallContext) -> dict[str, Any]:
         """Execute call with middleware chain."""
-        
+
         async def do_call() -> dict[str, Any]:
             """Core call operation."""
             self.call_count += 1
@@ -134,7 +134,7 @@ class ConfigurableTestService(Service):
 
     async def stream(self, req: TestRequest, *, ctx: CallContext) -> AsyncIterator[dict[str, Any]]:
         """Execute stream with middleware chain."""
-        
+
         async def do_stream() -> AsyncIterator[dict[str, Any]]:
             """Core streaming operation."""
             for i in range(self.stream_chunks):
@@ -518,7 +518,7 @@ class TestIntegrationCore:
 
         async def capture_chunks(event, chunk):
             chunk_events.append(chunk)
-            # Transform chunk data  
+            # Transform chunk data
             if isinstance(chunk, dict):
                 chunk["transformed"] = True
             return chunk
@@ -569,6 +569,7 @@ class TestIntegrationCore:
 
             # Should timeout after ~0.3s, not wait for 1s service delay
             import builtins
+
             with pytest.raises(builtins.TimeoutError):
                 await model.invoke(
                     request,

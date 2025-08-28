@@ -78,7 +78,11 @@ class TestProviderPrefixParsing:
         """Test parse_provider_prefix with real-world model names."""
         test_cases = [
             ("openai/gpt-4o-mini", "openai", "gpt-4o-mini"),
-            ("anthropic/claude-3-sonnet-20240229", "anthropic", "claude-3-sonnet-20240229"),
+            (
+                "anthropic/claude-3-sonnet-20240229",
+                "anthropic",
+                "claude-3-sonnet-20240229",
+            ),
             ("groq/llama-3.1-70b-versatile", "groq", "llama-3.1-70b-versatile"),
             ("mistral/mistral-7b-instruct", "mistral", "mistral-7b-instruct"),
             ("gpt-4o-mini", None, "gpt-4o-mini"),  # No prefix

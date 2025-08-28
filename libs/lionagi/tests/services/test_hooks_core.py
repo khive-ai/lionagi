@@ -290,7 +290,7 @@ class TestHooksCore:
 
         # Create test chunk data
         original_chunk = {"chunk": 0, "content": "test data"}
-        
+
         # Create a stream event
         call_id = uuid4()
         branch_id = uuid4()
@@ -356,11 +356,11 @@ class TestHooksCore:
         original_call_id = uuid4()
 
         ctx = CallContext(
-            call_id=original_call_id, 
+            call_id=original_call_id,
             branch_id=original_branch_id,
             deadline_s=None,
             capabilities=set(),
-            attrs={}
+            attrs={},
         )
 
         event = HookEvent(

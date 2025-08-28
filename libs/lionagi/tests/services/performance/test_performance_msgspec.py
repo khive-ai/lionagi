@@ -35,7 +35,7 @@ class PydanticCallContext(BaseModel):
 
 class PydanticServiceCall(BaseModel):
     """Pydantic version of ServiceCall for benchmark comparison."""
-    
+
     model_config = {"arbitrary_types_allowed": True}
 
     id: UUID

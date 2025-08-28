@@ -197,9 +197,10 @@ class TestProactiveDeadlineEnforcement:
         start_time = time.time()
 
         import builtins
+
         with pytest.raises(builtins.TimeoutError):
             # The service should use fail_at(ctx.deadline_s) which will raise
-            # built-in TimeoutError when deadline is exceeded  
+            # built-in TimeoutError when deadline is exceeded
             await service_with_slow_client.call(basic_request, ctx=short_deadline_context)
 
         elapsed_time = time.time() - start_time
@@ -233,6 +234,7 @@ class TestProactiveDeadlineEnforcement:
         start_time = time.time()
 
         import builtins
+
         with pytest.raises(builtins.TimeoutError):
             # Stream should enforce deadline and raise built-in TimeoutError before slow response
             async for _ in service_with_slow_client.stream(
