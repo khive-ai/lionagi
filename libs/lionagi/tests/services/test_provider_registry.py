@@ -13,7 +13,7 @@ from unittest.mock import Mock
 
 import msgspec
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from lionagi.services.core import Service
 from lionagi.services.endpoint import RequestModel
@@ -310,8 +310,8 @@ class TestProviderRegistry:
         assert adapter.name == "generic"
 
     def test_resolve_no_provider_no_base_url_error(self, registry, mock_adapters):
-        """Test error when no provider or base_url is specified."""
-        registry.register(mock_adapters["openai"])
+        """Test error when no provider or base_url is specified and no adapter supports the request."""
+        registry.register(mock_adapters["strict"])  # doesn't support anything
 
         with pytest.raises(ValueError, match="Provider must be specified"):
             registry.resolve(

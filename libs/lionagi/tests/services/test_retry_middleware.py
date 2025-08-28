@@ -14,29 +14,12 @@ break in production. Each test validates actual behavior, not obvious outcomes.
 """
 
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
 import anyio
 import pytest
-
-# MockClock only available with trio backend
-try:
-    from trio.testing import MockClock
-except ImportError:
-    # Simple mock for asyncio backend tests
-    class MockClock:
-        def __init__(self, rate=0.0):
-            self.rate = rate
-            self._time = 0.0
-
-        def advance(self, seconds):
-            self._time += seconds
-
-        def jump(self, seconds):
-            self._time += seconds
-
 
 from lionagi.errors import NonRetryableError, RetryableError, ServiceError, TimeoutError
 from lionagi.services.core import CallContext

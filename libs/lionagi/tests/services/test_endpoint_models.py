@@ -9,11 +9,9 @@ for RequestModel, ChatRequestModel, CompletionRequestModel, and EmbeddingRequest
 """
 
 import json
-from typing import Any
 
 import msgspec
 import msgspec.json
-import pytest
 
 from lionagi.services.endpoint import (
     ChatRequestModel,

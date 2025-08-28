@@ -7,10 +7,8 @@ These tests validate the core security model: fail-closed behavior, capability c
 algorithms, service-declared vs request-declared requirements, and attack vector prevention.
 """
 
-from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-import anyio
 import pytest
 
 from lionagi.errors import PolicyError
@@ -551,12 +549,12 @@ class TestErrorContextAndObservability:
         call_id = uuid4()
         branch_id = uuid4()
 
-        ctx = CallContext.new(
+        ctx = CallContext(
+            call_id=call_id,
             branch_id=branch_id,
             capabilities={"fs.read:/public", "net.out:example.com"},
-            service_requires={"admin:write", "fs.delete:/critical"},
+            attrs={"service_requires": {"admin:write", "fs.delete:/critical"}},
         )
-        ctx.call_id = call_id  # Set specific call_id for testing
 
         req = MockRequest()
         req._extra_requires = {"db.admin:delete"}

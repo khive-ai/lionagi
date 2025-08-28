@@ -18,8 +18,7 @@ into comprehensive integration testing focused on behavioral validation.
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -166,7 +165,9 @@ class ServiceTestBuilder:
             with patch("httpx.AsyncClient") as mock_client_class:
                 mock_client_instance = httpx.AsyncClient(transport=mock_transport)
                 mock_client_class.return_value = mock_client_instance
-                return create_openai_service(api_key="test-key", service_name=service_name)
+                service = create_openai_service(api_key="test-key")
+                service.name = service_name  # Override the service name after creation
+                return service
         else:
             # Return service with mocked OpenAI client
             mock_client = AsyncMock(spec=AsyncOpenAI)
@@ -185,13 +186,12 @@ class ServiceTestBuilder:
     @staticmethod
     def create_test_context(timeout_s: float = 30.0, **attrs) -> CallContext:
         """Create test context with optional timeout and attributes."""
-        context = CallContext.with_timeout(
+        return CallContext.with_timeout(
             branch_id=uuid4(),
             timeout_s=timeout_s,
             capabilities={"net.out:api.openai.com"},
+            attrs=attrs,
         )
-        context.attrs.update(attrs)
-        return context
 
 
 # ==============================================================================
