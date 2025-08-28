@@ -62,7 +62,7 @@ class OpenAICompatibleService:
                 response = await self.client.chat.completions.create(**kwargs)
                 return response.model_dump()
 
-            except (TimeoutError, asyncio.TimeoutError) as e:
+            except TimeoutError as e:
                 raise TimeoutError(
                     f"OpenAI API call timed out: {e}",
                     context={
@@ -198,7 +198,7 @@ class OpenAICompatibleService:
                 async for chunk in stream:
                     yield chunk.model_dump()
 
-            except (TimeoutError, asyncio.TimeoutError) as e:
+            except TimeoutError as e:
                 raise TimeoutError(
                     f"OpenAI API stream timed out: {e}",
                     context={

@@ -5,14 +5,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
 from enum import Enum
 from typing import Any
 from uuid import UUID
-
-import asyncio
 
 import anyio
 import msgspec
@@ -204,10 +203,10 @@ class RateLimitedExecutor:
         self._shutdown_event = Event()
         self._running = True
 
-        # Start background tasks using asyncio.create_task (v0 pattern)
+        # Start background tasks using asyncio.create_task
         self._processor_task = asyncio.create_task(self._run_processor())
         self._replenisher_task = asyncio.create_task(self._run_replenisher())
-        
+
         logger.info("RateLimitedExecutor started with background processing")
 
     async def stop(self) -> None:
@@ -216,14 +215,14 @@ class RateLimitedExecutor:
             return
 
         logger.info("Stopping RateLimitedExecutor...")
-        
+
         # Signal cooperative shutdown
         self._shutdown_event.set()
         self._running = False
-        
+
         # Close the queue to signal shutdown
         await self._queue.close()
-        
+
         # Cancel any remaining active calls
         for call in self.active_calls.values():
             call.mark_cancelled()
@@ -233,18 +232,18 @@ class RateLimitedExecutor:
             self._processor_task.cancel()
             try:
                 await self._processor_task
-            except asyncio.CancelledError:
+            except get_cancelled_exc_class():
                 pass
             self._processor_task = None
-            
+
         if self._replenisher_task:
             self._replenisher_task.cancel()
             try:
                 await self._replenisher_task
-            except asyncio.CancelledError:
+            except get_cancelled_exc_class():
                 pass
             self._replenisher_task = None
-            
+
         logger.info(f"RateLimitedExecutor stopped. Final Stats: {self._stats}")
 
     async def submit_call(
@@ -327,11 +326,8 @@ class RateLimitedExecutor:
             while not self._shutdown_event.is_set():
                 try:
                     # Try to get a call from the queue with timeout
-                    call = await asyncio.wait_for(
-                        self._queue.get(), 
-                        timeout=0.1
-                    )
-                    
+                    call = await asyncio.wait_for(self._queue.get(), timeout=0.1)
+
                     if self._shutdown_event.is_set():
                         call.mark_cancelled()
                         break
@@ -352,15 +348,15 @@ class RateLimitedExecutor:
                     # Periodically cleanup completed
                     if len(self.completed_calls) > 100:
                         asyncio.create_task(self._cleanup_completed())
-                        
-                except asyncio.TimeoutError:
+
+                except TimeoutError:
                     # Queue get timed out, loop to check shutdown
                     continue
                 except (anyio.ClosedResourceError, anyio.EndOfStream):
                     # Queue closed - shutdown signal
                     break
-                    
-        except asyncio.CancelledError:
+
+        except get_cancelled_exc_class():
             logger.debug("Processor loop cancelled")
         except Exception as e:
             logger.error(f"Processor loop error: {e}", exc_info=True)
@@ -372,19 +368,19 @@ class RateLimitedExecutor:
         try:
             while not self._shutdown_event.is_set():
                 # Sleep first, then refresh (like v0)
-                await asyncio.sleep(self.config.capacity_refresh_time)
-                
+                await anyio.sleep(self.config.capacity_refresh_time)
+
                 if self._shutdown_event.is_set():
                     break
-                    
+
                 # Refresh rate limits
                 async with self._rate_lock:
                     self.request_count = 0
                     self.token_count = 0
                     self.last_refresh = time.time()
                     logger.debug("Rate limits refreshed")
-                    
-        except asyncio.CancelledError:
+
+        except get_cancelled_exc_class():
             logger.debug("Replenisher task cancelled")
         except Exception as e:
             logger.error(f"Replenisher error: {e}", exc_info=True)
@@ -402,18 +398,20 @@ class RateLimitedExecutor:
                     return
 
             # CRITICAL FIX: Deadline-aware waiting instead of blind polling
-            # If call has a deadline, respect it to prevent deadline violations  
+            # If call has a deadline, respect it to prevent deadline violations
             if call.context.deadline_s is not None:
                 remaining = call.context.deadline_s - anyio.current_time()
-                logger.debug(f"Waiting for capacity: deadline={call.context.deadline_s}, now={anyio.current_time()}, remaining={remaining}s")
-                
+                logger.debug(
+                    f"Waiting for capacity: deadline={call.context.deadline_s}, now={anyio.current_time()}, remaining={remaining}s"
+                )
+
                 if remaining <= 0:
                     raise TimeoutError(f"Call {call.id} deadline already passed")
-                    
+
                 try:
                     with fail_at(call.context.deadline_s):
                         await anyio.sleep(0.1)
-                except anyio.get_cancelled_exc_class():
+                except get_cancelled_exc_class():
                     # Deadline exceeded while waiting for capacity
                     raise TimeoutError(
                         f"Call {call.id} deadline exceeded while waiting for rate limit capacity"
@@ -428,17 +426,23 @@ class RateLimitedExecutor:
         Must be called while holding _rate_lock.
         """
         if self.config.limit_requests and self.request_count >= self.config.limit_requests:
-            logger.debug(f"Rate limit check: request_count={self.request_count} >= limit={self.config.limit_requests}")
+            logger.debug(
+                f"Rate limit check: request_count={self.request_count} >= limit={self.config.limit_requests}"
+            )
             return False
 
         if (
             self.config.limit_tokens
             and (self.token_count + call.token_estimate) > self.config.limit_tokens
         ):
-            logger.debug(f"Rate limit check: token_count={self.token_count} + {call.token_estimate} > limit={self.config.limit_tokens}")
+            logger.debug(
+                f"Rate limit check: token_count={self.token_count} + {call.token_estimate} > limit={self.config.limit_tokens}"
+            )
             return False
 
-        logger.debug(f"Rate limit check passed: requests={self.request_count}/{self.config.limit_requests}, tokens={self.token_count}/{self.config.limit_tokens}")
+        logger.debug(
+            f"Rate limit check passed: requests={self.request_count}/{self.config.limit_requests}, tokens={self.token_count}/{self.config.limit_tokens}"
+        )
         return True
 
     async def _execute_call(self, call: ServiceCall) -> None:
@@ -470,13 +474,7 @@ class RateLimitedExecutor:
             logger.error(f"Call {call.id} failed: {e}")
 
         finally:
-            # Release rate limit capacity
-            async with self._rate_lock:
-                self.request_count = max(0, self.request_count - 1)
-                self.token_count = max(0, self.token_count - call.token_estimate)
-                logger.debug(f"Released capacity: requests={self.request_count}, tokens={self.token_count}")
-            
-            # Move from active to completed
+            # Move from active to completed (don't decrement rate limits - let replenisher reset them)
             if call.id in self.active_calls:
                 del self.active_calls[call.id]
                 self.completed_calls[call.id] = call
@@ -536,5 +534,3 @@ class RateLimitedExecutor:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         await self.stop()
-
-

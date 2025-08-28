@@ -219,8 +219,9 @@ class iModel:
         # Add service name to context for hooks (create new context since it's frozen)
         attrs = dict(context.attrs) if context.attrs else {}
         attrs["service_name"] = self.service.name
-        
+
         import msgspec
+
         context = msgspec.structs.replace(context, attrs=attrs)
 
         # Submit to executor for rate limiting and queuing
@@ -249,11 +250,12 @@ class iModel:
                 request = request.model_copy(update={"stream": True})
             else:
                 import msgspec
+
                 request = msgspec.structs.replace(request, stream=True)
 
         # Create context
         context = self._build_context(**kwargs)
-        
+
         # Add service name to context for hooks (create new context since it's frozen)
         attrs = dict(context.attrs) if context.attrs else {}
         attrs["service_name"] = self.service.name
