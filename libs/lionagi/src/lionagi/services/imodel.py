@@ -14,6 +14,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from lionagi.ln import effective_deadline
+
 from .core import CallContext
 from .endpoint import ChatRequestModel, RequestModel
 from .executor import ExecutorConfig, RateLimitedExecutor, ServiceCall

@@ -12,8 +12,6 @@ from typing import Any
 import openai
 from openai import AsyncOpenAI
 
-from lionagi.ln.concurrency import fail_at
-
 from lionagi.errors import (
     NonRetryableError,
     RateLimitError,
@@ -21,6 +19,8 @@ from lionagi.errors import (
     ServiceError,
     TimeoutError,
 )
+from lionagi.ln.concurrency import fail_at
+
 from ..core import CallContext
 from ..endpoint import RequestModel
 from ..middleware import CallMW, StreamMW
