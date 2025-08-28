@@ -45,6 +45,7 @@ from lionagi.errors import (
     ServiceError,
     TimeoutError,
 )
+from lionagi.ln.concurrency import get_cancelled_exc_class
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import ChatRequestModel
 from lionagi.services.openai import OpenAICompatibleService
@@ -195,9 +196,10 @@ class TestProactiveDeadlineEnforcement:
         """
         start_time = time.time()
 
-        with pytest.raises(anyio.get_cancelled_exc_class()):
+        import builtins
+        with pytest.raises(builtins.TimeoutError):
             # The service should use fail_at(ctx.deadline_s) which will raise
-            # the cancellation exception when deadline is exceeded
+            # built-in TimeoutError when deadline is exceeded  
             await service_with_slow_client.call(basic_request, ctx=short_deadline_context)
 
         elapsed_time = time.time() - start_time
@@ -230,8 +232,9 @@ class TestProactiveDeadlineEnforcement:
 
         start_time = time.time()
 
-        with pytest.raises(anyio.get_cancelled_exc_class()):
-            # Stream should enforce deadline and cancel before slow response
+        import builtins
+        with pytest.raises(builtins.TimeoutError):
+            # Stream should enforce deadline and raise built-in TimeoutError before slow response
             async for _ in service_with_slow_client.stream(
                 basic_request, ctx=short_deadline_context
             ):
@@ -258,6 +261,13 @@ class TestContextPropagationToSDK:
     """Test that CallContext remaining time propagates to SDK timeout parameter."""
 
     @pytest.fixture
+    def basic_request(self):
+        """Basic chat request for tests."""
+        return ChatRequestModel(
+            model="gpt-3.5-turbo", messages=[{"role": "user", "content": "Test"}]
+        )
+
+    @pytest.fixture
     def mock_client_with_timeout_capture(self):
         """Mock client that captures timeout parameter."""
         client = AsyncMock(spec=AsyncOpenAI)
@@ -281,6 +291,7 @@ class TestContextPropagationToSDK:
         """Service with timeout capturing client."""
         return OpenAICompatibleService(client=mock_client_with_timeout_capture, name="timeout_test")
 
+    @pytest.mark.anyio
     async def test_context_timeout_propagation(self, service_with_timeout_capture, basic_request):
         """Test that remaining time from CallContext propagates to SDK timeout."""
         # Create context with 5 seconds remaining
@@ -297,6 +308,7 @@ class TestContextPropagationToSDK:
         timeout_value = captured_kwargs["timeout"]
         assert 4.8 <= timeout_value <= 5.0, f"Expected timeout ~5.0, got {timeout_value}"
 
+    @pytest.mark.anyio
     async def test_minimum_timeout_enforcement(self, service_with_timeout_capture, basic_request):
         """Test that minimum timeout of 1.0s is enforced."""
         # Create context with very short remaining time (0.1s)
@@ -407,6 +419,7 @@ class TestStreamYieldsImmediately:
         """Service configured for streaming tests."""
         return OpenAICompatibleService(client=streaming_mock_client, name="streaming_test")
 
+    @pytest.mark.anyio
     async def test_stream_yields_immediately(self, streaming_service):
         """Test that stream yields chunks immediately without buffering."""
         request = ChatRequestModel(
@@ -459,6 +472,7 @@ class TestOpenAISDKExceptionMapping:
         """Context for exception tests."""
         return CallContext.new(branch_id=uuid4())
 
+    @pytest.mark.anyio
     async def test_rate_limit_error_mapping(self, service, basic_request, context):
         """Test RateLimitError mapping with retry_after."""
         # Mock RateLimitError
@@ -478,6 +492,7 @@ class TestOpenAISDKExceptionMapping:
         assert error.context["service"] == "exception_test"
         assert error.context["call_id"] == str(context.call_id)
 
+    @pytest.mark.anyio
     async def test_connection_error_mapping(self, service, basic_request, context):
         """Test APIConnectionError maps to RetryableError."""
         connection_error = openai.APIConnectionError(
@@ -494,6 +509,7 @@ class TestOpenAISDKExceptionMapping:
         assert error.context["error_type"] == "connection"
         assert error.retryable == True
 
+    @pytest.mark.anyio
     async def test_server_error_mapping(self, service, basic_request, context):
         """Test InternalServerError maps to RetryableError."""
         server_error = openai.InternalServerError(
@@ -511,6 +527,7 @@ class TestOpenAISDKExceptionMapping:
         assert error.context["error_type"] == "server_error"
         assert error.context["status_code"] == 500
 
+    @pytest.mark.anyio
     async def test_bad_request_error_mapping(self, service, basic_request, context):
         """Test BadRequestError maps to NonRetryableError."""
         bad_request_error = openai.BadRequestError(
@@ -528,6 +545,7 @@ class TestOpenAISDKExceptionMapping:
         assert error.context["error_type"] == "bad_request"
         assert error.retryable == False
 
+    @pytest.mark.anyio
     async def test_authentication_error_mapping(self, service, basic_request, context):
         """Test AuthenticationError maps to NonRetryableError."""
         auth_error = openai.AuthenticationError(
@@ -545,8 +563,9 @@ class TestOpenAISDKExceptionMapping:
         assert error.context["error_type"] == "authentication"
         assert error.retryable == False
 
+    @pytest.mark.anyio
     async def test_timeout_error_mapping(self, service, basic_request, context):
-        """Test asyncio.TimeoutError maps to TimeoutError."""
+        """Test asyncio.TimeoutError maps to lionagi TimeoutError."""
         service.client.chat.completions.create = AsyncMock(
             side_effect=asyncio.TimeoutError("Request timed out")
         )
@@ -558,11 +577,10 @@ class TestOpenAISDKExceptionMapping:
         assert "timed out" in error.message.lower()
         assert error.retryable == True  # TimeoutError is retryable
 
+    @pytest.mark.anyio
     async def test_generic_openai_error_mapping(self, service, basic_request, context):
         """Test generic OpenAIError maps to ServiceError."""
-        generic_error = openai.OpenAIError(
-            message="Unknown error",
-        )
+        generic_error = openai.OpenAIError("Unknown error")
         generic_error.status_code = 418  # I'm a teapot
 
         service.client.chat.completions.create = AsyncMock(side_effect=generic_error)
@@ -578,6 +596,17 @@ class TestOpenAISDKExceptionMapping:
 
 class TestServiceCapabilityDeclaration:
     """Test service capability declaration and enforcement."""
+
+    @pytest.fixture
+    def registry(self):
+        """Create provider registry with builtin adapters."""
+        from lionagi.services.adapters.generic_adapter import GenericJSONAdapter
+        from lionagi.services.adapters.openai_adapter import OpenAIAdapter
+
+        registry = ProviderRegistry()
+        registry.register(OpenAIAdapter())
+        registry.register(GenericJSONAdapter())
+        return registry
 
     def test_default_capability_requirements(self, registry):
         """Test default capability requirements from adapter."""

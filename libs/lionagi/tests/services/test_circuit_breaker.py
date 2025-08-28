@@ -77,15 +77,16 @@ class ConfigurableService:
             if self.fail_after_chunks is not None and i >= self.fail_after_chunks:
                 raise RetryableError(f"Stream failed after {self.chunks_yielded} chunks")
 
+            # Sleep before yielding each chunk (including the first one)
+            if self.chunk_delay > 0:
+                await anyio.sleep(self.chunk_delay)
+
             self.chunks_yielded += 1
             yield {
                 "chunk": i + 1,
                 "call": self.stream_call_count,
                 "timestamp": time.time(),
             }
-
-            if self.chunk_delay > 0:
-                await anyio.sleep(self.chunk_delay)
 
 
 @pytest.fixture
@@ -127,13 +128,17 @@ class TestCircuitBreakerConcurrencySafety:
             except (RetryableError, ServiceError) as e:
                 return f"failed: {type(e).__name__}"
 
-        # Execute 50 concurrent tasks
+        # Execute 50 concurrent tasks  
+        results = []
+        async def collect_result():
+            result = await concurrent_call()
+            results.append(result)
+            
         async with anyio.create_task_group() as tg:
-            results = []
             for _ in range(50):
-                results.append(await tg.start_task_soon(concurrent_call))
+                tg.start_soon(collect_result)
 
-        completed_results = [await result for result in results]
+        completed_results = results
 
         # All 50 tasks should fail (RetryableError or ServiceError for circuit open)
         failed_count = sum(1 for result in completed_results if result.startswith("failed"))
@@ -158,30 +163,35 @@ class TestCircuitBreakerConcurrencySafety:
         async def mixed_concurrent_calls():
             results = []
 
+            async def failing_call():
+                try:
+                    result = await circuit_mw(mock_request, ctx, failing_service.call_operation)
+                    results.append(result)
+                except Exception as e:
+                    results.append(e)
+            
+            async def success_call():
+                try:
+                    result = await circuit_mw(mock_request, ctx, success_service.call_operation) 
+                    results.append(result)
+                except Exception as e:
+                    results.append(e)
+
             async with anyio.create_task_group() as tg:
                 # 10 failing calls to trigger circuit opening
                 for _ in range(10):
-                    results.append(
-                        await tg.start_task_soon(
-                            lambda: circuit_mw(mock_request, ctx, failing_service.call_operation)
-                        )
-                    )
+                    tg.start_soon(failing_call)
 
                 # 5 successful calls
                 for _ in range(5):
-                    results.append(
-                        await tg.start_task_soon(
-                            lambda: circuit_mw(mock_request, ctx, success_service.call_operation)
-                        )
-                    )
+                    tg.start_soon(success_call)
 
             completed_results = []
-            for result_task in results:
-                try:
-                    result = await result_task
+            for result in results:
+                if isinstance(result, Exception):
+                    completed_results.append(("failed", type(result).__name__))
+                else:
                     completed_results.append(("success", result))
-                except Exception as e:
-                    completed_results.append(("failed", type(e).__name__))
 
             return completed_results
 

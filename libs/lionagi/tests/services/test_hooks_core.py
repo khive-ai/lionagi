@@ -34,7 +34,7 @@ from lionagi.services.hooks import (
 )
 
 
-class TestRequest(RequestModel):
+class TestRequest(RequestModel, frozen=True):
     """Simple test request."""
 
     content: str = "test"
@@ -261,39 +261,50 @@ class TestHooksCore:
         transformation_log = []
 
         # First transform hook - adds metadata
-        async def transform_hook_1(chunk_data):
+        async def transform_hook_1(event, chunk_data):
             transformation_log.append("transform_1")
             chunk_data["metadata"] = "added_by_hook_1"
             return chunk_data
 
         # Second transform hook - modifies content
-        async def transform_hook_2(chunk_data):
+        async def transform_hook_2(event, chunk_data):
             transformation_log.append("transform_2")
             chunk_data["transformed"] = True
             return chunk_data
 
         # Third transform hook - fails intentionally
-        async def transform_hook_3_fails(chunk_data):
+        async def transform_hook_3_fails(event, chunk_data):
             transformation_log.append("transform_3_started")
             raise ValueError("Intentional transform failure")
 
         # Fourth transform hook - should NOT execute due to failure in chain
-        async def transform_hook_4_should_not_run(chunk_data):
+        async def transform_hook_4_should_not_run(event, chunk_data):
             transformation_log.append("transform_4")  # Should NOT appear
             return chunk_data
 
         # Register stream hooks in order
-        registry.register(HookType.STREAM_CHUNK, transform_hook_1)
-        registry.register(HookType.STREAM_CHUNK, transform_hook_2)
-        registry.register(HookType.STREAM_CHUNK, transform_hook_3_fails)
-        registry.register(HookType.STREAM_CHUNK, transform_hook_4_should_not_run)
+        registry.register_stream_hook(HookType.STREAM_CHUNK, transform_hook_1)
+        registry.register_stream_hook(HookType.STREAM_CHUNK, transform_hook_2)
+        registry.register_stream_hook(HookType.STREAM_CHUNK, transform_hook_3_fails)
+        registry.register_stream_hook(HookType.STREAM_CHUNK, transform_hook_4_should_not_run)
 
         # Create test chunk data
         original_chunk = {"chunk": 0, "content": "test data"}
+        
+        # Create a stream event
+        call_id = uuid4()
+        branch_id = uuid4()
+        stream_event = HookEvent(
+            hook_type=HookType.STREAM_CHUNK,
+            call_id=call_id,
+            branch_id=branch_id,
+            service_name="test_service",
+            context=CallContext.new(branch_id=branch_id),
+        )
 
         with patch("lionagi.services.hooks.logger") as mock_logger:
             # Process chunk through stream hooks
-            processed_chunk = await registry.process_stream_chunk(original_chunk)
+            processed_chunk = await registry.emit_stream_chunk(stream_event, original_chunk)
 
             # Allow async operations to complete
             await anyio.sleep(0.01)
@@ -344,7 +355,13 @@ class TestHooksCore:
         original_branch_id = uuid4()
         original_call_id = uuid4()
 
-        ctx = CallContext.new(branch_id=original_branch_id, call_id=original_call_id)
+        ctx = CallContext(
+            call_id=original_call_id, 
+            branch_id=original_branch_id,
+            deadline_s=None,
+            capabilities=set(),
+            attrs={}
+        )
 
         event = HookEvent(
             hook_type=HookType.POST_CALL,
@@ -457,7 +474,7 @@ class TestHooksCore:
                 execution_log.append("global_pre_call")
 
             @stream_hook(HookType.STREAM_CHUNK)
-            async def global_stream_transform(chunk_data):
+            async def global_stream_transform(event, chunk_data):
                 execution_log.append("global_stream_transform")
                 chunk_data["global_transform"] = True
                 return chunk_data
@@ -483,7 +500,14 @@ class TestHooksCore:
 
             # Test global stream hook
             test_chunk = {"chunk": 0, "data": "test"}
-            transformed_chunk = await global_registry.process_stream_chunk(test_chunk)
+            stream_event = HookEvent(
+                hook_type=HookType.STREAM_CHUNK,
+                call_id=uuid4(),
+                branch_id=uuid4(),
+                service_name="test_service",
+                context=CallContext.new(branch_id=uuid4()),
+            )
+            transformed_chunk = await global_registry.emit_stream_chunk(stream_event, test_chunk)
 
             await anyio.sleep(0.01)
 
