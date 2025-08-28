@@ -65,8 +65,7 @@ class LionError(Exception):
         cause: Exception | None = None,
     ):
         super().__init__(message or self.default_message)
-        if cause:
-            self.__cause__ = cause  # Preserves traceback chain
+        self.__cause__ = cause  # Always set cause (can be None)
         self.message = message or self.default_message
         self.details = details or {}
         self.status_code = status_code or type(self).default_status_code
