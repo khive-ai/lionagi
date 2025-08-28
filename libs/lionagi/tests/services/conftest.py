@@ -19,9 +19,55 @@ from uuid import uuid4
 
 import anyio
 import pytest
-from anyio.testing import MockClock
 
 from lionagi.services import CallContext, ChatRequestModel, RequestModel, Service
+
+
+# Always use our custom MockClock for consistent behavior across tests
+# trio.testing.MockClock has different API and context behavior that's complex to patch
+class MockClock:
+    def __init__(self, rate=0.0):
+        self.rate = rate
+        self._time = 0.0
+
+    @property
+    def time(self):
+        return self._time
+
+    @time.setter
+    def time(self, value):
+        self._time = value
+
+    def advance(self, seconds):
+        self._time += seconds
+
+    def jump(self, seconds):
+        self._time += seconds
+
+    def current_time(self):
+        return self._time
+
+    def __enter__(self):
+        # Patch anyio.current_time and time.monotonic for test duration
+        import time
+
+        import anyio
+
+        self._original_anyio_current_time = anyio.current_time
+        self._original_time_monotonic = time.monotonic
+
+        anyio.current_time = lambda: self._time
+        time.monotonic = lambda: self._time
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Restore original time functions
+        import time
+
+        import anyio
+
+        anyio.current_time = self._original_anyio_current_time
+        time.monotonic = self._original_time_monotonic
 
 
 # Pytest Configuration

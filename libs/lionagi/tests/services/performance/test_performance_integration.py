@@ -23,6 +23,37 @@ import pytest
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import ChatRequestModel, RequestModel
 from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
+from lionagi.services.imodel import iModel
+from lionagi.services.provider_registry import ProviderAdapter, get_provider_registry
+
+
+class MockPerformanceAdapter(ProviderAdapter):
+    """Mock adapter for performance testing."""
+
+    name = "mock"
+    default_base_url = "https://api.mock.com/v1"
+    request_model = RequestModel
+    requires = {"net.out:api.mock.com"}
+    ConfigModel = None
+
+    def __init__(self, service_instance: Service = None):
+        self._service_instance = service_instance
+
+    def supports(self, *, provider: str | None, model: str | None, base_url: str | None) -> bool:
+        return (provider or "").lower() == "mock" or (model or "").lower().startswith("mock/")
+
+    def create_service(self, *, base_url: str | None, **kwargs: Any) -> Service:
+        return self._service_instance or MockFullPipelineService()
+
+    def required_rights(self, *, base_url: str | None, **kwargs: Any) -> set[str]:
+        return {"net.out:api.mock.com"}
+
+
+def setup_mock_performance_registry(service_instance: Service = None):
+    """Setup provider registry with mock performance adapter."""
+    registry = get_provider_registry()
+    mock_adapter = MockPerformanceAdapter(service_instance)
+    registry._adapters["mock"] = mock_adapter
 
 
 class MockFullPipelineService:
@@ -211,97 +242,88 @@ class TestFullPipelineLatency:
 
     @pytest.mark.anyio
     async def test_pipeline_with_middleware_stack(self, integration_request):
-        """Test pipeline latency with typical middleware stack."""
-        config = ExecutorConfig(queue_capacity=50, limit_requests=100, concurrency_limit=10)
-
-        executor = RateLimitedExecutor(config)
+        """Test pipeline latency with actual iModel middleware stack."""
         service = MockFullPipelineService(latency_ms=100, response_size_bytes=2048)
+        setup_mock_performance_registry(service)
 
-        # Simulate middleware stack overhead
-        policy_mw = MockMiddleware("policy", overhead_ms=2)
-        metrics_mw = MockMiddleware("metrics", overhead_ms=1)
-        hooks_mw = MockMiddleware("hooks", overhead_ms=3)
-        retry_mw = MockMiddleware("retry", overhead_ms=1)
-
-        await executor.start()
-
-        ctx = CallContext.with_timeout(
-            branch_id=uuid4(), timeout_s=10.0, capabilities={"net.out:api.mock.com"}
-        )
-
-        # Simulate middleware chain execution
-        async def execute_with_middleware():
+        # Test actual middleware stack through iModel
+        async with iModel(
+            provider="mock",
+            model="mock-model",
+            api_key="test-key",
+            queue_capacity=50,
+            limit_requests=100,
+            concurrency_limit=10,
+            enable_policy=True,
+            enable_metrics=True,
+            enable_redaction=True,
+        ) as model:
             start_time = time.perf_counter()
 
-            # Simulate middleware chain (simplified)
-            for mw in [policy_mw, metrics_mw, hooks_mw, retry_mw]:
-                await anyio.sleep(mw.overhead_ms / 2000.0)  # Pre-processing
-
-            call = await executor.submit_call(service, integration_request, ctx)
-            result = await call.wait_completion()
-
-            for mw in reversed([policy_mw, metrics_mw, hooks_mw, retry_mw]):
-                await anyio.sleep(mw.overhead_ms / 2000.0)  # Post-processing
-                mw.call_count += 1
+            result = await model.invoke(
+                integration_request,
+                capabilities={"net.out:api.mock.com"},
+                timeout_s=10.0,
+            )
 
             end_time = time.perf_counter()
-            return result, end_time - start_time
+            middleware_latency = end_time - start_time
 
-        result, middleware_latency = await execute_with_middleware()
+            # Validate middleware performance impact
+            assert result is not None
+            assert result["id"].startswith("response_")
+            assert (
+                middleware_latency < 0.5
+            ), f"Middleware latency too high: {middleware_latency * 1000:.1f}ms"
 
-        await executor.stop()
-
-        # Validate middleware performance impact
-        assert result is not None
-        assert (
-            middleware_latency < 0.5
-        ), f"Middleware latency too high: {middleware_latency * 1000:.1f}ms"
-
-        # Middleware overhead should be reasonable
-        expected_overhead = 0.007  # 7ms total middleware overhead
-        service_time = 0.1  # 100ms service time
-        assert middleware_latency < (
-            service_time + expected_overhead + 0.05
-        ), f"Total middleware overhead excessive: {(middleware_latency - service_time) * 1000:.1f}ms"
+            # Middleware overhead should be reasonable
+            # Account for service time (100ms) + middleware overhead
+            service_time = 0.1  # 100ms service time
+            expected_total_time = service_time + 0.05  # Allow 50ms for middleware overhead
+            assert (
+                middleware_latency < expected_total_time
+            ), f"Total middleware overhead excessive: {(middleware_latency - service_time) * 1000:.1f}ms"
 
     @pytest.mark.anyio
     async def test_pipeline_streaming_latency(self, integration_request):
-        """Test streaming pipeline latency with middleware."""
-        config = ExecutorConfig(queue_capacity=20, concurrency_limit=5)
-        executor = RateLimitedExecutor(config)
-
+        """Test streaming pipeline latency through full iModel pipeline."""
         service = MockFullPipelineService(latency_ms=80, response_size_bytes=8192)
+        setup_mock_performance_registry(service)
 
-        await executor.start()
+        async with iModel(
+            provider="mock",
+            model="mock-model",
+            api_key="test-key",
+            queue_capacity=20,
+            concurrency_limit=5,
+            enable_metrics=True,
+            enable_redaction=True,
+        ) as model:
+            # Measure streaming performance through iModel
+            start_time = time.perf_counter()
+            ttfb = None
+            chunk_count = 0
+            total_bytes = 0
 
-        ctx = CallContext.with_timeout(
-            branch_id=uuid4(), timeout_s=15.0, capabilities={"net.out:api.mock.com"}
-        )
+            async for chunk in model.stream(
+                integration_request,
+                capabilities={"net.out:api.mock.com"},
+                timeout_s=15.0,
+            ):
+                if ttfb is None:
+                    ttfb = time.perf_counter() - start_time
 
-        # Measure streaming performance
-        start_time = time.perf_counter()
-        ttfb = None
-        chunk_count = 0
-        total_bytes = 0
+                chunk_count += 1
+                chunk_content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                total_bytes += len(chunk_content)
 
-        stream = executor.submit_stream(service, integration_request, ctx)
-        async for chunk in stream:
-            if ttfb is None:
-                ttfb = time.perf_counter() - start_time
+            total_time = time.perf_counter() - start_time
 
-            chunk_count += 1
-            chunk_content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-            total_bytes += len(chunk_content)
-
-        total_time = time.perf_counter() - start_time
-
-        await executor.stop()
-
-        # Validate streaming performance
-        assert chunk_count == 20, f"Expected 20 chunks, got {chunk_count}"
-        assert ttfb < 0.15, f"TTFB too high: {ttfb * 1000:.1f}ms"
-        assert total_time < 1.0, f"Total streaming time too high: {total_time:.2f}s"
-        assert total_bytes > 7000, f"Insufficient data streamed: {total_bytes} bytes"
+            # Validate streaming performance
+            assert chunk_count == 20, f"Expected 20 chunks, got {chunk_count}"
+            assert ttfb < 0.15, f"TTFB too high: {ttfb * 1000:.1f}ms"
+            assert total_time < 1.0, f"Total streaming time too high: {total_time:.2f}s"
+            assert total_bytes > 7000, f"Insufficient data streamed: {total_bytes} bytes"
 
 
 class TestConcurrentRequestHandling:

@@ -380,22 +380,22 @@ class TestCapabilityCoverageAlgorithm:
         # Edge cases for wildcard matching
         test_cases = [
             # (available_set, required, expected_result)
-            ({"*"}, {"anything"}, True),  # Global wildcard
-            ({"fs.*"}, {"fs."}, True),  # Empty suffix after prefix
-            ({"fs.*"}, {"fs"}, False),  # Prefix without separator doesn't match
-            ({"fs.read.*"}, {"fs.read.file.txt"}, True),  # Multiple levels
-            ({"prefix*"}, {"prefix"}, True),  # Exact prefix match
-            ({"prefix*"}, {"prefi"}, False),  # Partial prefix doesn't match
+            ({"*"}, "anything", True),  # Global wildcard
+            ({"fs.*"}, "fs.", True),  # Empty suffix after prefix
+            ({"fs.*"}, "fs", False),  # Prefix without separator doesn't match
+            ({"fs.read.*"}, "fs.read.file.txt", True),  # Multiple levels
+            ({"prefix*"}, "prefix", True),  # Exact prefix match
+            ({"prefix*"}, "prefi", False),  # Partial prefix doesn't match
             (
                 {"*suffix"},
-                {"something"},
+                "something",
                 False,
             ),  # Suffix wildcards not supported (only prefix)
             (
                 {"middle*end"},
-                {"middle"},
-                True,
-            ),  # Only prefix part of wildcard pattern used
+                "middle",
+                False,
+            ),  # Malformed wildcard - should not match
         ]
 
         for available_set, required, expected in test_cases:

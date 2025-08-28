@@ -11,8 +11,6 @@ Ocean's requirement: Write PROPER tests that validate actual behavior, NOT trivi
 These tests validate critical error classification that determines retry behavior.
 """
 
-import json
-from typing import Any, Dict
 from unittest.mock import AsyncMock
 
 import httpx

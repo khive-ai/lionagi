@@ -78,7 +78,7 @@ class _NoopTelemetry:
         pass
 
     @contextmanager
-    def span(self, name: str, **attrs: Any) -> ContextManager[None]:    #type: ignore
+    def span(self, name: str, **attrs: Any) -> ContextManager[None]:  # type: ignore
         yield
 
 

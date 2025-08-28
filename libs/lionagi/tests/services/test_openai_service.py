@@ -18,7 +18,24 @@ from uuid import uuid4
 import anyio
 import openai
 import pytest
-from anyio.testing import MockClock
+
+# MockClock only available with trio backend
+try:
+    from trio.testing import MockClock
+except ImportError:
+    # Create a simple mock clock for testing
+    class MockClock:
+        def __init__(self, rate=0.0):
+            self.rate = rate
+            self._time = 0.0
+
+        def advance(self, seconds):
+            self._time += seconds
+
+        def jump(self, seconds):
+            self._time += seconds
+
+
 from openai import AsyncOpenAI
 
 from lionagi.errors import (
@@ -31,6 +48,10 @@ from lionagi.errors import (
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import ChatRequestModel
 from lionagi.services.openai import OpenAICompatibleService
+from lionagi.services.provider_registry import (
+    ProviderRegistry,
+    register_builtin_adapters,
+)
 
 
 class TestOpenAIServiceCore:
@@ -45,11 +66,30 @@ class TestOpenAIServiceCore:
         return client
 
     @pytest.fixture
-    def service(self, mock_client):
-        """Create OpenAICompatibleService with mocked client."""
-        return OpenAICompatibleService(
-            client=mock_client, name="test_openai", requires={"net.out:api.openai.com"}
-        )
+    def registry(self):
+        """Create provider registry with builtin adapters."""
+        from lionagi.services.adapters.generic_adapter import GenericJSONAdapter
+        from lionagi.services.adapters.openai_adapter import OpenAIAdapter
+
+        registry = ProviderRegistry()
+        registry.register(OpenAIAdapter())
+        registry.register(GenericJSONAdapter())
+        return registry
+
+    @pytest.fixture
+    def service(self, mock_client, registry):
+        """Create OpenAICompatibleService via provider registry."""
+        # Mock the AsyncOpenAI constructor to return our mock client
+        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+            mock_openai_class.return_value = mock_client
+
+            service, resolution, rights = registry.create_service(
+                provider="openai",
+                model="gpt-3.5-turbo",
+                base_url=None,
+                api_key="test-key",
+            )
+            return service
 
     @pytest.fixture
     def chat_request(self):
@@ -66,6 +106,7 @@ class TestOpenAIServiceCore:
         """Create test call context."""
         return CallContext.new(branch_id=uuid4())
 
+    @pytest.mark.anyio
     async def test_basic_call_success(self, service, mock_client, chat_request, call_context):
         """Test successful OpenAI API call."""
         # Mock successful response
@@ -538,39 +579,175 @@ class TestOpenAISDKExceptionMapping:
 class TestServiceCapabilityDeclaration:
     """Test service capability declaration and enforcement."""
 
-    def test_default_capability_requirements(self):
-        """Test default capability requirements."""
-        service = OpenAICompatibleService(
-            client=AsyncMock(spec=AsyncOpenAI), name="capability_test"
-        )
+    def test_default_capability_requirements(self, registry):
+        """Test default capability requirements from adapter."""
+        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+            mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
 
-        # Default should require wildcard net.out
-        assert service.requires == frozenset({"net.out:*"})
+            service, resolution, rights = registry.create_service(
+                provider="openai", model="gpt-4", base_url=None, api_key="test-key"
+            )
 
-    def test_specific_capability_requirements(self):
-        """Test service with specific capability requirements."""
-        service = OpenAICompatibleService(
-            client=AsyncMock(spec=AsyncOpenAI),
-            name="openai_specific",
-            requires={"net.out:api.openai.com"},
-        )
+            # Should require OpenAI-specific capability
+            assert "net.out:api.openai.com" in rights
+            assert service.requires == {"net.out:api.openai.com"}
 
-        assert service.requires == {"net.out:api.openai.com"}
+    def test_specific_capability_requirements(self, registry):
+        """Test service with specific capability requirements via custom base_url."""
+        with patch("lionagi.services.openai.create_generic_service") as mock_create:
+            mock_service = OpenAICompatibleService(
+                client=AsyncMock(spec=AsyncOpenAI),
+                name="custom_openai",
+                requires={"net.out:custom.api.com"},
+            )
+            mock_create.return_value = mock_service
 
-    def test_factory_function_capabilities(self):
-        """Test that factory functions set correct capabilities."""
-        from lionagi.services.openai import (
-            create_anthropic_service,
-            create_openai_service,
-        )
+            service, resolution, rights = registry.create_service(
+                provider="openai",
+                model="gpt-4",
+                base_url="https://custom.api.com/v1",
+                api_key="test-key",
+            )
 
+            assert "net.out:custom.api.com" in rights
+
+    def test_registry_provider_resolution(self, registry):
+        """Test that registry resolves providers correctly."""
         # Mock the AsyncOpenAI constructor to avoid actual API calls
         with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock(spec=AsyncOpenAI)
             mock_openai_class.return_value = mock_client
 
-            openai_service = create_openai_service(api_key="test-key")
-            assert openai_service.requires == {"net.out:api.openai.com"}
+            # Test OpenAI provider resolution
+            service, resolution, rights = registry.create_service(
+                provider="openai", model="gpt-4", base_url=None, api_key="test-key"
+            )
+            assert resolution.provider == "openai"
+            assert resolution.adapter_name == "openai"
+            assert service.requires == {"net.out:api.openai.com"}
+            assert rights == {"net.out:api.openai.com"}
 
-            anthropic_service = create_anthropic_service(api_key="test-key")
-            assert anthropic_service.requires == {"net.out:api.anthropic.com"}
+            # Test model prefix resolution
+            service2, resolution2, rights2 = registry.create_service(
+                provider=None, model="openai/gpt-4", base_url=None, api_key="test-key"
+            )
+            assert resolution2.provider == "openai"
+            assert resolution2.adapter_name == "openai"
+
+
+class TestProviderRegistryConfigValidation:
+    """Test Pydantic ConfigModel validation in provider registry."""
+
+    @pytest.fixture
+    def registry(self):
+        """Create provider registry with builtin adapters."""
+        from lionagi.services.adapters.generic_adapter import GenericJSONAdapter
+        from lionagi.services.adapters.openai_adapter import OpenAIAdapter
+
+        registry = ProviderRegistry()
+        registry.register(OpenAIAdapter())
+        registry.register(GenericJSONAdapter())
+        return registry
+
+    def test_valid_config_validation(self, registry):
+        """Test that valid config passes Pydantic validation."""
+        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+            mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
+
+            # Valid configuration should work
+            service, resolution, rights = registry.create_service(
+                provider="openai",
+                model="gpt-4",
+                base_url=None,
+                api_key="valid-api-key",
+                organization="optional-org",
+            )
+
+            assert service.name == "openai"
+            assert rights == {"net.out:api.openai.com"}
+
+    def test_invalid_config_validation_missing_api_key(self, registry):
+        """Test that missing required fields fail validation."""
+        with pytest.raises(ValueError, match="Invalid provider configuration"):
+            registry.create_service(
+                provider="openai",
+                model="gpt-4",
+                base_url=None,
+                # Missing required api_key
+            )
+
+    def test_config_validation_with_extra_fields(self, registry):
+        """Test that extra fields are handled properly."""
+        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+            mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
+
+            # Extra fields should be passed through
+            service, resolution, rights = registry.create_service(
+                provider="openai",
+                model="gpt-4",
+                base_url=None,
+                api_key="valid-key",
+                timeout=30.0,  # Extra field
+                max_retries=3,  # Extra field
+            )
+
+            assert service.name == "openai"
+
+
+class TestAdapterRequiredRights:
+    """Test adapter.required_rights() method functionality."""
+
+    @pytest.fixture
+    def registry(self):
+        """Create provider registry with builtin adapters."""
+        from lionagi.services.adapters.generic_adapter import GenericJSONAdapter
+        from lionagi.services.adapters.openai_adapter import OpenAIAdapter
+
+        registry = ProviderRegistry()
+        registry.register(OpenAIAdapter())
+        registry.register(GenericJSONAdapter())
+        return registry
+
+    def test_default_openai_required_rights(self, registry):
+        """Test default OpenAI adapter rights."""
+        resolution, adapter = registry.resolve(provider="openai", model="gpt-4", base_url=None)
+
+        rights = adapter.required_rights(base_url=None)
+        assert rights == {"net.out:api.openai.com"}
+
+    def test_custom_base_url_required_rights(self, registry):
+        """Test adapter rights with custom base URL."""
+        resolution, adapter = registry.resolve(
+            provider="openai",
+            model="gpt-4",
+            base_url="https://custom.openai.example.com/v1",
+        )
+
+        rights = adapter.required_rights(base_url="https://custom.openai.example.com/v1")
+        assert rights == {"net.out:custom.openai.example.com"}
+
+    def test_localhost_required_rights(self, registry):
+        """Test adapter rights for localhost development."""
+        resolution, adapter = registry.resolve(
+            provider="openai", model="gpt-4", base_url="http://localhost:8000/v1"
+        )
+
+        rights = adapter.required_rights(base_url="http://localhost:8000/v1")
+        assert rights == {"net.out:localhost:8000"}
+
+    def test_rights_propagation_to_service(self, registry):
+        """Test that adapter rights are properly propagated to service."""
+        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+            mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
+
+            service, resolution, rights = registry.create_service(
+                provider="openai",
+                model="gpt-4",
+                base_url="https://api.example.com/v1",
+                api_key="test-key",
+            )
+
+            # Rights should be computed from base_url
+            expected_rights = {"net.out:api.example.com"}
+            assert rights == expected_rights
+            assert service.requires == expected_rights

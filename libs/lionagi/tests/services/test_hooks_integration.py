@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import anyio
+import msgspec
 import pytest
 
 from lionagi.services.core import CallContext, Service
@@ -23,7 +24,9 @@ class DummyRequest(RequestModel):
     """Dummy request for testing."""
 
     model: str = "test-model"
-    messages: list[dict[str, str]] = [{"role": "user", "content": "test"}]
+    messages: list[dict[str, str]] = msgspec.field(
+        default_factory=lambda: [{"role": "user", "content": "test"}]
+    )
 
 
 class MockService(Service[DummyRequest, dict, dict]):
@@ -560,13 +563,12 @@ class TestV1HooksIntegration:
         registry = HookRegistry()
         middleware = HookedMiddleware(registry)
 
-        execution_counts = {"count": 0}
+        execution_counts = {"calls": []}
 
         async def concurrent_safe_hook(event: HookEvent):
-            # Simulate some async work that could cause race conditions
-            current = execution_counts["count"]
-            await anyio.sleep(0.001)  # Small delay
-            execution_counts["count"] = current + 1
+            # Record each call - list append is thread-safe in Python
+            execution_counts["calls"].append(str(event.call_id))
+            await anyio.sleep(0.001)  # Small delay to test concurrency
 
         registry.register(HookType.PRE_CALL, concurrent_safe_hook)
 
@@ -608,12 +610,14 @@ class TestV1HooksIntegration:
         exceptions = [r for r in results if isinstance(r, Exception)]
         assert len(exceptions) == 0, f"Should have no exceptions but got: {exceptions}"
 
-        # Note: Due to race conditions in the test hook, we may not get exactly 10
-        # But we should get a reasonable number and no crashes
+        # Verify all hooks were executed (list append is thread-safe)
         assert (
-            execution_counts["count"] >= 8
-        ), "Should execute most hooks (allowing for race conditions)"
-        assert execution_counts["count"] <= 10, "Should not execute more hooks than calls"
+            len(execution_counts["calls"]) == 10
+        ), f"Should execute all 10 hooks but got {len(execution_counts['calls'])}"
+
+        # Verify all call_ids are unique (no duplicate hook executions)
+        unique_calls = set(execution_counts["calls"])
+        assert len(unique_calls) == 10, "Each hook should be called exactly once"
 
     @pytest.mark.anyio
     async def test_hooked_middleware_service_name_fallback_behavior(self):

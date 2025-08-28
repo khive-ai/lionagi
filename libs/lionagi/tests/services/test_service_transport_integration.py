@@ -42,12 +42,48 @@ from lionagi.errors import (
 )
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import ChatRequestModel, RequestModel
+from lionagi.services.imodel import iModel
 from lionagi.services.openai import OpenAICompatibleService, create_openai_service
+from lionagi.services.provider_registry import ProviderAdapter, get_provider_registry
 from lionagi.services.transport import HTTPXTransport
 
 # ==============================================================================
 # Shared Mock Utilities (Consolidates Duplicate Setup Code)
 # ==============================================================================
+
+
+class MockOpenAIAdapter(ProviderAdapter):
+    """Mock OpenAI adapter for service transport integration testing."""
+
+    name = "openai"
+    default_base_url = "https://api.openai.com/v1"
+    request_model = ChatRequestModel
+    requires = {"net.out:api.openai.com"}
+    ConfigModel = None
+
+    def __init__(self, service_instance: Service = None):
+        self._service_instance = service_instance
+
+    def supports(self, *, provider: str | None, model: str | None, base_url: str | None) -> bool:
+        return (provider or "").lower() == "openai" or (model or "").lower().startswith("openai/")
+
+    def create_service(self, *, base_url: str | None, **kwargs: Any) -> Service:
+        if self._service_instance:
+            return self._service_instance
+        # Fallback to create real service for these integration tests
+        return create_openai_service(api_key=kwargs.get("api_key", "test-key"))
+
+    def required_rights(self, *, base_url: str | None, **kwargs: Any) -> set[str]:
+        return {"net.out:api.openai.com"}
+
+
+def setup_mock_openai_registry(service_instance: Service = None):
+    """Setup provider registry with mock OpenAI adapter."""
+    registry = get_provider_registry()
+    mock_adapter = MockOpenAIAdapter(service_instance)
+
+    # Register or update mock adapter
+    registry._adapters["openai"] = mock_adapter
 
 
 class MockTransportBuilder:
@@ -608,18 +644,23 @@ class TestCompletePipelineLifecycle:
 
         mock_transport = MockTransport(validating_handler)
 
-        # Create service with integrated transport
+        # Create service with integrated transport and use through iModel
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client_instance = httpx.AsyncClient(transport=mock_transport)
             mock_client_class.return_value = mock_client_instance
 
-            service = create_openai_service(api_key="test-key")
+            # Use iModel for end-to-end testing instead of direct service
+            async with iModel(
+                provider="openai", model="gpt-3.5-turbo", api_key="test-key"
+            ) as model:
+                request = ServiceTestBuilder.create_standard_request()
 
-        request = ServiceTestBuilder.create_standard_request()
-        context = ServiceTestBuilder.create_test_context()
-
-        # Execute complete end-to-end cycle
-        result = await service.call(request, ctx=context)
+                # Execute complete end-to-end cycle through iModel
+                result = await model.invoke(
+                    request,
+                    capabilities={"net.out:api.openai.com"},
+                    timeout_s=30.0,
+                )
 
         # Verify complete response structure
         assert result["id"] == "chatcmpl-test123"

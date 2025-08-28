@@ -15,7 +15,7 @@ from uuid import UUID
 import anyio
 import msgspec
 
-from lionagi.errors import ServiceError
+from lionagi.errors import ServiceError, TimeoutError
 from lionagi.ln.concurrency import (
     CapacityLimiter,
     Event,
@@ -164,12 +164,10 @@ class RateLimitedExecutor:
     def __init__(self, config: ExecutorConfig):
         self.config = config
 
-        # Queue management using memory object streams (async-native)
-        send_stream, receive_stream = anyio.create_memory_object_stream[ServiceCall](
-            max_buffer_size=config.queue_capacity
-        )
-        self._queue_send: anyio.abc.ObjectSendStream[ServiceCall] = send_stream
-        self._queue_receive: anyio.abc.ObjectReceiveStream[ServiceCall] = receive_stream
+        # Queue management using anyio memory object streams
+        from lionagi.ln.concurrency.primitives import Queue
+
+        self._queue: Queue[ServiceCall] = Queue.with_maxsize(config.queue_capacity)
 
         self.active_calls: dict[UUID, ServiceCall] = {}
         self.completed_calls: dict[UUID, ServiceCall] = {}  # History for debugging
@@ -185,9 +183,10 @@ class RateLimitedExecutor:
         if config.concurrency_limit:
             self.concurrency_limiter = CapacityLimiter(config.concurrency_limit)
 
-        # Processing state with structured concurrency
-        self._task_group: TaskGroup | None = None
+        # Processing state (following v0 pattern)
         self._shutdown_event = Event()
+        self._running = False
+        self._execution_task = None  # Background task for continuous processing
         self._stats = {
             "calls_queued": 0,
             "calls_completed": 0,
@@ -198,26 +197,16 @@ class RateLimitedExecutor:
         }
 
     async def start(self) -> None:
-        """Start the executor processor with structured concurrency."""
-        if self._task_group is None:
-            # Create task group and start processor
-            self._task_group = await create_task_group().__aenter__()
-            self._task_group.start_soon(self._processor_loop)
-            logger.info("RateLimitedExecutor started with structured concurrency")
+        """Start the executor (mark as ready for processing)."""
+        if not self._running:
+            self._running = True
+            # Background execution will be managed by the caller
+            logger.info("RateLimitedExecutor started")
 
     async def stop(self) -> None:
         """Stop the executor with proper cleanup."""
         self._shutdown_event.set()
-
-        # Close the queue send stream to signal no more items
-        await self._queue_send.aclose()
-
-        # Wait for task group to finish
-        if self._task_group:
-            try:
-                await self._task_group.aclose()
-            except Exception:
-                pass
+        self._running = False
 
         # Cancel any remaining active calls
         for call in self.active_calls.values():
@@ -228,8 +217,10 @@ class RateLimitedExecutor:
     async def submit_call(
         self, service: Service, request: RequestModel, context: CallContext
     ) -> ServiceCall:
-        """Submit a service call for execution."""
+        """Submit a service call for execution via queue."""
         from uuid import uuid4
+
+        await self.start()  # Ensure executor is running
 
         call = ServiceCall(
             id=uuid4(),
@@ -239,31 +230,22 @@ class RateLimitedExecutor:
             token_estimate=self._estimate_tokens(request),
         )
 
-        # Add to queue using memory object stream
+        # Add to queue using anyio queue primitive
         try:
-            self._queue_send.send_nowait(call)  # Will raise if at capacity
+            await self._queue.put(call)
             call.mark_queued()
             self._stats["calls_queued"] += 1
-            logger.debug(f"Call {call.id} queued")
-        except anyio.WouldBlock:
+            logger.debug(f"Call {call.id} queued for processing")
+        except Exception as e:
             raise ServiceError(
-                "Executor queue at capacity - cannot accept new calls",
+                "Failed to queue call",
                 context={
                     "call_id": str(call.id),
                     "service": (service.name if hasattr(service, "name") else str(service)),
-                    "queue_capacity": self.config.queue_capacity,
-                    "active_calls": len(self.active_calls),
-                    "completed_calls": len(self.completed_calls),
-                    "calls_queued": self._stats["calls_queued"],
-                    "calls_completed": self._stats["calls_completed"],
-                    "calls_failed": self._stats["calls_failed"],
-                    "token_estimate": call.token_estimate,
-                    "error_type": "queue_capacity_exceeded",
+                    "error": str(e),
+                    "error_type": "queue_error",
                 },
-            )
-
-        # Start processor if not running
-        await self.start()
+            ) from e
 
         return call
 
@@ -356,7 +338,7 @@ class RateLimitedExecutor:
                         await anyio.sleep(0.1)
                 except anyio.get_cancelled_exc_class():
                     # Deadline exceeded while waiting for capacity
-                    raise ServiceError(
+                    raise TimeoutError(
                         f"Call {call.id} deadline exceeded while waiting for rate limit capacity"
                     ) from None
             else:
@@ -455,3 +437,56 @@ class RateLimitedExecutor:
             )
 
         return stats
+
+    async def execute_continuously(self) -> None:
+        """Continuously process queued calls (following v0 pattern + anyio primitives)."""
+        await self.start()
+
+        # Start rate limit refresh task
+        async with create_task_group() as main_tg:
+            main_tg.start_soon(self._refresh_limits_loop)
+
+            # Main processing loop
+            while not self._shutdown_event.is_set():
+                await self._process_batch()
+                await anyio.sleep(0.1)  # Small processing interval
+
+    async def _process_batch(self) -> None:
+        """Process a batch of calls using structured concurrency (like v0's process method)."""
+        if self._shutdown_event.is_set():
+            return
+
+        # Use separate TaskGroup for each batch (proper structured concurrency)
+        async with create_task_group() as batch_tg:
+            processed_count = 0
+
+            # Process up to queue_capacity calls in this batch
+            while processed_count < self.config.queue_capacity:
+                try:
+                    # Non-blocking queue check
+                    call = self._queue.get_nowait()
+
+                    # Check if we can process this call (rate limiting)
+                    await self._wait_for_capacity(call)
+
+                    # Process the call in the batch TaskGroup
+                    self.active_calls[call.id] = call
+                    batch_tg.start_soon(self._execute_call, call)
+                    processed_count += 1
+
+                except anyio.WouldBlock:
+                    # Queue is empty, break out of processing loop
+                    break
+                except Exception as e:
+                    logger.error(f"Error processing batch: {e}")
+                    break
+
+    async def _refresh_limits_loop(self) -> None:
+        """Continuously refresh rate limits at intervals (like v0)."""
+        while not self._shutdown_event.is_set():
+            await anyio.sleep(self.config.capacity_refresh_time)
+            async with self._rate_lock:
+                self.request_count = 0
+                self.token_count = 0
+                self.last_refresh = time.time()
+                logger.debug("Rate limits refreshed")

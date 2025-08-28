@@ -128,7 +128,7 @@ class TestHooksCore:
             # Verify timeout was logged
             mock_logger.warning.assert_called()
             warning_message = str(mock_logger.warning.call_args)
-            assert "timeout" in warning_message.lower()
+            assert "timed out" in warning_message.lower()
 
     @pytest.mark.anyio
     async def test_failure_isolation_robust_gather_critical(self):
