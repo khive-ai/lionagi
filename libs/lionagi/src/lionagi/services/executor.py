@@ -12,6 +12,8 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+import asyncio
+
 import anyio
 import msgspec
 
@@ -20,12 +22,8 @@ from lionagi.ln.concurrency import (
     CapacityLimiter,
     Event,
     Lock,
-    TaskGroup,
-    create_task_group,
-    effective_deadline,
-    fail_after,
+    fail_at,
     get_cancelled_exc_class,
-    is_cancelled,
 )
 
 from .core import CallContext, Service
@@ -183,10 +181,11 @@ class RateLimitedExecutor:
         if config.concurrency_limit:
             self.concurrency_limiter = CapacityLimiter(config.concurrency_limit)
 
-        # Processing state (following v0 pattern)
+        # Background task management (v0 pattern)
+        self._processor_task: asyncio.Task | None = None
+        self._replenisher_task: asyncio.Task | None = None
         self._shutdown_event = Event()
         self._running = False
-        self._execution_task = None  # Background task for continuous processing
         self._stats = {
             "calls_queued": 0,
             "calls_completed": 0,
@@ -197,22 +196,56 @@ class RateLimitedExecutor:
         }
 
     async def start(self) -> None:
-        """Start the executor (mark as ready for processing)."""
-        if not self._running:
-            self._running = True
-            # Background execution will be managed by the caller
-            logger.info("RateLimitedExecutor started")
+        """Start the executor and its background tasks (v0 pattern)."""
+        if self._running:
+            return  # already started
+
+        # Reset shutdown event
+        self._shutdown_event = Event()
+        self._running = True
+
+        # Start background tasks using asyncio.create_task (v0 pattern)
+        self._processor_task = asyncio.create_task(self._run_processor())
+        self._replenisher_task = asyncio.create_task(self._run_replenisher())
+        
+        logger.info("RateLimitedExecutor started with background processing")
 
     async def stop(self) -> None:
-        """Stop the executor with proper cleanup."""
+        """Stop the executor and cleanly shut down background tasks."""
+        if not self._running:
+            return
+
+        logger.info("Stopping RateLimitedExecutor...")
+        
+        # Signal cooperative shutdown
         self._shutdown_event.set()
         self._running = False
-
+        
+        # Close the queue to signal shutdown
+        await self._queue.close()
+        
         # Cancel any remaining active calls
         for call in self.active_calls.values():
             call.mark_cancelled()
 
-        logger.info(f"RateLimitedExecutor stopped. Stats: {self._stats}")
+        # Cancel and wait for background tasks
+        if self._processor_task:
+            self._processor_task.cancel()
+            try:
+                await self._processor_task
+            except asyncio.CancelledError:
+                pass
+            self._processor_task = None
+            
+        if self._replenisher_task:
+            self._replenisher_task.cancel()
+            try:
+                await self._replenisher_task
+            except asyncio.CancelledError:
+                pass
+            self._replenisher_task = None
+            
+        logger.info(f"RateLimitedExecutor stopped. Final Stats: {self._stats}")
 
     async def submit_call(
         self, service: Service, request: RequestModel, context: CallContext
@@ -220,7 +253,8 @@ class RateLimitedExecutor:
         """Submit a service call for execution via queue."""
         from uuid import uuid4
 
-        await self.start()  # Ensure executor is running
+        if not self._running:
+            await self.start()  # Ensure executor is running
 
         call = ServiceCall(
             id=uuid4(),
@@ -287,38 +321,75 @@ class RateLimitedExecutor:
             logger.error(f"Stream {call.id} failed: {e}")
             raise
 
-    async def _processor_loop(self) -> None:
-        """Main processor loop using async streams - no polling!"""
-        async with create_task_group() as tg:
-            # Start refresh task
-            tg.start_soon(self._refresh_limits_loop)
-
-            # Process calls as they arrive - no polling
-            async with self._queue_receive:
-                async for call in self._queue_receive:
+    async def _run_processor(self) -> None:
+        """Continuously process queued calls (v0 pattern)."""
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    # Try to get a call from the queue with timeout
+                    call = await asyncio.wait_for(
+                        self._queue.get(), 
+                        timeout=0.1
+                    )
+                    
                     if self._shutdown_event.is_set():
+                        call.mark_cancelled()
                         break
 
-                    # Wait until we can process this call
-                    await self._wait_for_capacity(call)
+                    # Wait until we can process this call (deadline-aware)
+                    try:
+                        await self._wait_for_capacity(call)
+                    except TimeoutError as e:
+                        # Mark call as failed due to timeout
+                        call.mark_failed(e)
+                        logger.debug(f"Call {call.id} failed during capacity wait: {e}")
+                        continue
 
-                    # Process call in task group
+                    # Process call using asyncio.create_task
                     self.active_calls[call.id] = call
-                    tg.start_soon(self._execute_call, call)
+                    asyncio.create_task(self._execute_call(call))
 
                     # Periodically cleanup completed
                     if len(self.completed_calls) > 100:
-                        tg.start_soon(self._cleanup_completed)
+                        asyncio.create_task(self._cleanup_completed())
+                        
+                except asyncio.TimeoutError:
+                    # Queue get timed out, loop to check shutdown
+                    continue
+                except (anyio.ClosedResourceError, anyio.EndOfStream):
+                    # Queue closed - shutdown signal
+                    break
+                    
+        except asyncio.CancelledError:
+            logger.debug("Processor loop cancelled")
+        except Exception as e:
+            logger.error(f"Processor loop error: {e}", exc_info=True)
+        finally:
+            logger.debug("Processor loop exiting")
 
-    async def _refresh_limits_loop(self) -> None:
-        """Continuously refresh rate limits at intervals."""
-        while not self._shutdown_event.is_set():
-            await anyio.sleep(self.config.capacity_refresh_time)
-            async with self._rate_lock:
-                self.request_count = 0
-                self.token_count = 0
-                self.last_refresh = time.time()
-                logger.debug("Rate limits refreshed")
+    async def _run_replenisher(self) -> None:
+        """Periodically refresh rate-limit counters (v0 pattern)."""
+        try:
+            while not self._shutdown_event.is_set():
+                # Sleep first, then refresh (like v0)
+                await asyncio.sleep(self.config.capacity_refresh_time)
+                
+                if self._shutdown_event.is_set():
+                    break
+                    
+                # Refresh rate limits
+                async with self._rate_lock:
+                    self.request_count = 0
+                    self.token_count = 0
+                    self.last_refresh = time.time()
+                    logger.debug("Rate limits refreshed")
+                    
+        except asyncio.CancelledError:
+            logger.debug("Replenisher task cancelled")
+        except Exception as e:
+            logger.error(f"Replenisher error: {e}", exc_info=True)
+        finally:
+            logger.debug("Replenisher loop exiting")
 
     async def _wait_for_capacity(self, call: ServiceCall) -> None:
         """Wait until we have capacity to process a call, respecting CallContext deadline."""
@@ -331,10 +402,16 @@ class RateLimitedExecutor:
                     return
 
             # CRITICAL FIX: Deadline-aware waiting instead of blind polling
-            # If call has a deadline, respect it to prevent deadline violations
+            # If call has a deadline, respect it to prevent deadline violations  
             if call.context.deadline_s is not None:
+                remaining = call.context.deadline_s - anyio.current_time()
+                logger.debug(f"Waiting for capacity: deadline={call.context.deadline_s}, now={anyio.current_time()}, remaining={remaining}s")
+                
+                if remaining <= 0:
+                    raise TimeoutError(f"Call {call.id} deadline already passed")
+                    
                 try:
-                    with anyio.fail_at(call.context.deadline_s):
+                    with fail_at(call.context.deadline_s):
                         await anyio.sleep(0.1)
                 except anyio.get_cancelled_exc_class():
                     # Deadline exceeded while waiting for capacity
@@ -351,14 +428,17 @@ class RateLimitedExecutor:
         Must be called while holding _rate_lock.
         """
         if self.config.limit_requests and self.request_count >= self.config.limit_requests:
+            logger.debug(f"Rate limit check: request_count={self.request_count} >= limit={self.config.limit_requests}")
             return False
 
         if (
             self.config.limit_tokens
             and (self.token_count + call.token_estimate) > self.config.limit_tokens
         ):
+            logger.debug(f"Rate limit check: token_count={self.token_count} + {call.token_estimate} > limit={self.config.limit_tokens}")
             return False
 
+        logger.debug(f"Rate limit check passed: requests={self.request_count}/{self.config.limit_requests}, tokens={self.token_count}/{self.config.limit_tokens}")
         return True
 
     async def _execute_call(self, call: ServiceCall) -> None:
@@ -386,6 +466,12 @@ class RateLimitedExecutor:
             logger.error(f"Call {call.id} failed: {e}")
 
         finally:
+            # Release rate limit capacity
+            async with self._rate_lock:
+                self.request_count = max(0, self.request_count - 1)
+                self.token_count = max(0, self.token_count - call.token_estimate)
+                logger.debug(f"Released capacity: requests={self.request_count}, tokens={self.token_count}")
+            
             # Move from active to completed
             if call.id in self.active_calls:
                 del self.active_calls[call.id]
@@ -438,55 +524,13 @@ class RateLimitedExecutor:
 
         return stats
 
-    async def execute_continuously(self) -> None:
-        """Continuously process queued calls (following v0 pattern + anyio primitives)."""
+    async def __aenter__(self):
+        """Async context manager entry."""
         await self.start()
+        return self
 
-        # Start rate limit refresh task
-        async with create_task_group() as main_tg:
-            main_tg.start_soon(self._refresh_limits_loop)
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.stop()
 
-            # Main processing loop
-            while not self._shutdown_event.is_set():
-                await self._process_batch()
-                await anyio.sleep(0.1)  # Small processing interval
 
-    async def _process_batch(self) -> None:
-        """Process a batch of calls using structured concurrency (like v0's process method)."""
-        if self._shutdown_event.is_set():
-            return
-
-        # Use separate TaskGroup for each batch (proper structured concurrency)
-        async with create_task_group() as batch_tg:
-            processed_count = 0
-
-            # Process up to queue_capacity calls in this batch
-            while processed_count < self.config.queue_capacity:
-                try:
-                    # Non-blocking queue check
-                    call = self._queue.get_nowait()
-
-                    # Check if we can process this call (rate limiting)
-                    await self._wait_for_capacity(call)
-
-                    # Process the call in the batch TaskGroup
-                    self.active_calls[call.id] = call
-                    batch_tg.start_soon(self._execute_call, call)
-                    processed_count += 1
-
-                except anyio.WouldBlock:
-                    # Queue is empty, break out of processing loop
-                    break
-                except Exception as e:
-                    logger.error(f"Error processing batch: {e}")
-                    break
-
-    async def _refresh_limits_loop(self) -> None:
-        """Continuously refresh rate limits at intervals (like v0)."""
-        while not self._shutdown_event.is_set():
-            await anyio.sleep(self.config.capacity_refresh_time)
-            async with self._rate_lock:
-                self.request_count = 0
-                self.token_count = 0
-                self.last_refresh = time.time()
-                logger.debug("Rate limits refreshed")
