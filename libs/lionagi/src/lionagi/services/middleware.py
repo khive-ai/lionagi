@@ -9,9 +9,9 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, TypeVar
 
-from lionagi.errors import PolicyError
-from lionagi.services.core import CallContext
-from lionagi.services.endpoint import RequestModel
+from ..errors import PolicyError
+from .core import CallContext
+from .endpoint import RequestModel
 
 # Type variables for middleware
 Req = TypeVar("Req", bound=RequestModel)
@@ -126,7 +126,11 @@ class PolicyGateMW:
             service_requires = set(ctx.attrs.get("service_requires", set()))
 
         # Optional additional requirements from request
-        request_extras = set(getattr(req, "_extra_requires", set()))
+        request_extras = getattr(req, "_extra_requires", None)
+        if request_extras is None:
+            request_extras = set()
+        else:
+            request_extras = set(request_extras)
 
         # Union - request can only add, not replace
         return service_requires | request_extras

@@ -5,27 +5,24 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
-import anyio
 import openai
 from openai import AsyncOpenAI
-from openai._types import NOT_GIVEN, NotGiven
 
-from lionagi.errors import (
+from lionagi.ln.concurrency import fail_at
+
+from ..errors import (
     NonRetryableError,
     RateLimitError,
     RetryableError,
     ServiceError,
     TimeoutError,
 )
-from lionagi.ln.concurrency import fail_at
-
 from .core import CallContext
-from .endpoint import ChatRequestModel, RequestModel
+from .endpoint import RequestModel
 from .middleware import CallMW, StreamMW
 
 

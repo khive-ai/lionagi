@@ -13,9 +13,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
-from lionagi.errors import ServiceError
-from lionagi.ln.concurrency import create_task_group, effective_deadline, fail_at
-
+from ..errors import ServiceError
+from ..ln import create_task_group, effective_deadline, fail_at
 from .core import CallContext, Service
 from .endpoint import ChatRequestModel, RequestModel
 from .executor import ExecutorConfig, RateLimitedExecutor, ServiceCall

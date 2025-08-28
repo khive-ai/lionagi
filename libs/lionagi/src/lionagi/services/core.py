@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, Generic, Protocol, TypeVar
 from uuid import UUID, uuid4
@@ -18,7 +19,7 @@ Res = TypeVar("Res")
 Chunk = TypeVar("Chunk")
 
 
-class CallContext(msgspec.Struct, kw_only=True):
+class CallContext(msgspec.Struct, kw_only=True, frozen=True):
     """Lifeline for time & identity - carries call metadata through the service pipeline.
 
     This replaces ad-hoc kwargs; middleware can rely on it; transport reads the deadline.
@@ -35,6 +36,16 @@ class CallContext(msgspec.Struct, kw_only=True):
         default_factory=dict
     )  # user-defined (trace/span, request_id, ...)
 
+    @staticmethod
+    def _current_time() -> float:
+        """Get current time, preferring anyio.current_time() if in async context."""
+        try:
+            # Try anyio first for consistency with async operations
+            return anyio.current_time()
+        except RuntimeError:
+            # Fall back to monotonic time for sync contexts
+            return time.monotonic()
+
     @classmethod
     def new(
         cls,
@@ -42,15 +53,21 @@ class CallContext(msgspec.Struct, kw_only=True):
         *,
         deadline_s: float | None = None,
         capabilities: set[str] | None = None,
-        **attrs: Any,
+        attrs: Mapping[str, Any] | None = None,
+        **extra_attrs: Any,
     ) -> CallContext:
         """Create new call context with generated call_id."""
+        # Handle both explicit attrs dict and **extra_attrs
+        final_attrs = dict(extra_attrs)
+        if attrs is not None:
+            final_attrs.update(attrs)
+
         return cls(
             call_id=uuid4(),
             branch_id=branch_id,
             deadline_s=deadline_s,
             capabilities=capabilities or set(),
-            attrs=attrs,
+            attrs=final_attrs,
         )
 
     @classmethod
@@ -60,25 +77,32 @@ class CallContext(msgspec.Struct, kw_only=True):
         timeout_s: float,
         *,
         capabilities: set[str] | None = None,
-        **attrs: Any,
+        attrs: Mapping[str, Any] | None = None,
+        **extra_attrs: Any,
     ) -> CallContext:
         """Create call context with relative timeout."""
-        deadline = anyio.current_time() + timeout_s
-        return cls.new(branch_id=branch_id, deadline_s=deadline, capabilities=capabilities, **attrs)
+        deadline = cls._current_time() + timeout_s
+        return cls.new(
+            branch_id=branch_id,
+            deadline_s=deadline,
+            capabilities=capabilities,
+            attrs=attrs,
+            **extra_attrs,
+        )
 
     @property
     def remaining_time(self) -> float | None:
         """Get remaining time until deadline, or None if no deadline set."""
         if self.deadline_s is None:
             return None
-        return max(0.0, self.deadline_s - anyio.current_time())
+        return max(0.0, self.deadline_s - self._current_time())
 
     @property
     def is_expired(self) -> bool:
         """Check if the deadline has passed."""
         if self.deadline_s is None:
             return False
-        return anyio.current_time() >= self.deadline_s
+        return self._current_time() >= self.deadline_s
 
 
 class Service(Generic[Req, Res, Chunk], Protocol):

@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from contextlib import contextmanager
 from time import perf_counter
 from typing import Any, ContextManager, Protocol
@@ -79,7 +78,7 @@ class _NoopTelemetry:
         pass
 
     @contextmanager
-    def span(self, name: str, **attrs: Any) -> ContextManager[None]:
+    def span(self, name: str, **attrs: Any) -> ContextManager[None]:    #type: ignore
         yield
 
 

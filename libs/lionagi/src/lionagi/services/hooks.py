@@ -222,7 +222,7 @@ class HookedMiddleware:
         next_call: Callable[[], Awaitable[Any]],
     ) -> Any:
         """Apply hooks around call execution."""
-        service_name = getattr(ctx.attrs, "service_name", "unknown")
+        service_name = ctx.attrs.get("service_name", "unknown")
 
         # Pre-call hook
         if self.registry.has_hooks(HookType.PRE_CALL):
@@ -277,7 +277,7 @@ class HookedMiddleware:
         next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Apply hooks around streaming execution."""
-        service_name = getattr(ctx.attrs, "service_name", "unknown")
+        service_name = ctx.attrs.get("service_name", "unknown")
 
         # Pre-stream hook
         if self.registry.has_hooks(HookType.PRE_STREAM):

@@ -5,11 +5,9 @@
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Iterable
 from importlib.metadata import entry_points
 from typing import Any, Protocol, TypeVar
-from urllib.parse import urlparse
 
 import msgspec
 from pydantic import BaseModel, ValidationError
