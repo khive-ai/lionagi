@@ -1,3 +1,4 @@
+from ._breakdown_pyd_annotation import breakdown_pydantic_annotation
 from ._extract_json import extract_json
 from ._fuzzy_json import fuzzy_json
 from ._to_list import to_list
@@ -51,4 +52,5 @@ __all__ = (
     "UnsetType",
     "is_sentinel",
     "not_sentinel",
+    "breakdown_pydantic_annotation",
 )

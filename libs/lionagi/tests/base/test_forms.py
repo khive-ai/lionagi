@@ -227,7 +227,11 @@ class TestFormClass:
         """Test Form with complex multi-step assignment."""
         form = Form(
             assignment="raw_data,config->processed; processed,template->formatted,metadata",
-            values={"raw_data": [1, 2, 3], "config": {"format": "json"}, "template": "{{data}}"},
+            values={
+                "raw_data": [1, 2, 3],
+                "config": {"format": "json"},
+                "template": "{{data}}",
+            },
         )
 
         form.parse()

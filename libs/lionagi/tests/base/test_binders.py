@@ -162,7 +162,8 @@ async def test_opthen_patch_mapping_dict(anyio_backend):
 
     # Map result keys to different ctx keys
     op = OpThenPatch(
-        MinimalOp(), {"result": "ctx_result", "input": "ctx_input", "nonexistent": "ctx_missing"}
+        MinimalOp(),
+        {"result": "ctx_result", "input": "ctx_input", "nonexistent": "ctx_missing"},
     )
 
     result = await op.apply(br, input="test_data")

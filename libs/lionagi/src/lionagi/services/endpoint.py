@@ -5,23 +5,23 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, MutableMapping, Protocol
+from collections.abc import Mapping, MutableMapping
+from typing import Any, Protocol
 
 import msgspec
 
 
 class RequestModel(msgspec.Struct, kw_only=True):
     """Base request model with common fields for service endpoints.
-    
+
     Using msgspec for v1 performance requirements - orders of magnitude
     faster than Pydantic for serialization/deserialization.
     """
 
     model: str | None = None
     stream: bool = False
-    
-    # Allow extra fields via forbid=False (default in msgspec)
-    __struct_config__ = msgspec.structs.StructConfig(forbid_extra=False)
+
+    # Allow extra fields via forbid=False (msgspec default behavior)
 
 
 class Endpoint(Protocol):

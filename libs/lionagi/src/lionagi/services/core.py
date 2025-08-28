@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Generic, Mapping, Protocol, TypeVar
+import time
+from collections.abc import AsyncIterator, Mapping
+from typing import Any, Generic, Protocol, TypeVar
 from uuid import UUID, uuid4
 
 import anyio
@@ -17,12 +19,12 @@ Res = TypeVar("Res")
 Chunk = TypeVar("Chunk")
 
 
-class CallContext(msgspec.Struct, kw_only=True):
+class CallContext(msgspec.Struct, kw_only=True, frozen=True):
     """Lifeline for time & identity - carries call metadata through the service pipeline.
 
     This replaces ad-hoc kwargs; middleware can rely on it; transport reads the deadline.
     All per-call data flows through CallContext for deterministic behavior.
-    
+
     Using msgspec for v1 performance - orders of magnitude faster serialization.
     """
 
@@ -30,7 +32,19 @@ class CallContext(msgspec.Struct, kw_only=True):
     branch_id: UUID
     deadline_s: float | None = None  # monotonic absolute deadline
     capabilities: set[str] = msgspec.field(default_factory=set)  # for policy gate
-    attrs: Mapping[str, Any] = msgspec.field(default_factory=dict)  # user-defined (trace/span, request_id, ...)
+    attrs: Mapping[str, Any] = msgspec.field(
+        default_factory=dict
+    )  # user-defined (trace/span, request_id, ...)
+
+    @staticmethod
+    def _current_time() -> float:
+        """Get current time, preferring anyio.current_time() if in async context."""
+        try:
+            # Try anyio first for consistency with async operations
+            return anyio.current_time()
+        except RuntimeError:
+            # Fall back to monotonic time for sync contexts
+            return time.monotonic()
 
     @classmethod
     def new(
@@ -39,15 +53,21 @@ class CallContext(msgspec.Struct, kw_only=True):
         *,
         deadline_s: float | None = None,
         capabilities: set[str] | None = None,
-        **attrs: Any,
+        attrs: Mapping[str, Any] | None = None,
+        **extra_attrs: Any,
     ) -> CallContext:
         """Create new call context with generated call_id."""
+        # Handle both explicit attrs dict and **extra_attrs
+        final_attrs = dict(extra_attrs)
+        if attrs is not None:
+            final_attrs.update(attrs)
+
         return cls(
             call_id=uuid4(),
             branch_id=branch_id,
             deadline_s=deadline_s,
             capabilities=capabilities or set(),
-            attrs=attrs,
+            attrs=final_attrs,
         )
 
     @classmethod
@@ -57,25 +77,32 @@ class CallContext(msgspec.Struct, kw_only=True):
         timeout_s: float,
         *,
         capabilities: set[str] | None = None,
-        **attrs: Any,
+        attrs: Mapping[str, Any] | None = None,
+        **extra_attrs: Any,
     ) -> CallContext:
         """Create call context with relative timeout."""
-        deadline = anyio.current_time() + timeout_s
-        return cls.new(branch_id=branch_id, deadline_s=deadline, capabilities=capabilities, **attrs)
+        deadline = cls._current_time() + timeout_s
+        return cls.new(
+            branch_id=branch_id,
+            deadline_s=deadline,
+            capabilities=capabilities,
+            attrs=attrs,
+            **extra_attrs,
+        )
 
     @property
     def remaining_time(self) -> float | None:
         """Get remaining time until deadline, or None if no deadline set."""
         if self.deadline_s is None:
             return None
-        return max(0.0, self.deadline_s - anyio.current_time())
+        return max(0.0, self.deadline_s - self._current_time())
 
     @property
     def is_expired(self) -> bool:
         """Check if the deadline has passed."""
         if self.deadline_s is None:
             return False
-        return anyio.current_time() >= self.deadline_s
+        return self._current_time() >= self.deadline_s
 
 
 class Service(Generic[Req, Res, Chunk], Protocol):
@@ -94,44 +121,3 @@ class Service(Generic[Req, Res, Chunk], Protocol):
     async def stream(self, req: Req, *, ctx: CallContext) -> AsyncIterator[Chunk]:
         """Execute streaming call and yield response chunks."""
         ...
-
-
-# Helper types for common error handling
-class ServiceError(Exception):
-    """Base service error with call context."""
-
-    def __init__(self, message: str, call_id: UUID | None = None):
-        super().__init__(message)
-        self.call_id = call_id
-
-
-class TimeoutError(ServiceError):
-    """Service operation timed out."""
-
-    pass
-
-
-class PolicyError(ServiceError):
-    """Policy check failed - insufficient capabilities."""
-
-    pass
-
-
-class TransportError(ServiceError):
-    """Transport-level error (network, HTTP status, etc.)."""
-
-    def __init__(self, message: str, status_code: int | None = None, call_id: UUID | None = None):
-        super().__init__(message, call_id)
-        self.status_code = status_code
-
-
-class RetryableError(ServiceError):
-    """Error that can be retried (5xx, network, etc.)."""
-
-    pass
-
-
-class NonRetryableError(ServiceError):
-    """Error that should not be retried (4xx except 429)."""
-
-    pass

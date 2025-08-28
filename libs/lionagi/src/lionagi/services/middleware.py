@@ -9,8 +9,9 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, TypeVar
 
-from lionagi.services.core import CallContext, PolicyError
-from lionagi.services.endpoint import RequestModel
+from ..errors import PolicyError
+from .core import CallContext
+from .endpoint import RequestModel
 
 # Type variables for middleware
 Req = TypeVar("Req", bound=RequestModel)
@@ -39,62 +40,98 @@ class PolicyGateMW:
         self.strict = strict
 
     def __call__(
-        self, req: RequestModel, ctx: CallContext, next_call: Callable[[], Awaitable[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_call: Callable[[], Awaitable[Any]],
     ) -> Awaitable[Any]:
         """Enforce policy gate for call operations."""
         return self._enforce_policy(req, ctx, next_call)
 
     def stream(
-        self, req: RequestModel, ctx: CallContext, next_stream: Callable[[], AsyncIterator[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Enforce policy gate for streaming operations."""
         return self._enforce_policy_stream(req, ctx, next_stream)
 
     async def _enforce_policy(
-        self, req: RequestModel, ctx: CallContext, next_call: Callable[[], Awaitable[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_call: Callable[[], Awaitable[Any]],
     ) -> Any:
         """Check policy before allowing call to proceed."""
         # Get requirements from service (passed via context) and optional request extras
         required = self._get_required_capabilities(req, ctx)
-        
+
         if not self._check_capabilities(ctx.capabilities, required):
+            # Calculate missing capabilities for better debugging
+            missing_capabilities = required - ctx.capabilities
             raise PolicyError(
-                f"Insufficient capabilities. Required: {required}, "
-                f"Available: {ctx.capabilities}",
-                call_id=ctx.call_id,
+                f"Insufficient capabilities for operation. Missing: {missing_capabilities}",
+                context={
+                    "call_id": str(ctx.call_id),
+                    "branch_id": str(ctx.branch_id),
+                    "required_capabilities": sorted(required),
+                    "available_capabilities": sorted(ctx.capabilities),
+                    "missing_capabilities": sorted(missing_capabilities),
+                    "operation": "call",
+                    "policy_check": "capability_enforcement",
+                },
             )
 
         return await next_call()
 
     async def _enforce_policy_stream(
-        self, req: RequestModel, ctx: CallContext, next_stream: Callable[[], AsyncIterator[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Check policy before allowing stream to proceed."""
         # Get requirements from service (passed via context) and optional request extras
         required = self._get_required_capabilities(req, ctx)
-        
+
         if not self._check_capabilities(ctx.capabilities, required):
+            # Calculate missing capabilities for better debugging
+            missing_capabilities = required - ctx.capabilities
             raise PolicyError(
-                f"Insufficient capabilities for streaming. Required: {required}, "
-                f"Available: {ctx.capabilities}",
-                call_id=ctx.call_id,
+                f"Insufficient capabilities for streaming. Missing: {missing_capabilities}",
+                context={
+                    "call_id": str(ctx.call_id),
+                    "branch_id": str(ctx.branch_id),
+                    "required_capabilities": sorted(required),
+                    "available_capabilities": sorted(ctx.capabilities),
+                    "missing_capabilities": sorted(missing_capabilities),
+                    "operation": "streaming",
+                    "policy_check": "capability_enforcement",
+                },
             )
 
         async for chunk in next_stream():
             yield chunk
-    
+
     def _get_required_capabilities(self, req: RequestModel, ctx: CallContext) -> set[str]:
         """Get required capabilities from service declaration and optional request additions.
-        
+
         Service requirements are authoritative (from ctx.attrs["service_requires"]).
         Request can add extra requirements but cannot replace service requirements.
         """
         # Service-declared requirements (source of truth)
-        service_requires = set(ctx.attrs.get("service_requires", set()))
-        
+        service_requires = set()
+        if isinstance(ctx.attrs, dict):
+            service_requires = set(ctx.attrs.get("service_requires", set()))
+
         # Optional additional requirements from request
-        request_extras = set(getattr(req, "_extra_requires", set()))
-        
+        request_extras = getattr(req, "_extra_requires", None)
+        if request_extras is None:
+            request_extras = set()
+        else:
+            request_extras = set(request_extras)
+
         # Union - request can only add, not replace
         return service_requires | request_extras
 
@@ -137,7 +174,10 @@ class MetricsMW:
         self.logger = logging.getLogger(logger_name)
 
     async def __call__(
-        self, req: RequestModel, ctx: CallContext, next_call: Callable[[], Awaitable[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_call: Callable[[], Awaitable[Any]],
     ) -> Any:
         """Collect metrics around call execution."""
         import time
@@ -181,7 +221,10 @@ class MetricsMW:
             raise
 
     async def stream(
-        self, req: RequestModel, ctx: CallContext, next_stream: Callable[[], AsyncIterator[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Collect metrics around streaming execution."""
         import time
@@ -239,13 +282,22 @@ class RedactionMW:
     Redacts secrets and PII from logs and metrics to prevent accidental exposure.
     """
 
-    SENSITIVE_HEADERS = {"authorization", "x-api-key", "api-key", "x-auth-token", "bearer"}
+    SENSITIVE_HEADERS = {
+        "authorization",
+        "x-api-key",
+        "api-key",
+        "x-auth-token",
+        "bearer",
+    }
 
     def __init__(self, *, redact_model_inputs: bool = False):
         self.redact_model_inputs = redact_model_inputs
 
     async def __call__(
-        self, req: RequestModel, ctx: CallContext, next_call: Callable[[], Awaitable[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_call: Callable[[], Awaitable[Any]],
     ) -> Any:
         """Apply redaction to call context and request."""
         # Create redacted context for logging
@@ -267,7 +319,10 @@ class RedactionMW:
         return await next_call()
 
     async def stream(
-        self, req: RequestModel, ctx: CallContext, next_stream: Callable[[], AsyncIterator[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Apply redaction to streaming context."""
         redacted_attrs = self._redact_dict(ctx.attrs)

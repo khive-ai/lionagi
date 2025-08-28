@@ -14,9 +14,10 @@ from typing import Any
 
 import anyio
 import msgspec
-from lionagi.ln.concurrency import Lock
 
-from .core import CallContext, NonRetryableError, RetryableError, ServiceError, TimeoutError
+from ..errors import NonRetryableError, RetryableError, ServiceError, TimeoutError
+from ..ln import Lock
+from .core import CallContext
 from .endpoint import RequestModel
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,10 @@ class RetryMW:
         self.config = config
 
     async def __call__(
-        self, req: RequestModel, ctx: CallContext, next_call: Callable[[], Awaitable[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_call: Callable[[], Awaitable[Any]],
     ) -> Any:
         """Apply retry logic to call operations."""
         last_error = None
@@ -169,7 +173,10 @@ class RetryMW:
             raise ServiceError(f"All {self.config.max_attempts} retry attempts failed")
 
     async def stream(
-        self, req: RequestModel, ctx: CallContext, next_stream: Callable[[], AsyncIterator[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Apply retry logic to streaming operations.
 
@@ -224,7 +231,8 @@ class RetryMW:
     def _compute_delay(self, attempt: int) -> float:
         """Compute retry delay with exponential backoff and jitter."""
         delay = min(
-            self.config.base_delay * (self.config.exponential_base**attempt), self.config.max_delay
+            self.config.base_delay * (self.config.exponential_base**attempt),
+            self.config.max_delay,
         )
 
         if self.config.jitter:
@@ -253,16 +261,22 @@ class CircuitBreakerMW:
         self.breaker = CircuitBreaker(config)
 
     async def __call__(
-        self, req: RequestModel, ctx: CallContext, next_call: Callable[[], Awaitable[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_call: Callable[[], Awaitable[Any]],
     ) -> Any:
         """Apply circuit breaker to call operations."""
         return await self.breaker.call(next_call)
 
     async def stream(
-        self, req: RequestModel, ctx: CallContext, next_stream: Callable[[], AsyncIterator[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Apply circuit breaker to streaming operations with pass-through semantics.
-        
+
         No buffering - streams pass through while tracking state for future calls.
         """
         # Check breaker state before starting stream
@@ -273,12 +287,12 @@ class CircuitBreakerMW:
                     logger.info("Circuit breaker entering HALF_OPEN state")
                 else:
                     raise ServiceError("Circuit breaker is OPEN")
-            
+
             self.breaker.total_requests += 1
-        
+
         success = False
         first_chunk_seen = False
-        
+
         try:
             async for chunk in next_stream():
                 # First successful chunk in HALF_OPEN proves recovery
@@ -286,11 +300,11 @@ class CircuitBreakerMW:
                     first_chunk_seen = True
                     if self.breaker.state == CircuitState.HALF_OPEN:
                         await self.breaker._on_success()
-                
+
                 yield chunk  # Pass through immediately - no buffering
-            
+
             success = True
-        
+
         except (RetryableError, TimeoutError) as e:
             await self.breaker._on_failure()
             raise

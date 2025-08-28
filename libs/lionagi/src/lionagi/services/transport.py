@@ -5,12 +5,18 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Mapping, Protocol
+from collections.abc import AsyncIterator, Mapping
+from typing import Any, Protocol
 
 import httpx
 import msgspec
 
-from lionagi.services.core import NonRetryableError, RetryableError, TransportError
+from lionagi.errors import (
+    NonRetryableError,
+    RateLimitError,
+    RetryableError,
+    TransportError,
+)
 
 
 class Transport(Protocol):
@@ -102,13 +108,29 @@ class HTTPXTransport:
             return msgspec.json.decode(response.content)
 
         except httpx.TimeoutException as e:
-            raise TransportError(f"Request timed out: {e}")
+            raise TransportError(
+                f"Request timed out: {e}",
+                context={"method": method, "url": url, "timeout_s": timeout_s},
+                cause=e,
+            )
         except httpx.NetworkError as e:
-            raise RetryableError(f"Network error: {e}")
+            raise RetryableError(
+                f"Network error: {e}",
+                context={"method": method, "url": url},
+                cause=e,
+            )
         except httpx.HTTPStatusError as e:
-            self._handle_http_error(e)
+            self._handle_http_error(e, method=method, url=url)
         except msgspec.DecodeError as e:
-            raise TransportError(f"Invalid JSON response: {e}")
+            raise TransportError(
+                f"Invalid JSON response: {e}",
+                context={
+                    "method": method,
+                    "url": url,
+                    "content_preview": str(response.content[:200]),
+                },
+                cause=e,
+            )
 
     async def stream_json(
         self,
@@ -136,34 +158,76 @@ class HTTPXTransport:
                         yield chunk
 
         except httpx.TimeoutException as e:
-            raise TransportError(f"Stream timed out: {e}")
+            raise TransportError(
+                f"Stream timed out: {e}",
+                context={
+                    "method": method,
+                    "url": url,
+                    "timeout_s": timeout_s,
+                    "operation": "streaming",
+                },
+                cause=e,
+            )
         except httpx.NetworkError as e:
-            raise RetryableError(f"Network error during streaming: {e}")
+            raise RetryableError(
+                f"Network error during streaming: {e}",
+                context={"method": method, "url": url, "operation": "streaming"},
+                cause=e,
+            )
         except httpx.HTTPStatusError as e:
-            self._handle_http_error(e)
+            self._handle_http_error(e, method=method, url=url, operation="streaming")
 
-    def _check_response_status(self, response: httpx.Response) -> None:
+    def _check_response_status(self, response: httpx.Response, **context_kwargs) -> None:
         """Check response status and raise appropriate exceptions."""
         if response.is_success:
             return
 
+        # Common context for all HTTP errors
+        base_context = {
+            "status_code": response.status_code,
+            "url": str(response.url),
+            "headers": dict(response.headers),
+            **context_kwargs,
+        }
+
+        # Truncate response body for context (avoid logging massive responses)
+        response_preview = response.text[:500] if response.text else ""
+        if len(response.text) > 500:
+            response_preview += "... [truncated]"
+
         if response.status_code == 429:
-            # Rate limited - retryable
-            raise RetryableError(f"Rate limited: {response.status_code} {response.text}")
+            # Rate limited - use specific RateLimitError
+            retry_after = float(response.headers.get("Retry-After", 60))
+            raise RateLimitError(
+                retry_after=retry_after,
+                message=f"Rate limited: {response.status_code}",
+                context={
+                    **base_context,
+                    "retry_after": retry_after,
+                    "response_preview": response_preview,
+                },
+            )
         elif 500 <= response.status_code < 600:
             # Server error - retryable
-            raise RetryableError(f"Server error: {response.status_code} {response.text}")
+            raise RetryableError(
+                f"Server error: {response.status_code} {response.reason_phrase}",
+                context={**base_context, "response_preview": response_preview},
+            )
         elif 400 <= response.status_code < 500:
             # Client error - non-retryable (except 429 handled above)
-            raise NonRetryableError(f"Client error: {response.status_code} {response.text}")
+            raise NonRetryableError(
+                f"Client error: {response.status_code} {response.reason_phrase}",
+                context={**base_context, "response_preview": response_preview},
+            )
         else:
             # Other status codes
             raise TransportError(
-                f"HTTP error: {response.status_code} {response.text}",
+                f"HTTP error: {response.status_code} {response.reason_phrase}",
                 status_code=response.status_code,
+                context={**base_context, "response_preview": response_preview},
             )
 
-    def _handle_http_error(self, error: httpx.HTTPStatusError) -> None:
+    def _handle_http_error(self, error: httpx.HTTPStatusError, **context_kwargs) -> None:
         """Handle HTTP status errors with proper classification."""
         response = error.response
-        self._check_response_status(response)
+        self._check_response_status(response, **context_kwargs)
