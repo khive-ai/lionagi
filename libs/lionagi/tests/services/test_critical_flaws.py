@@ -91,49 +91,40 @@ class TestCriticalImplementationFlaws:
             concurrency_limit=1,
         )
 
-        executor = RateLimitedExecutor(config)
-        await executor.start()
+        # Use async context manager for proper lifecycle management
+        async with RateLimitedExecutor(config) as executor:
+            # Submit first call to consume rate limit capacity
+            # Use a longer-running service to ensure it's still executing when second call is submitted
+            service = SlowService(2.0)  # 2 second delay to keep rate limit occupied
+            first_context = CallContext.new(branch_id=uuid4())
+            first_request = TestRequest(content="first")
 
-        # Start background processing using structured concurrency
-        async with create_task_group() as tg:
-            tg.start_soon(executor.execute_continuously)
+            first_call = await executor.submit_call(service, first_request, first_context)
+            # DON'T wait for completion - let it run in background to occupy the rate limit
 
-            try:
-                # Submit first call to consume rate limit capacity
-                service = SlowService(0.1)
-                first_context = CallContext.new(branch_id=uuid4())
-                first_request = TestRequest(content="first")
+            # Immediately submit second call while first is still running
+            # Now executor IS at capacity (1/1 concurrent requests)
+            second_context = CallContext.with_timeout(
+                branch_id=uuid4(),
+                timeout_s=1.0,  # SHORT deadline - should fail here
+            )
+            second_request = TestRequest(content="second")
 
-                first_call = await executor.submit_call(service, first_request, first_context)
-                await first_call.wait_completion()
+            start_time = time.time()
 
-                # Now executor is at capacity, next call must wait for 10s refresh
+            # CRITICAL TEST: This should fail after ~1s (deadline), NOT ~10s (rate limit)
+            second_call = await executor.submit_call(service, second_request, second_context)
 
-                # Submit second call with SHORT deadline (1s) but LONG rate limit wait (10s)
-                second_context = CallContext.with_timeout(
-                    branch_id=uuid4(),
-                    timeout_s=1.0,  # SHORT deadline - should fail here
-                )
-                second_request = TestRequest(content="second")
+            with pytest.raises(TimeoutError):
+                await second_call.wait_completion()
 
-                start_time = time.time()
+            elapsed = time.time() - start_time
 
-                # CRITICAL TEST: This should fail after ~1s (deadline), NOT ~10s (rate limit)
-                second_call = await executor.submit_call(service, second_request, second_context)
-
-                with pytest.raises(TimeoutError):
-                    await second_call.wait_completion()
-
-                elapsed = time.time() - start_time
-
-                # CRITICAL ASSERTION: Should timeout at deadline (~1s), not rate limit wait (~10s)
-                assert elapsed < 2.0, f"Call waited {elapsed}s but should timeout at deadline ~1s"
-
-                # NOTE: This test is expected to FAIL with current implementation
-                # and PASS after fixing executor.py:349 _wait_for_capacity method
-
-            finally:
-                await executor.stop()
+            # CRITICAL ASSERTION: Should timeout at deadline (~1s), not rate limit wait (~10s)
+            assert elapsed < 1.5, f"Call waited {elapsed}s but should timeout at deadline ~1s"
+            
+            # Clean up: wait for first call to complete
+            await first_call.wait_completion()
 
     @pytest.mark.anyio
     async def test_hook_per_hook_timeout_isolation_critical_flaw(self):
