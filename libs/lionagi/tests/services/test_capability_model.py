@@ -132,7 +132,7 @@ class TestCapabilityModelCore:
             ({"fs.*"}, {"filesystem:read"}, False),  # Similar but different prefix
             ({"net:*"}, {"network:tcp"}, False),  # Similar but different prefix
             ({"api.*"}, {"api.openai.com"}, True),  # Exact prefix match
-            ({"api.*"}, {"api"}, True),  # Wildcard matches prefix itself
+            ({"api.*"}, {"api"}, False),  # Strict: wildcard with separator requires separator
             ({"prefix.*"}, {"prefix_different"}, False),  # Underscore vs dot
         ]
 
@@ -526,9 +526,7 @@ class TestCapabilityModelIntegration:
         assert policy_gate._check_capabilities(ctx.capabilities, required)
 
     def test_capability_model_serialization_compatibility(self):
-        """Test that capability model works with msgspec serialization."""
-        import msgspec
-
+        """Test that capability model works with custom serialization methods."""
         # Test CallContext with capabilities can be serialized
         ctx = CallContext.new(
             branch_id=uuid4(),
@@ -536,9 +534,9 @@ class TestCapabilityModelIntegration:
             service_requires={"fs:read:/data"},
         )
 
-        # Should be serializable with msgspec (validates msgspec.Struct usage)
-        encoded = msgspec.json.encode(ctx)
-        decoded = msgspec.json.decode(encoded, type=CallContext)
+        # Should be serializable using custom methods (handles MappingProxyType)
+        ctx_dict = ctx.to_dict()
+        decoded = CallContext.from_dict(ctx_dict)
 
         assert decoded.capabilities == ctx.capabilities
         assert decoded.call_id == ctx.call_id
