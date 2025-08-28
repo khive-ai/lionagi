@@ -446,8 +446,12 @@ class RateLimitedExecutor:
         call.mark_executing()
 
         try:
-            # Execute the call (counters already updated in _wait_for_capacity)
-            result = await call.service.call(call.request, ctx=call.context)
+            # Execute the call with deadline enforcement
+            if call.context.deadline_s is not None:
+                with fail_at(call.context.deadline_s):
+                    result = await call.service.call(call.request, ctx=call.context)
+            else:
+                result = await call.service.call(call.request, ctx=call.context)
 
             # Mark as completed
             call.mark_completed(result)

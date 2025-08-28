@@ -216,9 +216,12 @@ class iModel:
         # Create call context with deadline awareness
         context = self._build_context(**kwargs)
 
-        # Add service name to context for hooks
-        context.attrs = dict(context.attrs) if context.attrs else {}
-        context.attrs["service_name"] = self.service.name
+        # Add service name to context for hooks (create new context since it's frozen)
+        attrs = dict(context.attrs) if context.attrs else {}
+        attrs["service_name"] = self.service.name
+        
+        import msgspec
+        context = msgspec.structs.replace(context, attrs=attrs)
 
         # Submit to executor for rate limiting and queuing
         call = await self.executor.submit_call(self.service, request, context)
@@ -245,12 +248,16 @@ class iModel:
             if hasattr(request, "model_copy"):
                 request = request.model_copy(update={"stream": True})
             else:
-                request.stream = True
+                import msgspec
+                request = msgspec.structs.replace(request, stream=True)
 
         # Create context
         context = self._build_context(**kwargs)
-        context.attrs = dict(context.attrs) if context.attrs else {}
-        context.attrs["service_name"] = self.service.name
+        
+        # Add service name to context for hooks (create new context since it's frozen)
+        attrs = dict(context.attrs) if context.attrs else {}
+        attrs["service_name"] = self.service.name
+        context = msgspec.structs.replace(context, attrs=attrs)
 
         # Stream through executor (handles concurrency limiting)
         async for chunk in self.executor.submit_stream(self.service, request, context):

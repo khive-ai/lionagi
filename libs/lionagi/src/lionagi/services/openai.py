@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -61,7 +62,7 @@ class OpenAICompatibleService:
                 response = await self.client.chat.completions.create(**kwargs)
                 return response.model_dump()
 
-            except TimeoutError as e:
+            except (TimeoutError, asyncio.TimeoutError) as e:
                 raise TimeoutError(
                     f"OpenAI API call timed out: {e}",
                     context={
@@ -197,7 +198,7 @@ class OpenAICompatibleService:
                 async for chunk in stream:
                     yield chunk.model_dump()
 
-            except TimeoutError as e:
+            except (TimeoutError, asyncio.TimeoutError) as e:
                 raise TimeoutError(
                     f"OpenAI API stream timed out: {e}",
                     context={
