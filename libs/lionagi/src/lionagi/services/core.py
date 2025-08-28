@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Generic, Mapping, Protocol, TypeVar
+from collections.abc import AsyncIterator, Mapping
+from typing import Any, Generic, Protocol, TypeVar
 from uuid import UUID, uuid4
 
 import anyio
@@ -22,7 +23,7 @@ class CallContext(msgspec.Struct, kw_only=True):
 
     This replaces ad-hoc kwargs; middleware can rely on it; transport reads the deadline.
     All per-call data flows through CallContext for deterministic behavior.
-    
+
     Using msgspec for v1 performance - orders of magnitude faster serialization.
     """
 
@@ -30,7 +31,9 @@ class CallContext(msgspec.Struct, kw_only=True):
     branch_id: UUID
     deadline_s: float | None = None  # monotonic absolute deadline
     capabilities: set[str] = msgspec.field(default_factory=set)  # for policy gate
-    attrs: Mapping[str, Any] = msgspec.field(default_factory=dict)  # user-defined (trace/span, request_id, ...)
+    attrs: Mapping[str, Any] = msgspec.field(
+        default_factory=dict
+    )  # user-defined (trace/span, request_id, ...)
 
     @classmethod
     def new(
@@ -94,4 +97,3 @@ class Service(Generic[Req, Res, Chunk], Protocol):
     async def stream(self, req: Req, *, ctx: CallContext) -> AsyncIterator[Chunk]:
         """Execute streaming call and yield response chunks."""
         ...
-

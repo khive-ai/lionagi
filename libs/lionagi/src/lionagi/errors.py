@@ -14,11 +14,11 @@ from typing import Any, ClassVar
 
 __all__ = (
     "LionError",
-    "ServiceError", 
+    "ServiceError",
     "RetryableError",
     "NonRetryableError",
     "TimeoutError",
-    "TransportError", 
+    "TransportError",
     "PolicyError",
     "ValidationError",
     "NotFoundError",
@@ -37,22 +37,22 @@ __all__ = (
 
 class LionError(Exception):
     """Unified base for all lionagi errors.
-    
+
     Provides structured error handling with:
-    - Behavioral classification (retryable/non-retryable)  
+    - Behavioral classification (retryable/non-retryable)
     - Rich context and observability
     - Machine-readable error codes
     - Standard serialization for logging/monitoring
-    
+
     Based on v0 foundation with ChatGPT/Gemini enhancements for v1.
     """
-    
+
     default_message: ClassVar[str] = "LionAGI error"
     default_status_code: ClassVar[int] = 500
     retryable: ClassVar[bool] = False  # Behavioral classification for resilience middleware
     code: ClassVar[str] = "lion_error"  # Machine-readable error code
     severity: ClassVar[str] = "error"  # Log severity level
-    
+
     __slots__ = ("message", "details", "status_code", "context", "__cause__")
 
     def __init__(
@@ -115,11 +115,13 @@ class LionError(Exception):
 # Behavioral base classes - used by resilience middleware
 class ServiceError(LionError):
     """Base service error - general service operation failure."""
+
     code = "service_error"
 
 
 class RetryableError(LionError):
     """Error that can be retried (5xx, network, rate limits, timeouts)."""
+
     retryable = True
     severity = "warning"  # Often transient
     code = "retryable_error"
@@ -127,6 +129,7 @@ class RetryableError(LionError):
 
 class NonRetryableError(LionError):
     """Error that should not be retried (4xx except 429, auth failures, validation errors)."""
+
     retryable = False
     severity = "error"
     code = "non_retryable_error"
@@ -135,12 +138,14 @@ class NonRetryableError(LionError):
 # Service-specific errors
 class TimeoutError(RetryableError):
     """Operation timed out - retryable with backoff."""
+
     default_status_code = 504
     code = "timeout"
 
 
 class TransportError(RetryableError):
     """Transport-level error (network, HTTP, parsing) - usually retryable."""
+
     code = "transport_error"
 
     def __init__(self, message: str, status_code: int | None = None, **kwargs):
@@ -149,6 +154,7 @@ class TransportError(RetryableError):
 
 class PolicyError(NonRetryableError):
     """Policy check failed - insufficient capabilities, non-retryable."""
+
     default_status_code = 403
     code = "policy_denied"
 
@@ -156,6 +162,7 @@ class PolicyError(NonRetryableError):
 # Domain-specific errors - classified for behavioral patterns
 class ValidationError(NonRetryableError):
     """Validation failed - non-retryable client error."""
+
     default_message = "Validation failed"
     default_status_code = 422
     code = "validation_failed"
@@ -163,6 +170,7 @@ class ValidationError(NonRetryableError):
 
 class NotFoundError(NonRetryableError):
     """Resource not found - non-retryable client error."""
+
     default_message = "Resource not found"
     default_status_code = 404
     code = "not_found"
@@ -170,6 +178,7 @@ class NotFoundError(NonRetryableError):
 
 class ExistsError(NonRetryableError):
     """Resource already exists - non-retryable conflict."""
+
     default_message = "Resource already exists"
     default_status_code = 409
     code = "resource_exists"
@@ -177,17 +186,19 @@ class ExistsError(NonRetryableError):
 
 class ResourceError(RetryableError):
     """Resource access error - often retryable."""
-    default_message = "Resource access error" 
+
+    default_message = "Resource access error"
     default_status_code = 429
     code = "resource_error"
 
 
 class RateLimitError(RetryableError):
     """Rate limit exceeded - retryable with backoff."""
+
     default_message = "Rate limit exceeded"
     default_status_code = 429
     code = "rate_limited"
-    
+
     __slots__ = ("retry_after",)
 
     def __init__(self, retry_after: float, **kwargs):
@@ -197,27 +208,32 @@ class RateLimitError(RetryableError):
 
 class OperationError(NonRetryableError):
     """Operation failed - non-retryable business logic error."""
+
     code = "operation_failed"
 
 
 class ExecutionError(NonRetryableError):
     """Execution failed - non-retryable runtime error."""
+
     code = "execution_failed"
 
 
 class ObservationError(LionError):
     """Observation failed - logging/monitoring error."""
+
     default_message = "Observation failed"
     code = "observation_failed"
 
 
 class IDError(NonRetryableError):
     """Invalid or missing ID - non-retryable."""
+
     code = "invalid_id"
 
 
 class RelationError(NonRetryableError):
     """Relationship constraint violation - non-retryable."""
+
     code = "relation_error"
 
 

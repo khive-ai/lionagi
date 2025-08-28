@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncIterator
 from enum import Enum
-from typing import Any, AsyncIterator
+from typing import Any
 from uuid import UUID
 
 import anyio
 import msgspec
 
+from lionagi.errors import ServiceError
 from lionagi.ln.concurrency import (
     CapacityLimiter,
     Event,
@@ -26,7 +28,6 @@ from lionagi.ln.concurrency import (
     is_cancelled,
 )
 
-from lionagi.errors import ServiceError
 from .core import CallContext, Service
 from .endpoint import RequestModel
 
@@ -106,13 +107,15 @@ class ServiceCall(msgspec.Struct, kw_only=True):
                 f"Call completed with unexpected status: {self.status}",
                 context={
                     "call_id": str(self.id),
-                    "service": self.service.name if hasattr(self.service, 'name') else str(self.service),
+                    "service": (
+                        self.service.name if hasattr(self.service, "name") else str(self.service)
+                    ),
                     "status": self.status.value,
                     "created_at": self.created_at,
                     "started_at": self.started_at,
                     "completed_at": self.completed_at,
                     "token_estimate": self.token_estimate,
-                    "error_type": "unexpected_completion_status"
+                    "error_type": "unexpected_completion_status",
                 },
             )
 
@@ -167,7 +170,7 @@ class RateLimitedExecutor:
         )
         self._queue_send: anyio.abc.ObjectSendStream[ServiceCall] = send_stream
         self._queue_receive: anyio.abc.ObjectReceiveStream[ServiceCall] = receive_stream
-        
+
         self.active_calls: dict[UUID, ServiceCall] = {}
         self.completed_calls: dict[UUID, ServiceCall] = {}  # History for debugging
 
@@ -205,7 +208,7 @@ class RateLimitedExecutor:
     async def stop(self) -> None:
         """Stop the executor with proper cleanup."""
         self._shutdown_event.set()
-        
+
         # Close the queue send stream to signal no more items
         await self._queue_send.aclose()
 
@@ -247,7 +250,7 @@ class RateLimitedExecutor:
                 "Executor queue at capacity - cannot accept new calls",
                 context={
                     "call_id": str(call.id),
-                    "service": service.name if hasattr(service, 'name') else str(service),
+                    "service": (service.name if hasattr(service, "name") else str(service)),
                     "queue_capacity": self.config.queue_capacity,
                     "active_calls": len(self.active_calls),
                     "completed_calls": len(self.completed_calls),
@@ -255,7 +258,7 @@ class RateLimitedExecutor:
                     "calls_completed": self._stats["calls_completed"],
                     "calls_failed": self._stats["calls_failed"],
                     "token_estimate": call.token_estimate,
-                    "error_type": "queue_capacity_exceeded"
+                    "error_type": "queue_capacity_exceeded",
                 },
             )
 
@@ -307,20 +310,20 @@ class RateLimitedExecutor:
         async with create_task_group() as tg:
             # Start refresh task
             tg.start_soon(self._refresh_limits_loop)
-            
+
             # Process calls as they arrive - no polling
             async with self._queue_receive:
                 async for call in self._queue_receive:
                     if self._shutdown_event.is_set():
                         break
-                    
+
                     # Wait until we can process this call
                     await self._wait_for_capacity(call)
-                    
+
                     # Process call in task group
                     self.active_calls[call.id] = call
                     tg.start_soon(self._execute_call, call)
-                    
+
                     # Periodically cleanup completed
                     if len(self.completed_calls) > 100:
                         tg.start_soon(self._cleanup_completed)
@@ -344,7 +347,7 @@ class RateLimitedExecutor:
                     self.request_count += 1
                     self.token_count += call.token_estimate
                     return
-            
+
             # CRITICAL FIX: Deadline-aware waiting instead of blind polling
             # If call has a deadline, respect it to prevent deadline violations
             if call.context.deadline_s is not None:
@@ -362,7 +365,7 @@ class RateLimitedExecutor:
 
     def _can_process_call(self, call: ServiceCall) -> bool:
         """Check if we can process a call given current rate limits.
-        
+
         Must be called while holding _rate_lock.
         """
         if self.config.limit_requests and self.request_count >= self.config.limit_requests:
@@ -411,7 +414,8 @@ class RateLimitedExecutor:
         if len(self.completed_calls) > 1000:  # Keep last 1000 for debugging
             # Remove oldest 500 calls
             oldest_ids = sorted(
-                self.completed_calls.keys(), key=lambda k: self.completed_calls[k].completed_at or 0
+                self.completed_calls.keys(),
+                key=lambda k: self.completed_calls[k].completed_at or 0,
             )[:500]
 
             for call_id in oldest_ids:

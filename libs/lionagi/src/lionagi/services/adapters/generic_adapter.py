@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 from urllib.parse import urlencode, urljoin, urlparse
 
 import msgspec
@@ -21,6 +22,7 @@ def _host_rights(url: str | None) -> set[str]:
 
 class HttpDescriptor(msgspec.Struct, kw_only=True):
     """Declarative HTTP shape for generic JSON calls."""
+
     method: str = "POST"
     path: str = "/"
     headers: dict[str, str] = msgspec.field(default_factory=dict)
@@ -29,6 +31,7 @@ class HttpDescriptor(msgspec.Struct, kw_only=True):
 
 class GenericRequestModel(RequestModel):
     """Msgspec request for generic JSON services."""
+
     payload: Any = None
     http: HttpDescriptor | None = None  # If not set, adapter must provide one
 
@@ -47,7 +50,9 @@ class GenericJSONService(Service[GenericRequestModel, dict, bytes]):
     async def call(self, req: GenericRequestModel, *, ctx: CallContext) -> dict:
         http = req.http or self._http_default
         if not http:
-            raise ValueError("GenericJSONService: HttpDescriptor must be provided (adapter or request)")
+            raise ValueError(
+                "GenericJSONService: HttpDescriptor must be provided (adapter or request)"
+            )
 
         url = urljoin(self.base_url.rstrip("/") + "/", http.path.lstrip("/"))
         if http.query:
@@ -67,7 +72,9 @@ class GenericJSONService(Service[GenericRequestModel, dict, bytes]):
     async def stream(self, req: GenericRequestModel, *, ctx: CallContext) -> AsyncIterator[bytes]:
         http = req.http or self._http_default
         if not http:
-            raise ValueError("GenericJSONService: HttpDescriptor must be provided (adapter or request)")
+            raise ValueError(
+                "GenericJSONService: HttpDescriptor must be provided (adapter or request)"
+            )
 
         url = urljoin(self.base_url.rstrip("/") + "/", http.path.lstrip("/"))
         if http.query:

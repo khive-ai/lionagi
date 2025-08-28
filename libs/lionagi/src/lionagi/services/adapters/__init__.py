@@ -3,7 +3,7 @@
 
 """Provider adapters for hybrid registry system."""
 
-from .openai_adapter import OpenAIAdapter
 from .generic_adapter import GenericJSONAdapter
+from .openai_adapter import OpenAIAdapter
 
 __all__ = ["OpenAIAdapter", "GenericJSONAdapter"]

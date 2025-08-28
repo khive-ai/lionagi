@@ -6,21 +6,16 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Iterable
 from importlib.metadata import entry_points
-from typing import Any, Protocol, TypeVar, Iterable
+from typing import Any, Protocol, TypeVar
 from urllib.parse import urlparse
 
 import msgspec
+from pydantic import BaseModel, ValidationError
 
-from .endpoint import RequestModel
 from .core import Service
-
-try:  # optional pydantic (kept for strong config validation)
-    from pydantic import BaseModel, ValidationError  # type: ignore
-except Exception:  # pragma: no cover
-    BaseModel = None          # type: ignore
-    ValidationError = Exception  # type: ignore
-
+from .endpoint import RequestModel
 
 Req = TypeVar("Req", bound=RequestModel)
 
@@ -38,29 +33,15 @@ class ProviderAdapter(Protocol):
     requires: set[str] | None  # static default; dynamic can come from required_rights()
 
     # Optional: when present, Registry will validate kwargs with this model
-    ConfigModel: type["BaseModel"] | None  # type: ignore[valid-type]
+    ConfigModel: type[BaseModel] | None
 
     def supports(
-        self, *,
-        provider: str | None,
-        model: str | None,
-        base_url: str | None
-    ) -> bool:
-        ...
+        self, *, provider: str | None, model: str | None, base_url: str | None
+    ) -> bool: ...
 
-    def create_service(
-        self, *,
-        base_url: str | None,
-        **kwargs: Any
-    ) -> Service:
-        ...
+    def create_service(self, *, base_url: str | None, **kwargs: Any) -> Service: ...
 
-    def required_rights(
-        self, *,
-        base_url: str | None,
-        **kwargs: Any
-    ) -> set[str]:
-        ...
+    def required_rights(self, *, base_url: str | None, **kwargs: Any) -> set[str]: ...
 
 
 class ProviderResolution(msgspec.Struct, kw_only=True):
@@ -111,11 +92,7 @@ class ProviderRegistry:
     # --------------------- Resolution -----------------------
 
     def resolve(
-        self,
-        *,
-        provider: str | None,
-        model: str | None,
-        base_url: str | None
+        self, *, provider: str | None, model: str | None, base_url: str | None
     ) -> tuple[ProviderResolution, ProviderAdapter]:
         """Find a single adapter that supports (provider, model, base_url).
 
@@ -127,18 +104,28 @@ class ProviderRegistry:
         """
         pref_provider, _ = _parse_provider_prefix(model)
         if provider and pref_provider and provider != pref_provider:
-            raise ValueError(f"Provider mismatch: provider='{provider}' but model='{model}' is prefixed with '{pref_provider}/'")
+            raise ValueError(
+                f"Provider mismatch: provider='{provider}' but model='{model}' is prefixed with '{pref_provider}/'"
+            )
 
         effective_provider = provider or pref_provider
 
         # 1) Direct name match first
         if effective_provider and (a := self._adapters.get(effective_provider)):
             if a.supports(provider=effective_provider, model=model, base_url=base_url):
-                return ProviderResolution(
-                    provider=effective_provider, model=model, base_url=base_url, adapter_name=a.name
-                ), a
+                return (
+                    ProviderResolution(
+                        provider=effective_provider,
+                        model=model,
+                        base_url=base_url,
+                        adapter_name=a.name,
+                    ),
+                    a,
+                )
             # Even if names match, adapter may reject unsupported combos
-            raise ValueError(f"Adapter '{effective_provider}' does not support model/base_url combination")
+            raise ValueError(
+                f"Adapter '{effective_provider}' does not support model/base_url combination"
+            )
 
         # 2) If no explicit provider, ask each adapter
         matches: list[ProviderAdapter] = []
@@ -149,26 +136,44 @@ class ProviderRegistry:
         if len(matches) == 1:
             a = matches[0]
             eff_provider = effective_provider or a.name
-            return ProviderResolution(
-                provider=eff_provider, model=model, base_url=base_url, adapter_name=a.name
-            ), a
+            return (
+                ProviderResolution(
+                    provider=eff_provider,
+                    model=model,
+                    base_url=base_url,
+                    adapter_name=a.name,
+                ),
+                a,
+            )
 
         # 3) Fallback: 'generic' adapter when base_url is present
         if base_url and "generic" in self._adapters:
             a = self._adapters["generic"]
             if a.supports(provider=effective_provider, model=model, base_url=base_url):
                 eff_provider = effective_provider or "generic"
-                return ProviderResolution(
-                    provider=eff_provider, model=model, base_url=base_url, adapter_name=a.name
-                ), a
+                return (
+                    ProviderResolution(
+                        provider=eff_provider,
+                        model=model,
+                        base_url=base_url,
+                        adapter_name=a.name,
+                    ),
+                    a,
+                )
 
         # 4) Errors
         if not effective_provider and not base_url:
-            raise ValueError("Provider must be specified (or prefix model as 'provider/model') or supply base_url")
+            raise ValueError(
+                "Provider must be specified (or prefix model as 'provider/model') or supply base_url"
+            )
         if len(matches) > 1:
             names = ", ".join(sorted(a.name for a in matches))
-            raise ValueError(f"Ambiguous adapters ({names}) support this input; specify provider explicitly")
-        raise ValueError(f"No adapter found for provider='{effective_provider}', model='{model}', base_url='{base_url}'")
+            raise ValueError(
+                f"Ambiguous adapters ({names}) support this input; specify provider explicitly"
+            )
+        raise ValueError(
+            f"No adapter found for provider='{effective_provider}', model='{model}', base_url='{base_url}'"
+        )
 
     # --------------------- Construction --------------------
 
@@ -178,21 +183,21 @@ class ProviderRegistry:
         provider: str | None,
         model: str | None,
         base_url: str | None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> tuple[Service, ProviderResolution, set[str]]:
         """Resolve adapter, validate config (Pydantic if provided), create Service."""
         res, adapter = self.resolve(provider=provider, model=model, base_url=base_url)
 
         # Optional strong validation via Pydantic config model
         cleaned = dict(kwargs)
-        if getattr(adapter, "ConfigModel", None) and BaseModel is not None:  # type: ignore[truthy-function]
-            cfg_model = adapter.ConfigModel  # type: ignore[assignment]
+        if getattr(adapter, "ConfigModel", None):
+            cfg_model = adapter.ConfigModel
             try:
-                cfg = cfg_model(**kwargs)  # type: ignore[call-arg]
+                cfg = cfg_model(**kwargs)
                 # v2: .model_dump(); v1: .dict()
-                dumped = getattr(cfg, "model_dump", getattr(cfg, "dict"))  # type: ignore[attr-defined]
-                cleaned = dumped(exclude_none=True)  # type: ignore[operator]
-            except ValidationError as e:  # type: ignore[misc]
+                dumped = getattr(cfg, "model_dump", getattr(cfg, "dict"))
+                cleaned = dumped(exclude_none=True)
+            except ValidationError as e:
                 raise ValueError(f"Invalid provider configuration for '{adapter.name}': {e}") from e
 
         service = adapter.create_service(base_url=res.base_url, **cleaned)
@@ -212,6 +217,7 @@ class ProviderRegistry:
 
 # --------------------- Helpers & Global ---------------------
 
+
 def _parse_provider_prefix(model: str | None) -> tuple[str | None, str | None]:
     if not model or "/" not in model:
         return None, model
@@ -230,9 +236,9 @@ def get_provider_registry() -> ProviderRegistry:
 def register_builtin_adapters() -> None:
     """Import and register core adapters exactly once."""
     # Importing here avoids import cycles
-    from .adapters.openai_adapter import OpenAIAdapter
     from .adapters.generic_adapter import GenericJSONAdapter
-    
+    from .adapters.openai_adapter import OpenAIAdapter
+
     for a in (OpenAIAdapter(), GenericJSONAdapter()):
         # tolerate re-registration in test runs
         if a.name not in _registry._adapters:

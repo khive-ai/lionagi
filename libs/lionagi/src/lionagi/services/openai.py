@@ -6,17 +6,24 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from typing import Any
 
 import anyio
 import openai
 from openai import AsyncOpenAI
 from openai._types import NOT_GIVEN, NotGiven
 
+from lionagi.errors import (
+    NonRetryableError,
+    RateLimitError,
+    RetryableError,
+    ServiceError,
+    TimeoutError,
+)
 from lionagi.ln.concurrency import fail_at
 
-from lionagi.errors import NonRetryableError, RetryableError, ServiceError, TimeoutError, RateLimitError
 from .core import CallContext
 from .endpoint import ChatRequestModel, RequestModel
 from .middleware import CallMW, StreamMW
@@ -57,7 +64,7 @@ class OpenAICompatibleService:
                 response = await self.client.chat.completions.create(**kwargs)
                 return response.model_dump()
 
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 raise TimeoutError(
                     f"OpenAI API call timed out: {e}",
                     context={
@@ -70,7 +77,7 @@ class OpenAICompatibleService:
                 )
             except openai.RateLimitError as e:
                 # Use specific RateLimitError for better handling
-                retry_after = getattr(e, 'retry_after', None) or 60.0
+                retry_after = getattr(e, "retry_after", None) or 60.0
                 raise RateLimitError(
                     retry_after=retry_after,
                     message=f"OpenAI API rate limited: {e}",
@@ -101,7 +108,7 @@ class OpenAICompatibleService:
                         "service": self.name,
                         "model": kwargs.get("model"),
                         "error_type": "server_error",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -113,7 +120,7 @@ class OpenAICompatibleService:
                         "service": self.name,
                         "model": kwargs.get("model"),
                         "error_type": "bad_request",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -125,7 +132,7 @@ class OpenAICompatibleService:
                         "service": self.name,
                         "model": kwargs.get("model"),
                         "error_type": "authentication",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -137,7 +144,7 @@ class OpenAICompatibleService:
                         "service": self.name,
                         "model": kwargs.get("model"),
                         "error_type": "permission_denied",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -149,7 +156,7 @@ class OpenAICompatibleService:
                         "service": self.name,
                         "model": kwargs.get("model"),
                         "error_type": "not_found",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -161,7 +168,7 @@ class OpenAICompatibleService:
                         "service": self.name,
                         "model": kwargs.get("model"),
                         "error_type": "openai_api",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -193,7 +200,7 @@ class OpenAICompatibleService:
                 async for chunk in stream:
                     yield chunk.model_dump()
 
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 raise TimeoutError(
                     f"OpenAI API stream timed out: {e}",
                     context={
@@ -206,7 +213,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.RateLimitError as e:
-                retry_after = getattr(e, 'retry_after', None) or 60.0
+                retry_after = getattr(e, "retry_after", None) or 60.0
                 raise RateLimitError(
                     retry_after=retry_after,
                     message=f"OpenAI API stream rate limited: {e}",
@@ -240,7 +247,7 @@ class OpenAICompatibleService:
                         "model": kwargs.get("model"),
                         "operation": "streaming",
                         "error_type": "server_error",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -253,7 +260,7 @@ class OpenAICompatibleService:
                         "model": kwargs.get("model"),
                         "operation": "streaming",
                         "error_type": "bad_request",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )
@@ -266,7 +273,7 @@ class OpenAICompatibleService:
                         "model": kwargs.get("model"),
                         "operation": "streaming",
                         "error_type": "openai_api",
-                        "status_code": getattr(e, 'status_code', None),
+                        "status_code": getattr(e, "status_code", None),
                     },
                     cause=e,
                 )

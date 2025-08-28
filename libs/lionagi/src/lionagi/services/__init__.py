@@ -13,8 +13,10 @@ This module implements the v1 services architecture with:
 - Ergonomics: delightful defaults
 """
 
-from .core import CallContext, Service
 from lionagi.errors import PolicyError, ServiceError, TimeoutError
+
+from .adapters import GenericJSONAdapter, OpenAIAdapter
+from .core import CallContext, Service
 from .endpoint import (
     ChatRequestModel,
     CompletionRequestModel,
@@ -23,7 +25,15 @@ from .endpoint import (
     RequestModel,
 )
 from .executor import CallStatus, ExecutorConfig, RateLimitedExecutor, ServiceCall
-from .hooks import HookEvent, HookRegistry, HookType, HookedMiddleware, get_global_hooks, hook, stream_hook
+from .hooks import (
+    HookedMiddleware,
+    HookEvent,
+    HookRegistry,
+    HookType,
+    get_global_hooks,
+    hook,
+    stream_hook,
+)
 from .imodel import ProviderMetadata, iModel, quick_chat, quick_stream
 from .middleware import CallMW, MetricsMW, PolicyGateMW, RedactionMW, StreamMW
 from .openai import (
@@ -33,19 +43,12 @@ from .openai import (
     create_ollama_service,
     create_openai_service,
 )
+from .provider_registry import get_provider_registry, register_builtin_adapters
 from .resilience import CircuitBreakerConfig, RetryConfig, create_resilience_mw
 from .transport import HTTPXTransport, Transport
-from .provider_registry import get_default_registry
-from .adapters import OpenAIAdapter, AnthropicAdapter, GenericHTTPAdapter
 
 # Register built-in adapters once on import
-_registry = get_default_registry()
-for _adapter in (OpenAIAdapter(), AnthropicAdapter(), GenericHTTPAdapter()):
-    try:
-        _registry.register(_adapter)
-    except ValueError:
-        # already registered in this process; ignore
-        pass
+register_builtin_adapters()
 
 __all__ = [
     # Core interfaces
@@ -98,5 +101,6 @@ __all__ = [
     "quick_chat",
     "quick_stream",
     # Provider registry
-    "get_default_registry",
+    "get_provider_registry",
+    "register_builtin_adapters",
 ]

@@ -8,22 +8,21 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 from uuid import UUID, uuid4
 
+from lionagi.errors import ServiceError
 from lionagi.ln.concurrency import create_task_group, effective_deadline, fail_at
 
 from .core import CallContext, Service
-from lionagi.errors import ServiceError
 from .endpoint import ChatRequestModel, RequestModel
 from .executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
 from .hooks import HookedMiddleware, HookRegistry, HookType
 from .middleware import MetricsMW, PolicyGateMW, RedactionMW
-from .provider_registry import (
-    get_default_registry,
-    resolve_provider_and_model,
-)
+from .provider_detection import parse_provider_prefix
+from .provider_registry import get_provider_registry, register_builtin_adapters
 
 logger = logging.getLogger(__name__)
 
@@ -101,27 +100,32 @@ class iModel:
         self.id = UUID(id) if isinstance(id, str) else (id or uuid4())
         self.created_at = created_at or time.time()
 
-        # Resolve provider/model via registry (regex-free)
-        registry = get_default_registry()
-        resolved_provider, resolved_model, adapter = resolve_provider_and_model(
-            registry,
-            provider=provider,
-            model=model,
-            base_url=base_url,
-        )
-        self.provider = resolved_provider
-        self.model = resolved_model
+        # Provider resolution is handled by ProviderRegistry
+        # - supports explicit provider, model prefix "provider/model", or generic(base_url)
+        register_builtin_adapters()
+        reg = get_provider_registry()
+
+        # We still store what the caller passed; registry will reconcile actual resolution
+        self.provider = provider if provider else parse_provider_prefix(model)[0]
+        self.model = model
         self.base_url = base_url
         self.endpoint_name = endpoint
 
         # Auto-detect API key if not provided
         if api_key is None:
-            api_key = self._detect_api_key(self.provider)
+            api_key = self._detect_api_key(self.provider or "openai")
 
-        # Build service via adapter
-        self.service = adapter.create_service(
-            base_url=base_url, name=self.provider, api_key=api_key, model=self.model, **kwargs
+        # Build service via registry (strongly validated if adapter supplies Pydantic model)
+        service, resolved, rights = reg.create_service(
+            provider=self.provider,
+            model=self.model,
+            base_url=self.base_url,
+            api_key=api_key,
+            **kwargs,
         )
+        self.provider = resolved.provider
+        self.base_url = resolved.base_url
+        self.service = service
 
         # Rate limiting and queuing (v0 feature depth)
         executor_config = ExecutorConfig(
@@ -168,7 +172,6 @@ class iModel:
             return generic_key
 
         return None
-
 
     def _setup_middleware(self, enable_policy: bool, enable_metrics: bool, enable_redaction: bool):
         """Setup middleware stack with hooks integration."""

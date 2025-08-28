@@ -5,12 +5,18 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Mapping, Protocol
+from collections.abc import AsyncIterator, Mapping
+from typing import Any, Protocol
 
 import httpx
 import msgspec
 
-from lionagi.errors import NonRetryableError, RetryableError, TransportError, RateLimitError
+from lionagi.errors import (
+    NonRetryableError,
+    RateLimitError,
+    RetryableError,
+    TransportError,
+)
 
 
 class Transport(Protocol):
@@ -118,7 +124,11 @@ class HTTPXTransport:
         except msgspec.DecodeError as e:
             raise TransportError(
                 f"Invalid JSON response: {e}",
-                context={"method": method, "url": url, "content_preview": str(response.content[:200])},
+                context={
+                    "method": method,
+                    "url": url,
+                    "content_preview": str(response.content[:200]),
+                },
                 cause=e,
             )
 
@@ -150,7 +160,12 @@ class HTTPXTransport:
         except httpx.TimeoutException as e:
             raise TransportError(
                 f"Stream timed out: {e}",
-                context={"method": method, "url": url, "timeout_s": timeout_s, "operation": "streaming"},
+                context={
+                    "method": method,
+                    "url": url,
+                    "timeout_s": timeout_s,
+                    "operation": "streaming",
+                },
                 cause=e,
             )
         except httpx.NetworkError as e:
@@ -172,9 +187,9 @@ class HTTPXTransport:
             "status_code": response.status_code,
             "url": str(response.url),
             "headers": dict(response.headers),
-            **context_kwargs
+            **context_kwargs,
         }
-        
+
         # Truncate response body for context (avoid logging massive responses)
         response_preview = response.text[:500] if response.text else ""
         if len(response.text) > 500:
@@ -186,7 +201,11 @@ class HTTPXTransport:
             raise RateLimitError(
                 retry_after=retry_after,
                 message=f"Rate limited: {response.status_code}",
-                context={**base_context, "retry_after": retry_after, "response_preview": response_preview},
+                context={
+                    **base_context,
+                    "retry_after": retry_after,
+                    "response_preview": response_preview,
+                },
             )
         elif 500 <= response.status_code < 600:
             # Server error - retryable

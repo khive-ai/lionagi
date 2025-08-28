@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
-import msgspec
 from enum import Enum
 from typing import Any, TypeVar
 from uuid import UUID
 
 import anyio
+import msgspec
 
 from ..errors import ServiceError
 from .core import CallContext
@@ -89,7 +89,11 @@ class HookRegistry:
         logger.debug(f"Registered hook for {hook_type.value}")
 
     def register_stream_hook(
-        self, hook_type: HookType, hook_func: StreamHookFunc, *, timeout: float | None = None
+        self,
+        hook_type: HookType,
+        hook_func: StreamHookFunc,
+        *,
+        timeout: float | None = None,
     ) -> None:
         """Register a streaming hook that can transform chunks."""
         if hook_type not in self._stream_hooks:
@@ -125,30 +129,40 @@ class HookRegistry:
         # CRITICAL FIX: Per-hook soft timeouts with robust gather
         # Instead of single timeout cancelling ALL hooks, use per-hook timeouts
         # to allow fast hooks to complete even if slow hooks timeout
-        
+
         from lionagi.ln.concurrency import create_task_group, move_on_after
-        
-        async def _execute_hook_with_timeout(hook_func: HookFunc | SyncHookFunc) -> None:
+
+        async def _execute_hook_with_timeout(
+            hook_func: HookFunc | SyncHookFunc,
+        ) -> None:
             """Execute single hook with individual timeout."""
             try:
                 # Use soft timeout (move_on_after) instead of hard timeout (fail_after)
                 with move_on_after(self._timeout) as cancel_scope:
                     await self._execute_hook(hook_func, event)
-                
+
                 if cancel_scope.cancelled_caught:
-                    logger.warning(f"Hook {hook_func.__name__} timed out for {event.hook_type.value}")
-                    
+                    logger.warning(
+                        f"Hook {hook_func.__name__} timed out for {event.hook_type.value}"
+                    )
+
             except Exception as e:
-                logger.error(f"Hook {hook_func.__name__} failed for {event.hook_type.value}: {e}", exc_info=True)
-        
+                logger.error(
+                    f"Hook {hook_func.__name__} failed for {event.hook_type.value}: {e}",
+                    exc_info=True,
+                )
+
         # Execute all hooks concurrently with individual timeout isolation
         try:
             async with create_task_group() as tg:
                 for hook_func in self._hooks[event.hook_type]:
                     tg.start_soon(_execute_hook_with_timeout, hook_func)
-                    
+
         except Exception as e:
-            logger.error(f"Hook group execution failed for {event.hook_type.value}: {e}", exc_info=True)
+            logger.error(
+                f"Hook group execution failed for {event.hook_type.value}: {e}",
+                exc_info=True,
+            )
 
     async def emit_stream_chunk(self, event: HookEvent, chunk: Any) -> Any:
         """Emit a streaming chunk event and allow transformation."""
@@ -159,7 +173,7 @@ class HookRegistry:
 
         # Apply stream hooks in sequence with proper timeout enforcement per hook
         from lionagi.ln.concurrency import fail_after
-        
+
         for hook_func in self._stream_hooks[event.hook_type]:
             try:
                 with fail_after(self._timeout):
@@ -168,7 +182,10 @@ class HookRegistry:
                 logger.warning(f"Stream hook timed out for {event.hook_type.value}")
                 break
             except Exception as e:
-                logger.error(f"Stream hook failed for {event.hook_type.value}: {e}", exc_info=True)
+                logger.error(
+                    f"Stream hook failed for {event.hook_type.value}: {e}",
+                    exc_info=True,
+                )
                 break
 
         return result
@@ -176,6 +193,7 @@ class HookRegistry:
     async def _execute_hook(self, hook_func: HookFunc | SyncHookFunc, event: HookEvent) -> None:
         """Execute a single hook function."""
         from lionagi.ln.concurrency import is_coro_func
+
         try:
             if is_coro_func(hook_func):
                 await hook_func(event)
@@ -183,7 +201,6 @@ class HookRegistry:
                 hook_func(event)
         except Exception as e:
             logger.error(f"Hook function failed: {e}", exc_info=True)
-
 
     def clear(self) -> None:
         """Clear all registered hooks."""
@@ -199,7 +216,10 @@ class HookedMiddleware:
         self.registry = registry
 
     async def __call__(
-        self, req: RequestModel, ctx: CallContext, next_call: Callable[[], Awaitable[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_call: Callable[[], Awaitable[Any]],
     ) -> Any:
         """Apply hooks around call execution."""
         service_name = getattr(ctx.attrs, "service_name", "unknown")
@@ -251,7 +271,10 @@ class HookedMiddleware:
             raise
 
     async def stream(
-        self, req: RequestModel, ctx: CallContext, next_stream: Callable[[], AsyncIterator[Any]]
+        self,
+        req: RequestModel,
+        ctx: CallContext,
+        next_stream: Callable[[], AsyncIterator[Any]],
     ) -> AsyncIterator[Any]:
         """Apply hooks around streaming execution."""
         service_name = getattr(ctx.attrs, "service_name", "unknown")

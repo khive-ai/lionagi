@@ -6,18 +6,12 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from pydantic import BaseModel
+
 from ..core import Service
 from ..endpoint import ChatRequestModel, RequestModel
-from ..openai import (
-    create_openai_service,
-    create_generic_service,
-)
+from ..openai import create_generic_service, create_openai_service
 from ..provider_registry import ProviderAdapter
-
-try:  # keep optional pydantic validation for adapter configs
-    from pydantic import BaseModel, Field  # type: ignore
-except Exception:  # pragma: no cover
-    BaseModel = None  # type: ignore
 
 
 def _host_rights(url: str | None, default: str) -> set[str]:
@@ -41,13 +35,10 @@ class OpenAIAdapter(ProviderAdapter):
     requires = _host_rights(default_base_url, "api.openai.com")
 
     # Optional config validator (keeps your pydantic ergonomics)
-    if BaseModel:
-        class ConfigModel(BaseModel):  # type: ignore[valid-type]
-            api_key: str
-            organization: str | None = None
-            base_url: str | None = None
-    else:  # pragma: no cover
-        ConfigModel = None  # type: ignore
+    class ConfigModel(BaseModel):
+        api_key: str
+        organization: str | None = None
+        base_url: str | None = None
 
     def supports(self, *, provider: str | None, model: str | None, base_url: str | None) -> bool:
         if (provider or "").lower() == "openai":
@@ -64,7 +55,9 @@ class OpenAIAdapter(ProviderAdapter):
         # If the host is OpenAI, use native factory; otherwise generic OpenAI-compat path
         if urlparse(url).netloc.endswith("openai.com"):
             return create_openai_service(api_key=api_key, organization=organization, **kwargs)
-        return create_generic_service(api_key=api_key, base_url=url, name="openai-compatible", **kwargs)
+        return create_generic_service(
+            api_key=api_key, base_url=url, name="openai-compatible", **kwargs
+        )
 
     def required_rights(self, *, base_url: str | None, **_: Any) -> set[str]:
         return _host_rights(base_url, "api.openai.com")
