@@ -9,7 +9,8 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, TypeVar
 
-from lionagi.services.core import CallContext, PolicyError
+from lionagi.errors import PolicyError
+from lionagi.services.core import CallContext
 from lionagi.services.endpoint import RequestModel
 
 # Type variables for middleware
@@ -58,10 +59,19 @@ class PolicyGateMW:
         required = self._get_required_capabilities(req, ctx)
         
         if not self._check_capabilities(ctx.capabilities, required):
+            # Calculate missing capabilities for better debugging
+            missing_capabilities = required - ctx.capabilities
             raise PolicyError(
-                f"Insufficient capabilities. Required: {required}, "
-                f"Available: {ctx.capabilities}",
-                call_id=ctx.call_id,
+                f"Insufficient capabilities for operation. Missing: {missing_capabilities}",
+                context={
+                    "call_id": str(ctx.call_id),
+                    "branch_id": str(ctx.branch_id),
+                    "required_capabilities": sorted(required),
+                    "available_capabilities": sorted(ctx.capabilities),
+                    "missing_capabilities": sorted(missing_capabilities),
+                    "operation": "call",
+                    "policy_check": "capability_enforcement"
+                },
             )
 
         return await next_call()
@@ -74,10 +84,19 @@ class PolicyGateMW:
         required = self._get_required_capabilities(req, ctx)
         
         if not self._check_capabilities(ctx.capabilities, required):
+            # Calculate missing capabilities for better debugging
+            missing_capabilities = required - ctx.capabilities
             raise PolicyError(
-                f"Insufficient capabilities for streaming. Required: {required}, "
-                f"Available: {ctx.capabilities}",
-                call_id=ctx.call_id,
+                f"Insufficient capabilities for streaming. Missing: {missing_capabilities}",
+                context={
+                    "call_id": str(ctx.call_id),
+                    "branch_id": str(ctx.branch_id),
+                    "required_capabilities": sorted(required),
+                    "available_capabilities": sorted(ctx.capabilities),
+                    "missing_capabilities": sorted(missing_capabilities),
+                    "operation": "streaming",
+                    "policy_check": "capability_enforcement"
+                },
             )
 
         async for chunk in next_stream():
@@ -90,7 +109,9 @@ class PolicyGateMW:
         Request can add extra requirements but cannot replace service requirements.
         """
         # Service-declared requirements (source of truth)
-        service_requires = set(ctx.attrs.get("service_requires", set()))
+        service_requires = set()
+        if isinstance(ctx.attrs, dict):
+            service_requires = set(ctx.attrs.get("service_requires", set()))
         
         # Optional additional requirements from request
         request_extras = set(getattr(req, "_extra_requires", set()))

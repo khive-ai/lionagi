@@ -26,7 +26,8 @@ from lionagi.ln.concurrency import (
     is_cancelled,
 )
 
-from .core import CallContext, Service, ServiceError
+from lionagi.errors import ServiceError
+from .core import CallContext, Service
 from .endpoint import RequestModel
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,19 @@ class ServiceCall(msgspec.Struct, kw_only=True):
         elif self.status == CallStatus.CANCELLED:
             raise get_cancelled_exc_class()("Service call was cancelled")
         else:
-            raise ServiceError(f"Call completed with unexpected status: {self.status}")
+            raise ServiceError(
+                f"Call completed with unexpected status: {self.status}",
+                context={
+                    "call_id": str(self.id),
+                    "service": self.service.name if hasattr(self.service, 'name') else str(self.service),
+                    "status": self.status.value,
+                    "created_at": self.created_at,
+                    "started_at": self.started_at,
+                    "completed_at": self.completed_at,
+                    "token_estimate": self.token_estimate,
+                    "error_type": "unexpected_completion_status"
+                },
+            )
 
 
 class StreamingCall(msgspec.Struct, kw_only=True):
@@ -230,7 +243,21 @@ class RateLimitedExecutor:
             self._stats["calls_queued"] += 1
             logger.debug(f"Call {call.id} queued")
         except anyio.WouldBlock:
-            raise ServiceError("Executor queue at capacity")
+            raise ServiceError(
+                "Executor queue at capacity - cannot accept new calls",
+                context={
+                    "call_id": str(call.id),
+                    "service": service.name if hasattr(service, 'name') else str(service),
+                    "queue_capacity": self.config.queue_capacity,
+                    "active_calls": len(self.active_calls),
+                    "completed_calls": len(self.completed_calls),
+                    "calls_queued": self._stats["calls_queued"],
+                    "calls_completed": self._stats["calls_completed"],
+                    "calls_failed": self._stats["calls_failed"],
+                    "token_estimate": call.token_estimate,
+                    "error_type": "queue_capacity_exceeded"
+                },
+            )
 
         # Start processor if not running
         await self.start()
@@ -309,7 +336,7 @@ class RateLimitedExecutor:
                 logger.debug("Rate limits refreshed")
 
     async def _wait_for_capacity(self, call: ServiceCall) -> None:
-        """Wait until we have capacity to process a call."""
+        """Wait until we have capacity to process a call, respecting CallContext deadline."""
         while True:
             async with self._rate_lock:
                 if self._can_process_call(call):
@@ -318,8 +345,20 @@ class RateLimitedExecutor:
                     self.token_count += call.token_estimate
                     return
             
-            # Wait a bit before checking again
-            await anyio.sleep(0.1)
+            # CRITICAL FIX: Deadline-aware waiting instead of blind polling
+            # If call has a deadline, respect it to prevent deadline violations
+            if call.context.deadline_s is not None:
+                try:
+                    with anyio.fail_at(call.context.deadline_s):
+                        await anyio.sleep(0.1)
+                except anyio.get_cancelled_exc_class():
+                    # Deadline exceeded while waiting for capacity
+                    raise ServiceError(
+                        f"Call {call.id} deadline exceeded while waiting for rate limit capacity"
+                    ) from None
+            else:
+                # No deadline set, use original polling approach
+                await anyio.sleep(0.1)
 
     def _can_process_call(self, call: ServiceCall) -> bool:
         """Check if we can process a call given current rate limits.

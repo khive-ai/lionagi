@@ -7,14 +7,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass, field
+import msgspec
 from enum import Enum
 from typing import Any, TypeVar
 from uuid import UUID
 
 import anyio
 
-from .core import CallContext, ServiceError
+from ..errors import ServiceError
+from .core import CallContext
 from .endpoint import RequestModel
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,7 @@ class HookType(Enum):
     QUEUE_FULL = "queue_full"  # When queue is full
 
 
-@dataclass(slots=True)
-class HookEvent:
+class HookEvent(msgspec.Struct):
     """Event data passed to hooks."""
 
     hook_type: HookType
@@ -51,8 +51,8 @@ class HookEvent:
     result: Any = None
     error: Exception | None = None
     chunk: Any = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-    timestamp: float = field(default_factory=anyio.current_time)
+    metadata: dict[str, Any] = msgspec.field(default_factory=dict)
+    timestamp: float = msgspec.field(default_factory=anyio.current_time)
 
 
 # Hook function types
@@ -118,25 +118,37 @@ class HookRegistry:
         )
 
     async def emit(self, event: HookEvent) -> None:
-        """Emit an event to all registered hooks."""
+        """Emit an event to all registered hooks with per-hook timeout isolation."""
         if event.hook_type not in self._hooks:
             return
 
-        # Execute all hooks concurrently with proper timeout enforcement
-        async def _run() -> None:
-            from lionagi.ln.concurrency import create_task_group
+        # CRITICAL FIX: Per-hook soft timeouts with robust gather
+        # Instead of single timeout cancelling ALL hooks, use per-hook timeouts
+        # to allow fast hooks to complete even if slow hooks timeout
+        
+        from lionagi.ln.concurrency import create_task_group, move_on_after
+        
+        async def _execute_hook_with_timeout(hook_func: HookFunc | SyncHookFunc) -> None:
+            """Execute single hook with individual timeout."""
+            try:
+                # Use soft timeout (move_on_after) instead of hard timeout (fail_after)
+                with move_on_after(self._timeout) as cancel_scope:
+                    await self._execute_hook(hook_func, event)
+                
+                if cancel_scope.cancelled_caught:
+                    logger.warning(f"Hook {hook_func.__name__} timed out for {event.hook_type.value}")
+                    
+            except Exception as e:
+                logger.error(f"Hook {hook_func.__name__} failed for {event.hook_type.value}: {e}", exc_info=True)
+        
+        # Execute all hooks concurrently with individual timeout isolation
+        try:
             async with create_task_group() as tg:
                 for hook_func in self._hooks[event.hook_type]:
-                    tg.start_soon(self._execute_hook, hook_func, event)
-
-        try:
-            from lionagi.ln.concurrency import fail_after
-            with fail_after(self._timeout):
-                await _run()
-        except TimeoutError:
-            logger.warning(f"Hook execution timed out for {event.hook_type.value}")
+                    tg.start_soon(_execute_hook_with_timeout, hook_func)
+                    
         except Exception as e:
-            logger.error(f"Hook execution failed for {event.hook_type.value}: {e}", exc_info=True)
+            logger.error(f"Hook group execution failed for {event.hook_type.value}: {e}", exc_info=True)
 
     async def emit_stream_chunk(self, event: HookEvent, chunk: Any) -> Any:
         """Emit a streaming chunk event and allow transformation."""

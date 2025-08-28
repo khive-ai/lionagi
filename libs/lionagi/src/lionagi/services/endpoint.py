@@ -20,8 +20,7 @@ class RequestModel(msgspec.Struct, kw_only=True):
     model: str | None = None
     stream: bool = False
     
-    # Allow extra fields via forbid=False (default in msgspec)
-    __struct_config__ = msgspec.structs.StructConfig(forbid_extra=False)
+    # Allow extra fields via forbid=False (msgspec default behavior)
 
 
 class Endpoint(Protocol):

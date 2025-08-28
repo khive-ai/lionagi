@@ -16,7 +16,8 @@ import anyio
 import msgspec
 from lionagi.ln.concurrency import Lock
 
-from .core import CallContext, NonRetryableError, RetryableError, ServiceError, TimeoutError
+from .core import CallContext
+from lionagi.errors import NonRetryableError, RetryableError, ServiceError, TimeoutError
 from .endpoint import RequestModel
 
 logger = logging.getLogger(__name__)

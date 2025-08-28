@@ -13,7 +13,8 @@ This module implements the v1 services architecture with:
 - Ergonomics: delightful defaults
 """
 
-from .core import CallContext, PolicyError, Service, ServiceError, TimeoutError
+from .core import CallContext, Service
+from lionagi.errors import PolicyError, ServiceError, TimeoutError
 from .endpoint import (
     ChatRequestModel,
     CompletionRequestModel,
@@ -22,9 +23,9 @@ from .endpoint import (
     RequestModel,
 )
 from .executor import CallStatus, ExecutorConfig, RateLimitedExecutor, ServiceCall
-from .hooks import HookEvent, HookRegistry, HookType, get_global_hooks, hook, stream_hook
+from .hooks import HookEvent, HookRegistry, HookType, HookedMiddleware, get_global_hooks, hook, stream_hook
 from .imodel import ProviderMetadata, iModel, quick_chat, quick_stream
-from .middleware import CallMW, HookedMiddleware, MetricsMW, PolicyGateMW, RedactionMW, StreamMW
+from .middleware import CallMW, MetricsMW, PolicyGateMW, RedactionMW, StreamMW
 from .openai import (
     OpenAICompatibleService,
     create_anthropic_service,
@@ -32,14 +33,19 @@ from .openai import (
     create_ollama_service,
     create_openai_service,
 )
-from .provider_detection import (
-    detect_provider_from_model,
-    get_model_info,
-    infer_provider_config,
-    normalize_model_name,
-)
 from .resilience import CircuitBreakerConfig, RetryConfig, create_resilience_mw
 from .transport import HTTPXTransport, Transport
+from .provider_registry import get_default_registry
+from .adapters import OpenAIAdapter, AnthropicAdapter, GenericHTTPAdapter
+
+# Register built-in adapters once on import
+_registry = get_default_registry()
+for _adapter in (OpenAIAdapter(), AnthropicAdapter(), GenericHTTPAdapter()):
+    try:
+        _registry.register(_adapter)
+    except ValueError:
+        # already registered in this process; ignore
+        pass
 
 __all__ = [
     # Core interfaces
@@ -80,11 +86,6 @@ __all__ = [
     "create_anthropic_service",
     "create_ollama_service",
     "create_generic_service",
-    # Provider intelligence
-    "detect_provider_from_model",
-    "infer_provider_config",
-    "get_model_info",
-    "normalize_model_name",
     # Transport implementations
     "HTTPXTransport",
     # Resilience
@@ -96,4 +97,6 @@ __all__ = [
     "ProviderMetadata",
     "quick_chat",
     "quick_stream",
+    # Provider registry
+    "get_default_registry",
 ]

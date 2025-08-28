@@ -12,22 +12,18 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 from uuid import UUID, uuid4
 
-from lionagi.ln._types import IDType
-from lionagi.ln._utils import ID
 from lionagi.ln.concurrency import create_task_group, effective_deadline, fail_at
 
-from .core import CallContext, Service, ServiceError
+from .core import CallContext, Service
+from lionagi.errors import ServiceError
 from .endpoint import ChatRequestModel, RequestModel
 from .executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
 from .hooks import HookedMiddleware, HookRegistry, HookType
 from .middleware import MetricsMW, PolicyGateMW, RedactionMW
-from .openai import (
-    OpenAICompatibleService,
-    create_anthropic_service,
-    create_ollama_service,
-    create_openai_service,
+from .provider_registry import (
+    get_default_registry,
+    resolve_provider_and_model,
 )
-from .provider_detection import detect_provider_from_model, infer_provider_config
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +77,7 @@ class iModel:
         enable_redaction: bool = True,
         # Metadata
         provider_metadata: dict | None = None,
-        id: IDType | str | None = None,
+        id: UUID | str | None = None,
         created_at: float | None = None,
         **kwargs,
     ):
@@ -102,31 +98,29 @@ class iModel:
         """
 
         # Identity and timestamps (v0 style)
-        self.id = ID.get_id(id) if id is not None else IDType.create()
+        self.id = UUID(id) if isinstance(id, str) else (id or uuid4())
         self.created_at = created_at or time.time()
 
-        # Provider intelligence - auto-detect if not specified
-        if model and not provider:
-            if "/" in model:
-                provider, model = model.split("/", 1)
-            else:
-                provider = detect_provider_from_model(model)
-
-        if not provider:
-            raise ValueError("Provider must be specified or detectable from model")
-
-        self.provider = provider
-        self.model = model
+        # Resolve provider/model via registry (regex-free)
+        registry = get_default_registry()
+        resolved_provider, resolved_model, adapter = resolve_provider_and_model(
+            registry,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+        )
+        self.provider = resolved_provider
+        self.model = resolved_model
         self.base_url = base_url
         self.endpoint_name = endpoint
 
         # Auto-detect API key if not provided
         if api_key is None:
-            api_key = self._detect_api_key(provider)
+            api_key = self._detect_api_key(self.provider)
 
-        # Build service using provider intelligence
-        self.service = self._create_service(
-            provider=provider, api_key=api_key, base_url=base_url, model=model, **kwargs
+        # Build service via adapter
+        self.service = adapter.create_service(
+            base_url=base_url, name=self.provider, api_key=api_key, model=self.model, **kwargs
         )
 
         # Rate limiting and queuing (v0 feature depth)
@@ -175,28 +169,6 @@ class iModel:
 
         return None
 
-    def _create_service(
-        self, provider: str, api_key: str | None, base_url: str | None, model: str | None, **kwargs
-    ) -> Service:
-        """Create service based on provider intelligence."""
-
-        # Provider-specific service creation
-        if provider == "openai":
-            return create_openai_service(api_key=api_key or "", base_url=base_url, **kwargs)
-        elif provider == "anthropic":
-            return create_anthropic_service(api_key=api_key or "", base_url=base_url, **kwargs)
-        elif provider == "ollama":
-            return create_ollama_service(base_url=base_url or "http://localhost:11434/v1", **kwargs)
-        else:
-            # Generic OpenAI-compatible service
-            from .openai import create_generic_service
-
-            return create_generic_service(
-                api_key=api_key or "",
-                base_url=base_url or f"https://api.{provider}.com/v1",
-                name=provider,
-                **kwargs,
-            )
 
     def _setup_middleware(self, enable_policy: bool, enable_metrics: bool, enable_redaction: bool):
         """Setup middleware stack with hooks integration."""
@@ -311,18 +283,26 @@ class iModel:
         if branch_id is None:
             branch_id = uuid4()
 
-        # Build capabilities from service requirements
-        service_capabilities = getattr(self.service, "requires", set())
-        all_capabilities = service_capabilities.copy()
+        # Build capabilities (what the caller IS allowed to do)
+        all_capabilities = set()
         if capabilities:
             all_capabilities.update(capabilities)
+
+        # CRITICAL: Pass service requirements into context attrs for PolicyGateMW
+        # The requirements are derived from the service (which the adapter created)
+        # This ensures capability-based security (Security Requirement).
+        service_requires = getattr(self.service, "requires", set())
+
+        attrs = kwargs.copy()
+        # Inject requirements and metadata for middleware access
+        attrs["service_requires"] = service_requires
 
         return CallContext(
             call_id=uuid4(),
             branch_id=branch_id,
             deadline_s=deadline_s,
             capabilities=all_capabilities,
-            attrs=kwargs,  # Pass remaining kwargs as attrs
+            attrs=attrs,
         )
 
     async def _post_process_result(self, call: ServiceCall, result: Any) -> None:
