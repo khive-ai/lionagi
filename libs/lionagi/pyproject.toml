@@ -70,11 +70,3 @@ target-version = ['py311']
 [tool.isort]
 profile = "black"
 line_length = 100
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-q"
-markers = [
-    "anyio: marks a test as using anyio's event loop",
-]
