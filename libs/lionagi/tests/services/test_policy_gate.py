@@ -380,7 +380,11 @@ class TestCapabilityCoverageAlgorithm:
             # (available_set, required, expected_result)
             ({"*"}, "anything", True),  # Global wildcard
             ({"fs.*"}, "fs.", True),  # Empty suffix after prefix
-            ({"fs.*"}, "fs", False),  # Strict: separator wildcard requires separator in target
+            (
+                {"fs.*"},
+                "fs",
+                False,
+            ),  # Strict: separator wildcard requires separator in target
             ({"fs.read.*"}, "fs.read.file.txt", True),  # Multiple levels
             ({"prefix*"}, "prefix", True),  # Exact prefix match
             ({"prefix*"}, "prefi", False),  # Partial prefix doesn't match

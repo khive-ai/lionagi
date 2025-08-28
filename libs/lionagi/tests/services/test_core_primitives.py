@@ -120,11 +120,11 @@ class TestCallContextBehavior:
 
         # Capabilities should be IMMUTABLE (frozenset) - cannot be modified
         original_caps = ctx.capabilities.copy()
-        
+
         # Attempt to modify capabilities should fail (security hardening)
         with pytest.raises(AttributeError):
             ctx.capabilities.add("new:cap")  # frozenset has no 'add' method
-            
+
         # Verify capabilities unchanged
         assert ctx.capabilities == original_caps
 
@@ -152,7 +152,7 @@ class TestCallContextBehavior:
         assert ctx.capabilities == frozenset(large_caps)
         assert isinstance(ctx.capabilities, frozenset)
 
-        # Test with null/empty values in attrs  
+        # Test with null/empty values in attrs
         nullable_attrs = {
             "optional_field": None,
             "empty_list": [],

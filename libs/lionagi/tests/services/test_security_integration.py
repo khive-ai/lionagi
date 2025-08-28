@@ -10,8 +10,8 @@ attack vector prevention, and ensures proper security audit logging.
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
 from types import MappingProxyType
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -435,7 +435,7 @@ class TestSecurityAuditLogging:
         # Execute through redaction middleware
         async def mock_next():
             return {"redaction": "test"}
-        
+
         result = await redaction_mw(req, ctx, mock_next)
 
         # Check that sensitive fields were redacted in logs

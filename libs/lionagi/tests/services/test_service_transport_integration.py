@@ -157,17 +157,33 @@ class ServiceTestBuilder:
     """Unified service builder for integration testing."""
 
     @staticmethod
+    def create_mock_openai_service_context(
+        mock_transport: MockTransport = None, service_name: str = "test_service"
+    ):
+        """Create context manager for OpenAI service with mock transport."""
+        if mock_transport:
+            return patch(
+                "httpx.AsyncClient",
+                return_value=httpx.AsyncClient(transport=mock_transport),
+            )
+        else:
+            # For backward compatibility - return a simple mock
+            return patch.object(create_openai_service, "client", new=AsyncMock(spec=AsyncOpenAI))
+
+    @staticmethod
     def create_mock_openai_service(
         mock_transport: MockTransport = None, service_name: str = "test_service"
     ) -> OpenAICompatibleService:
-        """Create OpenAI service with mock transport integration."""
+        """Create OpenAI service with mock transport integration (legacy - prefer context manager)."""
         if mock_transport:
-            with patch("httpx.AsyncClient") as mock_client_class:
-                mock_client_instance = httpx.AsyncClient(transport=mock_transport)
-                mock_client_class.return_value = mock_client_instance
-                service = create_openai_service(api_key="test-key")
-                service.name = service_name  # Override the service name after creation
-                return service
+            # Create real client with mock transport for immediate use
+            client = httpx.AsyncClient(transport=mock_transport)
+            async_openai = AsyncOpenAI(
+                api_key="test-key",
+                http_client=client,
+                max_retries=0,  # Disable OpenAI's automatic retries for testing
+            )
+            return OpenAICompatibleService(client=async_openai, name=service_name)
         else:
             # Return service with mocked OpenAI client
             mock_client = AsyncMock(spec=AsyncOpenAI)
@@ -222,13 +238,13 @@ class TestErrorPropagationPipeline:
         "status_code,error_type,retryable,validation",
         [
             (429, RateLimitError, True, lambda e: e.retry_after > 0),
-            (500, RetryableError, True, lambda e: "Server error: 500" in e.message),
-            (502, RetryableError, True, lambda e: "Server error: 502" in e.message),
-            (503, RetryableError, True, lambda e: "Server error: 503" in e.message),
-            (400, NonRetryableError, False, lambda e: "Client error: 400" in e.message),
-            (401, NonRetryableError, False, lambda e: "Client error: 401" in e.message),
-            (403, NonRetryableError, False, lambda e: "Client error: 403" in e.message),
-            (404, NonRetryableError, False, lambda e: "Client error: 404" in e.message),
+            (500, RetryableError, True, lambda e: "Error code: 500" in e.message),
+            (502, RetryableError, True, lambda e: "Error code: 502" in e.message),
+            (503, RetryableError, True, lambda e: "Error code: 503" in e.message),
+            (400, NonRetryableError, False, lambda e: "Error code: 400" in e.message),
+            (401, NonRetryableError, False, lambda e: "Error code: 401" in e.message),
+            (403, NonRetryableError, False, lambda e: "Error code: 403" in e.message),
+            (404, NonRetryableError, False, lambda e: "Error code: 404" in e.message),
         ],
     )
     async def test_http_status_to_service_error_propagation(
@@ -304,8 +320,9 @@ class TestErrorPropagationPipeline:
                 await service.call(request, ctx=context)
 
             error = exc_info.value
-            assert error.context["timeout_s"] == 1.0
+            assert error.context["timeout"] == 1.0
             assert error.context["service"] == "timeout_test"
+            assert error.context["error_type"] == "api_timeout"
 
 
 # ==============================================================================
@@ -327,11 +344,10 @@ class TestDeadlineEnforcementIntegration:
 
         slow_transport = MockTransport(slow_handler)
 
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client_instance = httpx.AsyncClient(transport=slow_transport)
-            mock_client_class.return_value = mock_client_instance
-
-            service = create_openai_service(api_key="test-key")
+        # Use direct service creation with mock client
+        mock_http_client = httpx.AsyncClient(transport=slow_transport)
+        mock_openai_client = AsyncOpenAI(api_key="test-key", http_client=mock_http_client)
+        service = OpenAICompatibleService(client=mock_openai_client, name="deadline_test")
 
         request = ServiceTestBuilder.create_standard_request()
         context = ServiceTestBuilder.create_test_context(timeout_s=0.1)  # 100ms deadline
@@ -339,7 +355,10 @@ class TestDeadlineEnforcementIntegration:
         start_time = time.time()
 
         # Should timeout at deadline (~100ms), not transport timeout (~500ms)
-        with pytest.raises(anyio.get_cancelled_exc_class()):
+        # Note: anyio raises built-in TimeoutError, not lionagi.errors.TimeoutError
+        import builtins
+
+        with pytest.raises(builtins.TimeoutError):
             await service.call(request, ctx=context)
 
         elapsed_time = time.time() - start_time
@@ -357,11 +376,16 @@ class TestDeadlineEnforcementIntegration:
         mock_client = AsyncMock(spec=AsyncOpenAI)
 
         async def slow_streaming_create(*args, **kwargs):
+            # For streaming, OpenAI SDK expects to await the create call to get the stream
             await asyncio.sleep(0.5)  # 500ms delay before first chunk
-            for chunk_data in chunks:
-                mock_chunk = MagicMock()
-                mock_chunk.model_dump.return_value = chunk_data
-                yield mock_chunk
+
+            async def stream_generator():
+                for chunk_data in chunks:
+                    mock_chunk = MagicMock()
+                    mock_chunk.model_dump.return_value = chunk_data
+                    yield mock_chunk
+
+            return stream_generator()
 
         mock_client.chat.completions.create = slow_streaming_create
 
@@ -371,7 +395,11 @@ class TestDeadlineEnforcementIntegration:
 
         start_time = time.time()
 
-        with pytest.raises(anyio.get_cancelled_exc_class()):
+        # Should timeout at deadline (~100ms), not after stream delay (~500ms)
+        # Note: anyio raises built-in TimeoutError for deadline enforcement
+        import builtins
+
+        with pytest.raises(builtins.TimeoutError):
             async for chunk in service.stream(request, ctx=context):
                 pass
 
@@ -430,10 +458,14 @@ class TestStreamingPipelineIntegration:
 
         async def mock_streaming_create(*args, **kwargs):
             """Mock streaming that simulates OpenAI SDK behavior."""
-            for chunk_data in standard_streaming_chunks:
-                mock_chunk = MagicMock()
-                mock_chunk.model_dump.return_value = chunk_data
-                yield mock_chunk
+
+            async def stream_generator():
+                for chunk_data in standard_streaming_chunks:
+                    mock_chunk = MagicMock()
+                    mock_chunk.model_dump.return_value = chunk_data
+                    yield mock_chunk
+
+            return stream_generator()
 
         mock_client.chat.completions.create = mock_streaming_create
 
@@ -465,15 +497,19 @@ class TestStreamingPipelineIntegration:
         mock_client = AsyncMock(spec=AsyncOpenAI)
 
         async def error_streaming_create(*args, **kwargs):
-            # Yield one chunk successfully, then error
-            mock_chunk = MagicMock()
-            mock_chunk.model_dump.return_value = {"delta": {"content": "Hello"}}
-            yield mock_chunk
+            # Return async generator that yields one chunk then errors
+            async def error_stream_generator():
+                # Yield one chunk successfully, then error
+                mock_chunk = MagicMock()
+                mock_chunk.model_dump.return_value = {"delta": {"content": "Hello"}}
+                yield mock_chunk
 
-            # Simulate network error during streaming
-            raise openai.APIConnectionError(
-                message="Connection lost during streaming", request=MagicMock()
-            )
+                # Simulate network error during streaming
+                raise openai.APIConnectionError(
+                    message="Connection lost during streaming", request=MagicMock()
+                )
+
+            return error_stream_generator()
 
         mock_client.chat.completions.create = error_streaming_create
 
@@ -645,9 +681,11 @@ class TestCompletePipelineLifecycle:
         mock_transport = MockTransport(validating_handler)
 
         # Create service with integrated transport and use through iModel
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client_instance = httpx.AsyncClient(transport=mock_transport)
-            mock_client_class.return_value = mock_client_instance
+        # Patch AsyncOpenAI to use our mock HTTP client
+        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+            mock_http_client = httpx.AsyncClient(transport=mock_transport)
+            mock_openai_instance = AsyncOpenAI(api_key="test-key", http_client=mock_http_client)
+            mock_openai_class.return_value = mock_openai_instance
 
             # Use iModel for end-to-end testing instead of direct service
             async with iModel(

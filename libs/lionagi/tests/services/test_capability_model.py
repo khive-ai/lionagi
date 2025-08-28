@@ -132,7 +132,11 @@ class TestCapabilityModelCore:
             ({"fs.*"}, {"filesystem:read"}, False),  # Similar but different prefix
             ({"net:*"}, {"network:tcp"}, False),  # Similar but different prefix
             ({"api.*"}, {"api.openai.com"}, True),  # Exact prefix match
-            ({"api.*"}, {"api"}, False),  # Strict: wildcard with separator requires separator
+            (
+                {"api.*"},
+                {"api"},
+                False,
+            ),  # Strict: wildcard with separator requires separator
             ({"prefix.*"}, {"prefix_different"}, False),  # Underscore vs dot
         ]
 
