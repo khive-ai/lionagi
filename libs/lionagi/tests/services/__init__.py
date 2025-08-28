@@ -9,7 +9,7 @@ and real behavior validation as specified in the TDD documentation.
 
 Test Structure:
 - test_executor_reliability.py: CRITICAL ExecutorQueueWaitDeadline flaw validation
-- test_executor_lifecycle.py: Structured concurrency and TaskGroup management 
+- test_executor_lifecycle.py: Structured concurrency and TaskGroup management
 - test_executor_rate_limiting.py: Rate limiting accuracy and enforcement
 - conftest.py: Shared fixtures, mock services, and test utilities
 
@@ -31,33 +31,24 @@ __version__ = "1.0.0"
 __author__ = "HaiyangLi (Ocean)"
 
 # Re-export commonly used test utilities
-from .conftest import (
-    # Request models
-    TestRequest,
-    HeavyRequest, 
-    LightRequest,
-    
-    # Mock services
-    MockService,
+from .conftest import (  # Request models; Mock services; Test executor; Utilities; Assertions
     EchoService,
+    HeavyRequest,
+    LightRequest,
+    MockService,
     ProgressiveFailureService,
-    
-    # Test executor
+    StatsCollector,
     TestExecutor,
-    
-    # Utilities
+    TestRequest,
+    TimingContext,
+    assert_call_completed_successfully,
+    assert_rate_limiting_effective,
+    assert_stats_consistency,
     create_test_context,
     create_test_request,
+    expect_timing,
     submit_and_wait,
     submit_multiple_and_wait,
-    StatsCollector,
-    TimingContext,
-    expect_timing,
-    
-    # Assertions
-    assert_call_completed_successfully,
-    assert_stats_consistency,
-    assert_rate_limiting_effective,
 )
 
 __all__ = [
@@ -65,26 +56,22 @@ __all__ = [
     "TestRequest",
     "HeavyRequest",
     "LightRequest",
-    
     # Mock services
-    "MockService", 
+    "MockService",
     "EchoService",
     "ProgressiveFailureService",
-    
     # Test executor
     "TestExecutor",
-    
     # Utilities
     "create_test_context",
-    "create_test_request", 
+    "create_test_request",
     "submit_and_wait",
     "submit_multiple_and_wait",
     "StatsCollector",
     "TimingContext",
     "expect_timing",
-    
     # Assertions
     "assert_call_completed_successfully",
-    "assert_stats_consistency", 
+    "assert_stats_consistency",
     "assert_rate_limiting_effective",
 ]

@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -20,12 +21,7 @@ import anyio
 import pytest
 from anyio.testing import MockClock
 
-from lionagi.services import (
-    CallContext,
-    ChatRequestModel,
-    RequestModel,
-    Service,
-)
+from lionagi.services import CallContext, ChatRequestModel, RequestModel, Service
 
 
 # Pytest Configuration
@@ -54,58 +50,59 @@ def mock_clock():
 async def mock_environment():
     """Mock environment variables for testing."""
     env_vars = {
-        'OPENAI_API_KEY': 'test-openai-key-123',
-        'ANTHROPIC_API_KEY': 'test-anthropic-key-456',
-        'GROQ_API_KEY': 'test-groq-key-789',
+        "OPENAI_API_KEY": "test-openai-key-123",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-456",
+        "GROQ_API_KEY": "test-groq-key-789",
     }
-    
-    with patch.dict('os.environ', env_vars):
+
+    with patch.dict("os.environ", env_vars):
         yield env_vars
 
 
 @pytest.fixture
 def temp_log_file():
     """Create temporary log file for log capture testing."""
-    with tempfile.NamedTemporaryFile(mode='w+', suffix='.log', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".log", delete=False) as f:
         yield f.name
 
 
 @pytest.fixture
 def structured_logger(temp_log_file):
     """Create structured logger for observability testing."""
-    logger = logging.getLogger('test.structured')
+    logger = logging.getLogger("test.structured")
     logger.setLevel(logging.DEBUG)
-    
+
     # Remove existing handlers
     logger.handlers.clear()
-    
+
     # Add file handler with JSON formatting
     handler = logging.FileHandler(temp_log_file)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    
+
     yield logger
-    
+
     # Cleanup
     logger.handlers.clear()
 
 
 # Service Fixtures
 
+
 class TestService(Service):
     """Configurable test service for integration testing."""
-    
+
     name = "test-service"
     requires = {"test:capability"}
-    
-    def __init__(self, 
-                 delay_s: float = 0.01, 
-                 should_fail: bool = False,
-                 fail_with: type[Exception] = Exception,
-                 fail_after_calls: int = 0):
+
+    def __init__(
+        self,
+        delay_s: float = 0.01,
+        should_fail: bool = False,
+        fail_with: type[Exception] = Exception,
+        fail_after_calls: int = 0,
+    ):
         self.delay_s = delay_s
         self.should_fail = should_fail
         self.fail_with = fail_with
@@ -114,18 +111,18 @@ class TestService(Service):
         self.stream_count = 0
         self.last_request = None
         self.last_context = None
-        
+
     async def call(self, req: RequestModel, *, ctx: CallContext) -> dict[str, Any]:
         self.call_count += 1
         self.last_request = req
         self.last_context = ctx
-        
+
         if self.delay_s > 0:
             await anyio.sleep(self.delay_s)
-            
+
         if self.should_fail and self.call_count > self.fail_after_calls:
             raise self.fail_with(f"Test service failure on call {self.call_count}")
-            
+
         return {
             "service": self.name,
             "call_id": str(ctx.call_id),
@@ -133,21 +130,21 @@ class TestService(Service):
             "model": getattr(req, "model", "test-model"),
             "success": True,
         }
-    
+
     async def stream(self, req: RequestModel, *, ctx: CallContext) -> AsyncIterator[dict[str, Any]]:
         self.stream_count += 1
         self.last_request = req
         self.last_context = ctx
-        
+
         chunk_count = getattr(req, "max_tokens", 3)
-        
+
         for i in range(chunk_count):
             if self.delay_s > 0:
                 await anyio.sleep(self.delay_s)
-                
+
             if self.should_fail and i == (chunk_count - 1):  # Fail on last chunk
                 raise self.fail_with(f"Test stream failure on chunk {i}")
-                
+
             yield {
                 "chunk": i,
                 "service": self.name,
@@ -183,6 +180,7 @@ def flaky_service():
 
 # Context and Request Fixtures
 
+
 @pytest.fixture
 def test_context():
     """Basic test context with common capabilities."""
@@ -191,7 +189,7 @@ def test_context():
         timeout_s=30.0,
         capabilities={"test:capability"},
         user_id="test-user",
-        trace_id="test-trace"
+        trace_id="test-trace",
     )
 
 
@@ -201,13 +199,8 @@ def privileged_context():
     return CallContext.with_timeout(
         branch_id=uuid4(),
         timeout_s=30.0,
-        capabilities={
-            "test:capability",
-            "net.out:*",
-            "data.read:*",
-            "admin:access"
-        },
-        admin_user=True
+        capabilities={"test:capability", "net.out:*", "data.read:*", "admin:access"},
+        admin_user=True,
     )
 
 
@@ -218,7 +211,7 @@ def unprivileged_context():
         branch_id=uuid4(),
         timeout_s=30.0,
         capabilities=set(),  # No capabilities
-        user_id="limited-user"
+        user_id="limited-user",
     )
 
 
@@ -227,11 +220,9 @@ def chat_request():
     """Basic chat request."""
     return ChatRequestModel(
         model="test-model",
-        messages=[
-            {"role": "user", "content": "Test message for integration testing"}
-        ],
+        messages=[{"role": "user", "content": "Test message for integration testing"}],
         temperature=0.7,
-        max_tokens=100
+        max_tokens=100,
     )
 
 
@@ -243,57 +234,63 @@ def streaming_request(chat_request):
 
 # Mock Provider Fixtures
 
+
 @pytest.fixture
 def mock_openai_client():
     """Mock OpenAI client for provider testing."""
     mock_client = Mock()
-    
+
     # Mock completion response
     mock_response = Mock()
     mock_response.model = "gpt-4o-mini"
-    mock_response.choices = [
-        Mock(message=Mock(role="assistant", content="Test response"))
-    ]
+    mock_response.choices = [Mock(message=Mock(role="assistant", content="Test response"))]
     mock_response.usage = Mock(total_tokens=50)
-    
+
     mock_client.chat.completions.create = Mock(return_value=mock_response)
-    
+
     return mock_client
 
 
-@pytest.fixture 
+@pytest.fixture
 def mock_anthropic_client():
     """Mock Anthropic client for provider testing."""
     mock_client = Mock()
-    
+
     # Mock message response
     mock_response = Mock()
     mock_response.id = "msg_test123"
     mock_response.content = [Mock(text="Test Claude response")]
     mock_response.usage = Mock(input_tokens=25, output_tokens=25)
-    
+
     mock_client.messages.create = Mock(return_value=mock_response)
-    
+
     return mock_client
 
 
 # Observability Fixtures
 
+
 @pytest.fixture
 def hook_event_collector():
     """Collect hook events for testing."""
     events = []
-    
+
     async def collect_hook(event):
-        events.append({
-            "type": event.hook_type.value if hasattr(event.hook_type, 'value') else str(event.hook_type),
-            "call_id": str(event.call_id),
-            "branch_id": str(event.branch_id),
-            "service": event.service_name,
-            "timestamp": event.timestamp,
-            "metadata": event.metadata.copy() if event.metadata else {}
-        })
-    
+        events.append(
+            {
+                "type": (
+                    event.hook_type.value
+                    if hasattr(event.hook_type, "value")
+                    else str(event.hook_type)
+                ),
+                "call_id": str(event.call_id),
+                "branch_id": str(event.branch_id),
+                "service": event.service_name,
+                "timestamp": event.timestamp,
+                "metadata": event.metadata.copy() if event.metadata else {},
+            }
+        )
+
     collect_hook.events = events
     return collect_hook
 
@@ -302,40 +299,42 @@ def hook_event_collector():
 def metrics_collector():
     """Collect metrics for testing."""
     metrics = []
-    
+
     def collect_metric(metric_data):
         metrics.append(metric_data.copy())
-    
+
     collect_metric.metrics = metrics
     return collect_metric
 
 
 # Async Test Helpers
 
+
 @pytest.fixture
 async def async_test_context():
     """Async context manager for test setup/teardown."""
+
     class AsyncTestContext:
         def __init__(self):
             self.resources = []
-            
+
         async def add_resource(self, resource):
             """Add resource for cleanup."""
             self.resources.append(resource)
             return resource
-            
+
         async def cleanup(self):
             """Clean up all resources."""
             for resource in reversed(self.resources):
-                if hasattr(resource, 'stop'):
+                if hasattr(resource, "stop"):
                     await resource.stop()
-                elif hasattr(resource, 'close'):
+                elif hasattr(resource, "close"):
                     await resource.close()
-                elif hasattr(resource, '__aexit__'):
+                elif hasattr(resource, "__aexit__"):
                     await resource.__aexit__(None, None, None)
-    
+
     ctx = AsyncTestContext()
-    
+
     try:
         yield ctx
     finally:
@@ -344,13 +343,15 @@ async def async_test_context():
 
 # Performance Testing Fixtures
 
+
 @pytest.fixture
 def performance_monitor():
     """Monitor performance metrics during tests."""
-    import time
-    import psutil
     import os
-    
+    import time
+
+    import psutil
+
     class PerformanceMonitor:
         def __init__(self):
             self.start_time = None
@@ -358,36 +359,39 @@ def performance_monitor():
             self.start_memory = None
             self.end_memory = None
             self.process = psutil.Process(os.getpid())
-            
+
         def start(self):
             self.start_time = time.perf_counter()
             self.start_memory = self.process.memory_info().rss
-            
+
         def stop(self):
             self.end_time = time.perf_counter()
             self.end_memory = self.process.memory_info().rss
-            
+
         @property
         def duration_s(self):
             if self.start_time and self.end_time:
                 return self.end_time - self.start_time
             return None
-            
+
         @property
         def memory_delta_mb(self):
             if self.start_memory and self.end_memory:
                 return (self.end_memory - self.start_memory) / 1024 / 1024
             return None
-    
+
     return PerformanceMonitor()
 
 
 # Parametrized Fixtures for Multiple Test Scenarios
 
-@pytest.fixture(params=[
-    {"provider": "openai", "model": "gpt-4o-mini"},
-    {"provider": "anthropic", "model": "claude-3-sonnet-20240229"},
-])
+
+@pytest.fixture(
+    params=[
+        {"provider": "openai", "model": "gpt-4o-mini"},
+        {"provider": "anthropic", "model": "claude-3-sonnet-20240229"},
+    ]
+)
 def provider_config(request):
     """Parametrized provider configurations."""
     return request.param
@@ -399,17 +403,20 @@ def service_delays(request):
     return request.param
 
 
-@pytest.fixture(params=[
-    {"queue_capacity": 10, "limit_requests": 5},
-    {"queue_capacity": 50, "limit_requests": 20}, 
-    {"queue_capacity": 100, "limit_requests": None},
-])
+@pytest.fixture(
+    params=[
+        {"queue_capacity": 10, "limit_requests": 5},
+        {"queue_capacity": 50, "limit_requests": 20},
+        {"queue_capacity": 100, "limit_requests": None},
+    ]
+)
 def executor_configs(request):
     """Different executor configurations for load testing."""
     return request.param
 
 
 # Test Markers and Utilities
+
 
 def pytest_runtest_setup(item):
     """Setup for individual tests."""
@@ -424,6 +431,7 @@ def pytest_runtest_setup(item):
 
 # Custom Assertions
 
+
 def assert_valid_call_context(context: CallContext):
     """Assert CallContext has required fields."""
     assert context.call_id is not None
@@ -437,7 +445,7 @@ def assert_service_call_metrics(metrics: dict, expected_status: str = "success")
     required_fields = ["call_id", "duration_s", "status"]
     for field in required_fields:
         assert field in metrics, f"Missing required metric field: {field}"
-    
+
     assert metrics["status"] == expected_status
     assert isinstance(metrics["duration_s"], (int, float))
     assert metrics["duration_s"] >= 0
@@ -448,6 +456,6 @@ def assert_hook_event_structure(event: dict):
     required_fields = ["type", "call_id", "service", "timestamp"]
     for field in required_fields:
         assert field in event, f"Missing required hook event field: {field}"
-    
+
     assert isinstance(event["timestamp"], (int, float))
     assert event["timestamp"] > 0
