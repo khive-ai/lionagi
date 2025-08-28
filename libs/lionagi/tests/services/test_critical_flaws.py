@@ -24,8 +24,7 @@ from uuid import uuid4
 import anyio
 import pytest
 
-from lionagi.errors import RetryableError, ServiceError, TimeoutError
-from lionagi.ln.concurrency import create_task_group
+from lionagi.errors import RetryableError, TimeoutError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor

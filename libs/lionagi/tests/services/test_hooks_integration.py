@@ -1,4 +1,4 @@
-"""Test suite for V1_Hooks_Integration - Comprehensive P0 Tests.
+"""Test suite for _Hooks_Integration - Comprehensive P0 Tests.
 
 Focus: HookedMiddleware integration with service pipeline, observability event
 emission timing and content, and hook performance impact measurement.
@@ -7,8 +7,6 @@ Validates end-to-end integration behavior and production readiness.
 
 import time
 from collections.abc import AsyncIterator
-from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import anyio
@@ -58,8 +56,8 @@ class MockService(Service[DummyRequest, dict, dict]):
             yield {"chunk": i, "data": f"chunk_{i}", "call_id": str(ctx.call_id)}
 
 
-class TestV1HooksIntegration:
-    """TestSuite: V1_Hooks_Integration - End-to-end integration validation."""
+class TestHooksIntegration:
+    """TestSuite: _Hooks_Integration - End-to-end integration validation."""
 
     @pytest.mark.anyio
     async def test_hooked_middleware_integration_with_service_pipeline(self):

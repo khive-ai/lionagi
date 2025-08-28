@@ -151,7 +151,7 @@ class HTTPXTransport:
                 timeout=timeout_s,
             ) as response:
                 # Check status before starting to stream
-                self._check_response_status(response)
+                self._check_response_status(response, operation="streaming")
 
                 async for chunk in response.aiter_bytes(chunk_size=8192):
                     if chunk:  # Skip empty chunks

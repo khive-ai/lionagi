@@ -159,15 +159,15 @@ class ProviderRegistry:
                     a,
                 )
 
-        # 4) Errors
-        if not effective_provider and not base_url:
-            raise ValueError(
-                "Provider must be specified (or prefix model as 'provider/model') or supply base_url"
-            )
+        # 4) Errors - check ambiguous first, then missing provider
         if len(matches) > 1:
             names = ", ".join(sorted(a.name for a in matches))
             raise ValueError(
                 f"Ambiguous adapters ({names}) support this input; specify provider explicitly"
+            )
+        if not effective_provider and not base_url:
+            raise ValueError(
+                "Provider must be specified (or prefix model as 'provider/model') or supply base_url"
             )
         raise ValueError(
             f"No adapter found for provider='{effective_provider}', model='{model}', base_url='{base_url}'"

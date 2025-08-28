@@ -10,8 +10,8 @@ attack vector prevention, and ensures proper security audit logging.
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from types import MappingProxyType
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -19,8 +19,7 @@ import pytest
 from lionagi.errors import PolicyError, ServiceError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
-from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
-from lionagi.services.imodel import iModel
+from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
 from lionagi.services.middleware import MetricsMW, PolicyGateMW, RedactionMW
 
 
@@ -291,7 +290,7 @@ class TestAttackVectorValidation:
         ctx = CallContext.new(
             branch_id=uuid4(),
             capabilities={"public:read"},
-            service_requires=mock_service.requires,
+            attrs={"service_requires": mock_service.requires},
         )
 
         # Various context manipulation attempts (these should not work due to msgspec.Struct)
@@ -385,12 +384,12 @@ class TestSecurityAuditLogging:
         call_id = uuid4()
         branch_id = uuid4()
 
-        ctx = CallContext.new(
+        ctx = CallContext(
+            call_id=call_id,
             branch_id=branch_id,
-            capabilities={"user:basic"},
-            service_requires=mock_service.requires,
+            capabilities=frozenset({"user:basic"}),
+            attrs=MappingProxyType({"service_requires": mock_service.requires}),
         )
-        ctx.call_id = call_id  # Override for consistent testing
 
         req = MockRequest()
 
@@ -434,7 +433,10 @@ class TestSecurityAuditLogging:
         req = MockRequest()
 
         # Execute through redaction middleware
-        result = await redaction_mw(req, ctx, lambda: {"redaction": "test"})
+        async def mock_next():
+            return {"redaction": "test"}
+
+        result = await redaction_mw(req, ctx, mock_next)
 
         # Check that sensitive fields were redacted in logs
         log_records = [

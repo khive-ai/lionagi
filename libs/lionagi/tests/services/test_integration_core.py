@@ -1,17 +1,9 @@
 # Copyright (c) 2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Consolidated P1 Integration Tests for lionagi v1 services - Agent Kernel readiness.
+"""Consolidated P1 Integration Tests for lionagi services - Agent Kernel
 
-This file consolidates the essential integration tests from 4 previously redundant files:
-- test_middleware_integration.py (1033 lines)
-- test_imodel_integration.py (920 lines)
-- test_agent_kernel_scenarios.py (918 lines)
-- test_resilience_integration.py (843 lines)
-
-Focus: TDD P1 requirements - "Full pipeline via iModel" and "Provider capability propagation"
-Eliminates: 6x redundancy in middleware order, 4x redundancy in policy enforcement,
-           800+ lines of duplicate mock setup
+Focus: "Full pipeline via iModel" and "Provider capability propagation"
 
 Tests validate Agent Kernel principles:
 1. Structured execution with deadline enforcement
@@ -23,12 +15,11 @@ Tests validate Agent Kernel principles:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import anyio
@@ -37,12 +28,11 @@ import pytest
 from lionagi.errors import PolicyError, ServiceError, TimeoutError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
-from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
+from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
 from lionagi.services.hooks import HookedMiddleware, HookRegistry, HookType
 from lionagi.services.imodel import iModel
-from lionagi.services.middleware import CallMW, MetricsMW, PolicyGateMW
+from lionagi.services.middleware import MetricsMW, PolicyGateMW
 from lionagi.services.provider_registry import ProviderAdapter, get_provider_registry
-from lionagi.services.resilience import CircuitBreakerMW, RetryMW
 
 # Consolidated Mock Services (replaces 800+ lines of duplicate setup)
 

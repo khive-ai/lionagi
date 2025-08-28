@@ -219,7 +219,7 @@ class TestV1TransportHTTPXErrorMapping:
 
             error = exc_info.value
             assert (
-                expected_message_part in str(error).lower()
+                expected_message_part.lower() in str(error).lower()
             ), f"Expected '{expected_message_part}' in error message: {error}"
 
             # Validate error context contains request details
@@ -377,12 +377,19 @@ class TestV1TransportHTTPXErrorMapping:
             request=httpx.Request("POST", "https://api.test.com/v1/stream"),
         )
 
-        # Mock the stream method to return our error response
-        async def mock_stream(*args, **kwargs):
-            return mock_response.__aenter__()
+        # Create an async context manager for the response
+        class MockAsyncContextManager:
+            async def __aenter__(self):
+                return mock_response
 
-        transport._client.stream = AsyncMock(return_value=mock_response.__aenter__())
-        mock_response.aiter_bytes = AsyncMock(return_value=iter([]))
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return None
+
+        # Mock the stream method to return the context manager directly
+        def mock_stream(*args, **kwargs):
+            return MockAsyncContextManager()
+
+        transport._client.stream = mock_stream
 
         # Should raise RetryableError for 5xx during streaming
         with pytest.raises(RetryableError) as exc_info:

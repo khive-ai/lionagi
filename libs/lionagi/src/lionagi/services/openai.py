@@ -63,7 +63,10 @@ class OpenAICompatibleService:
                 return response.model_dump()
 
             except TimeoutError as e:
-                raise TimeoutError(
+                # Handle both lionagi.errors.TimeoutError and asyncio.TimeoutError
+                from lionagi.errors import TimeoutError as LionagiTimeoutError
+
+                raise LionagiTimeoutError(
                     f"OpenAI API call timed out: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -84,6 +87,22 @@ class OpenAICompatibleService:
                         "service": self.name,
                         "model": kwargs.get("model"),
                         "retry_after": retry_after,
+                        "status_code": getattr(e, "status_code", None),
+                    },
+                    cause=e,
+                )
+            except openai.APITimeoutError as e:
+                # Handle OpenAI SDK timeout errors
+                from lionagi.errors import TimeoutError as LionagiTimeoutError
+
+                raise LionagiTimeoutError(
+                    f"OpenAI API timeout error: {e}",
+                    context={
+                        "call_id": str(ctx.call_id),
+                        "service": self.name,
+                        "model": kwargs.get("model"),
+                        "error_type": "api_timeout",
+                        "timeout": kwargs.get("timeout"),
                     },
                     cause=e,
                 )
@@ -199,7 +218,10 @@ class OpenAICompatibleService:
                     yield chunk.model_dump()
 
             except TimeoutError as e:
-                raise TimeoutError(
+                # Handle both lionagi.errors.TimeoutError and asyncio.TimeoutError
+                from lionagi.errors import TimeoutError as LionagiTimeoutError
+
+                raise LionagiTimeoutError(
                     f"OpenAI API stream timed out: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -221,6 +243,22 @@ class OpenAICompatibleService:
                         "model": kwargs.get("model"),
                         "operation": "streaming",
                         "retry_after": retry_after,
+                    },
+                    cause=e,
+                )
+            except openai.APITimeoutError as e:
+                # Handle OpenAI SDK timeout errors in streaming
+                from lionagi.errors import TimeoutError as LionagiTimeoutError
+
+                raise LionagiTimeoutError(
+                    f"OpenAI API stream timeout error: {e}",
+                    context={
+                        "call_id": str(ctx.call_id),
+                        "service": self.name,
+                        "model": kwargs.get("model"),
+                        "operation": "streaming",
+                        "error_type": "api_timeout",
+                        "timeout": kwargs.get("timeout"),
                     },
                     cause=e,
                 )
@@ -356,7 +394,7 @@ def create_openai_service(
     return OpenAICompatibleService(
         client=client,
         name="openai",
-        requires={"net.out:api.openai.com"},
+        requires=frozenset({"net.out:api.openai.com"}),
         call_mw=call_mw,
         stream_mw=stream_mw,
     )
@@ -379,7 +417,7 @@ def create_anthropic_service(
     return OpenAICompatibleService(
         client=client,
         name="anthropic",
-        requires={"net.out:api.anthropic.com"},
+        requires=frozenset({"net.out:api.anthropic.com"}),
         call_mw=call_mw,
         stream_mw=stream_mw,
     )
@@ -398,7 +436,7 @@ def create_openrouter_service(
     return OpenAICompatibleService(
         client=client,
         name="openrouter",
-        requires={"net.out:openrouter.ai"},
+        requires=frozenset({"net.out:openrouter.ai"}),
         call_mw=call_mw,
         stream_mw=stream_mw,
     )
@@ -417,7 +455,7 @@ def create_together_service(
     return OpenAICompatibleService(
         client=client,
         name="together",
-        requires={"net.out:api.together.xyz"},
+        requires=frozenset({"net.out:api.together.xyz"}),
         call_mw=call_mw,
         stream_mw=stream_mw,
     )
@@ -440,7 +478,7 @@ def create_ollama_service(
     return OpenAICompatibleService(
         client=client,
         name="ollama",
-        requires={"net.out:localhost:11434"},  # Adjust port as needed
+        requires=frozenset({"net.out:localhost:11434"}),  # Adjust port as needed
         call_mw=call_mw,
         stream_mw=stream_mw,
     )
@@ -469,7 +507,7 @@ def create_generic_service(
     return OpenAICompatibleService(
         client=client,
         name=name,
-        requires={host_capability},
+        requires=frozenset({host_capability}),
         call_mw=call_mw,
         stream_mw=stream_mw,
     )

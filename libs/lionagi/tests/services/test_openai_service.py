@@ -11,31 +11,11 @@ This is a core requirement from Ocean for the v1 implementation.
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-import anyio
 import openai
 import pytest
-
-# MockClock only available with trio backend
-try:
-    from trio.testing import MockClock
-except ImportError:
-    # Create a simple mock clock for testing
-    class MockClock:
-        def __init__(self, rate=0.0):
-            self.rate = rate
-            self._time = 0.0
-
-        def advance(self, seconds):
-            self._time += seconds
-
-        def jump(self, seconds):
-            self._time += seconds
-
-
 from openai import AsyncOpenAI
 
 from lionagi.errors import (
@@ -45,14 +25,10 @@ from lionagi.errors import (
     ServiceError,
     TimeoutError,
 )
-from lionagi.ln.concurrency import get_cancelled_exc_class
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import ChatRequestModel
 from lionagi.services.openai import OpenAICompatibleService
-from lionagi.services.provider_registry import (
-    ProviderRegistry,
-    register_builtin_adapters,
-)
+from lionagi.services.provider_registry import ProviderRegistry
 
 
 class TestOpenAIServiceCore:
