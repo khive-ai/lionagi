@@ -721,9 +721,9 @@ class TestCompletePipelineLifecycle:
 
         async def tracking_middleware(req: RequestModel, ctx: CallContext, next_call):
             """Middleware that adds tracking information."""
-            ctx.attrs["middleware_start"] = time.time()
+            ctx.tracking["middleware_start"] = time.time()
             result = await next_call()
-            ctx.attrs["middleware_duration"] = time.time() - ctx.attrs["middleware_start"]
+            ctx.tracking["middleware_duration"] = time.time() - ctx.tracking["middleware_start"]
             result["middleware_processed"] = True
             return result
 
@@ -750,8 +750,8 @@ class TestCompletePipelineLifecycle:
         result = await service.call(request, ctx=context)
 
         # Verify middleware integration
-        assert "middleware_start" in context.attrs
-        assert "middleware_duration" in context.attrs
-        assert context.attrs["middleware_duration"] > 0
+        assert "middleware_start" in context.tracking
+        assert "middleware_duration" in context.tracking
+        assert context.tracking["middleware_duration"] > 0
         assert result.get("middleware_processed") == True
         assert result["id"] == "middleware-test"
