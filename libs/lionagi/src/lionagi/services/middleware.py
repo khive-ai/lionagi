@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
 from ..errors import PolicyError
@@ -122,14 +122,20 @@ class PolicyGateMW:
         """
         # Service-declared requirements (source of truth)
         service_requires = set()
-        if isinstance(ctx.attrs, dict):
-            service_requires = set(ctx.attrs.get("service_requires", set()))
+        if isinstance(ctx.attrs, (dict, Mapping)):
+            raw_service_requires = ctx.attrs.get("service_requires", set())
+            # Handle JSON serialization converting sets to lists
+            if isinstance(raw_service_requires, (list, tuple)):
+                service_requires = set(raw_service_requires)
+            else:
+                service_requires = set(raw_service_requires)
 
         # Optional additional requirements from request
         request_extras = getattr(req, "_extra_requires", None)
         if request_extras is None:
             request_extras = set()
         else:
+            # Handle lists/tuples from serialization
             request_extras = set(request_extras)
 
         # Union - request can only add, not replace
@@ -157,9 +163,18 @@ class PolicyGateMW:
         # Wildcard matching - only on available side
         for avail_cap in available:
             if avail_cap.endswith("*"):
-                prefix = avail_cap[:-1]
-                if required.startswith(prefix):
-                    return True
+                # Handle malformed wildcards by stripping trailing *s
+                wildcard_pattern = avail_cap.rstrip("*")
+
+                # Special case: if pattern ends with separator (., :, /), match hierarchical capabilities
+                # "api.*" should match "api.something" but NOT bare "api"
+                if wildcard_pattern.endswith((".", ":", "/")):
+                    if required.startswith(wildcard_pattern):
+                        return True
+                else:
+                    # Standard prefix matching
+                    if required == wildcard_pattern or required.startswith(wildcard_pattern):
+                        return True
 
         return False
 
@@ -286,6 +301,7 @@ class RedactionMW:
         "authorization",
         "x-api-key",
         "api-key",
+        "api_key",  # Support both dash and underscore variants
         "x-auth-token",
         "bearer",
     }

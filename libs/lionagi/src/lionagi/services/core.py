@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, Generic, Protocol, TypeVar
+from types import MappingProxyType
 from uuid import UUID, uuid4
 
 import anyio
@@ -31,9 +32,9 @@ class CallContext(msgspec.Struct, kw_only=True, frozen=True):
     call_id: UUID
     branch_id: UUID
     deadline_s: float | None = None  # monotonic absolute deadline
-    capabilities: set[str] = msgspec.field(default_factory=set)  # for policy gate
+    capabilities: frozenset[str] = msgspec.field(default_factory=frozenset)  # for policy gate
     attrs: Mapping[str, Any] = msgspec.field(
-        default_factory=dict
+        default_factory=lambda: MappingProxyType({})
     )  # user-defined (trace/span, request_id, ...)
 
     @staticmethod
@@ -52,7 +53,7 @@ class CallContext(msgspec.Struct, kw_only=True, frozen=True):
         branch_id: UUID,
         *,
         deadline_s: float | None = None,
-        capabilities: set[str] | None = None,
+        capabilities: set[str] | frozenset[str] | None = None,
         attrs: Mapping[str, Any] | None = None,
         **extra_attrs: Any,
     ) -> CallContext:
@@ -66,8 +67,8 @@ class CallContext(msgspec.Struct, kw_only=True, frozen=True):
             call_id=uuid4(),
             branch_id=branch_id,
             deadline_s=deadline_s,
-            capabilities=capabilities or set(),
-            attrs=final_attrs,
+            capabilities=frozenset(capabilities or set()),
+            attrs=MappingProxyType(final_attrs),
         )
 
     @classmethod
@@ -76,7 +77,7 @@ class CallContext(msgspec.Struct, kw_only=True, frozen=True):
         branch_id: UUID,
         timeout_s: float,
         *,
-        capabilities: set[str] | None = None,
+        capabilities: set[str] | frozenset[str] | None = None,
         attrs: Mapping[str, Any] | None = None,
         **extra_attrs: Any,
     ) -> CallContext:
