@@ -1,0 +1,297 @@
+# Copyright (c) 2025, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
+"""Critical Implementation Flaw Tests for lionagi services.
+
+This file consolidates tests specifically targeting the CRITICAL flaws identified
+in the TDD specification that require fixes for production readiness:
+
+1. executor.py:349 - Deadline-unaware waiting flaw in _wait_for_capacity()
+2. hooks.py:582 - Incorrect timeout application flaw in emit()  
+3. msgspec migration completeness
+4. Circuit breaker streaming performance regression prevention
+
+These tests are designed to FAIL with current implementation and PASS after fixes.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import AsyncIterator
+from typing import Any
+from uuid import uuid4
+
+import anyio
+import pytest
+from anyio.testing import MockClock
+
+from lionagi.errors import ServiceError, TimeoutError
+from lionagi.services.core import CallContext, Service
+from lionagi.services.endpoint import RequestModel
+from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
+from lionagi.services.hooks import HookRegistry, HookType
+from lionagi.services.middleware import CircuitBreakerMW, RetryMW
+
+
+class TestRequest(RequestModel):
+    """Simple test request."""
+    content: str = "test"
+
+
+class SlowService(Service):
+    """Service with configurable delay."""
+    
+    name = "slow_service"
+    
+    def __init__(self, delay_s: float = 1.0):
+        self.delay_s = delay_s
+    
+    async def call(self, req: TestRequest, *, ctx: CallContext) -> dict[str, Any]:
+        await anyio.sleep(self.delay_s)
+        return {"result": f"processed after {self.delay_s}s"}
+    
+    async def stream(self, req: TestRequest, *, ctx: CallContext) -> AsyncIterator[dict[str, Any]]:
+        for i in range(3):
+            await anyio.sleep(self.delay_s / 3)
+            yield {"chunk": i, "delay": self.delay_s}
+
+
+class TestCriticalImplementationFlaws:
+    """Tests for critical implementation flaws identified by TDD specification.
+    
+    These tests are designed to fail with current implementation and pass
+    after critical fixes are applied.
+    """
+
+    @pytest.mark.anyio
+    async def test_executor_deadline_unaware_waiting_critical_flaw(self):
+        """CRITICAL FLAW: executor.py:349 - Deadline-unaware waiting in _wait_for_capacity.
+        
+        Current flaw: _wait_for_capacity() uses `await anyio.sleep(0.1)` polling
+        without checking CallContext deadline. If rate limit wait is 10s but 
+        call deadline is 1s, executor waits full 10s violating deadline.
+        
+        Required fix: Wrap waiting in anyio.fail_at(call.context.deadline_s)
+        or check remaining time before sleeping.
+        
+        Expected behavior: Call should fail at deadline (~1s), not rate limit wait (~10s).
+        """
+        # Create executor with very restrictive rate limits
+        config = ExecutorConfig(
+            queue_capacity=5,
+            capacity_refresh_time=10.0,  # 10 second refresh (long wait)
+            limit_requests=1,             # Only 1 request allowed
+            limit_tokens=100,
+            concurrency_limit=1
+        )
+        
+        executor = RateLimitedExecutor(config)
+        await executor.start()
+        
+        try:
+            # Submit first call to consume rate limit capacity
+            service = SlowService(0.1)
+            first_context = CallContext.new(branch_id=uuid4())
+            first_request = TestRequest(content="first")
+            
+            first_call = await executor.submit_call(service, first_request, first_context)
+            await first_call.wait_completion()
+            
+            # Now executor is at capacity, next call must wait for 10s refresh
+            
+            # Submit second call with SHORT deadline (1s) but LONG rate limit wait (10s)
+            second_context = CallContext.with_timeout(
+                branch_id=uuid4(),
+                timeout_s=1.0  # SHORT deadline - should fail here
+            )
+            second_request = TestRequest(content="second")
+            
+            start_time = time.time()
+            
+            # CRITICAL TEST: This should fail after ~1s (deadline), NOT ~10s (rate limit)
+            second_call = await executor.submit_call(service, second_request, second_context)
+            
+            with pytest.raises(TimeoutError):
+                await second_call.wait_completion()
+            
+            elapsed = time.time() - start_time
+            
+            # CRITICAL ASSERTION: Should timeout at deadline (~1s), not rate limit wait (~10s)
+            assert elapsed < 2.0, f"Call waited {elapsed}s but should timeout at deadline ~1s"
+            
+            # NOTE: This test is expected to FAIL with current implementation
+            # and PASS after fixing executor.py:349 _wait_for_capacity method
+            
+        finally:
+            await executor.stop()
+
+    @pytest.mark.anyio
+    async def test_hook_per_hook_timeout_isolation_critical_flaw(self):
+        """CRITICAL FLAW: hooks.py:582 - Incorrect timeout application in emit().
+        
+        Current flaw: HookRegistry.emit applies single fail_after timeout to entire
+        group of hooks. One slow hook causes ALL hooks to be cancelled.
+        
+        Required fix: Use per-hook move_on_after soft timeouts with robust gather
+        to isolate hook failures.
+        
+        Expected behavior: Fast hooks complete, slow hooks timeout individually,
+        emit completes in timeout duration (not slow hook duration).
+        """
+        registry = HookRegistry(timeout=1.0)  # 1 second timeout
+        
+        hook_results = []
+        
+        # Fast hook - should complete
+        @registry.register(HookType.PRE_CALL)
+        async def fast_hook(event):
+            await anyio.sleep(0.1)  # 100ms - well under timeout
+            hook_results.append("fast_completed")
+        
+        # Slow hook - should be cancelled by per-hook timeout
+        @registry.register(HookType.PRE_CALL) 
+        async def slow_hook(event):
+            await anyio.sleep(5.0)  # 5s - exceeds timeout
+            hook_results.append("slow_completed")  # Should NOT reach here
+        
+        # Another fast hook - should complete despite slow hook
+        @registry.register(HookType.PRE_CALL)
+        async def another_fast_hook(event):
+            await anyio.sleep(0.2)  # 200ms - under timeout
+            hook_results.append("another_fast_completed")
+        
+        # Test event
+        event = {
+            "type": HookType.PRE_CALL,
+            "call_id": uuid4(),
+            "branch_id": uuid4(),
+            "context": CallContext.new(branch_id=uuid4())
+        }
+        
+        start_time = time.time()
+        
+        # CRITICAL TEST: Should complete in ~1s (timeout), NOT ~5s (slow hook)
+        await registry.emit(HookType.PRE_CALL, event)
+        
+        elapsed = time.time() - start_time
+        
+        # CRITICAL ASSERTIONS:
+        # 1. Fast hooks should complete despite slow hook
+        assert "fast_completed" in hook_results, "Fast hook should complete"
+        assert "another_fast_completed" in hook_results, "Another fast hook should complete"
+        
+        # 2. Slow hook should NOT complete (timeout isolation)
+        assert "slow_completed" not in hook_results, "Slow hook should be cancelled"
+        
+        # 3. Total time should be ~1s (timeout), not ~5s (slow hook duration)
+        assert elapsed < 2.0, f"emit() took {elapsed}s but should complete in ~1s timeout"
+        
+        # NOTE: This test is expected to FAIL with current implementation
+        # (hooks.py:582 uses single timeout) and PASS after implementing
+        # per-hook move_on_after soft timeouts with robust gather
+
+    @pytest.mark.anyio
+    async def test_circuit_breaker_streaming_no_buffering_regression(self):
+        """CRITICAL PERFORMANCE: Circuit breaker must NOT buffer streams in memory.
+        
+        Validates that circuit breaker middleware allows immediate chunk passthrough
+        without accumulating chunks in memory - a key streaming performance requirement.
+        
+        Memory should remain bounded regardless of stream size.
+        """
+        circuit_breaker = CircuitBreakerMW(failure_threshold=3, recovery_timeout=1.0)
+        
+        class LargeStreamService(Service):
+            name = "large_stream"
+            
+            async def call(self, req, *, ctx): 
+                return {"result": "not used"}
+                
+            async def stream(self, req, *, ctx):
+                # Generate large stream - 100 chunks of 1MB each
+                for i in range(100):
+                    large_chunk = {"chunk": i, "data": "x" * (1024 * 1024)}  # 1MB chunk
+                    yield large_chunk
+        
+        service = LargeStreamService()
+        request = TestRequest()
+        context = CallContext.new(branch_id=uuid4())
+        
+        chunks_received = 0
+        max_memory_usage = 0
+        
+        # Monitor memory during streaming
+        import tracemalloc
+        tracemalloc.start()
+        
+        initial_memory = tracemalloc.get_traced_memory()[0]
+        
+        async def mock_next_stream(req, ctx):
+            return service.stream(req, ctx=ctx)
+        
+        # CRITICAL TEST: Stream through circuit breaker without buffering
+        async for chunk in circuit_breaker.stream(request, context, mock_next_stream):
+            chunks_received += 1
+            
+            # Check memory usage periodically
+            if chunks_received % 10 == 0:
+                current_memory = tracemalloc.get_traced_memory()[0]
+                memory_used = current_memory - initial_memory
+                max_memory_usage = max(max_memory_usage, memory_used)
+        
+        tracemalloc.stop()
+        
+        # CRITICAL ASSERTIONS:
+        # 1. All chunks should be received (no buffering loss)
+        assert chunks_received == 100, f"Should receive 100 chunks, got {chunks_received}"
+        
+        # 2. Memory usage should be bounded (no accumulation)
+        # Should not exceed ~10MB (10 chunks buffered) for 100MB stream
+        max_allowed_memory = 15 * 1024 * 1024  # 15MB buffer allowance
+        assert max_memory_usage < max_allowed_memory, \
+            f"Memory usage {max_memory_usage/1024/1024:.1f}MB exceeds {max_allowed_memory/1024/1024}MB limit"
+
+    @pytest.mark.anyio
+    async def test_retry_middleware_deadline_awareness_critical(self):
+        """CRITICAL V1 FEATURE: Retry middleware must respect CallContext deadlines.
+        
+        Validates that RetryMW stops retrying when CallContext deadline approaches,
+        preventing deadline violations through excessive retry attempts.
+        """
+        retry_mw = RetryMW(base_delay=2.0, max_attempts=5)  # 2s base delay, up to 5 retries
+        
+        class AlwaysFailingService(Service):
+            name = "failing"
+            
+            async def call(self, req, *, ctx):
+                raise ServiceError("Always fails")
+                
+            async def stream(self, req, *, ctx):
+                raise ServiceError("Stream always fails")
+        
+        service = AlwaysFailingService()
+        request = TestRequest()
+        
+        # Context with short deadline - should prevent full retry sequence
+        context = CallContext.with_timeout(
+            branch_id=uuid4(),
+            timeout_s=3.0  # 3 second deadline - less than full retry time
+        )
+        
+        async def mock_next_call(req, ctx):
+            return await service.call(req, ctx=ctx)
+        
+        start_time = time.time()
+        
+        # CRITICAL TEST: Should stop retrying when deadline approaches
+        with pytest.raises(ServiceError):  # Final exception after deadline-limited retries
+            await retry_mw(request, context, mock_next_call)
+        
+        elapsed = time.time() - start_time
+        
+        # CRITICAL ASSERTION: Should respect deadline (~3s), not attempt all retries (~10s+)
+        assert elapsed < 4.0, f"Retry took {elapsed}s but should respect 3s deadline"
+        
+        # Should attempt fewer retries due to deadline constraint
+        # With 2s base delay, only 1-2 attempts possible in 3s deadline
+        assert elapsed > 2.0, f"Should attempt at least one retry, took {elapsed}s"
