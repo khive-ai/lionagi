@@ -22,9 +22,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-import anyio
 import httpx
-import msgspec
 import openai
 import pytest
 from httpx import MockTransport, Request, Response
@@ -32,18 +30,15 @@ from openai import AsyncOpenAI
 
 from lionagi.errors import (
     NonRetryableError,
-    PolicyError,
     RateLimitError,
     RetryableError,
-    ServiceError,
     TimeoutError,
-    TransportError,
 )
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import ChatRequestModel, RequestModel
 from lionagi.services.imodel import iModel
-from lionagi.services.openai import OpenAICompatibleService, create_openai_service
-from lionagi.services.provider_registry import ProviderAdapter, get_provider_registry
+from lionagi.services.providers.openai import OpenAICompatibleService, create_openai_service
+from lionagi.services.providers.provider_registry import ProviderAdapter, get_provider_registry
 from lionagi.services.transport import HTTPXTransport
 
 # ==============================================================================
@@ -551,7 +546,7 @@ class TestServiceCapabilityIntegration:
             openai_service = create_openai_service(api_key="test")
             assert openai_service.requires == {"net.out:api.openai.com"}
 
-            from lionagi.services.openai import (
+            from lionagi.services.providers.openai import (
                 create_anthropic_service,
                 create_openrouter_service,
             )

@@ -32,7 +32,7 @@ from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
 from lionagi.services.hooks import HookedMiddleware, HookRegistry, HookType
 from lionagi.services.imodel import iModel
 from lionagi.services.middleware import MetricsMW, PolicyGateMW
-from lionagi.services.provider_registry import ProviderAdapter, get_provider_registry
+from lionagi.services.providers.provider_registry import ProviderAdapter, get_provider_registry
 
 # Consolidated Mock Services (replaces 800+ lines of duplicate setup)
 

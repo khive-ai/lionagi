@@ -17,8 +17,8 @@ from pydantic import BaseModel
 
 from lionagi.services.core import Service
 from lionagi.services.endpoint import RequestModel
-from lionagi.services.provider_detection import parse_provider_prefix
-from lionagi.services.provider_registry import (
+from lionagi.services.providers.provider_detection import parse_provider_prefix
+from lionagi.services.providers.provider_registry import (
     ProviderAdapter,
     ProviderRegistry,
     ProviderResolution,

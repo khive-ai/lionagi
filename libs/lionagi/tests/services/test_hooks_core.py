@@ -14,9 +14,7 @@ Preserves the essential PerHookSoftTimeout test that validates the hooks.py:582 
 """
 
 import time
-from collections.abc import AsyncIterator
-from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import anyio

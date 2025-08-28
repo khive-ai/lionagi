@@ -27,8 +27,8 @@ from lionagi.errors import (
 )
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import ChatRequestModel
-from lionagi.services.openai import OpenAICompatibleService
-from lionagi.services.provider_registry import ProviderRegistry
+from lionagi.services.providers.openai import OpenAICompatibleService
+from lionagi.services.providers.provider_registry import ProviderRegistry
 
 
 class TestOpenAIServiceCore:
