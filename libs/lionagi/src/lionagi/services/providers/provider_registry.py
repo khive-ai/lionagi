@@ -12,8 +12,8 @@ from typing import Any, Protocol, TypeVar
 import msgspec
 from pydantic import BaseModel, ValidationError
 
-from .core import Service
-from .endpoint import RequestModel
+from ..core import Service
+from ..endpoint import RequestModel
 
 Req = TypeVar("Req", bound=RequestModel)
 
@@ -234,10 +234,11 @@ def get_provider_registry() -> ProviderRegistry:
 def register_builtin_adapters() -> None:
     """Import and register core adapters exactly once."""
     # Importing here avoids import cycles
-    from .adapters.generic_adapter import GenericJSONAdapter
-    from .adapters.openai_adapter import OpenAIAdapter
+    from ..adapters.claude_code_adapter import ClaudeCodeAdapter
+    from ..adapters.generic_adapter import GenericJSONAdapter
+    from ..adapters.openai_adapter import OpenAIAdapter
 
-    for a in (OpenAIAdapter(), GenericJSONAdapter()):
+    for a in (OpenAIAdapter(), GenericJSONAdapter(), ClaudeCodeAdapter()):
         # tolerate re-registration in test runs
         if a.name not in _registry._adapters:
             _registry.register(a)

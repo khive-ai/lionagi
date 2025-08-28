@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -15,16 +14,16 @@ from openai import AsyncOpenAI
 
 from lionagi.ln.concurrency import fail_at
 
-from ..errors import (
+from lionagi.errors import (
     NonRetryableError,
     RateLimitError,
     RetryableError,
     ServiceError,
     TimeoutError,
 )
-from .core import CallContext
-from .endpoint import RequestModel
-from .middleware import CallMW, StreamMW
+from ..core import CallContext
+from ..endpoint import RequestModel
+from ..middleware import CallMW, StreamMW
 
 
 @dataclass(slots=True)

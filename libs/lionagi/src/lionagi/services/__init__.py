@@ -36,19 +36,12 @@ from .hooks import (
 )
 from .imodel import ProviderMetadata, iModel, quick_chat, quick_stream
 from .middleware import CallMW, MetricsMW, PolicyGateMW, RedactionMW, StreamMW
-from .openai import (
-    OpenAICompatibleService,
-    create_anthropic_service,
-    create_generic_service,
-    create_ollama_service,
-    create_openai_service,
-)
-from .provider_registry import get_provider_registry, register_builtin_adapters
+from .providers.provider_registry import register_builtin_adapters as _rba
 from .resilience import CircuitBreakerConfig, RetryConfig, create_resilience_mw
 from .transport import HTTPXTransport, Transport
 
 # Register built-in adapters once on import
-register_builtin_adapters()
+_rba()
 
 __all__ = [
     # Core interfaces
@@ -100,7 +93,4 @@ __all__ = [
     "ProviderMetadata",
     "quick_chat",
     "quick_stream",
-    # Provider registry
-    "get_provider_registry",
-    "register_builtin_adapters",
 ]

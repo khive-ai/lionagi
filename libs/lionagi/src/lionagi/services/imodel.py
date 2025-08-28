@@ -13,15 +13,14 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
-from ..errors import ServiceError
-from ..ln import create_task_group, effective_deadline, fail_at
-from .core import CallContext, Service
+from lionagi.ln import effective_deadline
+from .core import CallContext
 from .endpoint import ChatRequestModel, RequestModel
 from .executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
-from .hooks import HookedMiddleware, HookRegistry, HookType
+from .hooks import HookedMiddleware, HookRegistry
 from .middleware import MetricsMW, PolicyGateMW, RedactionMW
-from .provider_detection import parse_provider_prefix
-from .provider_registry import get_provider_registry, register_builtin_adapters
+from .providers.provider_detection import parse_provider_prefix
+from .providers.provider_registry import get_provider_registry, register_builtin_adapters
 
 logger = logging.getLogger(__name__)
 

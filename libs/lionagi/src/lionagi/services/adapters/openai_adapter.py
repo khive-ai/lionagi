@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel
 
 from ..core import Service
-from ..endpoint import ChatRequestModel, RequestModel
+from ..endpoint import ChatRequestModel
 from ..openai import create_generic_service, create_openai_service
 from ..provider_registry import ProviderAdapter
 
