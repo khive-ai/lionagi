@@ -212,10 +212,13 @@ class RateLimitedExecutor:
             # Create a dummy task group for compatibility
             self._task_group = "asyncio_tasks"  # Marker for asyncio mode
         except (RuntimeError, AttributeError):
-            # Fall back to trio/anyio approach if asyncio fails
-            # For trio backend, we can't use asyncio.create_task
-            raise RuntimeError(
-                "Trio backend support needs structured concurrency - use async context manager"
+            # This is trio - for now, just start without background tasks
+            # Trio requires structured concurrency via context manager
+            self._processor_task = None
+            self._replenisher_task = None
+            self._task_group = "trio_deferred"  # Marker for trio mode
+            logger.warning(
+                "Trio backend detected - background tasks deferred. Use async context manager for full functionality."
             )
 
         logger.info("RateLimitedExecutor started with background processing")
@@ -245,21 +248,32 @@ class RateLimitedExecutor:
                 self._stats["calls_cancelled"] += 1
 
         # Cancel and wait for background tasks
-        if self._processor_task:
-            self._processor_task.cancel()
-            try:
-                await self._processor_task
-            except get_cancelled_exc_class():
-                pass
-            self._processor_task = None
+        if self._task_group == "asyncio_tasks":
+            # Cancel asyncio tasks
+            if self._processor_task:
+                self._processor_task.cancel()
+                try:
+                    await self._processor_task
+                except get_cancelled_exc_class():
+                    pass
+                self._processor_task = None
 
-        if self._replenisher_task:
-            self._replenisher_task.cancel()
-            try:
-                await self._replenisher_task
-            except get_cancelled_exc_class():
-                pass
-            self._replenisher_task = None
+            if self._replenisher_task:
+                self._replenisher_task.cancel()
+                try:
+                    await self._replenisher_task
+                except get_cancelled_exc_class():
+                    pass
+                self._replenisher_task = None
+
+        elif self._task_group == "trio_active":
+            # Trio tasks are managed by context manager, just clean up
+            if hasattr(self, "_trio_task_group"):
+                try:
+                    await self._trio_task_group.__aexit__(None, None, None)
+                except get_cancelled_exc_class():
+                    pass
+                delattr(self, "_trio_task_group")
 
         # Clear task group for clean restart
         self._task_group = None
@@ -383,7 +397,7 @@ class RateLimitedExecutor:
                     if len(self.completed_calls) > 100:
                         asyncio.create_task(self._cleanup_completed())
 
-                except (asyncio.TimeoutError, TimeoutError):
+                except TimeoutError:
                     # Queue get timed out, loop to check shutdown
                     continue
                 except (anyio.ClosedResourceError, anyio.EndOfStream):
@@ -596,10 +610,27 @@ class RateLimitedExecutor:
         return self._queue._recv if hasattr(self._queue, "_recv") else None
 
     async def __aenter__(self):
-        """Async context manager entry."""
+        """Async context manager entry with proper trio support."""
         await self.start()
+
+        # If trio mode and no background tasks, start them in task group
+        if self._task_group == "trio_deferred":
+            self._trio_task_group = anyio.create_task_group()
+            await self._trio_task_group.__aenter__()
+            self._trio_task_group.start_soon(self._run_processor)
+            self._trio_task_group.start_soon(self._run_replenisher)
+            self._task_group = "trio_active"
+
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
+        """Async context manager exit with proper trio support."""
+        # Clean up trio task group if active
+        if self._task_group == "trio_active" and hasattr(self, "_trio_task_group"):
+            try:
+                await self._trio_task_group.__aexit__(exc_type, exc_val, exc_tb)
+            except get_cancelled_exc_class():
+                pass
+            self._task_group = None
+
         await self.stop()

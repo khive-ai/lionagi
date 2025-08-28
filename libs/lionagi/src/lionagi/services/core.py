@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator, Mapping
-from typing import Any, Generic, Protocol, TypeVar
 from types import MappingProxyType
+from typing import Any, Generic, Protocol, TypeVar
 from uuid import UUID, uuid4
 
 import anyio
@@ -27,7 +27,7 @@ class CallContext(msgspec.Struct, kw_only=True, frozen=True):
     All per-call data flows through CallContext for deterministic behavior.
 
     Using msgspec for v1 performance - orders of magnitude faster serialization.
-    
+
     Security model:
     - `attrs`: Immutable mapping for security-sensitive data (capabilities, auth, etc.)
     - `tracking`: Mutable dict for observability data (timing, metadata, etc.)
@@ -118,22 +118,22 @@ class CallContext(msgspec.Struct, kw_only=True, frozen=True):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert CallContext to serializable dict.
-        
+
         Handles MappingProxyType and frozenset conversion for serialization.
         """
         return {
             "call_id": str(self.call_id),
-            "branch_id": str(self.branch_id), 
+            "branch_id": str(self.branch_id),
             "deadline_s": self.deadline_s,
             "capabilities": list(self.capabilities),  # frozenset -> list
             "attrs": dict(self.attrs),  # MappingProxyType -> dict
             "tracking": dict(self.tracking),  # dict -> dict (already mutable)
         }
-    
-    @classmethod  
+
+    @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CallContext:
         """Create CallContext from serialized dict.
-        
+
         Converts back to immutable types for security.
         """
         return cls(
@@ -144,7 +144,7 @@ class CallContext(msgspec.Struct, kw_only=True, frozen=True):
             attrs=MappingProxyType(data.get("attrs", {})),  # dict -> MappingProxyType
             tracking=dict(data.get("tracking", {})),  # dict -> dict (mutable)
         )
-    
+
     def __pre_init__(self):
         """msgspec hook - ensure attrs is MappingProxyType for immutability."""
         # This gets called before __init__, allowing us to transform attrs
