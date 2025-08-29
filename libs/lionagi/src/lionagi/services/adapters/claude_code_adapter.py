@@ -10,9 +10,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from ..claude_code import ClaudeCodeRequestModel, create_claude_code_service
 from ..core import Service
-from ..provider_registry import ProviderAdapter
+from ..providers.claude_code import ClaudeCodeRequestModel, create_claude_code_service
+from ..providers.provider_registry import ProviderAdapter
 
 
 class ClaudeCodeAdapter(ProviderAdapter):

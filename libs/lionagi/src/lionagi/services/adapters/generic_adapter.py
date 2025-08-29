@@ -11,7 +11,7 @@ import msgspec
 
 from ..core import CallContext, Service
 from ..endpoint import RequestModel
-from ..provider_registry import ProviderAdapter
+from ..providers.provider_registry import ProviderAdapter
 from ..transport import HTTPXTransport
 
 
