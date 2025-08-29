@@ -6,7 +6,6 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass
-from typing import Dict
 
 __all__ = (
     "track_resource",

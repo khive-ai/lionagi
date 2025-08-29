@@ -14,7 +14,6 @@ from uuid import UUID
 import anyio
 import msgspec
 
-from ..errors import ServiceError
 from .core import CallContext
 from .endpoint import RequestModel
 
