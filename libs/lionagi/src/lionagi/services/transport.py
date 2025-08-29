@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
-from typing import Any, Protocol
+from typing import Protocol
 
 import httpx
 import msgspec

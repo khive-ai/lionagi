@@ -18,9 +18,7 @@ import msgspec
 
 from lionagi.errors import ServiceError, TimeoutError
 from lionagi.ln.concurrency import (
-    CapacityLimiter,
     Event,
-    Lock,
     fail_at,
     get_cancelled_exc_class,
 )
@@ -162,7 +160,7 @@ class RateLimitedExecutor:
         self.config = config
 
         # Queue management using anyio memory object streams
-        from lionagi.ln.concurrency.primitives import Queue
+        from lionagi.ln.concurrency.primitives import CapacityLimiter, Lock, Queue
 
         self._queue: Queue[ServiceCall] = Queue.with_maxsize(config.queue_capacity)
 
