@@ -16,6 +16,7 @@ classifiers=[
 ]
 dependencies = [
     "anyio>=4.7.0",
+    "json-repair>=0.50.0",
     "msgspec>=0.18.0",
     "openai>=1.100.0",
     "pydapter>=1.0.2",
@@ -31,6 +32,7 @@ dev = [
     "isort>=6.0.1",
     "pre-commit>=4.3.0",
     "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
     "ruff>=0.12.10",
     "tqdm>=4.67.1",
     "trio>=0.27.0",
