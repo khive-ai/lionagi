@@ -9,7 +9,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
-from ..errors import PolicyError
+from lionagi import _err
 from .core import CallContext
 from .endpoint import RequestModel
 
@@ -70,7 +70,7 @@ class PolicyGateMW:
         if not self._check_capabilities(ctx.capabilities, required):
             # Calculate missing capabilities for better debugging
             missing_capabilities = required - ctx.capabilities
-            raise PolicyError(
+            raise _err.PolicyError(
                 f"Insufficient capabilities for operation. Missing: {missing_capabilities}",
                 context={
                     "call_id": str(ctx.call_id),
@@ -98,7 +98,7 @@ class PolicyGateMW:
         if not self._check_capabilities(ctx.capabilities, required):
             # Calculate missing capabilities for better debugging
             missing_capabilities = required - ctx.capabilities
-            raise PolicyError(
+            raise _err.PolicyError(
                 f"Insufficient capabilities for streaming. Missing: {missing_capabilities}",
                 context={
                     "call_id": str(ctx.call_id),

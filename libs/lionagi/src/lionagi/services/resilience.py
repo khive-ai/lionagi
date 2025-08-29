@@ -15,8 +15,9 @@ from typing import Any
 import anyio
 import msgspec
 
-from ..errors import NonRetryableError, RetryableError, ServiceError, TimeoutError
-from ..ln import Lock
+from lionagi import errors as _err
+from lionagi import ln
+
 from .core import CallContext
 from .endpoint import RequestModel
 
@@ -60,7 +61,7 @@ class CircuitBreaker:
         self.success_count = 0
         self.last_failure_time = 0.0
         self.total_requests = 0
-        self._lock = Lock()  # Protect state modifications using lionagi's Lock
+        self._lock = ln.Lock()  # Protect state modifications using lionagi's Lock
 
     async def call(self, operation: Callable[[], Awaitable[Any]]) -> Any:
         """Execute operation through circuit breaker with proper state protection."""
@@ -70,7 +71,7 @@ class CircuitBreaker:
                     self.state = CircuitState.HALF_OPEN
                     logger.info("Circuit breaker entering HALF_OPEN state")
                 else:
-                    raise ServiceError("Circuit breaker is OPEN")
+                    raise _err.ServiceError("Circuit breaker is OPEN")
 
             self.total_requests += 1
 
@@ -78,10 +79,10 @@ class CircuitBreaker:
             result = await operation()
             await self._on_success()
             return result
-        except (RetryableError, TimeoutError) as e:
+        except (_err.RetryableError, TimeoutError) as e:
             await self._on_failure()
             raise
-        except NonRetryableError:
+        except _err.NonRetryableError:
             # Don't count non-retryable errors toward circuit breaking
             raise
 
@@ -136,10 +137,10 @@ class RetryMW:
         for attempt in range(self.config.max_attempts):
             try:
                 return await next_call()
-            except NonRetryableError:
+            except _err.NonRetryableError:
                 # Don't retry client errors (except 429 which is RetryableError)
                 raise
-            except (RetryableError, TimeoutError) as e:
+            except (_err.RetryableError, TimeoutError) as e:
                 last_error = e
 
                 # Don't retry on last attempt
@@ -170,7 +171,7 @@ class RetryMW:
         if last_error:
             raise last_error
         else:
-            raise ServiceError(f"All {self.config.max_attempts} retry attempts failed")
+            raise _err.ServiceError(f"All {self.config.max_attempts} retry attempts failed")
 
     async def stream(
         self,
@@ -194,9 +195,9 @@ class RetryMW:
                     yield chunk
                 return  # Stream completed successfully
 
-            except NonRetryableError:
+            except _err.NonRetryableError:
                 raise
-            except (RetryableError, TimeoutError) as e:
+            except (_err.RetryableError, TimeoutError) as e:
                 last_error = e
 
                 # If we already yielded chunks, we can't retry
@@ -226,7 +227,7 @@ class RetryMW:
         if last_error:
             raise last_error
         else:
-            raise ServiceError(f"All {self.config.max_attempts} stream retry attempts failed")
+            raise _err.ServiceError(f"All {self.config.max_attempts} stream retry attempts failed")
 
     def _compute_delay(self, attempt: int) -> float:
         """Compute retry delay with exponential backoff and jitter."""
@@ -286,7 +287,7 @@ class CircuitBreakerMW:
                     self.breaker.state = CircuitState.HALF_OPEN
                     logger.info("Circuit breaker entering HALF_OPEN state")
                 else:
-                    raise ServiceError("Circuit breaker is OPEN")
+                    raise _err.ServiceError("Circuit breaker is OPEN")
 
             self.breaker.total_requests += 1
 
@@ -305,10 +306,10 @@ class CircuitBreakerMW:
 
             success = True
 
-        except (RetryableError, TimeoutError) as e:
+        except (_err.RetryableError, TimeoutError) as e:
             await self.breaker._on_failure()
             raise
-        except NonRetryableError:
+        except _err.NonRetryableError:
             # Don't count non-retryable errors toward circuit breaking
             raise
         finally:

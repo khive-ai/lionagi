@@ -12,14 +12,7 @@ from typing import Any
 import openai
 from openai import AsyncOpenAI
 
-from lionagi.errors import (
-    NonRetryableError,
-    RateLimitError,
-    RetryableError,
-    ServiceError,
-    TimeoutError,
-)
-from lionagi.ln.concurrency import fail_at
+from lionagi import _err, ln
 
 from ..core import CallContext
 from ..endpoint import RequestModel
@@ -62,10 +55,7 @@ class OpenAICompatibleService:
                 return response.model_dump()
 
             except TimeoutError as e:
-                # Handle both lionagi.errors.TimeoutError and asyncio.TimeoutError
-                from lionagi.errors import TimeoutError as LionagiTimeoutError
-
-                raise LionagiTimeoutError(
+                raise _err.TimeoutError(
                     f"OpenAI API call timed out: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -78,7 +68,7 @@ class OpenAICompatibleService:
             except openai.RateLimitError as e:
                 # Use specific RateLimitError for better handling
                 retry_after = getattr(e, "retry_after", None) or 60.0
-                raise RateLimitError(
+                raise _err.RateLimitError(
                     retry_after=retry_after,
                     message=f"OpenAI API rate limited: {e}",
                     context={
@@ -91,10 +81,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.APITimeoutError as e:
-                # Handle OpenAI SDK timeout errors
-                from lionagi.errors import TimeoutError as LionagiTimeoutError
-
-                raise LionagiTimeoutError(
+                raise _err.TimeoutError(
                     f"OpenAI API timeout error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -106,7 +93,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.APIConnectionError as e:
-                raise RetryableError(
+                raise _err.RetryableError(
                     f"OpenAI API connection error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -117,7 +104,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.InternalServerError as e:
-                raise RetryableError(
+                raise _err.RetryableError(
                     f"OpenAI API server error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -129,7 +116,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.BadRequestError as e:
-                raise NonRetryableError(
+                raise _err.NonRetryableError(
                     f"OpenAI API bad request: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -141,7 +128,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.AuthenticationError as e:
-                raise NonRetryableError(
+                raise _err.NonRetryableError(
                     f"OpenAI API authentication failed: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -153,7 +140,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.PermissionDeniedError as e:
-                raise NonRetryableError(
+                raise _err.NonRetryableError(
                     f"OpenAI API permission denied: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -165,7 +152,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.NotFoundError as e:
-                raise NonRetryableError(
+                raise _err.NonRetryableError(
                     f"OpenAI API resource not found: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -177,7 +164,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.OpenAIError as e:
-                raise ServiceError(
+                raise _err.ServiceError(
                     f"OpenAI API error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -199,7 +186,7 @@ class OpenAICompatibleService:
         if ctx.deadline_s is None:
             return await invoke()
         else:
-            with fail_at(ctx.deadline_s):
+            with ln.fail_at(ctx.deadline_s):
                 return await invoke()
 
     async def stream(self, req: RequestModel, *, ctx: CallContext) -> AsyncIterator[dict]:
@@ -217,10 +204,7 @@ class OpenAICompatibleService:
                     yield chunk.model_dump()
 
             except TimeoutError as e:
-                # Handle both lionagi.errors.TimeoutError and asyncio.TimeoutError
-                from lionagi.errors import TimeoutError as LionagiTimeoutError
-
-                raise LionagiTimeoutError(
+                raise _err.TimeoutError(
                     f"OpenAI API stream timed out: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -233,7 +217,7 @@ class OpenAICompatibleService:
                 )
             except openai.RateLimitError as e:
                 retry_after = getattr(e, "retry_after", None) or 60.0
-                raise RateLimitError(
+                raise _err.RateLimitError(
                     retry_after=retry_after,
                     message=f"OpenAI API stream rate limited: {e}",
                     context={
@@ -246,10 +230,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.APITimeoutError as e:
-                # Handle OpenAI SDK timeout errors in streaming
-                from lionagi.errors import TimeoutError as LionagiTimeoutError
-
-                raise LionagiTimeoutError(
+                raise _err.TimeoutError(
                     f"OpenAI API stream timeout error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -262,7 +243,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.APIConnectionError as e:
-                raise RetryableError(
+                raise _err.RetryableError(
                     f"OpenAI API stream connection error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -274,7 +255,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.InternalServerError as e:
-                raise RetryableError(
+                raise _err.RetryableError(
                     f"OpenAI API stream server error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -287,7 +268,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.BadRequestError as e:
-                raise NonRetryableError(
+                raise _err.NonRetryableError(
                     f"OpenAI API stream bad request: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -300,7 +281,7 @@ class OpenAICompatibleService:
                     cause=e,
                 )
             except openai.OpenAIError as e:
-                raise ServiceError(
+                raise _err.ServiceError(
                     f"OpenAI API stream error: {e}",
                     context={
                         "call_id": str(ctx.call_id),
@@ -328,7 +309,7 @@ class OpenAICompatibleService:
             async for chunk in invoke_stream():
                 yield chunk
         else:
-            with fail_at(ctx.deadline_s):
+            with ln.fail_at(ctx.deadline_s):
                 async for chunk in invoke_stream():
                     yield chunk
 

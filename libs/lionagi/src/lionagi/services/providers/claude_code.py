@@ -18,8 +18,7 @@ from typing import Any, Literal
 
 from json_repair import repair_json
 
-from lionagi.errors import ServiceError
-from lionagi.ln import fail_at
+from lionagi import _err, ln
 
 from ..core import CallContext, Service
 from ..endpoint import RequestModel
@@ -216,7 +215,7 @@ class ClaudeCodeCLIService(Service):
             base_repo: Base repository path for Claude Code operations
         """
         if not HAS_CLAUDE_CODE_CLI:
-            raise ServiceError(
+            raise _err.ServiceError(
                 "Claude CLI not found. Install with: npm i -g @anthropic-ai/claude-code",
                 context={"service": self.name},
             )
@@ -334,7 +333,7 @@ class ClaudeCodeCLIService(Service):
                 exit_code = await proc.wait()
                 if exit_code != 0:
                     stderr = (await proc.stderr.read()).decode().strip()
-                    raise ServiceError(
+                    raise _err.ServiceError(
                         f"Claude CLI exited with code {exit_code}: {stderr}",
                         context={
                             "call_id": str(ctx.call_id),
@@ -354,7 +353,7 @@ class ClaudeCodeCLIService(Service):
             async for chunk in do_stream():
                 yield chunk
         else:
-            with fail_at(ctx.deadline_s):
+            with ln.fail_at(ctx.deadline_s):
                 async for chunk in do_stream():
                     yield chunk
 

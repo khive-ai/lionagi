@@ -11,12 +11,7 @@ from typing import Protocol
 import httpx
 import msgspec
 
-from lionagi.errors import (
-    NonRetryableError,
-    RateLimitError,
-    RetryableError,
-    TransportError,
-)
+from lionagi import errors as _err
 
 
 class Transport(Protocol):
@@ -108,13 +103,13 @@ class HTTPXTransport:
             return msgspec.json.decode(response.content)
 
         except httpx.TimeoutException as e:
-            raise TransportError(
+            raise _err.TransportError(
                 f"Request timed out: {e}",
                 context={"method": method, "url": url, "timeout_s": timeout_s},
                 cause=e,
             )
         except httpx.NetworkError as e:
-            raise RetryableError(
+            raise _err.RetryableError(
                 f"Network error: {e}",
                 context={"method": method, "url": url},
                 cause=e,
@@ -122,7 +117,7 @@ class HTTPXTransport:
         except httpx.HTTPStatusError as e:
             self._handle_http_error(e, method=method, url=url)
         except msgspec.DecodeError as e:
-            raise TransportError(
+            raise _err.TransportError(
                 f"Invalid JSON response: {e}",
                 context={
                     "method": method,
@@ -158,7 +153,7 @@ class HTTPXTransport:
                         yield chunk
 
         except httpx.TimeoutException as e:
-            raise TransportError(
+            raise _err.TransportError(
                 f"Stream timed out: {e}",
                 context={
                     "method": method,
@@ -169,7 +164,7 @@ class HTTPXTransport:
                 cause=e,
             )
         except httpx.NetworkError as e:
-            raise RetryableError(
+            raise _err.RetryableError(
                 f"Network error during streaming: {e}",
                 context={"method": method, "url": url, "operation": "streaming"},
                 cause=e,
@@ -196,9 +191,9 @@ class HTTPXTransport:
             response_preview += "... [truncated]"
 
         if response.status_code == 429:
-            # Rate limited - use specific RateLimitError
+            # Rate limited - use specific _err.RateLimitError
             retry_after = float(response.headers.get("Retry-After", 60))
-            raise RateLimitError(
+            raise _err.RateLimitError(
                 retry_after=retry_after,
                 message=f"Rate limited: {response.status_code}",
                 context={
@@ -209,19 +204,19 @@ class HTTPXTransport:
             )
         elif 500 <= response.status_code < 600:
             # Server error - retryable
-            raise RetryableError(
+            raise _err.RetryableError(
                 f"Server error: {response.status_code} {response.reason_phrase}",
                 context={**base_context, "response_preview": response_preview},
             )
         elif 400 <= response.status_code < 500:
             # Client error - non-retryable (except 429 handled above)
-            raise NonRetryableError(
+            raise _err.NonRetryableError(
                 f"Client error: {response.status_code} {response.reason_phrase}",
                 context={**base_context, "response_preview": response_preview},
             )
         else:
             # Other status codes
-            raise TransportError(
+            raise _err.TransportError(
                 f"HTTP error: {response.status_code} {response.reason_phrase}",
                 status_code=response.status_code,
                 context={**base_context, "response_preview": response_preview},

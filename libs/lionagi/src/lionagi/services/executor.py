@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 import anyio
 import msgspec
 
-from lionagi.errors import ServiceError, TimeoutError
+from lionagi import _err
 from lionagi.ln.concurrency import (
     Event,
     fail_at,
@@ -98,7 +98,7 @@ class ServiceCall(msgspec.Struct, kw_only=True):
         elif self.status == CallStatus.CANCELLED:
             raise get_cancelled_exc_class()("Service call was cancelled")
         else:
-            raise ServiceError(
+            raise _err.ServiceError(
                 f"Call completed with unexpected status: {self.status}",
                 context={
                     "call_id": str(self.id),
@@ -307,7 +307,7 @@ class RateLimitedExecutor:
             logger.debug(f"Call {call.id} queued for processing")
         except anyio.WouldBlock:
             # Queue is at capacity - fail immediately
-            raise ServiceError(
+            raise _err.ServiceError(
                 "Executor queue at capacity - cannot accept new calls",
                 context={
                     "call_id": str(call.id),
@@ -317,7 +317,7 @@ class RateLimitedExecutor:
                 },
             )
         except Exception as e:
-            raise ServiceError(
+            raise _err.ServiceError(
                 "Failed to queue call",
                 context={
                     "call_id": str(call.id),
@@ -381,7 +381,7 @@ class RateLimitedExecutor:
                     # Wait until we can process this call (deadline-aware)
                     try:
                         await self._wait_for_capacity(call)
-                    except TimeoutError as e:
+                    except _err.TimeoutError as e:
                         # Mark call as failed due to timeout
                         call.mark_failed(e)
                         logger.debug(f"Call {call.id} failed during capacity wait: {e}")
@@ -395,7 +395,7 @@ class RateLimitedExecutor:
                     if len(self.completed_calls) > 100:
                         asyncio.create_task(self._cleanup_completed())
 
-                except TimeoutError:
+                except _err.TimeoutError:
                     # Queue get timed out, loop to check shutdown
                     continue
                 except (anyio.ClosedResourceError, anyio.EndOfStream):
@@ -437,7 +437,7 @@ class RateLimitedExecutor:
         while True:
             # Check for shutdown first
             if self._shutdown_event.is_set():
-                raise TimeoutError(f"Call {call.id} cancelled due to shutdown")
+                raise _err.TimeoutError(f"Call {call.id} cancelled due to shutdown")
 
             async with self._rate_lock:
                 if self._can_process_call(call):
@@ -452,7 +452,7 @@ class RateLimitedExecutor:
                 remaining = call.context.deadline_s - current_time
 
                 if remaining <= 0:
-                    raise TimeoutError(f"Call {call.id} deadline already passed")
+                    raise _err.TimeoutError(f"Call {call.id} deadline already passed")
 
                 # Calculate when rate limits will next refresh
                 next_refresh_at = self.last_refresh + self.config.capacity_refresh_time
@@ -466,7 +466,7 @@ class RateLimitedExecutor:
                     # Wait until deadline, then fail (don't fail immediately)
                     wait_time = max(0.01, remaining - 0.01)  # Wait almost until deadline
                     await anyio.sleep(wait_time)
-                    raise TimeoutError(
+                    raise _err.TimeoutError(
                         f"Call {call.id} deadline exceeded - rate limit capacity unavailable until {time_until_refresh:.1f}s"
                     )
 
@@ -478,7 +478,7 @@ class RateLimitedExecutor:
                         await anyio.sleep(wait_time)
                 except get_cancelled_exc_class():
                     # Deadline exceeded while waiting for capacity
-                    raise TimeoutError(
+                    raise _err.TimeoutError(
                         f"Call {call.id} deadline exceeded while waiting for rate limit capacity"
                     ) from None
             else:

@@ -1,5 +1,4 @@
 # Copyright (c) 2025 HaiyangLi (Ocean) - All Rights Reserved
-# PRIVATE - Lion Ecosystem (Language Interoperable Network)
 # Core telemetry facade with vendor-neutral interface for observability
 
 from __future__ import annotations

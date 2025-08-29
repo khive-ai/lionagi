@@ -30,8 +30,6 @@ __all__ = (
     "RelationError",
     "OperationError",
     "ExecutionError",
-    "ItemNotFoundError",
-    "ItemExistsError",
 )
 
 
@@ -234,8 +232,3 @@ class RelationError(NonRetryableError):
     """Relationship constraint violation - non-retryable."""
 
     code = "relation_error"
-
-
-# Aliases for backwards compatibility
-ItemNotFoundError = NotFoundError
-ItemExistsError = ExistsError
