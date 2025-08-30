@@ -2,254 +2,254 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://lionagi.ai/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/DOCUMENTATION_STANDARDS/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/code-of-conduct/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/contributing/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/advanced/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/advanced/custom-operations/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/advanced/error-handling/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/advanced/flow-composition/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/advanced/observability/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/advanced/performance/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/comparisons/langgraph/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/cookbook/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/cookbook/brainstorming/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/cookbook/claim-extraction/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/cookbook/code-review-crew/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/cookbook/data-persistence/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/cookbook/hr-automation/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/cookbook/research-synthesis/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/core-concepts/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/core-concepts/lionagi-philosophy/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/core-concepts/messages-and-memory/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/core-concepts/models-and-providers/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/core-concepts/operations/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/core-concepts/sessions-and-branches/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/core-concepts/tools-and-functions/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/for-ai-agents/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/for-ai-agents/claude-code-usage/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/for-ai-agents/orchestration-guide/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/for-ai-agents/pattern-selection/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/for-ai-agents/self-improvement/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/includes/abbreviations/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/databases/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/dspy-optimization/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/llamaindex-rag/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/llm-providers/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/mcp-servers/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/tools/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/integrations/vector-stores/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/marketing/language-interoperability-manifesto/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/migration/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/migration/from-autogen/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/migration/from-crewai/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/migration/from-langchain/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/patterns/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/patterns/conditional-flows/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/patterns/fan-out-in/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/patterns/react-with-rag/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/patterns/sequential-analysis/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/patterns/tournament-validation/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/quickstart/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/quickstart/claude-code-integration/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/quickstart/installation/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/quickstart/orchestration-first/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/quickstart/your-first-flow/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/reference/changelog/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/reference/troubleshooting/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/reference/api/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/thinking-in-lionagi/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/thinking-in-lionagi/branches-as-agents/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/thinking-in-lionagi/builder-pattern/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/thinking-in-lionagi/graphs-over-chains/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
     <url>
          <loc>https://lionagi.ai/thinking-in-lionagi/why-lionagi/</loc>
-         <lastmod>2025-08-27</lastmod>
+         <lastmod>2025-08-30</lastmod>
     </url>
 </urlset>
