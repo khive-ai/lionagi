@@ -190,11 +190,13 @@ class Element(BaseModel, Observable):
         return val
 
     @field_validator("created_at", mode="before")
-    def _coerce_created_at(cls, val: float | dt.datetime | None) -> float:
+    def _coerce_created_at(
+        cls, val: float | dt.datetime | str | None
+    ) -> float:
         """Coerces `created_at` to a float-based timestamp.
 
         Args:
-            val (float | datetime | None): The initial creation time value.
+            val (float | datetime | str | None): The initial creation time value.
 
         Returns:
             float: A float representing Unix epoch time in seconds.
@@ -208,6 +210,27 @@ class Element(BaseModel, Observable):
             return val
         if isinstance(val, dt.datetime):
             return val.timestamp()
+        if isinstance(val, str):
+            # Parse datetime string from database
+            try:
+                # Handle datetime strings like "2025-08-30 10:54:59.310329"
+                # Convert space to T for ISO format, but handle timezone properly
+                iso_string = val.replace(" ", "T")
+                parsed_dt = dt.datetime.fromisoformat(iso_string)
+
+                # If parsed as naive datetime (no timezone), treat as UTC to avoid local timezone issues
+                if parsed_dt.tzinfo is None:
+                    parsed_dt = parsed_dt.replace(tzinfo=dt.timezone.utc)
+
+                return parsed_dt.timestamp()
+            except ValueError:
+                # Try parsing as float string as fallback
+                try:
+                    return float(val)
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid datetime string: {val}"
+                    ) from None
         try:
             return float(val)  # type: ignore
         except Exception:
@@ -245,7 +268,7 @@ class Element(BaseModel, Observable):
         Returns:
             datetime: The creation time in UTC.
         """
-        return dt.datetime.fromtimestamp(self.created_at)
+        return dt.datetime.fromtimestamp(self.created_at, tz=dt.timezone.utc)
 
     def __eq__(self, other: Any) -> bool:
         """Compares two Element instances by their ID."""
@@ -279,18 +302,26 @@ class Element(BaseModel, Observable):
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
         return {k: v for k, v in dict_.items() if ln.not_sentinel(v)}
 
-    def to_dict(self, mode: Literal["python", "json"] = "python") -> dict:
+    def to_dict(
+        self, mode: Literal["python", "json", "db"] = "python"
+    ) -> dict:
         """Converts this Element to a dictionary."""
         if mode == "python":
             return self._to_dict()
-        return orjson.loads(self.to_json(decode=False))
+        if mode == "json":
+            return orjson.loads(self.to_json(decode=False))
+        if mode == "db":
+            dict_ = orjson.loads(self.to_json(decode=False))
+            dict_["node_metadata"] = dict_.pop("metadata", {})
+            dict_["created_at"] = self.created_datetime.isoformat(sep=" ")
+            return dict_
 
     def as_jsonable(self) -> dict:
         """Converts this Element to a JSON-serializable dictionary."""
         return self.to_dict(mode="json")
 
     @classmethod
-    def from_dict(cls, data: dict, /) -> Element:
+    def from_dict(cls, data: dict, /, mode: str = "python") -> Element:
         """Deserializes a dictionary into an Element or subclass of Element.
 
         If `lion_class` in `metadata` refers to a subclass, this method
@@ -298,8 +329,17 @@ class Element(BaseModel, Observable):
 
         Args:
             data (dict): A dictionary of field data.
+            mode (str): Format mode - "python" for normal dicts, "db" for database format.
         """
-        metadata = data.pop("metadata", {})
+        # Preprocess database format if needed
+        if mode == "db":
+            data = cls._preprocess_db_data(data.copy())
+        metadata = {}
+
+        if "node_metadata" in data:
+            metadata = data.pop("node_metadata")
+        elif "metadata" in data:
+            metadata = data.pop("metadata")
         if "lion_class" in metadata:
             subcls: str = metadata.pop("lion_class")
             if subcls != Element.class_name(full=True):
@@ -327,6 +367,56 @@ class Element(BaseModel, Observable):
         data["metadata"] = metadata
         return cls.model_validate(data)
 
+    @classmethod
+    def _preprocess_db_data(cls, data: dict) -> dict:
+        """Preprocess raw database data for Element compatibility."""
+        import datetime as dt
+        import json
+
+        # Handle created_at field - convert datetime string to timestamp
+        if "created_at" in data and isinstance(data["created_at"], str):
+            try:
+                # Parse datetime string and convert to timestamp
+                dt_obj = dt.datetime.fromisoformat(
+                    data["created_at"].replace(" ", "T")
+                )
+                # Treat as UTC if naive
+                if dt_obj.tzinfo is None:
+                    dt_obj = dt_obj.replace(tzinfo=dt.timezone.utc)
+                data["created_at"] = dt_obj.timestamp()
+            except (ValueError, TypeError):
+                # Keep as string if parsing fails
+                pass
+
+        # Handle JSON string fields - parse to dict/list
+        json_fields = ["content", "node_metadata", "embedding"]
+        for field in json_fields:
+            if field in data and isinstance(data[field], str):
+                if data[field] in ("null", ""):
+                    data[field] = None if field == "embedding" else {}
+                else:
+                    try:
+                        data[field] = json.loads(data[field])
+                    except (json.JSONDecodeError, TypeError):
+                        # Keep as empty dict for metadata fields, None for embedding
+                        data[field] = {} if field != "embedding" else None
+
+        # Handle node_metadata -> metadata mapping
+        if "node_metadata" in data:
+            if (
+                data["node_metadata"] == "null"
+                or data["node_metadata"] is None
+            ):
+                data["metadata"] = {}
+            else:
+                data["metadata"] = (
+                    data["node_metadata"] if data["node_metadata"] else {}
+                )
+            # Remove node_metadata to avoid Pydantic validation error
+            data.pop("node_metadata", None)
+
+        return data
+
     def to_json(self, decode: bool = True) -> str:
         """Converts this Element to a JSON string."""
         dict_ = self._to_dict()
@@ -338,10 +428,11 @@ class Element(BaseModel, Observable):
             ).decode()
         return orjson.dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER)
 
-    def from_json(cls, json_str: str) -> Element:
+    @classmethod
+    def from_json(cls, json_str: str, mode: str = "python") -> Element:
         """Deserializes a JSON string into an Element or subclass of Element."""
         data = orjson.loads(json_str)
-        return cls.from_dict(data)
+        return cls.from_dict(data, mode=mode)
 
 
 DEFAULT_ELEMENT_SERIALIZER = ln.get_orjson_default(

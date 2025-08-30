@@ -1,7 +1,12 @@
 """
-Clean LionAGI async PostgreSQL adapter for integration into lionagi core.
+Simplified LionAGI async PostgreSQL adapter for pydapter v1.0.4+
 
-This adapter leverages pydapter v1.0.2+ CRUD operations.
+This adapter leverages pydapter's improved raw SQL handling.
+No workarounds needed - pydapter now properly handles:
+- Raw SQL without table parameter
+- No table inspection for raw SQL
+- ORDER BY operations
+- Both SQLite and PostgreSQL connections
 """
 
 from __future__ import annotations
@@ -24,11 +29,12 @@ T = TypeVar("T")
 
 class LionAGIAsyncPostgresAdapter(AsyncPostgresAdapter[T]):
     """
-    Zero-config async PostgreSQL adapter for lionagi Nodes.
+    Streamlined async adapter for lionagi Nodes.
 
+    Features:
     - Auto-creates tables with lionagi schema
-    - Changes default adapt_meth to "to_dict" for lionagi Elements
-    - Everything else handled by parent AsyncPostgresAdapter
+    - Inherits all pydapter v1.0.4+ improvements
+    - No workarounds needed for SQLite or raw SQL
     """
 
     obj_key: ClassVar[str] = "lionagi_async_pg"
@@ -40,10 +46,10 @@ class LionAGIAsyncPostgresAdapter(AsyncPostgresAdapter[T]):
         /,
         *,
         many: bool = True,
-        adapt_meth: str = "as_jsonable",  # Default to to_dict for lionagi
+        adapt_meth: str = None,
         **kw,
     ):
-        """Write lionagi Node(s) to PostgreSQL with CRUD support."""
+        """Write lionagi Node(s) to database with auto-table creation."""
         # Auto-create table if needed
         if table := kw.get("table"):
             if engine_url := (kw.get("dsn") or kw.get("engine_url")):
@@ -58,14 +64,12 @@ class LionAGIAsyncPostgresAdapter(AsyncPostgresAdapter[T]):
     @classmethod
     async def _ensure_table(cls, engine_or_url, table_name: str):
         """Create table with lionagi schema if it doesn't exist."""
-        # Handle both engine and URL
-        should_dispose = None
+        should_dispose = False
         if isinstance(engine_or_url, str):
             engine = create_async_engine(engine_or_url, future=True)
             should_dispose = True
         else:
             engine = engine_or_url
-            should_dispose = False
 
         try:
             async with engine.begin() as conn:
@@ -84,12 +88,8 @@ class LionAGIAsyncPostgresAdapter(AsyncPostgresAdapter[T]):
                         sa.MetaData(),
                         sa.Column("id", sa.String, primary_key=True),
                         sa.Column("content", json_type),
-                        sa.Column(
-                            "metadata", json_type
-                        ),  # Use metadata directly now
-                        sa.Column(
-                            "created_at", sa.Float
-                        ),  # Stored as float timestamp
+                        sa.Column("node_metadata", json_type),
+                        sa.Column("created_at", sa.DateTime),
                         sa.Column("embedding", json_type, nullable=True),
                     ).create(sync_conn, checkfirst=True)
                 )
