@@ -2193,7 +2193,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "psutil", specifier = ">=6.0.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.2" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.4" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
@@ -3867,16 +3867,16 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "1.0.2"
+version = "1.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "pydantic" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/98/f1/7a13a39e25020112faadb1c1791aca897a44374f65e442822f56520f955b/pydapter-1.0.2.tar.gz", hash = "sha256:08106d3e14def55320f02b796d8091bff484cc8c20fc8d844cc2649d7adb82fc", size = 410114, upload-time = "2025-08-24T17:23:31.422Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/cc/5e5fc745f27e543bd9a1388ea662de57b30f9e459200297cf46745b6d448/pydapter-1.0.4.tar.gz", hash = "sha256:c765cada7a2a7176e74413686ab8a2b5e2969a95696c3aa2f27f07d46259a7b2", size = 410252, upload-time = "2025-08-30T15:54:05.572Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/ef/37e15a6d24921dc688a74593bee6c74012ab16e54578a6897e29e2734362/pydapter-1.0.2-py3-none-any.whl", hash = "sha256:fb4e3dd3bc5a65c6209c37f643b6112ba90d97bb9ff8814cf048d3d142cc2710", size = 95588, upload-time = "2025-08-24T17:23:29.841Z" },
+    { url = "https://files.pythonhosted.org/packages/80/9e/e7282e231e1155a1854dd45866ab7f3e618dfd7eae720518235f7beef020/pydapter-1.0.4-py3-none-any.whl", hash = "sha256:e54cd9d060c1e34d68eec1650e7169c21e6a5e9e70eb58fa0bf5684ffc1ff475", size = 95675, upload-time = "2025-08-30T15:54:04.155Z" },
 ]
 
 [package.optional-dependencies]
