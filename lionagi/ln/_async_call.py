@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 import anyio
+import anyio.to_thread
 from pydantic import BaseModel
 
 from ._models import Params

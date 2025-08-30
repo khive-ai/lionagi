@@ -190,11 +190,13 @@ class Element(BaseModel, Observable):
         return val
 
     @field_validator("created_at", mode="before")
-    def _coerce_created_at(cls, val: float | dt.datetime | None) -> float:
+    def _coerce_created_at(
+        cls, val: float | dt.datetime | str | None
+    ) -> float:
         """Coerces `created_at` to a float-based timestamp.
 
         Args:
-            val (float | datetime | None): The initial creation time value.
+            val (float | datetime | str | None): The initial creation time value.
 
         Returns:
             float: A float representing Unix epoch time in seconds.
@@ -208,6 +210,20 @@ class Element(BaseModel, Observable):
             return val
         if isinstance(val, dt.datetime):
             return val.timestamp()
+        if isinstance(val, str):
+            # Parse datetime string from database
+            try:
+                # Handle datetime strings like "2025-08-30 10:54:59.310329"
+                parsed_dt = dt.datetime.fromisoformat(val.replace(" ", "T"))
+                return parsed_dt.timestamp()
+            except ValueError:
+                # Try parsing as float string as fallback
+                try:
+                    return float(val)
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid datetime string: {val}"
+                    ) from None
         try:
             return float(val)  # type: ignore
         except Exception:
