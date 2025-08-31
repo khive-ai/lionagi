@@ -59,17 +59,19 @@ class CapabilityMonotonicity:
     name = "CapabilityMonotonicity"
 
     def __init__(self):
-        self._pre_caps: set[str] = set()
+        # Snapshot per (branch,node) to avoid races under concurrent execution
+        self._snap: dict[tuple, set[str]] = {}
 
     def pre(self, br: Branch, node: OpNode) -> bool:
-        # Use live rights view to capture runtime capability changes
-        self._pre_caps = set(br.capabilities)
+        # Take a per-node snapshot of current capabilities
+        self._snap[(br.id, node.id)] = set(br.capabilities)
         return True
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
-        # Compare against live rights view to detect privilege escalation
+        # Compare against the node's snapshot to detect escalation
+        pre_caps = self._snap.pop((br.id, node.id), set())
         post_caps = set(br.capabilities)
-        return post_caps.issubset(self._pre_caps) or post_caps == self._pre_caps
+        return post_caps.issubset(pre_caps)
 
 
 class DeterministicLineage:

@@ -51,8 +51,18 @@ class Runner:
                 )
             )
 
+        async def on_error(br: Branch, node: OpNode, err: dict):
+            await self.ipu.on_observation(
+                Observation(
+                    who=br.id,
+                    what="node.error",
+                    payload={"node": str(node.id), **(err or {})},
+                )
+            )
+
         self.bus.subscribe("node.start", on_start)
         self.bus.subscribe("node.finish", on_finish)
+        self.bus.subscribe("node.error", on_error)
 
     async def run(self, br: Branch, g: OpGraph) -> dict[Any, Any]:
         """Execute an OpGraph within a Branch using structured concurrency.

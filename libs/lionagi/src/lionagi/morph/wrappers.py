@@ -41,6 +41,16 @@ class OpThenPatch(BaseOp):
         self.result_bytes_limit = getattr(inner, "result_bytes_limit", None)
         self.latency_budget_ms = getattr(inner, "latency_budget_ms", None)
 
+    def required_rights(self, **kw) -> set[str]:
+        """Forward dynamic rights; union with inner static requires."""
+        fn = getattr(self.inner, "required_rights", None)
+        if callable(fn):
+            try:
+                return set(fn(**kw)) | set(getattr(self.inner, "requires", set()))
+            except Exception:
+                pass
+        return set(getattr(self.inner, "requires", set()) or self.requires)
+
     async def pre(self, br: Branch, **kw) -> bool:
         return await self.inner.pre(br, **kw)
 

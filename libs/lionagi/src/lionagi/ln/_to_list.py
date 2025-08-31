@@ -48,8 +48,8 @@ def to_list(
         dropna: If True, remove None and undefined values.
         unique: If True, remove duplicates (requires flatten=True).
         use_values: If True, extract values from enums/mappings.
-        flatten_tuple_items: If True, include tuples in flattening.
-        flatten_set_items: If True, include sets in flattening.
+        flatten_tuple_set: If True, include tuple/set items in flattening; if False (default),
+            tuples/sets are treated as atomic items even when flatten=True.
 
     Raises:
         ValueError: If unique=True is used without flatten=True.

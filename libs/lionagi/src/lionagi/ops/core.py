@@ -319,6 +319,16 @@ class WithRetry(BaseOp):
     async def post(self, br: Branch, res: dict) -> bool:
         return await self.inner.post(br, res)
 
+    def required_rights(self, **kw) -> set[str]:
+        """Forward dynamic rights through the retry wrapper."""
+        fn = getattr(self.inner, "required_rights", None)
+        if callable(fn):
+            try:
+                return set(fn(**kw)) | set(getattr(self.inner, "requires", set()))
+            except Exception:
+                pass
+        return set(getattr(self.inner, "requires", set()) or self.requires)
+
 
 @register
 class WithTimeout(BaseOp):
@@ -346,3 +356,13 @@ class WithTimeout(BaseOp):
 
     async def post(self, br: Branch, res: dict) -> bool:
         return await self.inner.post(br, res)
+
+    def required_rights(self, **kw) -> set[str]:
+        """Forward dynamic rights through the timeout wrapper."""
+        fn = getattr(self.inner, "required_rights", None)
+        if callable(fn):
+            try:
+                return set(fn(**kw)) | set(getattr(self.inner, "requires", set()))
+            except Exception:
+                pass
+        return set(getattr(self.inner, "requires", set()) or self.requires)

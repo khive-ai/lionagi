@@ -50,6 +50,39 @@ class BoundOp(BaseOp):
         self.result_bytes_limit = getattr(inner, "result_bytes_limit", None)
         self.latency_budget_ms = getattr(inner, "latency_budget_ms", None)
 
+    def required_rights(self, **kw) -> set[str]:
+        """
+        Delegate dynamic rights to the inner morphism after reconstructing the
+        inner-call kwargs from (bind, defaults) and runtime kwargs.
+
+        Note: Runner already merges Branch.ctx into **kw, so we can rebuild
+        bound parameters without direct access to br.ctx here.
+        """
+        inner_req = getattr(self.inner, "required_rights", None)
+        # If inner has no dynamic calculator, fall back to static declaration
+        if not callable(inner_req):
+            return set(getattr(self.inner, "requires", set()) or self.requires)
+
+        # 1) start with defaults
+        call_kw: dict[str, Any] = dict(self.defaults)
+        # 2) fill from binding map using values present in runtime kw (ctx merged by Runner)
+        for param, ctx_key in self.bind.items():
+            if ctx_key in kw:
+                call_kw[param] = kw[ctx_key]
+        # 3) allow direct param override if caller provided param-named entries
+        for param in list(self.bind.keys()):
+            if param in kw:
+                call_kw[param] = kw[param]
+        # 4) pass through any additional params inner may care about
+        for k, v in kw.items():
+            call_kw.setdefault(k, v)
+
+        try:
+            reqs = inner_req(**call_kw)
+            return set(reqs) | set(getattr(self.inner, "requires", set()))
+        except Exception:
+            return set(getattr(self.inner, "requires", set()) or self.requires)
+
     async def pre(self, br: Branch, **kw) -> bool:
         call_kw = _build_call_kwargs(br, kw, self.bind, self.defaults)
         return await self.inner.pre(br, **call_kw)

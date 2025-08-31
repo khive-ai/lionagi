@@ -295,9 +295,16 @@ class iModel:
             branch_id = uuid4()
 
         # Build capabilities (what the caller IS allowed to do)
-        all_capabilities = set()
+        all_capabilities: set[str] = set()
         if capabilities:
             all_capabilities.update(capabilities)
+        else:
+            # Sensible default: auto-grant the service's declared requirements
+            sr = getattr(self.service, "requires", set())
+            try:
+                all_capabilities.update(set(sr))
+            except TypeError:
+                pass
 
         # CRITICAL: Pass service requirements into context attrs for PolicyGateMW
         # The requirements are derived from the service (which the adapter created)

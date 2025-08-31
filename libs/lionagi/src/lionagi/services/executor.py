@@ -395,7 +395,7 @@ class RateLimitedExecutor:
                     if len(self.completed_calls) > 100:
                         asyncio.create_task(self._cleanup_completed())
 
-                except _err.TimeoutError:
+                except asyncio.TimeoutError:
                     # Queue get timed out, loop to check shutdown
                     continue
                 except (anyio.ClosedResourceError, anyio.EndOfStream):
