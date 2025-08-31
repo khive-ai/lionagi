@@ -23,6 +23,29 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
+def _handle_response_format_kwargs(
+    operative_model: type[BaseModel] = None,
+    request_model: type[BaseModel] = None,
+    response_format: type[BaseModel] = None,
+):
+    if operative_model:
+        logging.warning(
+            "`operative_model` is deprecated. Use `response_format` instead."
+        )
+    if (
+        (operative_model and response_format)
+        or (operative_model and request_model)
+        or (response_format and request_model)
+    ):
+        raise ValueError(
+            "Cannot specify both `operative_model` and `response_format` (or `request_model`) "
+            "as they are aliases of each other."
+        )
+
+    # Use the final chosen format
+    return response_format or operative_model or request_model
+
+
 async def operate(
     branch: "Branch",
     *,
@@ -66,22 +89,10 @@ async def operate(
     include_token_usage_to_model: bool = False,
     **kwargs,
 ) -> list | BaseModel | None | dict | str:
-    if operative_model:
-        logging.warning(
-            "`operative_model` is deprecated. Use `response_format` instead."
-        )
-    if (
-        (operative_model and response_format)
-        or (operative_model and request_model)
-        or (response_format and request_model)
-    ):
-        raise ValueError(
-            "Cannot specify both `operative_model` and `response_format` (or `request_model`) "
-            "as they are aliases of each other."
-        )
 
-    # Use the final chosen format
-    response_format = response_format or operative_model or request_model
+    response_format = _handle_response_format_kwargs(
+        operative_model, request_model, response_format
+    )
 
     # Decide which chat model to use
     chat_model = chat_model or imodel or branch.chat_model
