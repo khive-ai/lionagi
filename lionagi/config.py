@@ -62,6 +62,7 @@ class AppSettings(BaseSettings, frozen=True):
     PERPLEXITY_API_KEY: SecretStr | None = None
     GROQ_API_KEY: SecretStr | None = None
     ANTHROPIC_API_KEY: SecretStr | None = None
+    NVIDIA_NIM_API_KEY: SecretStr | None = None
 
     OPENAI_DEFAULT_MODEL: str = "gpt-4.1-mini"
 
