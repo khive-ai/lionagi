@@ -11,7 +11,7 @@ from typing import Protocol
 import httpx
 import msgspec
 
-from lionagi import errors as _err
+from .. import _err
 
 
 class Transport(Protocol):

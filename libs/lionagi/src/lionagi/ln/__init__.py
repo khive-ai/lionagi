@@ -1,10 +1,9 @@
-from ._breakdown_pyd_annotation import breakdown_pydantic_annotation
-from ._extract_json import extract_json
-from ._fuzzy_json import fuzzy_json
-from ._to_list import to_list
+from ._breakdown_pyd_annotation import *
+from ._to_list import *
 from ._types import *
-from ._utils import create_path, get_bins, import_module, is_import_installed, now_utc
+from ._utils import *
 from .concurrency import *
+from .fuzzy import *
 
 __all__ = (
     "CancelScope",
@@ -34,10 +33,14 @@ __all__ = (
     "LeakInfo",
     "LeakTracker",
     "is_coro_func",
-    "now_utc",
-    "to_list",
+    "fuzzy_match_keys",
+    "string_similarity",
+    "SimilarityFunc",
+    "SIMILARITY_TYPE",
     "extract_json",
     "fuzzy_json",
+    "breakdown_pydantic_annotation",
+    "now_utc",
     "create_path",
     "get_bins",
     "import_module",
@@ -52,5 +55,6 @@ __all__ = (
     "UnsetType",
     "is_sentinel",
     "not_sentinel",
-    "breakdown_pydantic_annotation",
+    "to_list",
+    "hash_dict",
 )

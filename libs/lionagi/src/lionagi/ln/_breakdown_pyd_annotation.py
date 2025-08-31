@@ -4,6 +4,9 @@ from typing import Any, get_args, get_origin
 from pydantic import BaseModel
 
 
+__all__ = ("breakdown_pydantic_annotation",)
+
+
 def breakdown_pydantic_annotation(
     model: type[BaseModel], max_depth: int | None = None, current_depth: int = 0
 ) -> dict[str, Any]:
