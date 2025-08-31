@@ -10,8 +10,8 @@ from pydantic import BaseModel
 
 from ..core import Service
 from ..endpoint import ChatRequestModel
-from ..openai import create_generic_service, create_openai_service
-from ..provider_registry import ProviderAdapter
+from ..providers.openai import create_generic_service, create_openai_service
+from ..providers.provider_registry import ProviderAdapter
 
 
 def _host_rights(url: str | None, default: str) -> set[str]:

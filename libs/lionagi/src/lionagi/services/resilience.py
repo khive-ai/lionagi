@@ -15,7 +15,7 @@ from typing import Any
 import anyio
 import msgspec
 
-from lionagi import errors as _err
+from lionagi import _err
 from lionagi import ln
 
 from .core import CallContext

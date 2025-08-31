@@ -5,9 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import codecs
-import contextlib
 import json
 import logging
 import shutil
@@ -22,6 +19,7 @@ from lionagi import _err, ln
 
 from ..core import CallContext, Service
 from ..endpoint import RequestModel
+from ..transport import SubprocessCLITransport
 
 logger = logging.getLogger(__name__)
 
@@ -208,11 +206,12 @@ class ClaudeCodeCLIService(Service):
     name = "claude_code_cli"
     requires = frozenset({"exec:claude", "fs.read", "fs.write"})
 
-    def __init__(self, base_repo: str | Path | None = None):
+    def __init__(self, base_repo: str | Path | None = None, *, max_concurrent: int = 5):
         """Initialize Claude Code CLI service.
 
         Args:
             base_repo: Base repository path for Claude Code operations
+            max_concurrent: Maximum concurrent CLI operations
         """
         if not HAS_CLAUDE_CODE_CLI:
             raise _err.ServiceError(
@@ -221,6 +220,7 @@ class ClaudeCodeCLIService(Service):
             )
 
         self.base_repo = Path(base_repo or Path.cwd())
+        self._transport = SubprocessCLITransport(max_concurrent=max_concurrent)
 
     async def call(self, req: ClaudeCodeRequestModel, *, ctx: CallContext) -> dict[str, Any]:
         """Execute Claude Code CLI call and return session data."""
@@ -270,33 +270,31 @@ class ClaudeCodeCLIService(Service):
         """Execute streaming Claude Code CLI call."""
 
         async def do_stream() -> AsyncIterator[dict[str, Any]]:
-            """Core streaming operation with Claude CLI."""
+            """Core streaming operation with Claude CLI via transport layer."""
             workspace = req.get_workspace_path(self.base_repo)
             workspace.mkdir(parents=True, exist_ok=True)
 
-            # Create subprocess
-            proc = await asyncio.create_subprocess_exec(
-                CLAUDE_CLI,
-                *req.as_cli_args(),
-                cwd=str(workspace),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            # Build command for transport
+            command = [CLAUDE_CLI] + req.as_cli_args()
+            
+            # Calculate timeout from context
+            timeout_s = None
+            if ctx.deadline_s is not None:
+                import anyio
+                timeout_s = max(0.1, ctx.deadline_s - anyio.current_time())
 
-            # Set up incremental JSON parsing
-            decoder = codecs.getincrementaldecoder("utf-8")()
+            # Stream through transport layer with JSON parsing
             json_decoder = json.JSONDecoder()
             buffer = ""
 
             try:
-                # Stream and parse NDJSON
-                while True:
-                    chunk = await proc.stdout.read(4096)
-                    if not chunk:
-                        break
-
-                    # Decode incrementally to handle UTF-8 splits
-                    buffer += decoder.decode(chunk)
+                async for line in self._transport.stream(
+                    command,
+                    cwd=workspace,
+                    timeout_s=timeout_s,
+                ):
+                    # Accumulate line into buffer for JSON parsing
+                    buffer += line + "\n"
 
                     # Parse complete JSON objects
                     while buffer:
@@ -313,9 +311,7 @@ class ClaudeCodeCLIService(Service):
                             break
 
                 # Handle remaining buffer
-                buffer += decoder.decode(b"", final=True)
                 buffer = buffer.strip()
-
                 if buffer:
                     try:
                         obj, _ = json_decoder.raw_decode(buffer)
@@ -329,24 +325,17 @@ class ClaudeCodeCLIService(Service):
                         except Exception:
                             logger.error("Failed to parse JSON tail: %s", buffer[:120])
 
-                # Check process exit status
-                exit_code = await proc.wait()
-                if exit_code != 0:
-                    stderr = (await proc.stderr.read()).decode().strip()
-                    raise _err.ServiceError(
-                        f"Claude CLI exited with code {exit_code}: {stderr}",
-                        context={
-                            "call_id": str(ctx.call_id),
-                            "service": self.name,
-                            "exit_code": exit_code,
-                        },
-                    )
-
-            finally:
-                # Cleanup process
-                with contextlib.suppress(ProcessLookupError):
-                    proc.terminate()
-                await proc.wait()
+            except _err.ServiceError as e:
+                # Re-raise service errors from transport with context
+                raise _err.ServiceError(
+                    f"Claude CLI execution failed: {e}",
+                    context={
+                        "call_id": str(ctx.call_id),
+                        "service": self.name,
+                        "command": command[0],  # Just the command name for security
+                    },
+                    cause=e,
+                )
 
         # Apply deadline enforcement if specified
         if ctx.deadline_s is None:
@@ -357,10 +346,16 @@ class ClaudeCodeCLIService(Service):
                 async for chunk in do_stream():
                     yield chunk
 
+    async def close(self) -> None:
+        """Cleanup transport resources."""
+        await self._transport.close()
+
 
 # Factory function
 def create_claude_code_service(
     base_repo: str | Path | None = None,
+    *,
+    max_concurrent: int = 5,
 ) -> ClaudeCodeCLIService:
     """Create Claude Code CLI service instance."""
-    return ClaudeCodeCLIService(base_repo=base_repo)
+    return ClaudeCodeCLIService(base_repo=base_repo, max_concurrent=max_concurrent)

@@ -3,7 +3,8 @@
 
 """Provider adapters for hybrid registry system."""
 
+from .claude_code_adapter import ClaudeCodeAdapter
 from .generic_adapter import GenericJSONAdapter
 from .openai_adapter import OpenAIAdapter
 
-__all__ = ["OpenAIAdapter", "GenericJSONAdapter"]
+__all__ = ["OpenAIAdapter", "GenericJSONAdapter", "ClaudeCodeAdapter"]

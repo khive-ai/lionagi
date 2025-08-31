@@ -1,7 +1,7 @@
 # Copyright (c) 2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Transport protocol for HTTP IO boundary."""
+"""HTTP transport implementation for service communication."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from typing import Protocol
 import httpx
 import msgspec
 
-from .. import _err
+from lionagi import _err
 
 
-class Transport(Protocol):
+class HTTPTransport(Protocol):
     """IO boundary for HTTP requests.
 
     Thin and swappable (httpx/aiohttp/custom). All IO happens here.
