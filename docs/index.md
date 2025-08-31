@@ -1,151 +1,179 @@
 # LionAGI
 
-> **Central coordination engine for arbitrary orchestration patterns**
+**Build AI workflows you can trust by coordinating multiple agents**
 
-<div style="margin: 2em 0;">
-<strong>LionAGI is evolving:</strong> From a collection of operations to a coordination engine where you define operations and LionAGI orchestrates them - agentic or otherwise.
-</div>
+## The Problem
 
----
+AI reasoning is a black box, but AI workflows don't have to be.
 
-## ⚡ The Orchestration Engine Mindset
+When you ask an AI agent a complex question, you get one answer. But how do you know it's right? How do you know it considered all angles? Those "reasoning traces" you see? They're just generated text, not actual thinking.
 
-```python
-from lionagi import Branch, iModel
-import asyncio
+LionAGI solves this by making AI workflows **observable**. Instead of trusting what one model tells you about its thinking, you orchestrate multiple specialists and see exactly what each one does.
 
-# Step 1: Create specialized branches for different analysis types
-analysis_branch = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-    system="You are a data analyst who finds patterns and insights in data."
-)
+[Read our full problem statement →](problem-statement.md)
 
-synthesis_branch = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"), 
-    system="You synthesize multiple analyses into actionable recommendations."
-)
-
-# Step 2: LionAGI orchestrates your workflow
-my_data = "Sales data shows 30% increase in Q4..."
-
-# Sequential orchestration - each step builds on the last
-analysis = await analysis_branch.communicate(
-    instruction="Analyze this business data for key trends",
-    context={"data": my_data}
-)
-
-synthesis = await synthesis_branch.communicate(
-    instruction="Create strategic recommendations from this analysis", 
-    context={"analysis_results": analysis}
-)
-
-# Or parallel orchestration - run multiple analyses simultaneously  
-results = await asyncio.gather(
-    analysis_branch.communicate(instruction="Find revenue patterns", context={"data": my_data}),
-    analysis_branch.communicate(instruction="Identify customer trends", context={"data": my_data}),
-    analysis_branch.communicate(instruction="Analyze operational metrics", context={"data": my_data})
-)
-
-# The key: You define the workflow. LionAGI provides reliable orchestration.
-```
-
-## 🎯 What LionAGI Does Well
-
-| Feature | What It Means |
-|---------|---------------|
-| **Parallel Execution** | Run multiple agents simultaneously without blocking |
-| **Clear Dependencies** | Explicitly define execution order and data flow |
-| **Isolated State** | Each agent maintains independent context and memory |
-| **Predictable Workflows** | Deterministic graphs instead of unpredictable conversations |
-
-## Get Started
-
-### Install
+## Installation
 
 ```bash
 pip install lionagi
 ```
 
-### Set API Key
-
+Set your API keys (use any or all):
 ```bash
+# OpenAI for GPT models
 export OPENAI_API_KEY=your-key
+
+# NVIDIA NIM for Llama, Mistral (1000 free credits)
+export NVIDIA_NIM_API_KEY=nvapi-your-key  # Get at build.nvidia.com
+
+# Claude Code for workspace-aware agents
+# Configured via Claude Code desktop app
 ```
 
-### First Agent
+## Your First Observable Workflow
+
+Here's the simplest example - getting multiple perspectives using different providers:
 
 ```python
 from lionagi import Branch, iModel
 import asyncio
 
 async def main():
-    agent = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-    response = await agent.chat("Explain REST APIs")
-    print(response)
+    # Use different models for different strengths
+    
+    # OpenAI GPT-4.1 for analysis (1M token context)
+    analyst = Branch(
+        system="You analyze business opportunities",
+        chat_model=iModel(provider="openai", model="gpt-4.1")
+    )
+    
+    # NVIDIA NIM with DeepSeek V3.1 for risk assessment (latest preview model)
+    critic = Branch(
+        system="You identify risks and challenges",
+        chat_model=iModel(provider="nvidia_nim", model="deepseek-ai/deepseek-v3.1")
+    )
+    
+    # Claude Code for implementation planning (workspace-aware)
+    planner = Branch(
+        system="You create actionable implementation plans",
+        chat_model=iModel(provider="claude_code", endpoint="query_cli")
+    )
+    
+    # Ask all three about the same decision
+    question = "Should our startup expand to Europe?"
+
+
+
+
+    # Parallel execution - all models work simultaneously
+    analysis, risks, plan = await asyncio.gather(
+        analyst.chat(question),
+        critic.chat(question),
+        planner.chat(question)
+    )
+    
+    print("Analysis (GPT-4.1):", analysis)
+    print("Risks (DeepSeek V3.1):", risks)
+    print("Plan (Claude Code):", plan)
+    # Every perspective is visible, using the best model for each task
 
 asyncio.run(main())
 ```
 
-## Your Learning Path
+### Available Models
 
-!!! tip "Choose Your Starting Point"
-    **New to LionAGI?** → Follow the path below step-by-step  
-    **Migrating from another framework?** → Jump to [Migration Guides](migration/)  
-    **Need specific patterns?** → Browse [Cookbook](cookbook/) for ready-to-use examples
+**OpenAI**: GPT-5, GPT-4.1, GPT-4.1-mini, GPT-4o, GPT-4o-mini  
+**NVIDIA NIM**: DeepSeek V3.1 (latest preview), Llama 3.2 Vision, Mistral Large, Mixtral 8x22B  
+**Claude Code**: Workspace-aware development with file access  
+**Also supported**: Anthropic Claude, Google Gemini, Ollama (local), Groq, Perplexity
 
-### 🚀 Step 1: Get Started (5 minutes)
+## Why Observable Workflows Matter
 
-- [Installation](quickstart/installation.md) - Get set up in 2 minutes
-- [Your First Flow](quickstart/your-first-flow.md) - Build your first multi-agent workflow
-
-### 🧠 Step 2: Understand the Paradigm (10 minutes)
-
-- [Why LionAGI?](thinking-in-lionagi/why-lionagi.md) - Technical differences that matter
-- [Thinking in LionAGI](thinking-in-lionagi/) - Learn the mental model
-
-### 🔧 Step 3: Master Core Concepts (15 minutes)
-
-Now that you understand the "why," learn the "how":
-
-- [Sessions and Branches](core-concepts/sessions-and-branches.md) - How agents are organized
-- [Operations](core-concepts/operations.md) - Building blocks of workflows
-- [Messages and Memory](core-concepts/messages-and-memory.md) - How context is managed
-
-### ⚡ Step 4: Apply Common Patterns (20 minutes)
-
-Ready to build real workflows? Start with proven patterns:
-
-- [Fan-Out/In](patterns/fan-out-in.md) - Parallel analysis with synthesis
-- [Sequential Analysis](patterns/sequential-analysis.md) - Building understanding step-by-step
-- [Conditional Flows](patterns/conditional-flows.md) - Dynamic execution paths
-
-### 📚 Step 5: Explore Production Examples
-
-Put it all together with complete, working examples:
-
-- [Cookbook](cookbook/) - Copy-and-modify production workflows
-- [Integration Guide](integrations/) - Connect with databases, tools, and services
+- **Trust through transparency**: See every step, not just the final answer
+- **Multiple perspectives**: Different agents catch different issues
+- **Audit trails**: Every decision is logged and reproducible
+- **No black boxes**: You control the workflow, not agent conversations
 
 ## When to Use LionAGI
 
-**Good fit for:**
+✅ **Perfect for:**
+- Complex decisions needing multiple perspectives
+- Production systems requiring audit trails
+- Workflows where you need to see the reasoning
+- Coordinating different models for different tasks
 
-- Systems that need multiple AI perspectives
-- Workflows requiring parallel processing
-- Production applications needing reliability
-- Complex orchestration with clear dependencies
+❌ **Not for:**
+- Simple chatbots
+- Basic Q&A
+- Prototypes where you want agents to chat freely
 
-**Not ideal for:**
+## Core Concepts Made Simple
 
-- Simple single-agent chatbots
-- Purely sequential chains
-- Experimental conversation flows
+**Branches = Agents**  
+Each Branch is an independent agent with its own context
 
-## Contributing
+**Explicit > Implicit**  
+You control the workflow, not agent conversations
 
-LionAGI is open source.
-[Contribute on GitHub](https://github.com/khive-ai/lionagi).
+**Observable > Explainable**  
+See what happened, don't trust what models claim
 
-## License
+## Quick Patterns
 
-Apache 2.0
+### Get Multiple Perspectives
+```python
+# Parallel analysis from different angles
+results = await asyncio.gather(
+    technical_agent.chat("Technical implications?"),
+    business_agent.chat("Business impact?"),
+    legal_agent.chat("Legal considerations?")
+)
+# See all perspectives at once
+```
+
+### Use the Right Model for Each Job
+```python
+# Complex analysis needs powerful model
+researcher = Branch(chat_model=iModel(provider="anthropic", model="claude-3-opus"))
+research = await researcher.chat("Deep dive into quantum computing")
+
+# Simple summary can use cheaper model
+summarizer = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
+summary = await summarizer.chat(f"Three key points: {research}")
+```
+
+## Learning Path
+
+1. **Start Here** → [Your First Flow](quickstart/your-first-flow.md)
+2. **Understand Why** → [Why LionAGI?](thinking-in-lionagi/why-lionagi.md)
+3. **Learn Basics** → [Sessions and Branches](core-concepts/sessions-and-branches.md)
+4. **Apply Patterns** → [Common Workflows](patterns/index.md)
+5. **Go Deeper** → [Advanced Topics](advanced/index.md)
+
+## The Key Difference
+
+```python
+# ❌ Other frameworks: Agents figure it out themselves
+result = agent_conversation(agent1, agent2, agent3, problem)
+# Who knows what happened?
+
+# ✅ LionAGI: You orchestrate, agents execute
+step1 = await analyst.analyze(problem)
+step2 = await critic.review(step1)
+step3 = await synthesizer.combine(step1, step2)
+# Every step visible and verifiable
+```
+
+## Get Started
+
+**Ready to build?** Start with [Your First Flow](quickstart/your-first-flow.md) →
+
+**Have questions?** Check our [Problem Statement](problem-statement.md) to understand our philosophy
+
+**Need help?** [GitHub Issues](https://github.com/lion-agi/lionagi) | [Discord](https://discord.gg/lionagi)
+
+---
+
+*LionAGI: Observable workflows for trustworthy AI*
+
+Apache 2.0 License
