@@ -324,7 +324,7 @@ class WithRetry(BaseOp):
         fn = getattr(self.inner, "required_rights", None)
         if callable(fn):
             try:
-                return set(fn(**kw)) | set(getattr(self.inner, "requires", set()))
+                return set(fn(**kw))
             except Exception:
                 pass
         return set(getattr(self.inner, "requires", set()) or self.requires)
@@ -362,7 +362,7 @@ class WithTimeout(BaseOp):
         fn = getattr(self.inner, "required_rights", None)
         if callable(fn):
             try:
-                return set(fn(**kw)) | set(getattr(self.inner, "requires", set()))
+                return set(fn(**kw))
             except Exception:
                 pass
         return set(getattr(self.inner, "requires", set()) or self.requires)

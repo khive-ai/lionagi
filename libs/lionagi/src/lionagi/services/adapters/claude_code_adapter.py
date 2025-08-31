@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from ..core import Service
-from ..providers.provider_registry import ProviderAdapter
 from ..providers.claude_code import ClaudeCodeRequestModel, create_claude_code_service
+from ..providers.provider_registry import ProviderAdapter
 
 
 class ClaudeCodeAdapter(ProviderAdapter):
     """Adapter for Claude Code CLI provider.
-    
+
     Supports:
       - provider="claude_code"
       - model="claude_code/<model>"
@@ -39,27 +39,27 @@ class ClaudeCodeAdapter(ProviderAdapter):
         """Create Claude Code CLI service instance."""
         # Extract base repo from base_url if provided
         base_repo = kwargs.pop("base_repo", None)
-        
+
         if base_url and base_url.startswith("claude_code://"):
             # Handle claude_code://path format
-            repo_path = base_url[len("claude_code://"):]
+            repo_path = base_url[len("claude_code://") :]
             if repo_path and repo_path != ".":
                 base_repo = repo_path
-        
+
         return create_claude_code_service(base_repo=base_repo)
 
     def required_rights(self, *, base_url: str | None, **kwargs: Any) -> set[str]:
         """Calculate required capabilities for this service."""
         rights = {"exec:claude"}
-        
+
         # Extract base repo from base_url or kwargs
         base_repo = kwargs.get("base_repo")
         if base_url and base_url.startswith("claude_code://"):
             # Handle claude_code://path format
-            repo_path = base_url[len("claude_code://"):]
+            repo_path = base_url[len("claude_code://") :]
             if repo_path and repo_path != ".":
                 base_repo = repo_path
-        
+
         if base_repo:
             repo_path = Path(base_repo).resolve()
             rights.add(f"fs.read:{repo_path}")
@@ -67,5 +67,5 @@ class ClaudeCodeAdapter(ProviderAdapter):
         else:
             rights.add("fs.read")
             rights.add("fs.write")
-        
+
         return rights

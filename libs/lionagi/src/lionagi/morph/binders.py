@@ -79,7 +79,7 @@ class BoundOp(BaseOp):
 
         try:
             reqs = inner_req(**call_kw)
-            return set(reqs) | set(getattr(self.inner, "requires", set()))
+            return set(reqs)
         except Exception:
             return set(getattr(self.inner, "requires", set()) or self.requires)
 

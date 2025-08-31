@@ -107,7 +107,32 @@ class PolicyGatePresent:
     name = "PolicyGatePresent"
 
     def pre(self, br: Branch, node: OpNode) -> bool:
-        return policy_check(br, node.m)
+        # Calculate dynamic rights like the Runner does
+        override_reqs = None
+        req_fn = getattr(node.m, "required_rights", None)
+        if callable(req_fn):
+            try:
+                # Build kwargs from node.params and br.ctx like Runner does
+                kwargs: dict[str, Any] = {}
+                node_params = getattr(node, "params", None)
+                if isinstance(node_params, dict):
+                    kwargs.update(node_params)
+                # Context values as defaults
+                for k, v in br.ctx.items():
+                    kwargs.setdefault(k, v)
+                kwargs.setdefault("prompt", "")  # Common default
+
+                # Note: We only support sync required_rights in invariants
+                # async required_rights would require restructuring the invariant system
+                if not is_coro_func(req_fn):
+                    r = req_fn(**kwargs)
+                    if r:
+                        override_reqs = set(r)
+            except Exception:
+                # Fail closed - if we can't determine rights, deny
+                return False
+
+        return policy_check(br, node.m, override_reqs=override_reqs)
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
         return True

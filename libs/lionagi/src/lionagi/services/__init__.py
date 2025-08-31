@@ -4,32 +4,31 @@
 """Lionagi services module exports."""
 
 from .core import CallContext, Service
-from .endpoint import RequestModel, ChatRequestModel
+from .endpoint import ChatRequestModel, RequestModel
 from .imodel import iModel
 
 # Transport exports
+from .transport import Transport  # Legacy alias for HTTPTransport
 from .transport import (
-    Transport,  # Legacy alias for HTTPTransport
+    CLITransport,
+    FastMCPTransport,
     HTTPTransport,
     HTTPXTransport,
-    CLITransport,
-    SubprocessCLITransport,
     MCPTransport,
-    FastMCPTransport,
+    SubprocessCLITransport,
 )
 
 __all__ = [
     # Core service types
     "CallContext",
-    "Service", 
+    "Service",
     "RequestModel",
     "ChatRequestModel",
     "iModel",
-    
     # Transport types
     "Transport",  # Legacy alias
     "HTTPTransport",
-    "HTTPXTransport", 
+    "HTTPXTransport",
     "CLITransport",
     "SubprocessCLITransport",
     "MCPTransport",

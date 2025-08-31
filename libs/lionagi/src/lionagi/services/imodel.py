@@ -21,7 +21,10 @@ from .executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
 from .hooks import HookedMiddleware, HookRegistry
 from .middleware import MetricsMW, PolicyGateMW, RedactionMW
 from .provider_detection import parse_provider_prefix
-from .providers.provider_registry import get_provider_registry, register_builtin_adapters
+from .providers.provider_registry import (
+    get_provider_registry,
+    register_builtin_adapters,
+)
 
 logger = logging.getLogger(__name__)
 

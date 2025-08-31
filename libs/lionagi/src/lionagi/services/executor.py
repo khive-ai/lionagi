@@ -17,11 +17,7 @@ import anyio
 import msgspec
 
 from lionagi import _err
-from lionagi.ln.concurrency import (
-    Event,
-    fail_at,
-    get_cancelled_exc_class,
-)
+from lionagi.ln.concurrency import Event, fail_at, get_cancelled_exc_class
 
 from .core import CallContext, Service
 from .endpoint import RequestModel
@@ -395,7 +391,7 @@ class RateLimitedExecutor:
                     if len(self.completed_calls) > 100:
                         asyncio.create_task(self._cleanup_completed())
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Queue get timed out, loop to check shutdown
                     continue
                 except (anyio.ClosedResourceError, anyio.EndOfStream):

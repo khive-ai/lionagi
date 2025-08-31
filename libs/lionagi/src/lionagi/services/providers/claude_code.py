@@ -276,11 +276,12 @@ class ClaudeCodeCLIService(Service):
 
             # Build command for transport
             command = [CLAUDE_CLI] + req.as_cli_args()
-            
+
             # Calculate timeout from context
             timeout_s = None
             if ctx.deadline_s is not None:
                 import anyio
+
                 timeout_s = max(0.1, ctx.deadline_s - anyio.current_time())
 
             # Stream through transport layer with JSON parsing

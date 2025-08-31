@@ -15,8 +15,7 @@ from typing import Any
 import anyio
 import msgspec
 
-from lionagi import _err
-from lionagi import ln
+from lionagi import _err, ln
 
 from .core import CallContext
 from .endpoint import RequestModel

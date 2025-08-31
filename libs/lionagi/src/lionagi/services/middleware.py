@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
 from lionagi import _err
+
 from .core import CallContext
 from .endpoint import RequestModel
 

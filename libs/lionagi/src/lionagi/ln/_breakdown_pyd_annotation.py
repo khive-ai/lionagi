@@ -3,7 +3,6 @@ from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
 
-
 __all__ = ("breakdown_pydantic_annotation",)
 
 

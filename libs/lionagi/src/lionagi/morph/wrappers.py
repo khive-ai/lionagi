@@ -42,11 +42,11 @@ class OpThenPatch(BaseOp):
         self.latency_budget_ms = getattr(inner, "latency_budget_ms", None)
 
     def required_rights(self, **kw) -> set[str]:
-        """Forward dynamic rights; union with inner static requires."""
+        """Forward dynamic rights; use dynamic if available, static fallback otherwise."""
         fn = getattr(self.inner, "required_rights", None)
         if callable(fn):
             try:
-                return set(fn(**kw)) | set(getattr(self.inner, "requires", set()))
+                return set(fn(**kw))
             except Exception:
                 pass
         return set(getattr(self.inner, "requires", set()) or self.requires)
