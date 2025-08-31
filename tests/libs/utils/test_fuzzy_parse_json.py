@@ -2,7 +2,7 @@
 
 import pytest
 
-from lionagi.ln._fuzzy_json import fix_json_string
+from lionagi.ln.fuzzy._fuzzy_json import fix_json_string
 from lionagi.utils import fuzzy_parse_json
 
 
