@@ -62,9 +62,6 @@ async def main():
     # Ask all three about the same decision
     question = "Should our startup expand to Europe?"
 
-
-
-
     # Parallel execution - all models work simultaneously
     analysis, risks, plan = await asyncio.gather(
         analyst.chat(question),
