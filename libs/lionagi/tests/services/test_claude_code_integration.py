@@ -18,7 +18,7 @@ from lionagi.services.providers.claude_code import (
     ClaudeCodeRequestModel,
     create_claude_code_service,
 )
-from lionagi.services.providers.provider_registry import get_provider_registry
+from lionagi.services.providers.provider_registry import get_provider_registry, register_builtin_adapters
 
 
 class TestClaudeCodeRequestModel:
@@ -157,7 +157,7 @@ class TestClaudeCodeAdapter:
         # Default configuration
         service = adapter.create_service(base_url=None)
         assert isinstance(service, ClaudeCodeCLIService)
-        assert service.base_repo == Path(".")
+        assert service.base_repo == Path.cwd()
 
         # Custom repo path from base_url
         service = adapter.create_service(base_url="claude_code:///tmp/my-repo")
@@ -180,8 +180,10 @@ class TestClaudeCodeAdapter:
         # Custom repo rights
         rights = adapter.required_rights(base_url="claude_code:///tmp/custom")
         assert "exec:claude" in rights
-        assert "fs.read:/tmp/custom" in rights or "fs.read" in rights
-        assert "fs.write:/tmp/custom" in rights or "fs.write" in rights
+        # Path gets resolved, so /tmp/custom becomes /private/tmp/custom on macOS
+        resolved_custom = str(Path("/tmp/custom").resolve())
+        assert f"fs.read:{resolved_custom}" in rights or "fs.read" in rights
+        assert f"fs.write:{resolved_custom}" in rights or "fs.write" in rights
 
 
 @pytest.mark.skipif(not Path("/tmp").exists(), reason="Test requires /tmp directory")
@@ -199,23 +201,21 @@ class TestClaudeCodeService:
 
     @pytest.mark.asyncio
     async def test_stream_method_structure(self):
-        """Test stream method with mocked CLI process."""
+        """Test stream method with mocked transport."""
         service = create_claude_code_service("/tmp")
         request = ClaudeCodeRequestModel(prompt="Hello")
         context = CallContext(call_id=uuid4(), branch_id=uuid4())
 
-        # Mock the subprocess and its output
-        mock_process = AsyncMock()
-        mock_process.stdout.read.side_effect = [
-            b'{"type": "system", "session_id": "test-123"}\n',
-            b'{"type": "assistant", "message": {"content": [{"type": "text", "text": "Hello!"}]}}\n',
-            b'{"type": "result", "result": "Response complete"}\n',
-            b"",  # EOF
-        ]
-        mock_process.wait.return_value = 0
-        mock_process.stderr.read.return_value = b""
+        # Mock the transport stream method
+        async def mock_stream(*args, **kwargs):
+            """Mock streaming lines from Claude CLI."""
+            # Yield JSON lines that would come from Claude CLI
+            yield '{"type": "system", "session_id": "test-123"}'
+            yield '{"type": "assistant", "message": {"content": [{"type": "text", "text": "Hello!"}]}}'
+            yield '{"type": "result", "result": "Response complete"}'
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        # Patch the transport's stream method
+        with patch.object(service._transport, 'stream', side_effect=mock_stream):
             chunks = []
             async for chunk in service.stream(request, ctx=context):
                 chunks.append(chunk)
@@ -230,6 +230,7 @@ class TestClaudeCodeProviderRegistry:
 
     def test_registry_integration(self):
         """Test Claude Code adapter is registered."""
+        register_builtin_adapters()  # Ensure adapters are registered
         registry = get_provider_registry()
 
         # Should be registered after importing
@@ -238,6 +239,7 @@ class TestClaudeCodeProviderRegistry:
 
     def test_provider_resolution(self):
         """Test provider resolution for Claude Code."""
+        register_builtin_adapters()  # Ensure adapters are registered
         registry = get_provider_registry()
 
         # Test direct provider resolution
@@ -249,6 +251,7 @@ class TestClaudeCodeProviderRegistry:
 
     def test_service_creation_through_registry(self):
         """Test service creation through provider registry."""
+        register_builtin_adapters()  # Ensure adapters are registered
         registry = get_provider_registry()
 
         service, resolution, rights = registry.create_service(

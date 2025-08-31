@@ -21,7 +21,7 @@ from uuid import uuid4
 import anyio
 import pytest
 
-from lionagi.errors import NonRetryableError, RetryableError, ServiceError
+from lionagi import _err
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.resilience import (
@@ -49,7 +49,7 @@ class ConfigurableService:
         fail_after_chunks: int = None,
     ):
         self.should_fail = should_fail
-        self.failure_type = failure_type or RetryableError("Service failure")
+        self.failure_type = failure_type or _err.RetryableError("Service failure")
         self.chunk_count = chunk_count
         self.chunk_delay = chunk_delay
         self.fail_after_chunks = fail_after_chunks
@@ -75,7 +75,7 @@ class ConfigurableService:
 
         for i in range(self.chunk_count):
             if self.fail_after_chunks is not None and i >= self.fail_after_chunks:
-                raise RetryableError(f"Stream failed after {self.chunks_yielded} chunks")
+                raise _err.RetryableError(f"Stream failed after {self.chunks_yielded} chunks")
 
             # Sleep before yielding each chunk (including the first one)
             if self.chunk_delay > 0:
@@ -117,7 +117,7 @@ class TestCircuitBreakerConcurrencySafety:
         """50 concurrent tasks with exact failure counting using anyio.Lock."""
         circuit_mw = CircuitBreakerMW(circuit_config)
         failing_service = ConfigurableService(
-            should_fail=True, failure_type=RetryableError("Concurrent failure")
+            should_fail=True, failure_type=_err.RetryableError("Concurrent failure")
         )
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
@@ -125,7 +125,7 @@ class TestCircuitBreakerConcurrencySafety:
             try:
                 await circuit_mw(mock_request, ctx, failing_service.call_operation)
                 return "success"
-            except (RetryableError, ServiceError) as e:
+            except (_err.RetryableError, _err.ServiceError) as e:
                 return f"failed: {type(e).__name__}"
 
         # Execute 50 concurrent tasks
@@ -141,7 +141,7 @@ class TestCircuitBreakerConcurrencySafety:
 
         completed_results = results
 
-        # All 50 tasks should fail (RetryableError or ServiceError for circuit open)
+        # All 50 tasks should fail (_err.RetryableError or _err.ServiceError for circuit open)
         failed_count = sum(1 for result in completed_results if result.startswith("failed"))
         assert failed_count == 50
 
@@ -156,7 +156,7 @@ class TestCircuitBreakerConcurrencySafety:
         """Mixed concurrent success/failure with state transitions."""
         circuit_mw = CircuitBreakerMW(circuit_config)
         failing_service = ConfigurableService(
-            should_fail=True, failure_type=RetryableError("Failure")
+            should_fail=True, failure_type=_err.RetryableError("Failure")
         )
         success_service = ConfigurableService(should_fail=False)
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
@@ -224,7 +224,7 @@ class TestCircuitBreakerStateTransitions:
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         failing_service = ConfigurableService(
-            should_fail=True, failure_type=RetryableError("Failure")
+            should_fail=True, failure_type=_err.RetryableError("Failure")
         )
         success_service = ConfigurableService(should_fail=False)
 
@@ -233,7 +233,7 @@ class TestCircuitBreakerStateTransitions:
 
         # Trigger failures to reach threshold → OPEN
         for i in range(2):
-            with pytest.raises(RetryableError):
+            with pytest.raises(_err.RetryableError):
                 await circuit_mw(mock_request, ctx, failing_service.call_operation)
 
             if i == 0:
@@ -244,7 +244,7 @@ class TestCircuitBreakerStateTransitions:
 
         # OPEN circuit rejects calls immediately
         initial_call_count = success_service.call_count
-        with pytest.raises(ServiceError, match="Circuit breaker is OPEN"):
+        with pytest.raises(_err.ServiceError, match="Circuit breaker is OPEN"):
             await circuit_mw(mock_request, ctx, success_service.call_operation)
         assert success_service.call_count == initial_call_count
 
@@ -264,18 +264,18 @@ class TestCircuitBreakerStateTransitions:
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         failing_service = ConfigurableService(
-            should_fail=True, failure_type=RetryableError("Failure")
+            should_fail=True, failure_type=_err.RetryableError("Failure")
         )
 
         # Force circuit OPEN
         for _ in range(2):
-            with pytest.raises(RetryableError):
+            with pytest.raises(_err.RetryableError):
                 await circuit_mw(mock_request, ctx, failing_service.call_operation)
 
         await anyio.sleep(0.15)  # Wait for timeout
 
         # Failed call in HALF_OPEN should reopen circuit
-        with pytest.raises(RetryableError):
+        with pytest.raises(_err.RetryableError):
             await circuit_mw(mock_request, ctx, failing_service.call_operation)
 
         assert circuit_mw.breaker.state == CircuitState.OPEN
@@ -342,11 +342,11 @@ class TestCircuitBreakerStreamingPerformance:
         failing_service = ConfigurableService(
             chunk_count=5,
             fail_after_chunks=2,
-            failure_type=RetryableError("Stream failed after 2 chunks"),
+            failure_type=_err.RetryableError("Stream failed after 2 chunks"),
         )
 
         chunks_received = []
-        with pytest.raises(RetryableError, match="Stream failed after 2 chunks"):
+        with pytest.raises(_err.RetryableError, match="Stream failed after 2 chunks"):
             async for chunk in circuit_mw.stream(
                 mock_request, ctx, failing_service.stream_operation
             ):
@@ -376,10 +376,10 @@ class TestCircuitBreakerStreamingPerformance:
 
         # Force circuit OPEN
         failing_service = ConfigurableService(
-            should_fail=True, failure_type=RetryableError("Failure")
+            should_fail=True, failure_type=_err.RetryableError("Failure")
         )
         for _ in range(2):
-            with pytest.raises(RetryableError):
+            with pytest.raises(_err.RetryableError):
                 await circuit_mw(mock_request, ctx, failing_service.call_operation)
 
         await anyio.sleep(0.15)  # Wait for timeout
@@ -402,16 +402,16 @@ class TestCircuitBreakerErrorTypeHandling:
 
     @pytest.mark.anyio
     async def test_non_retryable_errors_do_not_affect_circuit(self, circuit_mw, mock_request):
-        """NonRetryableError does not count toward circuit breaking."""
+        """_err.NonRetryableError does not count toward circuit breaking."""
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         non_retryable_service = ConfigurableService(
-            should_fail=True, failure_type=NonRetryableError("Invalid request")
+            should_fail=True, failure_type=_err.NonRetryableError("Invalid request")
         )
 
         # Multiple non-retryable errors should not open circuit
         for _ in range(5):  # More than failure_threshold
-            with pytest.raises(NonRetryableError):
+            with pytest.raises(_err.NonRetryableError):
                 await circuit_mw(mock_request, ctx, non_retryable_service.call_operation)
 
         assert circuit_mw.breaker.state == CircuitState.CLOSED
@@ -423,29 +423,29 @@ class TestCircuitBreakerErrorTypeHandling:
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         retryable_service = ConfigurableService(
-            should_fail=True, failure_type=RetryableError("Network error")
+            should_fail=True, failure_type=_err.RetryableError("Network error")
         )
         non_retryable_service = ConfigurableService(
-            should_fail=True, failure_type=NonRetryableError("Bad request")
+            should_fail=True, failure_type=_err.NonRetryableError("Bad request")
         )
 
         # Mix of errors - only retryable should count (need 3 to open)
-        with pytest.raises(RetryableError):
+        with pytest.raises(_err.RetryableError):
             await circuit_mw(mock_request, ctx, retryable_service.call_operation)  # Count: 1
 
-        with pytest.raises(NonRetryableError):
+        with pytest.raises(_err.NonRetryableError):
             await circuit_mw(
                 mock_request, ctx, non_retryable_service.call_operation
             )  # Count: still 1
 
-        with pytest.raises(RetryableError):
+        with pytest.raises(_err.RetryableError):
             await circuit_mw(mock_request, ctx, retryable_service.call_operation)  # Count: 2
 
         assert circuit_mw.breaker.state == CircuitState.CLOSED
         assert circuit_mw.breaker.failure_count == 2
 
         # One more retryable error should open circuit
-        with pytest.raises(RetryableError):
+        with pytest.raises(_err.RetryableError):
             await circuit_mw(mock_request, ctx, retryable_service.call_operation)  # Count: 3
 
         assert circuit_mw.breaker.state == CircuitState.OPEN

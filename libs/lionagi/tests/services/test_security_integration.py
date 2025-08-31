@@ -16,7 +16,10 @@ from uuid import uuid4
 
 import pytest
 
-from lionagi.errors import PolicyError, ServiceError
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import _err.PolicyError, _err.ServiceError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
@@ -39,7 +42,7 @@ class MockService(Service):
         self.call_count += 1
 
         if self.should_fail:
-            raise ServiceError("Mock service failure", context={"call_id": str(ctx.call_id)})
+            raise _err.ServiceError("Mock service failure", context={"call_id": str(ctx.call_id)})
 
         return {
             "status": "success",
@@ -54,7 +57,7 @@ class MockService(Service):
         self.stream_count += 1
 
         if self.should_fail:
-            raise ServiceError("Mock streaming failure", context={"call_id": str(ctx.call_id)})
+            raise _err.ServiceError("Mock streaming failure", context={"call_id": str(ctx.call_id)})
 
         for i in range(3):
             yield {
@@ -109,7 +112,7 @@ class TestEndToEndSecurityEnforcement:
                 return await mock_service.call(req, ctx=ctx)
 
             # Policy middleware should block the call
-            with pytest.raises(PolicyError) as exc_info:
+            with pytest.raises(_err.PolicyError) as exc_info:
                 await policy_mw(req, ctx, attempt_call)
 
             # Verify service was never called
@@ -177,7 +180,7 @@ class TestEndToEndSecurityEnforcement:
         req = MockRequest()
 
         # Should fail at policy gate
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             async for chunk in policy_mw.stream(
                 req,
                 ctx_insufficient,
@@ -238,7 +241,7 @@ class TestAttackVectorValidation:
                 executed = True
                 return {"attack": "successful"}
 
-            with pytest.raises(PolicyError) as exc_info:
+            with pytest.raises(_err.PolicyError) as exc_info:
                 await policy_mw(attack_req, ctx, track_execution)
 
             assert not executed, f"Injection attack succeeded with {attack_req.__dict__}"
@@ -275,7 +278,7 @@ class TestAttackVectorValidation:
                 executed = True
                 return {"escalation": "successful"}
 
-            with pytest.raises(PolicyError):
+            with pytest.raises(_err.PolicyError):
                 await policy_mw(req, ctx, track_execution)
 
             assert not executed, f"Wildcard abuse succeeded with {attacker_caps}"
@@ -317,7 +320,7 @@ class TestAttackVectorValidation:
             return {"manipulation": "successful"}
 
         # Should still fail with original insufficient capabilities
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_mw(req, ctx, track_execution)
 
         assert not executed, "Context manipulation attack succeeded"
@@ -345,7 +348,7 @@ class TestAttackVectorValidation:
                 result = await policy_mw(req, ctx, lambda: {"access": "granted"})
                 results.append(("success", should_succeed, caps))
                 return result
-            except PolicyError:
+            except _err.PolicyError:
                 results.append(("denied", should_succeed, caps))
                 if should_succeed:
                     raise AssertionError(f"Expected success but was denied: {caps}")
@@ -394,7 +397,7 @@ class TestSecurityAuditLogging:
         req = MockRequest()
 
         # Attempt unauthorized access
-        with pytest.raises(PolicyError) as exc_info:
+        with pytest.raises(_err.PolicyError) as exc_info:
             await policy_mw(req, ctx, lambda: {"unauthorized": True})
 
         # Verify comprehensive security context in error
@@ -484,7 +487,7 @@ class TestSecurityAuditLogging:
         caplog.clear()
         mock_service.should_fail = True
 
-        with pytest.raises(ServiceError):
+        with pytest.raises(_err.ServiceError):
             await metrics_mw(req, ctx, lambda: mock_service.call(req, ctx=ctx))
 
         # Check error metrics
@@ -493,7 +496,7 @@ class TestSecurityAuditLogging:
 
         error_log = error_logs[0]
         assert error_log.status == "error"
-        assert error_log.error_type == "ServiceError"
+        assert error_log.error_type == "_err.ServiceError"
 
 
 class TestSecurityMiddlewareComposition:
@@ -530,7 +533,7 @@ class TestSecurityMiddlewareComposition:
             )
 
         # Should fail at policy gate before reaching other middleware
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_mw(req, ctx_fail, full_stack)
 
         # Verify service was never called
@@ -610,7 +613,7 @@ class TestSecurityMiddlewareComposition:
         req = MockRequest()
         execution_order.clear()
 
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await tracking_policy(
                 req,
                 ctx_fail,

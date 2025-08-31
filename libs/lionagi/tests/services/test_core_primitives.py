@@ -22,7 +22,10 @@ import msgspec
 import msgspec.json
 import pytest
 
-from lionagi.errors import LionError, NonRetryableError, RetryableError, ServiceError
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import _err.LionError, _err.NonRetryableError, _err.RetryableError, _err.ServiceError
 from lionagi.services.core import CallContext
 
 
@@ -327,8 +330,8 @@ class TestErrorHierarchyBehavior:
 
     def test_error_behavioral_classification(self):
         """Error types maintain correct behavioral classification."""
-        # Test RetryableError behavior
-        retryable = RetryableError(
+        # Test _err.RetryableError behavior
+        retryable = _err.RetryableError(
             "Test retryable error",
             details={"retry_count": 3, "last_error": "timeout"},
             context={"service": "openai", "model": "gpt-4"},
@@ -339,8 +342,8 @@ class TestErrorHierarchyBehavior:
         assert retryable.message == "Test retryable error"
         assert retryable.details["retry_count"] == 3
 
-        # Test NonRetryableError behavior
-        non_retryable = NonRetryableError("Auth failed", context={"status_code": 401})
+        # Test _err.NonRetryableError behavior
+        non_retryable = _err.NonRetryableError("Auth failed", context={"status_code": 401})
 
         assert non_retryable.retryable is False
         assert non_retryable.code == "non_retryable_error"
@@ -348,7 +351,7 @@ class TestErrorHierarchyBehavior:
 
     def test_error_dict_serialization(self):
         """Error to_dict() produces correct structure for observability."""
-        error = RetryableError(
+        error = _err.RetryableError(
             "Test error",
             details={"retry_count": 2},
             context={"service": "test", "operation": "call"},
@@ -372,7 +375,7 @@ class TestErrorHierarchyBehavior:
         decoded = msgspec.json.decode(encoded)
 
         # Validate critical fields preserved
-        assert decoded["error"] == "RetryableError"
+        assert decoded["error"] == "_err.RetryableError"
         assert decoded["retryable"] is True
         assert decoded["code"] == "retryable_error"
         assert decoded["details"]["retry_count"] == 2
@@ -381,19 +384,19 @@ class TestErrorHierarchyBehavior:
     def test_error_inheritance_hierarchy(self):
         """Error inheritance maintains proper hierarchy relationships."""
         # Validate inheritance chain
-        assert issubclass(RetryableError, LionError)
-        assert issubclass(NonRetryableError, LionError)
-        assert issubclass(ServiceError, LionError)
+        assert issubclass(_err.RetryableError, _err.LionError)
+        assert issubclass(_err.NonRetryableError, _err.LionError)
+        assert issubclass(_err.ServiceError, _err.LionError)
 
         # Validate behavioral polymorphism
         errors = [
-            RetryableError("Network error"),
-            NonRetryableError("Invalid auth"),
-            ServiceError("Service down"),
+            _err.RetryableError("Network error"),
+            _err.NonRetryableError("Invalid auth"),
+            _err.ServiceError("Service down"),
         ]
 
         for error in errors:
-            assert isinstance(error, LionError)
+            assert isinstance(error, _err.LionError)
             assert hasattr(error, "retryable")
             assert hasattr(error, "to_dict")
 
@@ -411,7 +414,7 @@ class TestErrorHierarchyBehavior:
             "timing": {"start": 1234567890.123, "elapsed": 2.456},
         }
 
-        error = ServiceError(
+        error = _err.ServiceError(
             "Service temporarily unavailable",
             context=complex_context,
             details={"error_code": "RATE_LIMIT", "retry_after": 60},

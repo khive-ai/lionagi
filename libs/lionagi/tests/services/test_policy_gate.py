@@ -11,7 +11,10 @@ from uuid import uuid4
 
 import pytest
 
-from lionagi.errors import PolicyError
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import _err.PolicyError
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.middleware import PolicyGateMW
@@ -52,7 +55,7 @@ class TestPolicyGateMWSynchronousEnforcement:
         req = MockRequest()
 
         # Act & Assert
-        with pytest.raises(PolicyError) as exc_info:
+        with pytest.raises(_err.PolicyError) as exc_info:
             await policy_gate._enforce_policy(req, ctx, mock_next_call)
 
         # Verify next_call was NEVER executed (fail-closed)
@@ -86,7 +89,7 @@ class TestPolicyGateMWSynchronousEnforcement:
         req = MockRequest()
 
         # Act & Assert
-        with pytest.raises(PolicyError) as exc_info:
+        with pytest.raises(_err.PolicyError) as exc_info:
             await policy_gate._enforce_policy(req, ctx, mock_next_call)
 
         assert not next_call_executed, "CRITICAL: Unauthorized access allowed with no capabilities"
@@ -112,7 +115,7 @@ class TestPolicyGateMWSynchronousEnforcement:
         req = MockRequest()
 
         # Act & Assert
-        with pytest.raises(PolicyError) as exc_info:
+        with pytest.raises(_err.PolicyError) as exc_info:
             async for _ in policy_gate._enforce_policy_stream(req, ctx, mock_next_stream):
                 pass
 
@@ -165,7 +168,7 @@ class TestCapabilityUnionSemantics:
         req = MockRequest()
         req._extra_requires = {"net.out:api.openai.com"}  # Request extra is satisfied
 
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_gate._enforce_policy(req, ctx, should_not_execute)
 
         assert not executed, "Service requirement bypass attempted"
@@ -190,7 +193,7 @@ class TestCapabilityUnionSemantics:
         req = MockRequest()
         req._extra_requires = {"db.write:sensitive"}  # Missing request extra
 
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_gate._enforce_policy(req, ctx, should_not_execute)
 
         assert not executed, "Request extra requirement bypass attempted"
@@ -253,7 +256,7 @@ class TestWildcardCapabilityMatching:
                 await policy_gate._enforce_policy(req, ctx, track_execution)
                 assert executed, f"Should have matched: {available_caps} -> {required_caps}"
             else:
-                with pytest.raises(PolicyError):
+                with pytest.raises(_err.PolicyError):
                     await policy_gate._enforce_policy(req, ctx, track_execution)
                 assert not executed, f"Should not have matched: {available_caps} -> {required_caps}"
 
@@ -279,7 +282,7 @@ class TestWildcardCapabilityMatching:
         req = MockRequest()
 
         # This should fail because wildcard is only allowed on available side
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_gate._enforce_policy(req, ctx, should_not_execute)
 
         assert not executed, "Wildcard in required capabilities should not be allowed"
@@ -480,7 +483,7 @@ class TestAttackVectorPrevention:
             "admin:root"
         }  # Even if extra requirement matches, still need available capability
 
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_gate._enforce_policy(req, ctx, should_not_execute)
 
         assert not executed, "Capability injection attack prevented"
@@ -510,7 +513,7 @@ class TestAttackVectorPrevention:
         # (This shouldn't work as capabilities come from context, not request)
         req._extra_requires = set()  # Even empty extras shouldn't help
 
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_gate._enforce_policy(req, ctx, should_not_execute)
 
         assert not executed, "Service requirement bypass prevented"
@@ -536,7 +539,7 @@ class TestAttackVectorPrevention:
         req = MockRequest()
 
         # Should fail - user:* doesn't cover admin:delete
-        with pytest.raises(PolicyError):
+        with pytest.raises(_err.PolicyError):
             await policy_gate._enforce_policy(req, ctx, should_not_execute)
 
         assert not executed, "Wildcard privilege escalation prevented"
@@ -566,7 +569,7 @@ class TestErrorContextAndObservability:
         async def never_called():
             return "security_breach"
 
-        with pytest.raises(PolicyError) as exc_info:
+        with pytest.raises(_err.PolicyError) as exc_info:
             await policy_gate._enforce_policy(req, ctx, never_called)
 
         error_context = exc_info.value.context
@@ -605,7 +608,7 @@ class TestErrorContextAndObservability:
         async def never_streams():
             yield "unauthorized_data"
 
-        with pytest.raises(PolicyError) as exc_info:
+        with pytest.raises(_err.PolicyError) as exc_info:
             async for _ in policy_gate._enforce_policy_stream(req, ctx, never_streams):
                 pass
 

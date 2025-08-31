@@ -6,7 +6,7 @@
 Critical V1 Features Tested:
 - DeadlineAwareness: RetryMW must respect CallContext deadlines and stop retrying when insufficient time remains
 - Exponential backoff and jitter validation
-- Retryable vs NonRetryableError behavior validation
+- Retryable vs _err.NonRetryableError behavior validation
 - Streaming retry behavior and limitations
 
 These are NOT trivial tests - they validate real functionality and edge cases that could
@@ -21,7 +21,10 @@ from uuid import uuid4
 import anyio
 import pytest
 
-from lionagi.errors import NonRetryableError, RetryableError, ServiceError, TimeoutError
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import _err.NonRetryableError, _err.RetryableError, _err.ServiceError, _err.TimeoutError
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.resilience import RetryConfig, RetryMW
@@ -122,14 +125,14 @@ class TestRetryMWDeadlineAwareness:
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=0.1)
 
         # Create service that fails
-        service = RetryTestService([RetryableError("Network error")])
+        service = RetryTestService([_err.RetryableError("Network error")])
 
         # Sleep to consume most of the deadline time
         await anyio.sleep(0.05)
 
         # At this point, remaining time is insufficient for retry
         # Attempt the operation - should fail on first try without retrying
-        with pytest.raises(RetryableError, match="Network error"):
+        with pytest.raises(_err.RetryableError, match="Network error"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         # Verify only one call was made (no retries due to deadline)
@@ -153,7 +156,7 @@ class TestRetryMWDeadlineAwareness:
 
         # Create service that fails once, then succeeds
         service = RetryTestService(
-            [RetryableError("Temporary failure"), None]  # Success on second attempt
+            [_err.RetryableError("Temporary failure"), None]  # Success on second attempt
         )
 
         # Should succeed after one retry
@@ -180,19 +183,19 @@ class TestRetryMWDeadlineAwareness:
         # Create context with very short deadline
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=0.02)
 
-        # Create service that always fails with RetryableError
+        # Create service that always fails with _err.RetryableError
         service = RetryTestService(
             [
-                RetryableError("Failure 1"),
-                RetryableError("Failure 2"),
-                RetryableError("Failure 3"),
-                RetryableError("Failure 4"),
+                _err.RetryableError("Failure 1"),
+                _err.RetryableError("Failure 2"),
+                _err.RetryableError("Failure 3"),
+                _err.RetryableError("Failure 4"),
             ]
         )
 
         start_time = time.time()
 
-        with pytest.raises(RetryableError):
+        with pytest.raises(_err.RetryableError):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         # Should have stopped early due to deadline, not because of max_attempts
@@ -212,14 +215,14 @@ class TestRetryMWDeadlineAwareness:
         # Create service that always fails
         service = RetryTestService(
             [
-                RetryableError("Failure 1"),
-                RetryableError("Failure 2"),
-                RetryableError("Failure 3"),
+                _err.RetryableError("Failure 1"),
+                _err.RetryableError("Failure 2"),
+                _err.RetryableError("Failure 3"),
             ]
         )
 
         # Should exhaust all retry attempts
-        with pytest.raises(RetryableError, match="Failure 3"):
+        with pytest.raises(_err.RetryableError, match="Failure 3"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         # Verify all attempts were made
@@ -297,22 +300,22 @@ class TestRetryMWBackoffAndJitter:
 
 
 class TestRetryMWErrorTypeHandling:
-    """Test suite for retryable vs NonRetryableError behavior validation."""
+    """Test suite for retryable vs _err.NonRetryableError behavior validation."""
 
     @pytest.mark.anyio
     async def test_non_retryable_error_fails_immediately(self, retry_mw, mock_request):
-        """Validate NonRetryableError causes immediate failure without retries."""
+        """Validate _err.NonRetryableError causes immediate failure without retries."""
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         service = RetryTestService(
             [
-                NonRetryableError("Client error - invalid request"),
+                _err.NonRetryableError("Client error - invalid request"),
                 None,  # This should never be reached
             ]
         )
 
         # Should fail immediately without retrying
-        with pytest.raises(NonRetryableError, match="Client error - invalid request"):
+        with pytest.raises(_err.NonRetryableError, match="Client error - invalid request"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         # Verify no retries were attempted
@@ -320,13 +323,13 @@ class TestRetryMWErrorTypeHandling:
 
     @pytest.mark.anyio
     async def test_retryable_error_triggers_retries(self, retry_mw, mock_request):
-        """Validate RetryableError triggers retry attempts."""
+        """Validate _err.RetryableError triggers retry attempts."""
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         service = RetryTestService(
             [
-                RetryableError("Network timeout"),
-                RetryableError("Rate limit exceeded"),
+                _err.RetryableError("Network timeout"),
+                _err.RetryableError("Rate limit exceeded"),
                 None,  # Success on third attempt
             ]
         )
@@ -340,11 +343,11 @@ class TestRetryMWErrorTypeHandling:
 
     @pytest.mark.anyio
     async def test_timeout_error_triggers_retries(self, retry_mw, mock_request):
-        """Validate TimeoutError is treated as retryable."""
+        """Validate _err.TimeoutError is treated as retryable."""
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         service = RetryTestService(
-            [TimeoutError("Request timeout"), None]  # Success on second attempt
+            [_err.TimeoutError("Request timeout"), None]  # Success on second attempt
         )
 
         result = await retry_mw(mock_request, ctx, service.call_operation)
@@ -362,15 +365,15 @@ class TestRetryMWErrorTypeHandling:
         result = await retry_mw(mock_request, ctx, service.call_operation)
         assert result["success"] is True
 
-        # Reset service and test NonRetryableError stops immediately
+        # Reset service and test _err.NonRetryableError stops immediately
         service = RetryTestService(
             [
-                RetryableError("Transient failure"),  # This should be retried
-                NonRetryableError("Permanent failure"),  # This should stop retries
+                _err.RetryableError("Transient failure"),  # This should be retried
+                _err.NonRetryableError("Permanent failure"),  # This should stop retries
             ]
         )
 
-        with pytest.raises(NonRetryableError, match="Permanent failure"):
+        with pytest.raises(_err.NonRetryableError, match="Permanent failure"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         # Should have made both calls (retry then fail)
@@ -383,14 +386,14 @@ class TestRetryMWErrorTypeHandling:
 
         service = RetryTestService(
             [
-                RetryableError("Error 1"),
-                RetryableError("Error 2"),
-                RetryableError("Final error"),  # This should be the raised error
+                _err.RetryableError("Error 1"),
+                _err.RetryableError("Error 2"),
+                _err.RetryableError("Final error"),  # This should be the raised error
             ]
         )
 
         # Should fail with the last error after exhausting retries
-        with pytest.raises(RetryableError, match="Final error"):
+        with pytest.raises(_err.RetryableError, match="Final error"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         assert service.call_count == 3
@@ -406,7 +409,7 @@ class TestRetryMWStreamingBehavior:
 
         service = RetryTestService(
             [
-                RetryableError("Stream initialization failed"),
+                _err.RetryableError("Stream initialization failed"),
                 None,  # Success on second attempt
             ]
         )
@@ -435,13 +438,13 @@ class TestRetryMWStreamingBehavior:
                 self.call_count += 1
                 yield {"chunk": 1, "call": self.call_count}
                 # Fail after yielding one chunk
-                raise RetryableError("Stream failed mid-way")
+                raise _err.RetryableError("Stream failed mid-way")
 
         service = PartialStreamService()
 
         # Should fail without retrying since chunks were already yielded
         chunks = []
-        with pytest.raises(RetryableError, match="Stream failed mid-way"):
+        with pytest.raises(_err.RetryableError, match="Stream failed mid-way"):
             async for chunk in retry_mw.stream(mock_request, ctx, service.stream_operation):
                 chunks.append(chunk)
 
@@ -454,17 +457,17 @@ class TestRetryMWStreamingBehavior:
 
     @pytest.mark.anyio
     async def test_stream_non_retryable_error_fails_immediately(self, retry_mw, mock_request):
-        """Validate NonRetryableError in streams fails immediately without retries."""
+        """Validate _err.NonRetryableError in streams fails immediately without retries."""
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         service = RetryTestService(
             [
-                NonRetryableError("Invalid stream request"),
+                _err.NonRetryableError("Invalid stream request"),
                 None,  # Should never be reached
             ]
         )
 
-        with pytest.raises(NonRetryableError, match="Invalid stream request"):
+        with pytest.raises(_err.NonRetryableError, match="Invalid stream request"):
             async for _ in retry_mw.stream(mock_request, ctx, service.stream_operation):
                 pass  # Should not yield anything
 
@@ -481,9 +484,9 @@ class TestRetryMWEdgeCases:
         retry_mw = RetryMW(config)
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
-        service = RetryTestService([RetryableError("Should fail immediately")])
+        service = RetryTestService([_err.RetryableError("Should fail immediately")])
 
-        with pytest.raises(ServiceError, match="All 0 retry attempts failed"):
+        with pytest.raises(_err.ServiceError, match="All 0 retry attempts failed"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         assert service.call_count == 0  # No attempts should be made
@@ -496,10 +499,10 @@ class TestRetryMWEdgeCases:
         ctx = CallContext.with_timeout(branch_id=uuid4(), timeout_s=10.0)
 
         service = RetryTestService(
-            [RetryableError("First failure"), None]  # Should never be reached
+            [_err.RetryableError("First failure"), None]  # Should never be reached
         )
 
-        with pytest.raises(RetryableError, match="First failure"):
+        with pytest.raises(_err.RetryableError, match="First failure"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         assert service.call_count == 1  # Only one attempt
@@ -523,10 +526,10 @@ class TestRetryMWEdgeCases:
             attrs={},
         )
 
-        service = RetryTestService([RetryableError("Should not retry")])
+        service = RetryTestService([_err.RetryableError("Should not retry")])
 
         # Should fail immediately without any attempts
-        with pytest.raises(RetryableError, match="Should not retry"):
+        with pytest.raises(_err.RetryableError, match="Should not retry"):
             await retry_mw(mock_request, ctx, service.call_operation)
 
         assert service.call_count == 1  # One attempt, no retries

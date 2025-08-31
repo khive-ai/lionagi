@@ -15,7 +15,10 @@ from uuid import uuid4
 import anyio
 import pytest
 
-from lionagi.errors import ServiceError, TimeoutError
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import _err.ServiceError, _err.TimeoutError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
@@ -109,7 +112,7 @@ async def test_executor_queue_wait_deadline_critical_flaw():
     This test validates the fix for the critical flaw where the executor waits
     for capacity but doesn't respect the call deadline. When rate limits force
     a wait time longer than the call deadline, the call should fail promptly
-    with TimeoutError rather than waiting the full rate limit time.
+    with _err.TimeoutError rather than waiting the full rate limit time.
 
     TDD Spec Reference: V1_Executor_RateLimiting.DeadlineWhileWaitingForCapacity
     """
@@ -145,7 +148,7 @@ async def test_executor_queue_wait_deadline_critical_flaw():
         call2 = await executor.submit_call(fast_service, DummyRequest(), ctx2)
 
         # The call should fail with timeout after ~1 second, not 10 seconds
-        with pytest.raises((TimeoutError, ServiceError)):
+        with pytest.raises((_err.TimeoutError, _err.ServiceError)):
             await call2.wait_completion()
 
         elapsed = anyio.current_time() - start_time
@@ -459,7 +462,7 @@ async def test_executor_queue_capacity_rejection():
             try:
                 call = await executor.submit_call(service, DummyRequest(content=f"call_{i}"), ctx)
                 calls.append(call)
-            except ServiceError as e:
+            except _err.ServiceError as e:
                 # Should get queue capacity error on the 3rd call
                 assert "queue at capacity" in str(e)
                 assert i >= 2, f"Queue rejection happened too early at call {i}"

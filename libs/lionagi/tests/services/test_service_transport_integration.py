@@ -5,7 +5,7 @@
 P0 Comprehensive Service-Transport Integration Tests for lionagi v1.
 
 End-to-end behavioral validation consolidating transport and service layer testing:
-- Complete error propagation pipeline (HTTP → OpenAI SDK → LionError hierarchy)
+- Complete error propagation pipeline (HTTP → OpenAI SDK → _err.LionError hierarchy)
 - Deadline enforcement through full request cycle
 - Streaming response handling with chunk transformation
 - Service capability validation and context propagation
@@ -28,11 +28,14 @@ import pytest
 from httpx import MockTransport, Request, Response
 from openai import AsyncOpenAI
 
-from lionagi.errors import (
-    NonRetryableError,
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import (
+    _err.NonRetryableError,
     RateLimitError,
-    RetryableError,
-    TimeoutError,
+    _err.RetryableError,
+    _err.TimeoutError,
 )
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import ChatRequestModel, RequestModel
@@ -219,13 +222,13 @@ class TestErrorPropagationPipeline:
         return [
             # (HTTP status, expected error type, retryable, extra validation)
             (429, RateLimitError, True, lambda e: e.retry_after > 0),
-            (500, RetryableError, True, lambda e: "Server error: 500" in e.message),
-            (502, RetryableError, True, lambda e: "Server error: 502" in e.message),
-            (503, RetryableError, True, lambda e: "Server error: 503" in e.message),
-            (400, NonRetryableError, False, lambda e: "Client error: 400" in e.message),
-            (401, NonRetryableError, False, lambda e: "Client error: 401" in e.message),
-            (403, NonRetryableError, False, lambda e: "Client error: 403" in e.message),
-            (404, NonRetryableError, False, lambda e: "Client error: 404" in e.message),
+            (500, _err.RetryableError, True, lambda e: "Server error: 500" in e.message),
+            (502, _err.RetryableError, True, lambda e: "Server error: 502" in e.message),
+            (503, _err.RetryableError, True, lambda e: "Server error: 503" in e.message),
+            (400, _err.NonRetryableError, False, lambda e: "Client error: 400" in e.message),
+            (401, _err.NonRetryableError, False, lambda e: "Client error: 401" in e.message),
+            (403, _err.NonRetryableError, False, lambda e: "Client error: 403" in e.message),
+            (404, _err.NonRetryableError, False, lambda e: "Client error: 404" in e.message),
         ]
 
     @pytest.mark.anyio
@@ -233,13 +236,13 @@ class TestErrorPropagationPipeline:
         "status_code,error_type,retryable,validation",
         [
             (429, RateLimitError, True, lambda e: e.retry_after > 0),
-            (500, RetryableError, True, lambda e: "Error code: 500" in e.message),
-            (502, RetryableError, True, lambda e: "Error code: 502" in e.message),
-            (503, RetryableError, True, lambda e: "Error code: 503" in e.message),
-            (400, NonRetryableError, False, lambda e: "Error code: 400" in e.message),
-            (401, NonRetryableError, False, lambda e: "Error code: 401" in e.message),
-            (403, NonRetryableError, False, lambda e: "Error code: 403" in e.message),
-            (404, NonRetryableError, False, lambda e: "Error code: 404" in e.message),
+            (500, _err.RetryableError, True, lambda e: "Error code: 500" in e.message),
+            (502, _err.RetryableError, True, lambda e: "Error code: 502" in e.message),
+            (503, _err.RetryableError, True, lambda e: "Error code: 503" in e.message),
+            (400, _err.NonRetryableError, False, lambda e: "Error code: 400" in e.message),
+            (401, _err.NonRetryableError, False, lambda e: "Error code: 401" in e.message),
+            (403, _err.NonRetryableError, False, lambda e: "Error code: 403" in e.message),
+            (404, _err.NonRetryableError, False, lambda e: "Error code: 404" in e.message),
         ],
     )
     async def test_http_status_to_service_error_propagation(
@@ -271,7 +274,7 @@ class TestErrorPropagationPipeline:
 
     @pytest.mark.anyio
     async def test_network_error_end_to_end_propagation(self):
-        """Test network errors propagate as RetryableError through complete pipeline."""
+        """Test network errors propagate as _err.RetryableError through complete pipeline."""
         mock_client = AsyncMock(spec=AsyncOpenAI)
         connection_error = openai.APIConnectionError(
             message="Connection failed", request=MagicMock()
@@ -282,7 +285,7 @@ class TestErrorPropagationPipeline:
         request = ServiceTestBuilder.create_standard_request()
         context = ServiceTestBuilder.create_test_context()
 
-        with pytest.raises(RetryableError) as exc_info:
+        with pytest.raises(_err.RetryableError) as exc_info:
             await service.call(request, ctx=context)
 
         error = exc_info.value
@@ -304,14 +307,14 @@ class TestErrorPropagationPipeline:
 
             # Test through service layer
             mock_client = AsyncMock(spec=AsyncOpenAI)
-            timeout_error = openai.APITimeoutError(request=MagicMock())
+            timeout_error = openai.API_err.TimeoutError(request=MagicMock())
             mock_client.chat.completions.create = AsyncMock(side_effect=timeout_error)
 
             service = OpenAICompatibleService(client=mock_client, name="timeout_test")
             request = ServiceTestBuilder.create_standard_request()
             context = ServiceTestBuilder.create_test_context(timeout_s=1.0)
 
-            with pytest.raises(TimeoutError) as exc_info:
+            with pytest.raises(_err.TimeoutError) as exc_info:
                 await service.call(request, ctx=context)
 
             error = exc_info.value
@@ -350,10 +353,10 @@ class TestDeadlineEnforcementIntegration:
         start_time = time.time()
 
         # Should timeout at deadline (~100ms), not transport timeout (~500ms)
-        # Note: anyio raises built-in TimeoutError, not lionagi.errors.TimeoutError
+        # Note: anyio raises built-in _err.TimeoutError, not lionagi.errors._err.TimeoutError
         import builtins
 
-        with pytest.raises(builtins.TimeoutError):
+        with pytest.raises(builtins._err.TimeoutError):
             await service.call(request, ctx=context)
 
         elapsed_time = time.time() - start_time
@@ -391,10 +394,10 @@ class TestDeadlineEnforcementIntegration:
         start_time = time.time()
 
         # Should timeout at deadline (~100ms), not after stream delay (~500ms)
-        # Note: anyio raises built-in TimeoutError for deadline enforcement
+        # Note: anyio raises built-in _err.TimeoutError for deadline enforcement
         import builtins
 
-        with pytest.raises(builtins.TimeoutError):
+        with pytest.raises(builtins._err.TimeoutError):
             async for chunk in service.stream(request, ctx=context):
                 pass
 
@@ -514,7 +517,7 @@ class TestStreamingPipelineIntegration:
 
         chunks_received = []
 
-        with pytest.raises(RetryableError) as exc_info:
+        with pytest.raises(_err.RetryableError) as exc_info:
             async for chunk in service.stream(request, ctx=context):
                 chunks_received.append(chunk)
 
@@ -621,7 +624,7 @@ class TestServiceCapabilityIntegration:
         context = ServiceTestBuilder.create_test_context()
         request = ServiceTestBuilder.create_standard_request()
 
-        with pytest.raises(RetryableError) as exc_info:
+        with pytest.raises(_err.RetryableError) as exc_info:
             await service.call(request, ctx=context)
 
         error = exc_info.value

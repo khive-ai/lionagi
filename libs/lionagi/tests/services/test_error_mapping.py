@@ -18,10 +18,13 @@ import msgspec
 import msgspec.json
 import pytest
 
-from lionagi.errors import (
-    NonRetryableError,
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import (
+    _err.NonRetryableError,
     RateLimitError,
-    RetryableError,
+    _err.RetryableError,
     TransportError,
 )
 from lionagi.services.transport import HTTPXTransport
@@ -36,9 +39,9 @@ class TestV1TransportHTTPXErrorMapping:
 
     @pytest.mark.anyio
     async def test_http_status_retryable_errors(self):
-        """Test: HTTP status codes that map to RetryableError (CRITICAL)
+        """Test: HTTP status codes that map to _err.RetryableError (CRITICAL)
 
-        Validates that 429 and 5xx status codes map to RetryableError for retry middleware.
+        Validates that 429 and 5xx status codes map to _err.RetryableError for retry middleware.
         This is critical for proper resilience behavior.
         """
         transport = HTTPXTransport()
@@ -97,14 +100,14 @@ class TestV1TransportHTTPXErrorMapping:
                 assert error.retryable is True, "RateLimitError should be retryable"
 
             else:
-                # Test that 5xx maps to RetryableError
-                with pytest.raises(RetryableError) as exc_info:
+                # Test that 5xx maps to _err.RetryableError
+                with pytest.raises(_err.RetryableError) as exc_info:
                     transport._check_response_status(mock_response)
 
                 error = exc_info.value
                 assert isinstance(
-                    error, RetryableError
-                ), f"{status_code} should map to RetryableError, got {type(error)}"
+                    error, _err.RetryableError
+                ), f"{status_code} should map to _err.RetryableError, got {type(error)}"
                 assert error.retryable is True, f"{status_code} error should be retryable"
                 assert str(status_code) in str(
                     error
@@ -112,9 +115,9 @@ class TestV1TransportHTTPXErrorMapping:
 
     @pytest.mark.anyio
     async def test_http_status_non_retryable_errors(self):
-        """Test: HTTP status codes that map to NonRetryableError (CRITICAL)
+        """Test: HTTP status codes that map to _err.NonRetryableError (CRITICAL)
 
-        Validates that 4xx (except 429) status codes map to NonRetryableError.
+        Validates that 4xx (except 429) status codes map to _err.NonRetryableError.
         Critical for preventing infinite retries on client errors.
         """
         transport = HTTPXTransport()
@@ -161,14 +164,14 @@ class TestV1TransportHTTPXErrorMapping:
                 request=httpx.Request("POST", "https://api.test.com/v1/chat"),
             )
 
-            # Test that 4xx (except 429) maps to NonRetryableError
-            with pytest.raises(NonRetryableError) as exc_info:
+            # Test that 4xx (except 429) maps to _err.NonRetryableError
+            with pytest.raises(_err.NonRetryableError) as exc_info:
                 transport._check_response_status(mock_response)
 
             error = exc_info.value
             assert isinstance(
-                error, NonRetryableError
-            ), f"{status_code} should map to NonRetryableError, got {type(error)}"
+                error, _err.NonRetryableError
+            ), f"{status_code} should map to _err.NonRetryableError, got {type(error)}"
             assert error.retryable is False, f"{status_code} error should not be retryable"
             assert str(status_code) in str(
                 error
@@ -196,12 +199,12 @@ class TestV1TransportHTTPXErrorMapping:
                 TransportError,
                 "Request timed out",
             ),
-            # NetworkError -> RetryableError
-            (httpx.NetworkError("Connection failed"), RetryableError, "Network error"),
-            # ConnectError (subclass of NetworkError) -> RetryableError
-            (httpx.ConnectError("Connection refused"), RetryableError, "Network error"),
-            # ReadError (subclass of NetworkError) -> RetryableError
-            (httpx.ReadError("Connection broken"), RetryableError, "Network error"),
+            # NetworkError -> _err.RetryableError
+            (httpx.NetworkError("Connection failed"), _err.RetryableError, "Network error"),
+            # ConnectError (subclass of NetworkError) -> _err.RetryableError
+            (httpx.ConnectError("Connection refused"), _err.RetryableError, "Network error"),
+            # ReadError (subclass of NetworkError) -> _err.RetryableError
+            (httpx.ReadError("Connection broken"), _err.RetryableError, "Network error"),
         ]
 
         for httpx_exception, expected_error_type, expected_message_part in test_cases:
@@ -391,8 +394,8 @@ class TestV1TransportHTTPXErrorMapping:
 
         transport._client.stream = mock_stream
 
-        # Should raise RetryableError for 5xx during streaming
-        with pytest.raises(RetryableError) as exc_info:
+        # Should raise _err.RetryableError for 5xx during streaming
+        with pytest.raises(_err.RetryableError) as exc_info:
             async for chunk in transport.stream_json(
                 method="POST",
                 url="https://api.test.com/v1/stream",
@@ -437,7 +440,7 @@ class TestV1TransportHTTPXErrorMapping:
             request=httpx.Request("POST", "https://api.example.com/v1/protected"),
         )
 
-        with pytest.raises(NonRetryableError) as exc_info:
+        with pytest.raises(_err.NonRetryableError) as exc_info:
             transport._check_response_status(mock_response)
 
         error = exc_info.value
@@ -485,7 +488,7 @@ class TestV1TransportHTTPXErrorMapping:
             request=httpx.Request("POST", "https://api.test.com/v1/test"),
         )
 
-        with pytest.raises(NonRetryableError) as exc_info:
+        with pytest.raises(_err.NonRetryableError) as exc_info:
             transport._check_response_status(mock_response)
 
         error = exc_info.value

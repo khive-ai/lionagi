@@ -25,7 +25,10 @@ from uuid import uuid4
 import anyio
 import pytest
 
-from lionagi.errors import PolicyError, ServiceError, TimeoutError
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import _err.PolicyError, _err.ServiceError, _err.TimeoutError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
@@ -100,11 +103,11 @@ class ConfigurableTestService(Service):
 
             if self.failure_mode and self.call_count > self.failure_after:
                 if self.failure_mode == "retryable":
-                    raise ServiceError("Simulated retryable failure")
+                    raise _err.ServiceError("Simulated retryable failure")
                 elif self.failure_mode == "non_retryable":
-                    raise PolicyError("Simulated non-retryable failure", context={"reason": "test"})
+                    raise _err.PolicyError("Simulated non-retryable failure", context={"reason": "test"})
                 elif self.failure_mode == "timeout":
-                    raise TimeoutError("Simulated timeout")
+                    raise _err.TimeoutError("Simulated timeout")
 
             await anyio.sleep(self.call_delay)
             return {
@@ -129,7 +132,7 @@ class ConfigurableTestService(Service):
             """Core streaming operation."""
             for i in range(self.stream_chunks):
                 if self.failure_mode == "stream_error" and i == 1:
-                    raise ServiceError("Simulated stream error")
+                    raise _err.ServiceError("Simulated stream error")
 
                 await anyio.sleep(self.call_delay / self.stream_chunks)
                 yield {
@@ -348,7 +351,7 @@ class TestIntegrationCore:
             assert result["result"] == "processed: capability test"
 
             # Test 3: Insufficient capabilities should fail (fail-closed security)
-            with pytest.raises(PolicyError) as exc_info:
+            with pytest.raises(_err.PolicyError) as exc_info:
                 await model.invoke(
                     request,
                     capabilities={"fs.read:/safe"},  # Wrong capability
@@ -440,7 +443,7 @@ class TestIntegrationCore:
             request = TestRequest(content="error test")
 
             # Service error should propagate through entire pipeline
-            with pytest.raises(ServiceError) as exc_info:
+            with pytest.raises(_err.ServiceError) as exc_info:
                 await model.invoke(
                     request,
                     capabilities={"net.out:api.test.com"},
@@ -560,7 +563,7 @@ class TestIntegrationCore:
             # Should timeout after ~0.3s, not wait for 1s service delay
             import builtins
 
-            with pytest.raises(builtins.TimeoutError):
+            with pytest.raises(builtins._err.TimeoutError):
                 await model.invoke(
                     request,
                     capabilities={"net.out:api.test.com"},

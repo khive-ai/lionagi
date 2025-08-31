@@ -24,7 +24,10 @@ from uuid import uuid4
 import anyio
 import pytest
 
-from lionagi.errors import RetryableError, TimeoutError
+from lionagi import _err
+
+# Error types from _err module
+# Original: from lionagi.errors import _err.RetryableError, _err.TimeoutError
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import RequestModel
 from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
@@ -114,7 +117,7 @@ class TestCriticalImplementationFlaws:
             # CRITICAL TEST: This should fail after ~1s (deadline), NOT ~10s (rate limit)
             second_call = await executor.submit_call(service, second_request, second_context)
 
-            with pytest.raises(TimeoutError):
+            with pytest.raises(_err.TimeoutError):
                 await second_call.wait_completion()
 
             elapsed = time.time() - start_time
@@ -280,10 +283,10 @@ class TestCriticalImplementationFlaws:
             name = "failing"
 
             async def call(self, req, *, ctx):
-                raise RetryableError("Always fails")
+                raise _err.RetryableError("Always fails")
 
             async def stream(self, req, *, ctx):
-                raise RetryableError("Stream always fails")
+                raise _err.RetryableError("Stream always fails")
 
         service = AlwaysFailingService()
         request = TestRequest()
@@ -300,7 +303,7 @@ class TestCriticalImplementationFlaws:
         start_time = time.time()
 
         # CRITICAL TEST: Should stop retrying when deadline approaches
-        with pytest.raises(RetryableError):  # Final exception after deadline-limited retries
+        with pytest.raises(_err.RetryableError):  # Final exception after deadline-limited retries
             await retry_mw(request, context, mock_next_call)
 
         elapsed = time.time() - start_time

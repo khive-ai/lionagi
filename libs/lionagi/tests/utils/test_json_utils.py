@@ -3,8 +3,8 @@
 import msgspec
 import pytest
 
-from lionagi.ln._extract_json import extract_json
-from lionagi.ln._fuzzy_json import fix_json_string, fuzzy_json
+from lionagi.ln.fuzzy._extract_json import extract_json
+from lionagi.ln.fuzzy._fuzzy_json import fix_json_string, fuzzy_json
 
 
 class TestFuzzyJsonParsing:
