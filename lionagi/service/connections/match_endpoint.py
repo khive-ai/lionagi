@@ -47,6 +47,15 @@ def match_endpoint(
         from .providers.perplexity_ import PerplexityChatEndpoint
 
         return PerplexityChatEndpoint(None, **kwargs)
+    if provider == "nvidia_nim":
+        if "embed" in endpoint:
+            from .providers.nvidia_nim_ import NvidiaNimEmbedEndpoint
+
+            return NvidiaNimEmbedEndpoint(None, **kwargs)
+        if "chat" in endpoint or "completion" in endpoint:
+            from .providers.nvidia_nim_ import NvidiaNimChatEndpoint
+
+            return NvidiaNimChatEndpoint(None, **kwargs)
     if provider == "claude_code":
         if "cli" in endpoint:
             from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
