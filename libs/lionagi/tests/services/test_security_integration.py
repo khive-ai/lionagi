@@ -496,7 +496,7 @@ class TestSecurityAuditLogging:
 
         error_log = error_logs[0]
         assert error_log.status == "error"
-        assert error_log.error_type == "_err.ServiceError"
+        assert error_log.error_type == "ServiceError"
 
 
 class TestSecurityMiddlewareComposition:

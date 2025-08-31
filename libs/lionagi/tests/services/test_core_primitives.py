@@ -375,7 +375,7 @@ class TestErrorHierarchyBehavior:
         decoded = msgspec.json.decode(encoded)
 
         # Validate critical fields preserved
-        assert decoded["error"] == "_err.RetryableError"
+        assert decoded["error"] == "RetryableError"
         assert decoded["retryable"] is True
         assert decoded["code"] == "retryable_error"
         assert decoded["details"]["retry_count"] == 2

@@ -18,7 +18,10 @@ from lionagi.services.providers.claude_code import (
     ClaudeCodeRequestModel,
     create_claude_code_service,
 )
-from lionagi.services.providers.provider_registry import get_provider_registry, register_builtin_adapters
+from lionagi.services.providers.provider_registry import (
+    get_provider_registry,
+    register_builtin_adapters,
+)
 
 
 class TestClaudeCodeRequestModel:
@@ -215,7 +218,7 @@ class TestClaudeCodeService:
             yield '{"type": "result", "result": "Response complete"}'
 
         # Patch the transport's stream method
-        with patch.object(service._transport, 'stream', side_effect=mock_stream):
+        with patch.object(service._transport, "stream", side_effect=mock_stream):
             chunks = []
             async for chunk in service.stream(request, ctx=context):
                 chunks.append(chunk)

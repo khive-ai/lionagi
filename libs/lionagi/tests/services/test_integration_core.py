@@ -35,7 +35,10 @@ from lionagi.services.executor import ExecutorConfig, RateLimitedExecutor
 from lionagi.services.hooks import HookedMiddleware, HookRegistry, HookType
 from lionagi.services.imodel import iModel
 from lionagi.services.middleware import MetricsMW, PolicyGateMW
-from lionagi.services.providers.provider_registry import ProviderAdapter, get_provider_registry
+from lionagi.services.providers.provider_registry import (
+    ProviderAdapter,
+    get_provider_registry,
+)
 
 # Consolidated Mock Services (replaces 800+ lines of duplicate setup)
 
@@ -105,7 +108,9 @@ class ConfigurableTestService(Service):
                 if self.failure_mode == "retryable":
                     raise _err.ServiceError("Simulated retryable failure")
                 elif self.failure_mode == "non_retryable":
-                    raise _err.PolicyError("Simulated non-retryable failure", context={"reason": "test"})
+                    raise _err.PolicyError(
+                        "Simulated non-retryable failure", context={"reason": "test"}
+                    )
                 elif self.failure_mode == "timeout":
                     raise _err.TimeoutError("Simulated timeout")
 
@@ -561,9 +566,7 @@ class TestIntegrationCore:
             start_time = time.time()
 
             # Should timeout after ~0.3s, not wait for 1s service delay
-            import builtins
-
-            with pytest.raises(builtins._err.TimeoutError):
+            with pytest.raises(TimeoutError):
                 await model.invoke(
                     request,
                     capabilities={"net.out:api.test.com"},

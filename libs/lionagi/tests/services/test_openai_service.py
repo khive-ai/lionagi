@@ -20,14 +20,7 @@ from openai import AsyncOpenAI
 
 from lionagi import _err
 
-# Error types from _err module
-# Original: from lionagi.errors import (
-    _err.NonRetryableError,
-    RateLimitError,
-    _err.RetryableError,
-    _err.ServiceError,
-    _err.TimeoutError,
-)
+# Error types from _err module - updated imports
 from lionagi.services.core import CallContext
 from lionagi.services.endpoint import ChatRequestModel
 from lionagi.services.providers.openai import OpenAICompatibleService
@@ -60,7 +53,7 @@ class TestOpenAIServiceCore:
     def service(self, mock_client, registry):
         """Create OpenAICompatibleService via provider registry."""
         # Mock the AsyncOpenAI constructor to return our mock client
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai_class:
             mock_openai_class.return_value = mock_client
 
             service, resolution, rights = registry.create_service(
@@ -175,9 +168,7 @@ class TestProactiveDeadlineEnforcement:
         """
         start_time = time.time()
 
-        import builtins
-
-        with pytest.raises(builtins._err.TimeoutError):
+        with pytest.raises(TimeoutError):
             # The service should use fail_at(ctx.deadline_s) which will raise
             # built-in _err.TimeoutError when deadline is exceeded
             await service_with_slow_client.call(basic_request, ctx=short_deadline_context)
@@ -212,9 +203,7 @@ class TestProactiveDeadlineEnforcement:
 
         start_time = time.time()
 
-        import builtins
-
-        with pytest.raises(builtins._err.TimeoutError):
+        with pytest.raises(TimeoutError):
             # Stream should enforce deadline and raise built-in _err.TimeoutError before slow response
             async for _ in service_with_slow_client.stream(
                 basic_request, ctx=short_deadline_context
@@ -464,7 +453,7 @@ class TestOpenAISDKExceptionMapping:
 
         service.client.chat.completions.create = AsyncMock(side_effect=rate_limit_error)
 
-        with pytest.raises(RateLimitError) as exc_info:
+        with pytest.raises(_err.RateLimitError) as exc_info:
             await service.call(basic_request, ctx=context)
 
         error = exc_info.value
@@ -546,9 +535,9 @@ class TestOpenAISDKExceptionMapping:
 
     @pytest.mark.anyio
     async def test_timeout_error_mapping(self, service, basic_request, context):
-        """Test asyncio._err.TimeoutError maps to lionagi _err.TimeoutError."""
+        """Test asyncio.TimeoutError maps to lionagi _err.TimeoutError."""
         service.client.chat.completions.create = AsyncMock(
-            side_effect=asyncio._err.TimeoutError("Request timed out")
+            side_effect=asyncio.TimeoutError("Request timed out")
         )
 
         with pytest.raises(_err.TimeoutError) as exc_info:
@@ -591,7 +580,7 @@ class TestServiceCapabilityDeclaration:
 
     def test_default_capability_requirements(self, registry):
         """Test default capability requirements from adapter."""
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai_class:
             mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
 
             service, resolution, rights = registry.create_service(
@@ -604,7 +593,7 @@ class TestServiceCapabilityDeclaration:
 
     def test_specific_capability_requirements(self, registry):
         """Test service with specific capability requirements via custom base_url."""
-        with patch("lionagi.services.openai.create_generic_service") as mock_create:
+        with patch("lionagi.services.providers.openai.create_generic_service") as mock_create:
             mock_service = OpenAICompatibleService(
                 client=AsyncMock(spec=AsyncOpenAI),
                 name="custom_openai",
@@ -624,7 +613,7 @@ class TestServiceCapabilityDeclaration:
     def test_registry_provider_resolution(self, registry):
         """Test that registry resolves providers correctly."""
         # Mock the AsyncOpenAI constructor to avoid actual API calls
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock(spec=AsyncOpenAI)
             mock_openai_class.return_value = mock_client
 
@@ -661,7 +650,7 @@ class TestProviderRegistryConfigValidation:
 
     def test_valid_config_validation(self, registry):
         """Test that valid config passes Pydantic validation."""
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai_class:
             mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
 
             # Valid configuration should work
@@ -688,7 +677,7 @@ class TestProviderRegistryConfigValidation:
 
     def test_config_validation_with_extra_fields(self, registry):
         """Test that extra fields are handled properly."""
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai_class:
             mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
 
             # Extra fields should be passed through
@@ -747,7 +736,7 @@ class TestAdapterRequiredRights:
 
     def test_rights_propagation_to_service(self, registry):
         """Test that adapter rights are properly propagated to service."""
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai_class:
             mock_openai_class.return_value = AsyncMock(spec=AsyncOpenAI)
 
             service, resolution, rights = registry.create_service(

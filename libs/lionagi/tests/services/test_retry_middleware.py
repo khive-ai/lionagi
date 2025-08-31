@@ -156,7 +156,10 @@ class TestRetryMWDeadlineAwareness:
 
         # Create service that fails once, then succeeds
         service = RetryTestService(
-            [_err.RetryableError("Temporary failure"), None]  # Success on second attempt
+            [
+                _err.RetryableError("Temporary failure"),
+                None,
+            ]  # Success on second attempt
         )
 
         # Should succeed after one retry

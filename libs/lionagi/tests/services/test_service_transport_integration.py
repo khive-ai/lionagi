@@ -30,18 +30,18 @@ from openai import AsyncOpenAI
 
 from lionagi import _err
 
-# Error types from _err module
-# Original: from lionagi.errors import (
-    _err.NonRetryableError,
-    RateLimitError,
-    _err.RetryableError,
-    _err.TimeoutError,
-)
+# Error types from _err module - updated imports
 from lionagi.services.core import CallContext, Service
 from lionagi.services.endpoint import ChatRequestModel, RequestModel
 from lionagi.services.imodel import iModel
-from lionagi.services.providers.openai import OpenAICompatibleService, create_openai_service
-from lionagi.services.providers.provider_registry import ProviderAdapter, get_provider_registry
+from lionagi.services.providers.openai import (
+    OpenAICompatibleService,
+    create_openai_service,
+)
+from lionagi.services.providers.provider_registry import (
+    ProviderAdapter,
+    get_provider_registry,
+)
 from lionagi.services.transport import HTTPXTransport
 
 # ==============================================================================
@@ -221,28 +221,83 @@ class TestErrorPropagationPipeline:
         """Define comprehensive error mapping test cases."""
         return [
             # (HTTP status, expected error type, retryable, extra validation)
-            (429, RateLimitError, True, lambda e: e.retry_after > 0),
-            (500, _err.RetryableError, True, lambda e: "Server error: 500" in e.message),
-            (502, _err.RetryableError, True, lambda e: "Server error: 502" in e.message),
-            (503, _err.RetryableError, True, lambda e: "Server error: 503" in e.message),
-            (400, _err.NonRetryableError, False, lambda e: "Client error: 400" in e.message),
-            (401, _err.NonRetryableError, False, lambda e: "Client error: 401" in e.message),
-            (403, _err.NonRetryableError, False, lambda e: "Client error: 403" in e.message),
-            (404, _err.NonRetryableError, False, lambda e: "Client error: 404" in e.message),
+            (429, _err.RateLimitError, True, lambda e: e.retry_after > 0),
+            (
+                500,
+                _err.RetryableError,
+                True,
+                lambda e: "Server error: 500" in e.message,
+            ),
+            (
+                502,
+                _err.RetryableError,
+                True,
+                lambda e: "Server error: 502" in e.message,
+            ),
+            (
+                503,
+                _err.RetryableError,
+                True,
+                lambda e: "Server error: 503" in e.message,
+            ),
+            (
+                400,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Client error: 400" in e.message,
+            ),
+            (
+                401,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Client error: 401" in e.message,
+            ),
+            (
+                403,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Client error: 403" in e.message,
+            ),
+            (
+                404,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Client error: 404" in e.message,
+            ),
         ]
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
         "status_code,error_type,retryable,validation",
         [
-            (429, RateLimitError, True, lambda e: e.retry_after > 0),
+            (429, _err.RateLimitError, True, lambda e: e.retry_after > 0),
             (500, _err.RetryableError, True, lambda e: "Error code: 500" in e.message),
             (502, _err.RetryableError, True, lambda e: "Error code: 502" in e.message),
             (503, _err.RetryableError, True, lambda e: "Error code: 503" in e.message),
-            (400, _err.NonRetryableError, False, lambda e: "Error code: 400" in e.message),
-            (401, _err.NonRetryableError, False, lambda e: "Error code: 401" in e.message),
-            (403, _err.NonRetryableError, False, lambda e: "Error code: 403" in e.message),
-            (404, _err.NonRetryableError, False, lambda e: "Error code: 404" in e.message),
+            (
+                400,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Error code: 400" in e.message,
+            ),
+            (
+                401,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Error code: 401" in e.message,
+            ),
+            (
+                403,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Error code: 403" in e.message,
+            ),
+            (
+                404,
+                _err.NonRetryableError,
+                False,
+                lambda e: "Error code: 404" in e.message,
+            ),
         ],
     )
     async def test_http_status_to_service_error_propagation(
@@ -307,7 +362,7 @@ class TestErrorPropagationPipeline:
 
             # Test through service layer
             mock_client = AsyncMock(spec=AsyncOpenAI)
-            timeout_error = openai.API_err.TimeoutError(request=MagicMock())
+            timeout_error = openai.APITimeoutError(request=MagicMock())
             mock_client.chat.completions.create = AsyncMock(side_effect=timeout_error)
 
             service = OpenAICompatibleService(client=mock_client, name="timeout_test")
@@ -335,32 +390,35 @@ class TestDeadlineEnforcementIntegration:
     async def test_service_deadline_enforcement_proactive(self):
         """Test that service layer enforces deadlines proactively before transport timeout."""
 
-        # Create slow mock that would take 500ms
-        def slow_handler(request: Request) -> Response:
-            time.sleep(0.5)  # 500ms delay
-            return Response(200, json={"id": "slow-response"})
+        # Use a mock client that has async delays which can be properly cancelled
+        mock_client = AsyncMock(spec=AsyncOpenAI)
 
-        slow_transport = MockTransport(slow_handler)
+        async def slow_create(*args, **kwargs):
+            # This async delay can be properly cancelled by anyio timeout
+            import anyio
 
-        # Use direct service creation with mock client
-        mock_http_client = httpx.AsyncClient(transport=slow_transport)
-        mock_openai_client = AsyncOpenAI(api_key="test-key", http_client=mock_http_client)
-        service = OpenAICompatibleService(client=mock_openai_client, name="deadline_test")
+            await anyio.sleep(5.0)  # 5 second delay
+            return {
+                "id": "slow-response",
+                "choices": [{"message": {"content": "slow response"}}],
+            }
 
+        mock_client.chat.completions.create = slow_create
+
+        service = OpenAICompatibleService(client=mock_client, name="deadline_test")
         request = ServiceTestBuilder.create_standard_request()
-        context = ServiceTestBuilder.create_test_context(timeout_s=0.1)  # 100ms deadline
+        context = ServiceTestBuilder.create_test_context(timeout_s=2.0)  # 2 second deadline
 
         start_time = time.time()
 
-        # Should timeout at deadline (~100ms), not transport timeout (~500ms)
-        # Note: anyio raises built-in _err.TimeoutError, not lionagi.errors._err.TimeoutError
-        import builtins
-
-        with pytest.raises(builtins._err.TimeoutError):
+        # Should timeout at deadline (~2s), not mock delay (~5s)
+        # Note: anyio raises built-in TimeoutError, not lionagi._err.TimeoutError
+        with pytest.raises(TimeoutError):
             await service.call(request, ctx=context)
 
         elapsed_time = time.time() - start_time
-        assert elapsed_time < 0.2, f"Expected timeout ~100ms, got {elapsed_time * 1000:.1f}ms"
+        assert elapsed_time < 3.0, f"Expected timeout ~2s, got {elapsed_time:.1f}s"
+        assert elapsed_time > 1.5, f"Timeout too fast, expected ~2s, got {elapsed_time:.1f}s"
 
     @pytest.mark.anyio
     async def test_streaming_deadline_enforcement(self):
@@ -397,7 +455,7 @@ class TestDeadlineEnforcementIntegration:
         # Note: anyio raises built-in _err.TimeoutError for deadline enforcement
         import builtins
 
-        with pytest.raises(builtins._err.TimeoutError):
+        with pytest.raises(builtins.TimeoutError):
             async for chunk in service.stream(request, ctx=context):
                 pass
 
@@ -541,7 +599,7 @@ class TestServiceCapabilityIntegration:
     @pytest.mark.anyio
     async def test_service_capability_declaration_validation(self):
         """Test that services properly declare and validate capabilities."""
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai:
             mock_client = AsyncMock(spec=AsyncOpenAI)
             mock_openai.return_value = mock_client
 
@@ -680,7 +738,7 @@ class TestCompletePipelineLifecycle:
 
         # Create service with integrated transport and use through iModel
         # Patch AsyncOpenAI to use our mock HTTP client
-        with patch("lionagi.services.openai.AsyncOpenAI") as mock_openai_class:
+        with patch("lionagi.services.providers.openai.AsyncOpenAI") as mock_openai_class:
             mock_http_client = httpx.AsyncClient(transport=mock_transport)
             mock_openai_instance = AsyncOpenAI(api_key="test-key", http_client=mock_http_client)
             mock_openai_class.return_value = mock_openai_instance
@@ -732,7 +790,7 @@ class TestCompletePipelineLifecycle:
         transport._client = httpx.AsyncClient(transport=mock_transport)
 
         # Patch msgspec.json.decode to verify usage
-        with patch("lionagi.services.transport.msgspec.json.decode") as mock_decode:
+        with patch("msgspec.json.decode") as mock_decode:
             mock_decode.return_value = complex_response
 
             async with transport:

@@ -20,13 +20,7 @@ import pytest
 
 from lionagi import _err
 
-# Error types from _err module
-# Original: from lionagi.errors import (
-    _err.NonRetryableError,
-    RateLimitError,
-    _err.RetryableError,
-    TransportError,
-)
+# Error types from _err module - updated imports
 from lionagi.services.transport import HTTPXTransport
 
 
@@ -51,7 +45,7 @@ class TestV1TransportHTTPXErrorMapping:
             (
                 429,
                 "Rate limited",
-            ),  # Rate limit - special case, should be RateLimitError
+            ),  # Rate limit - special case, should be _err.RateLimitError
             (500, "Internal Server Error"),  # Server errors are retryable
             (502, "Bad Gateway"),
             (503, "Service Unavailable"),
@@ -76,7 +70,7 @@ class TestV1TransportHTTPXErrorMapping:
                 request=httpx.Request("POST", "https://api.test.com/v1/chat"),
             )
 
-            # Special handling for 429 which should be RateLimitError
+            # Special handling for 429 which should be _err.RateLimitError
             if status_code == 429:
                 # Mock response with Retry-After header
                 mock_response = httpx.Response(
@@ -86,18 +80,18 @@ class TestV1TransportHTTPXErrorMapping:
                     request=httpx.Request("POST", "https://api.test.com/v1/chat"),
                 )
 
-                # Test that 429 maps to RateLimitError specifically
-                with pytest.raises(RateLimitError) as exc_info:
+                # Test that 429 maps to _err.RateLimitError specifically
+                with pytest.raises(_err.RateLimitError) as exc_info:
                     transport._check_response_status(mock_response)
 
                 error = exc_info.value
                 assert isinstance(
-                    error, RateLimitError
-                ), f"429 should map to RateLimitError, got {type(error)}"
+                    error, _err.RateLimitError
+                ), f"429 should map to _err.RateLimitError, got {type(error)}"
                 assert (
                     error.retry_after == 60.0
                 ), f"Expected retry_after=60.0, got {error.retry_after}"
-                assert error.retryable is True, "RateLimitError should be retryable"
+                assert error.retryable is True, "_err.RateLimitError should be retryable"
 
             else:
                 # Test that 5xx maps to _err.RetryableError
@@ -140,7 +134,7 @@ class TestV1TransportHTTPXErrorMapping:
             (423, "Locked"),
             (424, "Failed Dependency"),
             (428, "Precondition Required"),
-            # Note: 429 is handled separately as RateLimitError
+            # Note: 429 is handled separately as _err.RateLimitError
             (431, "Request Header Fields Too Large"),
             (451, "Unavailable For Legal Reasons"),
             (499, "Client Closed Request"),  # Edge of 4xx range
@@ -193,18 +187,30 @@ class TestV1TransportHTTPXErrorMapping:
 
         # Mock different HTTPX exceptions and test their mapping
         test_cases = [
-            # TimeoutException -> TransportError
+            # TimeoutException -> _err.TransportError
             (
                 httpx.TimeoutException("Request timed out"),
-                TransportError,
+                _err.TransportError,
                 "Request timed out",
             ),
             # NetworkError -> _err.RetryableError
-            (httpx.NetworkError("Connection failed"), _err.RetryableError, "Network error"),
+            (
+                httpx.NetworkError("Connection failed"),
+                _err.RetryableError,
+                "Network error",
+            ),
             # ConnectError (subclass of NetworkError) -> _err.RetryableError
-            (httpx.ConnectError("Connection refused"), _err.RetryableError, "Network error"),
+            (
+                httpx.ConnectError("Connection refused"),
+                _err.RetryableError,
+                "Network error",
+            ),
             # ReadError (subclass of NetworkError) -> _err.RetryableError
-            (httpx.ReadError("Connection broken"), _err.RetryableError, "Network error"),
+            (
+                httpx.ReadError("Connection broken"),
+                _err.RetryableError,
+                "Network error",
+            ),
         ]
 
         for httpx_exception, expected_error_type, expected_message_part in test_cases:
@@ -250,8 +256,8 @@ class TestV1TransportHTTPXErrorMapping:
 
         transport._client.request = AsyncMock(return_value=mock_response)
 
-        # Should raise TransportError for JSON decode failure
-        with pytest.raises(TransportError) as exc_info:
+        # Should raise _err.TransportError for JSON decode failure
+        with pytest.raises(_err.TransportError) as exc_info:
             await transport.send_json(
                 method="POST",
                 url="https://api.test.com/v1/test",
@@ -329,7 +335,7 @@ class TestV1TransportHTTPXErrorMapping:
                 request=httpx.Request("POST", "https://api.test.com/v1/test"),
             )
 
-            with pytest.raises(RateLimitError) as exc_info:
+            with pytest.raises(_err.RateLimitError) as exc_info:
                 transport._check_response_status(mock_response)
 
             error = exc_info.value
@@ -354,7 +360,7 @@ class TestV1TransportHTTPXErrorMapping:
             request=httpx.Request("POST", "https://api.test.com/v1/test"),
         )
 
-        with pytest.raises(RateLimitError) as exc_info:
+        with pytest.raises(_err.RateLimitError) as exc_info:
             transport._check_response_status(mock_response)
 
         error = exc_info.value
