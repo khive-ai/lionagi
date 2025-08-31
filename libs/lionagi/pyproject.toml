@@ -16,6 +16,7 @@ classifiers=[
 ]
 dependencies = [
     "anyio>=4.7.0",
+    "fastmcp>=2.12.0",
     "json-repair>=0.50.0",
     "msgspec>=0.18.0",
     "openai>=1.100.0",
@@ -52,9 +53,16 @@ sqlite = [
     "aiosqlite>=0.18.0",
 ]
 
+mcp = [
+    "fastmcp>=2.12.0",
+]
+
+
 all = [
     "lionagi[postgres]",
     "lionagi[graph]",
+    "lionagi[sqlite]",
+    "lionagi[mcp]",
 ]
 
 
