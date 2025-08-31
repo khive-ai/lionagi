@@ -1,6 +1,4 @@
 from ._async_call import AlcallParams, BcallParams, alcall, bcall
-from ._extract_json import extract_json
-from ._fuzzy_json import fuzzy_json
 from ._hash import hash_dict
 from ._json_dump import (
     DEFAULT_SERIALIZER,
@@ -11,24 +9,26 @@ from ._json_dump import (
 from ._list_call import LcallParams, lcall
 from ._models import DataClass, Params
 from ._to_list import ToListParams, to_list
-from ._types import (
-    Enum,
-    KeysDict,
-    MaybeSentinel,
-    MaybeUndefined,
-    MaybeUnset,
-    SingletonType,
-    T,
-    Undefined,
-    UndefinedType,
-    Unset,
-    UnsetType,
-    is_sentinel,
-    not_sentinel,
-)
+from ._types import *
 from .concurrency import *
+from .fuzzy import *
 
 __all__ = (
+    "AlcallParams",
+    "BcallParams",
+    "alcall",
+    "bcall",
+    "hash_dict",
+    "DEFAULT_SERIALIZER",
+    "DEFAULT_SERIALIZER_OPTION",
+    "get_orjson_default",
+    "json_dumps",
+    "LcallParams",
+    "lcall",
+    "DataClass",
+    "Params",
+    "ToListParams",
+    "to_list",
     "Undefined",
     "Unset",
     "MaybeUndefined",
@@ -42,22 +42,6 @@ __all__ = (
     "Enum",
     "is_sentinel",
     "not_sentinel",
-    "Params",
-    "DataClass",
-    "Enum",
-    "hash_dict",
-    "to_list",
-    "ToListParams",
-    "lcall",
-    "LcallParams",
-    "alcall",
-    "bcall",
-    "AlcallParams",
-    "BcallParams",
-    "get_orjson_default",
-    "DEFAULT_SERIALIZER",
-    "DEFAULT_SERIALIZER_OPTION",
-    "json_dumps",
     "TaskGroup",
     "create_task_group",
     "CancelScope",
@@ -83,5 +67,8 @@ __all__ = (
     "is_coro_func",
     "ConcurrencyEvent",
     "fuzzy_json",
+    "fuzzy_match_keys",
     "extract_json",
+    "string_similarity",
+    "SIMILARITY_TYPE",
 )

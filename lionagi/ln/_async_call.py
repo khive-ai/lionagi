@@ -292,6 +292,4 @@ class BcallParams(AlcallParams):
         self, input_: list[Any], func: Callable[..., T], **kw
     ) -> list[T]:
         kwargs = {**self.default_kw(), **kw}
-        func = self._func
-
-        return await func(input_, func, self.batch_size, **kwargs)
+        return await bcall(input_, func, self.batch_size, **kwargs)
