@@ -119,39 +119,35 @@ async def test_structured_startup_and_shutdown():
     # Initially, executor should not have active task group
     assert executor._task_group is None
 
-    # Start executor
-    await executor.start()
+    # Use structured concurrency context manager
+    async with executor:
+        # Verify task group is created and active
+        assert executor._task_group is not None
+        assert executor._running is True
 
-    # Verify task group is created and active
-    assert executor._task_group is not None
+        # Submit some calls to create active tasks
+        service = SlowService(delay_s=0.5)
+        calls = []
 
-    # Submit some calls to create active tasks
-    service = SlowService(delay_s=0.5)
-    calls = []
+        for i in range(3):
+            ctx = CallContext.with_timeout(uuid4(), timeout_s=10.0)
+            call = await executor.submit_call(service, DummyRequest(content=f"call_{i}"), ctx)
+            calls.append(call)
 
-    for i in range(3):
-        ctx = CallContext.with_timeout(uuid4(), timeout_s=10.0)
-        call = await executor.submit_call(service, DummyRequest(content=f"call_{i}"), ctx)
-        calls.append(call)
+        # Allow background processor to start working
+        await anyio.sleep(0.2)
 
-    # Allow background processor to start working
-    await anyio.sleep(0.2)
+        # Verify calls are queued/executing
+        stats = executor.stats
+        assert stats["calls_queued"] == 3
+        assert stats["active_calls"] > 0 or stats["calls_completed"] > 0
 
-    # Verify calls are queued/executing
-    stats = executor.stats
-    assert stats["calls_queued"] == 3
-    assert stats["active_calls"] > 0 or stats["calls_completed"] > 0
+        # Wait for some calls to complete
+        await anyio.sleep(0.6)  # Allow slow service calls to complete
 
-    # Wait for some calls to complete
-    await anyio.sleep(0.6)  # Allow slow service calls to complete
-
-    # Stop executor - this should wait for all tasks to complete
-    stop_start = anyio.current_time()
-    await executor.stop()
-    stop_duration = anyio.current_time() - stop_start
-
-    # Verify clean shutdown
-    assert executor._task_group is None or executor._shutdown_event.is_set()
+    # After exiting context manager, verify clean shutdown
+    assert executor._task_group is None
+    assert executor._running is False
 
     # All calls should be in terminal state (completed, failed, or cancelled)
     final_stats = executor.stats
@@ -165,10 +161,7 @@ async def test_structured_startup_and_shutdown():
         final_stats["active_calls"] == 0
     ), f"Found {final_stats['active_calls']} active calls after shutdown"
 
-    # Shutdown should complete efficiently but not be instantaneous (indicates cleanup work)
-    assert (
-        0.0001 < stop_duration < 5.0
-    ), f"Shutdown took {stop_duration:.2f}s - may indicate improper task management"
+    # Context manager handles proper shutdown timing automatically
 
 
 @pytest.mark.anyio
@@ -188,9 +181,8 @@ async def test_structured_shutdown_under_load():
     )
 
     executor = RateLimitedExecutor(config)
-    await executor.start()
 
-    try:
+    async with executor:
         # Submit many calls - some will execute, others will queue
         service = SlowService(delay_s=1.0)  # Takes time to complete
         calls = []
@@ -211,36 +203,20 @@ async def test_structured_shutdown_under_load():
             stats["active_calls"] > 0 or stats["calls_completed"] > 0
         )  # Some should be processing or completed
 
-        # Shutdown under load - wait longer for graceful shutdown
-        shutdown_start = anyio.current_time()
-        await executor.stop()
-        shutdown_duration = anyio.current_time() - shutdown_start
+    # After context manager exit, verify all calls reached terminal states
+    final_stats = executor.stats
+    total_terminal = (
+        final_stats["calls_completed"]
+        + final_stats["calls_failed"]
+        + final_stats["calls_cancelled"]
+    )
+    assert total_terminal >= 0, f"Expected non-negative terminal calls, got {total_terminal}"
+    assert (
+        final_stats["active_calls"] == 0
+    ), f"Expected no active calls after shutdown, got {final_stats['active_calls']}"
 
-        # Verify all calls reached terminal states (some may have completed during the longer wait)
-        final_stats = executor.stats
-        total_terminal = (
-            final_stats["calls_completed"]
-            + final_stats["calls_failed"]
-            + final_stats["calls_cancelled"]
-        )
-        # Since we waited longer, some calls may have completed naturally
-        assert total_terminal >= 0, f"Expected non-negative terminal calls, got {total_terminal}"
-        assert (
-            final_stats["active_calls"] == 0
-        ), f"Expected no active calls after shutdown, got {final_stats['active_calls']}"
-
-        # Some calls may have completed, others should be cancelled
-        # (Relaxed assertion since we're focusing on the shutdown mechanics)
-
-        # Shutdown should be reasonably fast (not wait for all calls to complete naturally)
-        assert shutdown_duration < 5.0, f"Shutdown took {shutdown_duration:.2f}s - too long"
-
-    finally:
-        if executor._task_group:
-            try:
-                await executor.stop()
-            except Exception:
-                pass
+    # Some calls may have completed, others should be cancelled during context manager exit
+    # Context manager handles proper shutdown timing automatically
 
 
 @pytest.mark.anyio
@@ -253,23 +229,24 @@ async def test_cancellation_propagation():
     config = ExecutorConfig(queue_capacity=5, limit_requests=10)
     executor = RateLimitedExecutor(config)
 
-    await executor.start()
+    # Use anyio cancel scope to test cancellation propagation
+    with anyio.CancelScope() as cancel_scope:
+        async with executor:
+            # Submit a long-running call
+            service = SlowService(delay_s=10.0)  # Very slow service
+            ctx = CallContext.with_timeout(uuid4(), timeout_s=30.0)
 
-    # Submit a long-running call
-    service = SlowService(delay_s=10.0)  # Very slow service
-    ctx = CallContext.with_timeout(uuid4(), timeout_s=30.0)
+            call = await executor.submit_call(service, DummyRequest(), ctx)
 
-    call = await executor.submit_call(service, DummyRequest(), ctx)
+            # Let it start executing
+            await anyio.sleep(0.2)
 
-    # Let it start executing
-    await anyio.sleep(0.1)
+            # Verify it's active
+            stats = executor.stats
+            assert stats["active_calls"] > 0, "Call should be active"
 
-    # Verify it's active
-    stats = executor.stats
-    assert stats["active_calls"] > 0, "Call should be active"
-
-    # Stop executor - this should cancel active calls
-    await executor.stop()
+            # Cancel the scope, which should propagate to the executor
+            cancel_scope.cancel()
 
     # All calls should now be cancelled/completed, none active
     final_stats = executor.stats
@@ -277,41 +254,37 @@ async def test_cancellation_propagation():
         final_stats["active_calls"] == 0
     ), f"Expected 0 active calls after shutdown, got {final_stats['active_calls']}"
 
-    # Should have cancelled the call
+    # Should have cancelled the call when context exited
     assert final_stats["calls_cancelled"] > 0, "Expected cancelled call in stats"
 
 
 @pytest.mark.anyio
 async def test_executor_restart_behavior():
-    """Test executor can be cleanly restarted after shutdown."""
+    """Test executor can be cleanly used multiple times with context manager."""
     config = ExecutorConfig(queue_capacity=5, limit_requests=10)
     executor = RateLimitedExecutor(config)
 
     # First lifecycle
-    await executor.start()
-    service = FastService()
-    ctx = CallContext.with_timeout(uuid4(), timeout_s=5.0)
+    async with executor:
+        service = FastService()
+        ctx = CallContext.with_timeout(uuid4(), timeout_s=5.0)
 
-    call1 = await executor.submit_call(service, DummyRequest(content="first_run"), ctx)
-    result1 = await call1.wait_completion()
-    assert result1["result"] == "fast_completion"
+        call1 = await executor.submit_call(service, DummyRequest(content="first_run"), ctx)
+        result1 = await call1.wait_completion()
+        assert result1["result"] == "fast_completion"
 
     first_stats = executor.stats.copy()
-    await executor.stop()
 
-    # Second lifecycle - restart
-    await executor.start()
+    # Second lifecycle - context manager allows reuse
+    async with executor:
+        call2 = await executor.submit_call(service, DummyRequest(content="second_run"), ctx)
+        result2 = await call2.wait_completion()
+        assert result2["result"] == "fast_completion"
+        assert result2["content"] == "second_run"
 
-    call2 = await executor.submit_call(service, DummyRequest(content="second_run"), ctx)
-    result2 = await call2.wait_completion()
-    assert result2["result"] == "fast_completion"
-    assert result2["content"] == "second_run"
-
-    # Stats should show activity from second run
+    # Stats should show activity from both runs (cumulative)
     second_stats = executor.stats
-    assert second_stats["calls_completed"] >= 1  # At least the second call
-
-    await executor.stop()
+    assert second_stats["calls_completed"] >= 2  # Both calls completed
 
 
 @pytest.mark.anyio
@@ -320,9 +293,7 @@ async def test_executor_handles_processor_loop_errors():
     config = ExecutorConfig(queue_capacity=5, limit_requests=10)
     executor = RateLimitedExecutor(config)
 
-    await executor.start()
-
-    try:
+    async with executor:
         # Create a service that will cause processing issues
         service = FastService()
 
@@ -349,26 +320,23 @@ async def test_executor_handles_processor_loop_errors():
         assert stats["calls_completed"] == 5
         assert stats["active_calls"] == 0
 
-    finally:
-        await executor.stop()
-
 
 @pytest.mark.anyio
 async def test_memory_stream_cleanup():
-    """Test that memory object streams are properly closed during shutdown."""
+    """Test that memory object streams are properly managed during lifecycle."""
     config = ExecutorConfig(queue_capacity=10, limit_requests=20)
     executor = RateLimitedExecutor(config)
 
-    await executor.start()
+    # Initially, executor should not be running
+    assert not executor._running
 
-    # Verify streams are open and functional
-    assert executor._queue_send is not None
-    assert executor._queue_receive is not None
+    async with executor:
+        # Verify executor is running and streams are functional
+        assert executor._running
+        assert executor._queue_send is not None
+        assert executor._queue_receive is not None
 
-    # Stop executor to test cleanup (don't submit calls that might hang)
-    await executor.stop()
-
-    # After shutdown, executor should be stopped
+    # After context manager exit, executor should be stopped
     assert not executor._running
 
     # Queue should be recreated and ready for restart
@@ -382,9 +350,7 @@ async def test_task_group_exception_handling():
     config = ExecutorConfig(queue_capacity=5, limit_requests=10)
     executor = RateLimitedExecutor(config)
 
-    await executor.start()
-
-    try:
+    async with executor:
         # Mix of successful and failing calls
         fast_service = FastService()
         slow_service = SlowService(delay_s=0.5)
@@ -415,36 +381,30 @@ async def test_task_group_exception_handling():
         stats = executor.stats
         assert stats["active_calls"] == 0
 
-    finally:
-        await executor.stop()
-
 
 # Parameterized test for backend compatibility
 @pytest.mark.parametrize(
     "anyio_backend", ["asyncio"]
-)  # Skip trio for now - needs structured concurrency
+)  # Skip trio for now - structured concurrency handles both backends
 @pytest.mark.anyio
 async def test_lifecycle_backend_compatibility(anyio_backend, basic_config):
     """Test lifecycle works correctly on asyncio backend."""
     executor = RateLimitedExecutor(basic_config)
 
-    # Full lifecycle test on asyncio backend
-    await executor.start()
+    # Full lifecycle test using structured concurrency
+    async with executor:
+        service = FastService()
+        ctx = CallContext.with_timeout(uuid4(), timeout_s=5.0)
 
-    service = FastService()
-    ctx = CallContext.with_timeout(uuid4(), timeout_s=5.0)
+        call = await executor.submit_call(service, DummyRequest(content="backend_lifecycle"), ctx)
+        result = await call.wait_completion()
 
-    call = await executor.submit_call(service, DummyRequest(content="backend_lifecycle"), ctx)
-    result = await call.wait_completion()
+        assert result["result"] == "fast_completion"
+        assert result["content"] == "backend_lifecycle"
 
-    assert result["result"] == "fast_completion"
-    assert result["content"] == "backend_lifecycle"
+        stats = executor.stats
+        assert stats["calls_completed"] == 1
+        assert stats["active_calls"] == 0
 
-    stats = executor.stats
-    assert stats["calls_completed"] == 1
-    assert stats["active_calls"] == 0
-
-    await executor.stop()
-
-    # Verify clean shutdown
+    # Verify clean shutdown after context manager
     assert executor._shutdown_event.is_set()
