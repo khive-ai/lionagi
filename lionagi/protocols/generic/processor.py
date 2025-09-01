@@ -166,9 +166,9 @@ class Processor(Observer):
                                 async with self._concurrency_sem:
                                     await consume_stream(event)
 
-                            await tg.start_soon(stream_with_sem, next_event)
+                            tg.start_soon(stream_with_sem, next_event)
                         else:
-                            await tg.start_soon(consume_stream, next_event)
+                            tg.start_soon(consume_stream, next_event)
                     else:
                         # For non-streaming, just invoke
                         if self._concurrency_sem:
@@ -177,9 +177,9 @@ class Processor(Observer):
                                 async with self._concurrency_sem:
                                     await event.invoke()
 
-                            await tg.start_soon(invoke_with_sem, next_event)
+                            tg.start_soon(invoke_with_sem, next_event)
                         else:
-                            await tg.start_soon(next_event.invoke)
+                            tg.start_soon(next_event.invoke)
                     events_processed += 1
 
                 prev_event = next_event
