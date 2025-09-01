@@ -7,13 +7,14 @@ Key Features:
 - gather: Concurrent execution with fail-fast or exception collection
 - race: First-to-complete coordination
 - bounded_map: Concurrent mapping with rate limiting
-- as_completed: Stream results as they become available
+- CompletionStream: Stream results as they become available
 - retry: Deadline-aware exponential backoff
 
 Note on Structural Concurrency:
-These patterns follow structured concurrency principles where possible, but
-some patterns (notably as_completed) have fundamental limitations when used
-with early breaks. See individual function docstrings for details.
+These patterns follow structured concurrency principles where possible. In
+particular, CompletionStream provides an explicit lifecycle to avoid the
+pitfalls of unstructured as_completed-like patterns when breaking early.
+See individual function docstrings for details.
 """
 
 from __future__ import annotations

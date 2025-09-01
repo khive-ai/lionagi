@@ -8,7 +8,7 @@ from .cancel import (
     move_on_at,
 )
 from .errors import get_cancelled_exc_class, is_cancelled, shield
-from .patterns import bounded_map, gather, race, retry
+from .patterns import CompletionStream, bounded_map, gather, race, retry
 from .primitives import (
     CapacityLimiter,
     Condition,
@@ -50,6 +50,7 @@ __all__ = (
     "race",
     "bounded_map",
     "retry",
+    "CompletionStream",
     "track_resource",
     "untrack_resource",
     "LeakInfo",
