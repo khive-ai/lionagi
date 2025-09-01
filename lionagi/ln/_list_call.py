@@ -1,14 +1,12 @@
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-from typing import Any, ClassVar, TypeVar
+from typing import Any, TypeVar
 
-from ._models import Params
 from ._to_list import to_list
 
 R = TypeVar("R")
 T = TypeVar("T")
 
-__all__ = ("lcall", "LcallParams")
+__all__ = ("lcall",)
 
 
 def lcall(
@@ -97,34 +95,3 @@ def lcall(
         )
 
     return out
-
-
-@dataclass(slots=True, frozen=True, init=False)
-class LcallParams(Params):
-    _func: ClassVar[Any] = lcall
-
-    # input processing
-    input_flatten: bool
-    """If True, recursively flatten input to a flat list"""
-    input_dropna: bool
-    """If True, remove None and undefined values from input."""
-    input_unique: bool
-    input_use_values: bool
-    input_flatten_tuple_set: bool
-
-    # output processing
-    output_flatten: bool
-    """If True, recursively flatten output to a flat list."""
-    output_dropna: bool
-    """If True, remove None and undefined values."""
-    output_unique: bool
-    """If True, remove duplicates (requires output_flatten=True)."""
-    output_use_values: bool
-    """If True, extract values from enums/mappings."""
-    output_flatten_tuple_set: bool
-    """If True, include tuples and sets in flattening."""
-
-    def __call__(self, input_: Any, *args, **kw) -> list:
-        """Convert parameters to a list."""
-        f = self.as_partial()
-        return f(input_, *args, **kw)

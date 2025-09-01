@@ -8,8 +8,7 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
 
 from ._hash import hash_dict
-from ._models import Params
-from ._types import UndefinedType, UnsetType
+from .types import Params, UndefinedType, UnsetType
 
 __all__ = ("to_list", "ToListParams")
 

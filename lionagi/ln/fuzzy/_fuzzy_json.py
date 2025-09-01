@@ -2,7 +2,9 @@ import contextlib
 import re
 from typing import Any
 
-import orjson
+import msgspec
+
+_decoder = msgspec.json.Decoder(type=Any)
 
 
 def fuzzy_json(str_to_parse: str, /) -> dict[str, Any] | list[dict[str, Any]]:
@@ -10,7 +12,7 @@ def fuzzy_json(str_to_parse: str, /) -> dict[str, Any] | list[dict[str, Any]]:
     Attempt to parse a JSON string, trying a few minimal "fuzzy" fixes if needed.
 
     Steps:
-    1. Parse directly with json.loads.
+    1. Parse directly with msgspec.
     2. Replace single quotes with double quotes, normalize spacing, and try again.
     3. Attempt to fix unmatched brackets using fix_json_string.
     4. If all fail, raise ValueError.
@@ -27,19 +29,21 @@ def fuzzy_json(str_to_parse: str, /) -> dict[str, Any] | list[dict[str, Any]]:
     """
     _check_valid_str(str_to_parse)
 
+    # Use .encode("utf-8") as msgspec typically works with bytes for optimal performance
+
     # 1. Direct attempt
-    with contextlib.suppress(Exception):
-        return orjson.loads(str_to_parse)
+    with contextlib.suppress(msgspec.DecodeError):
+        return _decoder.decode(str_to_parse.encode("utf-8"))
 
     # 2. Try cleaning: replace single quotes with double and normalize
     cleaned = _clean_json_string(str_to_parse.replace("'", '"'))
-    with contextlib.suppress(Exception):
-        return orjson.loads(cleaned)
+    with contextlib.suppress(msgspec.DecodeError):
+        return _decoder.decode(cleaned.encode("utf-8"))
 
     # 3. Try fixing brackets
     fixed = fix_json_string(cleaned)
-    with contextlib.suppress(Exception):
-        return orjson.loads(fixed)
+    with contextlib.suppress(msgspec.DecodeError):
+        return _decoder.decode(fixed.encode("utf-8"))
 
     # If all attempts fail
     raise ValueError("Invalid JSON string")
@@ -59,6 +63,8 @@ def _clean_json_string(s: str) -> str:
     s = re.sub(r"(?<!\\)'", '"', s)
     # Collapse multiple whitespaces
     s = re.sub(r"\s+", " ", s)
+    # Remove trailing commas before closing brackets/braces
+    s = re.sub(r",\s*([}\]])", r"\1", s)
     # Ensure keys are quoted
     # This attempts to find patterns like { key: value } and turn them into {"key": value}
     s = re.sub(r'([{,])\s*([^"\s]+)\s*:', r'\1"\2":', s)

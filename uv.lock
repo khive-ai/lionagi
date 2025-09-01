@@ -2190,14 +2190,14 @@ requires-dist = [
     { name = "lionagi", extras = ["schema"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["sqlite"], marker = "extra == 'all'" },
     { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.7.0" },
-    { name = "msgspec", specifier = ">=0.19.0" },
+    { name = "msgspec", specifier = ">=0.18.0" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0.0" },
     { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
     { name = "opencv-python", marker = "extra == 'unstructured'", specifier = ">=4.2.0.34" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "psutil", specifier = ">=6.0.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.4" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.5" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
@@ -3907,16 +3907,16 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "1.0.4"
+version = "1.0.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "pydantic" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/cc/5e5fc745f27e543bd9a1388ea662de57b30f9e459200297cf46745b6d448/pydapter-1.0.4.tar.gz", hash = "sha256:c765cada7a2a7176e74413686ab8a2b5e2969a95696c3aa2f27f07d46259a7b2", size = 410252, upload-time = "2025-08-30T15:54:05.572Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/82/604e121532ea08631dc697131cb682c7c0c436bfa1dc8362ac07c688c6c1/pydapter-1.0.5.tar.gz", hash = "sha256:1a97aee90de74a2a7a17be74224ffdfda7290ec7819d01a540aa3607e681562d", size = 409260, upload-time = "2025-08-30T16:44:03.256Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/9e/e7282e231e1155a1854dd45866ab7f3e618dfd7eae720518235f7beef020/pydapter-1.0.4-py3-none-any.whl", hash = "sha256:e54cd9d060c1e34d68eec1650e7169c21e6a5e9e70eb58fa0bf5684ffc1ff475", size = 95675, upload-time = "2025-08-30T15:54:04.155Z" },
+    { url = "https://files.pythonhosted.org/packages/10/ec/f76d246bcccaeaef147766e097517aa6555ae6eafaca86d9fe1a014ea5ba/pydapter-1.0.5-py3-none-any.whl", hash = "sha256:ccd7eafd403e413fc9c32b709ee4017b46c5ef8f39c9c39b51221f6fa35963db", size = 95756, upload-time = "2025-08-30T16:44:01.82Z" },
 ]
 
 [package.optional-dependencies]
