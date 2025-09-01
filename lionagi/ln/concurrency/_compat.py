@@ -6,7 +6,7 @@ Provides ExceptionGroup backport and other compatibility utilities.
 from __future__ import annotations
 
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 # ExceptionGroup compatibility for Python 3.10
 if sys.version_info >= (3, 11):
