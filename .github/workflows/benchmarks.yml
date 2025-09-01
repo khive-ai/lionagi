@@ -1,0 +1,78 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  run-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install trio pytest-asyncio
+
+      - name: Run concurrency benchmarks (asyncio)
+        run: |
+          python -m benchmarks.concurrency_bench --repeat 3 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
+
+      - name: Run concurrency benchmarks (trio)
+        run: |
+          python -m benchmarks.concurrency_bench --repeat 3 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
+
+      - name: Run ln benchmarks (asyncio)
+        run: |
+          python -m benchmarks.ln_bench --repeat 3 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
+
+      - name: Run ln benchmarks (trio)
+        run: |
+          python -m benchmarks.ln_bench --repeat 3 --backend trio --output benchmarks/_ci_out/ln-trio.json
+
+      - name: Run fuzzy benchmarks
+        run: |
+          python -m benchmarks.fuzzy_bench --repeat 3 --output benchmarks/_ci_out/fuzzy.json
+
+      - name: Compare concurrency asyncio vs baseline (if present)
+        run: |
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-asyncio.json --current benchmarks/_ci_out/concurrency-asyncio.json --threshold 0.2
+
+      - name: Compare concurrency trio vs baseline (if present)
+        run: |
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-trio.json --current benchmarks/_ci_out/concurrency-trio.json --threshold 0.2
+
+      - name: Compare ln asyncio vs baseline (if present)
+        run: |
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/ln-asyncio.json --current benchmarks/_ci_out/ln-asyncio.json --threshold 0.2
+
+      - name: Compare ln trio vs baseline (if present)
+        run: |
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/ln-trio.json --current benchmarks/_ci_out/ln-trio.json --threshold 0.2
+
+      - name: Compare fuzzy vs baseline (if present)
+        run: |
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/fuzzy.json --current benchmarks/_ci_out/fuzzy.json --threshold 0.2
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results-py${{ matrix.python-version }}
+          path: benchmarks/_ci_out/**/*.json
+
