@@ -2,8 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
-from .._models import Params
-from .._types import KeysDict, Unset
+from ..types import KeysDict, Params, Unset
 from ._string_similarity import (
     SIMILARITY_ALGO_MAP,
     SIMILARITY_TYPE,

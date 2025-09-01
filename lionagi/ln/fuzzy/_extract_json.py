@@ -1,12 +1,15 @@
 import re
 from typing import Any
 
-import orjson
+import msgspec
 
 from ._fuzzy_json import fuzzy_json
 
 # Precompile the regex for extracting JSON code blocks
 _JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
+
+# Initialize a decoder for efficiency
+_decoder = msgspec.json.Decoder(type=Any)
 
 
 def extract_json(
@@ -37,7 +40,7 @@ def extract_json(
     try:
         if fuzzy_parse:
             return fuzzy_json(input_str)
-        return orjson.loads(input_str)
+        return _decoder.decode(input_str.encode("utf-8"))
     except Exception:
         pass
 
@@ -49,12 +52,22 @@ def extract_json(
     # If only one match, return single dict; if multiple, return list of dicts
     if return_one_if_single and len(matches) == 1:
         data_str = matches[0]
-        if fuzzy_parse:
-            return fuzzy_json(data_str)
-        return orjson.loads(data_str)
+        try:
+            if fuzzy_parse:
+                return fuzzy_json(data_str)
+            return _decoder.decode(data_str.encode("utf-8"))
+        except Exception:
+            return []
 
     # Multiple matches
-    if fuzzy_parse:
-        return [fuzzy_json(m) for m in matches]
-    else:
-        return [orjson.loads(m) for m in matches]
+    results = []
+    for m in matches:
+        try:
+            if fuzzy_parse:
+                results.append(fuzzy_json(m))
+            else:
+                results.append(_decoder.decode(m.encode("utf-8")))
+        except Exception:
+            # Skip invalid JSON blocks
+            continue
+    return results
