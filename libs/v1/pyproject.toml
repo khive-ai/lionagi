@@ -1,0 +1,78 @@
+[project]
+name = "lionagi-v1"
+version = "1.0.0-alpha"
+description = "LION V1: Capability-Based AI Orchestration with Formal Guarantees"
+authors = [
+    {name = "HaiyangLi (Ocean)", email = "ocean@lionagi.ai"}
+]
+license = {text = "Proprietary - All Rights Reserved"}
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["ai", "orchestration", "capabilities", "formal-verification", "category-theory"]
+
+dependencies = [
+    "pydantic>=2.8.0",
+    "msgspec>=0.18.0",
+    "httpx>=0.27.0",
+    "asyncio-compat>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "mypy>=1.10.0",
+    "ruff>=0.5.0",
+    "hypothesis>=6.100.0",  # property-based testing for category laws
+]
+
+enterprise = [
+    "prometheus-client>=0.20.0",
+    "opentelemetry-api>=1.25.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lionagi"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "W", "F", "I", "N", "UP", "RUF"]
+ignore = ["E501"]  # Line length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = [
+    "--strict-markers",
+    "--strict-config", 
+    "--disable-warnings"
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src/lionagi"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]

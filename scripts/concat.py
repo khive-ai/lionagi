@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from config import compress, compress_prefix, compression_iterations, config
+
 from lionagi.libs.file.concat import concat
 
 
@@ -47,12 +48,11 @@ async def to_txt(config=config):
     if not compress or not len(filenames) > 1:
         return out
 
+    from lionagi import iModel
     from lionagi.libs.token_transform.symbolic_compress_context import (
         symbolic_compress_context,
     )
     from lionagi.libs.token_transform.types import TokenMappingTemplate
-
-    from lionagi import iModel
 
     chat_model = iModel(
         model="openrouter/google/gemini-2.0-flash-001",
