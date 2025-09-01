@@ -72,16 +72,11 @@ def _generate_hashable_representation(item: any) -> any:
         except TypeError:  # Fallback for unorderable mixed types
 
             def sort_key(x):
-                # Handle bool/int equivalence - treat True as 1, False as 0
-                if isinstance(x, bool):
-                    return (
-                        0,
-                        int(x),
-                        str(type(x)),
-                        str(x),
-                    )  # bools sort first
-                else:
-                    return (1, hash(type(x)), str(type(x)), str(x))
+                # Deterministic ordering across mixed, unorderable types
+                # Sort strictly by textual type then textual value.
+                # This also naturally places bool before int because
+                # "<class 'bool'>" < "<class 'int'>" lexicographically.
+                return (str(type(x)), str(x))
 
             sorted_elements = sorted(list(item), key=sort_key)
         return (
@@ -96,18 +91,10 @@ def _generate_hashable_representation(item: any) -> any:
         try:
             sorted_elements = sorted(list(item))
         except TypeError:
-            # For mixed types, use a stable sorting key that handles bool/int identity
+            # For mixed types, use a deterministic, portable sort key
             def sort_key(x):
-                # Handle bool/int equivalence - treat True as 1, False as 0
-                if isinstance(x, bool):
-                    return (
-                        0,
-                        int(x),
-                        str(type(x)),
-                        str(x),
-                    )  # bools sort first
-                else:
-                    return (1, hash(type(x)), str(type(x)), str(x))
+                # Sort by textual type then textual value for stability.
+                return (str(type(x)), str(x))
 
             sorted_elements = sorted(list(item), key=sort_key)
         return (

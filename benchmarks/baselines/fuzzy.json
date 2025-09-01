@@ -1,0 +1,74 @@
+{
+  "meta": {
+    "python": "3.12.4",
+    "platform": "macOS-15.7-arm64-arm-64bit",
+    "anyio": "unknown",
+    "timestamp": "2025-09-01T22:56:23.593072+00:00"
+  },
+  "results": {
+    "fuzzy_json_valid_1000": {
+      "name": "fuzzy_json_valid_1000",
+      "runs": 1,
+      "min": 0.0018710840085987002,
+      "mean": 0.0018710840085987002,
+      "median": 0.0018710840085987002,
+      "max": 0.0018710840085987002
+    },
+    "fuzzy_json_dirty_single_quotes_500": {
+      "name": "fuzzy_json_dirty_single_quotes_500",
+      "runs": 1,
+      "min": 0.002010209020227194,
+      "mean": 0.002010209020227194,
+      "median": 0.002010209020227194,
+      "max": 0.002010209020227194
+    },
+    "extract_json_direct_1000": {
+      "name": "extract_json_direct_1000",
+      "runs": 1,
+      "min": 0.0003865000035148114,
+      "mean": 0.0003865000035148114,
+      "median": 0.0003865000035148114,
+      "max": 0.0003865000035148114
+    },
+    "extract_json_markdown_blocks_200": {
+      "name": "extract_json_markdown_blocks_200",
+      "runs": 1,
+      "min": 0.0020791659771930426,
+      "mean": 0.0020791659771930426,
+      "median": 0.0020791659771930426,
+      "max": 0.0020791659771930426
+    },
+    "fuzzy_match_keys_2000": {
+      "name": "fuzzy_match_keys_2000",
+      "runs": 1,
+      "min": 0.144483041978674,
+      "mean": 0.144483041978674,
+      "median": 0.144483041978674,
+      "max": 0.144483041978674
+    },
+    "string_similarity_bulk_2000": {
+      "name": "string_similarity_bulk_2000",
+      "runs": 1,
+      "min": 0.07244987500598654,
+      "mean": 0.07244987500598654,
+      "median": 0.07244987500598654,
+      "max": 0.07244987500598654
+    },
+    "ref_std_json_valid_1000": {
+      "name": "ref_std_json_valid_1000",
+      "runs": 1,
+      "min": 0.004851583013078198,
+      "mean": 0.004851583013078198,
+      "median": 0.004851583013078198,
+      "max": 0.004851583013078198
+    },
+    "ref_orjson_valid_1000": {
+      "name": "ref_orjson_valid_1000",
+      "runs": 1,
+      "min": 0.0008254160056822002,
+      "mean": 0.0008254160056822002,
+      "median": 0.0008254160056822002,
+      "max": 0.0008254160056822002
+    }
+  }
+}

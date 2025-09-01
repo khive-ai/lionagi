@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "backend": "asyncio",
+    "python": "3.12.4",
+    "platform": "macOS-15.7-arm64-arm-64bit",
+    "anyio": "unknown",
+    "timestamp": "2025-09-01T22:52:53.459993+00:00"
+  },
+  "results": {
+    "alcall_async_noop_1000_conc_100": {
+      "name": "alcall_async_noop_1000_conc_100",
+      "runs": 1,
+      "min": 0.024634250003146008,
+      "mean": 0.024634250003146008,
+      "median": 0.024634250003146008,
+      "max": 0.024634250003146008
+    },
+    "alcall_sync_noop_1000_conc_64": {
+      "name": "alcall_sync_noop_1000_conc_64",
+      "runs": 1,
+      "min": 0.05027100001461804,
+      "mean": 0.05027100001461804,
+      "median": 0.05027100001461804,
+      "max": 0.05027100001461804
+    },
+    "bcall_async_noop_1000_batch_50": {
+      "name": "bcall_async_noop_1000_batch_50",
+      "runs": 1,
+      "min": 0.02839933300856501,
+      "mean": 0.02839933300856501,
+      "median": 0.02839933300856501,
+      "max": 0.02839933300856501
+    },
+    "to_list_flatten_nested_10000": {
+      "name": "to_list_flatten_nested_10000",
+      "runs": 1,
+      "min": 0.02136358301504515,
+      "mean": 0.02136358301504515,
+      "median": 0.02136358301504515,
+      "max": 0.02136358301504515
+    },
+    "to_list_flatten_unique_2000_mixed": {
+      "name": "to_list_flatten_unique_2000_mixed",
+      "runs": 1,
+      "min": 0.0038054159958846867,
+      "mean": 0.0038054159958846867,
+      "median": 0.0038054159958846867,
+      "max": 0.0038054159958846867
+    },
+    "hash_dict_complex_1000": {
+      "name": "hash_dict_complex_1000",
+      "runs": 1,
+      "min": 0.18625820899615064,
+      "mean": 0.18625820899615064,
+      "median": 0.18625820899615064,
+      "max": 0.18625820899615064
+    },
+    "json_dumps_medium_1000": {
+      "name": "json_dumps_medium_1000",
+      "runs": 1,
+      "min": 0.02687970901024528,
+      "mean": 0.02687970901024528,
+      "median": 0.02687970901024528,
+      "max": 0.02687970901024528
+    }
+  }
+}

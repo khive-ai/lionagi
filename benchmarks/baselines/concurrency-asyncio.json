@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "backend": "asyncio",
+    "python": "3.12.4",
+    "platform": "macOS-15.7-arm64-arm-64bit",
+    "anyio": "unknown",
+    "timestamp": "2025-09-01T22:45:24.383168+00:00"
+  },
+  "results": {
+    "gather_100_yield": {
+      "name": "gather_100_yield",
+      "runs": 1,
+      "min": 0.000978750002104789,
+      "mean": 0.000978750002104789,
+      "median": 0.000978750002104789,
+      "max": 0.000978750002104789
+    },
+    "bounded_map_2000_limit_100": {
+      "name": "bounded_map_2000_limit_100",
+      "runs": 1,
+      "min": 0.022543375001987442,
+      "mean": 0.022543375001987442,
+      "median": 0.022543375001987442,
+      "max": 0.022543375001987442
+    },
+    "completion_stream_1000_limit_100": {
+      "name": "completion_stream_1000_limit_100",
+      "runs": 1,
+      "min": 0.049185165989911184,
+      "mean": 0.049185165989911184,
+      "median": 0.049185165989911184,
+      "max": 0.049185165989911184
+    },
+    "race_first_completion_10": {
+      "name": "race_first_completion_10",
+      "runs": 1,
+      "min": 0.0003745419962797314,
+      "mean": 0.0003745419962797314,
+      "median": 0.0003745419962797314,
+      "max": 0.0003745419962797314
+    },
+    "cancel_propagation_500": {
+      "name": "cancel_propagation_500",
+      "runs": 1,
+      "min": 0.014828374987700954,
+      "mean": 0.014828374987700954,
+      "median": 0.014828374987700954,
+      "max": 0.014828374987700954
+    },
+    "taskgroup_start_1000_noop": {
+      "name": "taskgroup_start_1000_noop",
+      "runs": 1,
+      "min": 0.006167707993881777,
+      "mean": 0.006167707993881777,
+      "median": 0.006167707993881777,
+      "max": 0.006167707993881777
+    }
+  }
+}
