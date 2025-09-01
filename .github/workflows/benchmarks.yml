@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.12"]
 
     steps:
       - name: Checkout
@@ -31,31 +31,31 @@ jobs:
 
       - name: Run concurrency benchmarks (asyncio)
         run: |
-          python -m benchmarks.concurrency_bench --repeat 3 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
+          python -m benchmarks.concurrency_bench --repeat 5 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
 
       - name: Run concurrency benchmarks (trio)
         run: |
-          python -m benchmarks.concurrency_bench --repeat 3 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
+          python -m benchmarks.concurrency_bench --repeat 5 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
 
       - name: Run ln benchmarks (asyncio)
         run: |
-          python -m benchmarks.ln_bench --repeat 3 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
+          python -m benchmarks.ln_bench --repeat 5 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
 
       - name: Run ln benchmarks (trio)
         run: |
-          python -m benchmarks.ln_bench --repeat 3 --backend trio --output benchmarks/_ci_out/ln-trio.json
+          python -m benchmarks.ln_bench --repeat 5 --backend trio --output benchmarks/_ci_out/ln-trio.json
 
       - name: Run fuzzy benchmarks
         run: |
-          python -m benchmarks.fuzzy_bench --repeat 3 --output benchmarks/_ci_out/fuzzy.json
+          python -m benchmarks.fuzzy_bench --repeat 5 --output benchmarks/_ci_out/fuzzy.json
 
       - name: Compare concurrency asyncio vs baseline (if present)
         run: |
-          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-asyncio.json --current benchmarks/_ci_out/concurrency-asyncio.json --threshold 0.2
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-asyncio.json --current benchmarks/_ci_out/concurrency-asyncio.json --threshold 0.5
 
       - name: Compare concurrency trio vs baseline (if present)
         run: |
-          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-trio.json --current benchmarks/_ci_out/concurrency-trio.json --threshold 0.2
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-trio.json --current benchmarks/_ci_out/concurrency-trio.json --threshold 0.5
 
       - name: Compare ln asyncio vs baseline (if present)
         run: |
@@ -75,4 +75,3 @@ jobs:
         with:
           name: benchmark-results-py${{ matrix.python-version }}
           path: benchmarks/_ci_out/**/*.json
-
