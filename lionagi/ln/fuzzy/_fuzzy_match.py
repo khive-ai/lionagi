@@ -154,7 +154,6 @@ def fuzzy_match_keys(
 
 @dataclass(slots=True, init=False, frozen=True)
 class FuzzyMatchKeysParams(Params):
-
     _none_as_sentinel: ClassVar[bool] = False
     _func: ClassVar[Any] = fuzzy_match_keys
 

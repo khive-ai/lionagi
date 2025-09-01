@@ -89,7 +89,6 @@ async def operate(
     include_token_usage_to_model: bool = False,
     **kwargs,
 ) -> list | BaseModel | None | dict | str:
-
     response_format = _handle_response_format_kwargs(
         operative_model, request_model, response_format
     )

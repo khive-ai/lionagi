@@ -76,7 +76,6 @@ __all__ = (
     "get_bins",
     "EventStatus",
     "logger",
-    "throttle",
     "max_concurrent",
     "force_async",
     "breakdown_pydantic_annotation",
