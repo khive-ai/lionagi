@@ -11,20 +11,37 @@ def load(path: Path):
 
 
 def compare(
-    current: dict, baseline: dict, threshold: float
+    current: dict,
+    baseline: dict,
+    threshold: float,
+    normalize_by: str | None = None,
 ) -> tuple[bool, str]:
     """Return (ok, report). ok=False if any scenario regresses beyond threshold.
 
     Threshold is relative increase on median time (e.g., 0.2 = 20%).
     """
     lines = []
+    norm_note = f" (normalized by {normalize_by})" if normalize_by else ""
     lines.append(
-        f"Threshold: {threshold:.0%} (negative = faster, positive = slower)"
+        f"Threshold: {threshold:.0%} (negative = faster, positive = slower){norm_note}"
     )
     ok = True
 
     cur_results = current.get("results", {})
     base_results = baseline.get("results", {})
+
+    # Determine anchors if normalization requested
+    cur_anchor = None
+    base_anchor = None
+    if normalize_by:
+        ca = cur_results.get(normalize_by)
+        ba = base_results.get(normalize_by)
+        if ca and ba:
+            try:
+                cur_anchor = float(ca.get("median", 0)) or None
+                base_anchor = float(ba.get("median", 0)) or None
+            except Exception:
+                cur_anchor = base_anchor = None
 
     for name, cur in sorted(cur_results.items()):
         base = base_results.get(name)
@@ -33,13 +50,31 @@ def compare(
             continue
         cur_med = float(cur.get("median", 0))
         base_med = float(base.get("median", 0))
+
+        # Normalize by anchor if available and not comparing the anchor itself
+        if (
+            normalize_by
+            and cur_anchor
+            and base_anchor
+            and name != normalize_by
+            and cur_anchor > 0
+            and base_anchor > 0
+        ):
+            cur_med = cur_med / cur_anchor
+            base_med = base_med / base_anchor
         if base_med == 0:
             delta = float("inf") if cur_med > 0 else 0.0
         else:
             delta = (cur_med - base_med) / base_med
-        lines.append(
-            f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}"
-        )
+        line = f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}"
+        if (
+            normalize_by
+            and name != normalize_by
+            and cur_anchor
+            and base_anchor
+        ):
+            line += f" (normalized by {normalize_by})"
+        lines.append(line)
         if delta > threshold:
             ok = False
 
@@ -55,6 +90,12 @@ def main() -> int:
         type=float,
         default=0.2,
         help="Relative regression threshold (e.g., 0.2 = 20%)",
+    )
+    ap.add_argument(
+        "--normalize-by",
+        type=str,
+        default=None,
+        help="Scenario name to normalize medians by",
     )
     args = ap.parse_args()
 
@@ -73,7 +114,7 @@ def main() -> int:
     try:
         base = load(baseline_path)
         cur = load(current_path)
-        ok, report = compare(cur, base, args.threshold)
+        ok, report = compare(cur, base, args.threshold, args.normalize_by)
         print(report)
         return 0 if ok else 2
     except Exception as e:

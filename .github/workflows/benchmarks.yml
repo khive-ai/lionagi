@@ -54,11 +54,11 @@ jobs:
 
       - name: Compare concurrency asyncio vs baseline (if present)
         run: |
-          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-asyncio.json --current benchmarks/_ci_out/concurrency-asyncio.json --threshold 0.5
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-asyncio.json --current benchmarks/_ci_out/concurrency-asyncio.json --threshold 0.2
 
       - name: Compare concurrency trio vs baseline (if present)
         run: |
-          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-trio.json --current benchmarks/_ci_out/concurrency-trio.json --threshold 0.5
+          python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-trio.json --current benchmarks/_ci_out/concurrency-trio.json --threshold 0.2
 
       - name: Compare ln asyncio vs baseline (if present)
         run: |
