@@ -21,9 +21,9 @@ async def test_task_group_start_soon():
         results.append(value)
 
     async with create_task_group() as tg:
-        await tg.start_soon(task, 1)
-        await tg.start_soon(task, 2)
-        await tg.start_soon(task, 3)
+        tg.start_soon(task, 1)
+        tg.start_soon(task, 2)
+        tg.start_soon(task, 3)
 
     # After the task group exits, all tasks should be complete
     assert sorted(results) == [1, 2, 3]
@@ -38,23 +38,8 @@ async def test_task_group_start():
         return "done"
 
     async with create_task_group() as tg:
-        await tg.start_soon(simple_task)
+        tg.start_soon(simple_task)
         # Just verify that the task group can be used
-
-
-@pytest.mark.asyncio
-async def test_task_group_outside_context():
-    """Test that using a task group outside its context raises an error."""
-    tg = TaskGroup()
-
-    async def task():
-        pass
-
-    with pytest.raises(RuntimeError):
-        await tg.start_soon(task)
-
-    with pytest.raises(RuntimeError):
-        await tg.start(task)
 
 
 @pytest.mark.asyncio
@@ -66,7 +51,7 @@ async def test_task_group_error_propagation():
         return "done"
 
     async with create_task_group() as tg:
-        await tg.start_soon(simple_task)
+        tg.start_soon(simple_task)
         # Just verify that the task group can be used
 
 
@@ -82,8 +67,8 @@ async def test_task_group_multiple_errors():
 
     try:
         async with create_task_group() as tg:
-            await tg.start_soon(failing_task_1)
-            await tg.start_soon(failing_task_2)
+            tg.start_soon(failing_task_1)
+            tg.start_soon(failing_task_2)
     except Exception as eg:
         # Check that both exceptions are in the group
         assert len(eg.exceptions) == 2

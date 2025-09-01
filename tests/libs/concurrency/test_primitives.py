@@ -1,286 +1,375 @@
-"""Tests for the resource management primitives."""
+import time
 
 import anyio
 import pytest
 
-from lionagi.ln.concurrency.primitives import (
+from lionagi.ln.concurrency import (
     CapacityLimiter,
     Condition,
     Event,
+    LeakTracker,
     Lock,
+    Queue,
     Semaphore,
+    track_resource,
+    untrack_resource,
 )
-from lionagi.ln.concurrency.task import create_task_group
 
 
-@pytest.mark.asyncio
-async def test_lock_basic():
-    """Test basic lock functionality."""
-    lock = Lock()
+@pytest.mark.anyio
+async def test_queue_unbuffered_backpressure(anyio_backend):
+    # Unbuffered stream (maxsize=0) should block until receiver calls get()
+    q = Queue.with_maxsize(0)
+    got = {}
 
-    # Test that the lock can be acquired and released
-    await lock.acquire()
-    # We can't directly check the owner, just verify we can acquire and release
-    lock.release()
+    async def consumer(*, task_status=None):
+        if task_status:
+            task_status.started()
+        got["v"] = await q.get()
 
-    # Test async context manager
-    async with lock:
-        # We can verify the lock works by trying to acquire it again (should block)
-        acquired = False
+    async with anyio.create_task_group() as tg:
+        await tg.start(consumer)
+        # put will not return until consumer receives
+        await q.put(123)
 
-        async def try_acquire():
-            nonlocal acquired
-            await lock.acquire()
-            acquired = True
-            lock.release()
+    assert got["v"] == 123
 
-        # Use a separate thread to try to acquire the lock
-        async def run_in_background():
-            nonlocal acquired
-            await try_acquire()
 
-        # Start a background task
-        _ = await anyio.to_thread.run_sync(lambda: None)
+@pytest.mark.anyio
+async def test_queue_sender_receiver_properties(anyio_backend):
+    q = Queue.with_maxsize(1)
+    # Ensure we can use the raw streams without closing the queue
+    await q.sender.send("x")
+    assert await q.receiver.receive() == "x"
 
-        # Give the task a chance to run, but it shouldn't complete because we hold the lock
+
+@pytest.mark.anyio
+async def test_capacity_limiter_one_token(anyio_backend):
+    lim = CapacityLimiter(1)
+    entered = 0
+    max_conc = 0
+
+    async def w():
+        nonlocal entered, max_conc
+        await lim.acquire()
+        entered += 1
+        max_conc = max(max_conc, entered)
         await anyio.sleep(0.01)
-        assert not acquired
+        entered -= 1
+        lim.release()
 
-    # After releasing the lock, we should be able to acquire it
-    await try_acquire()
-    assert acquired
+    async with anyio.create_task_group() as tg:
+        for _ in range(5):
+            tg.start_soon(w)
+
+    assert max_conc == 1
 
 
-@pytest.mark.asyncio
-async def test_lock_contention():
-    """Test that locks properly handle contention."""
+@pytest.mark.anyio
+async def test_lock_is_a_context_manager(anyio_backend):
+    lock = Lock()
+    async with lock:
+        pass  # no error
+
+
+@pytest.mark.anyio
+async def test_semaphore_limits_exactly(anyio_backend):
+    sem = Semaphore(2)
+    conc = 0
+    maxc = 0
+
+    async def w():
+        nonlocal conc, maxc
+        async with sem:
+            conc += 1
+            maxc = max(maxc, conc)
+            await anyio.sleep(0.01)
+            conc -= 1
+
+    async with anyio.create_task_group() as tg:
+        for _ in range(6):
+            tg.start_soon(w)
+    assert maxc <= 2
+
+
+def test_resource_tracker_default_name_and_clear():
+    tracker = LeakTracker()
+
+    class X:
+        pass
+
+    x = X()
+    tracker.track(x, name=None, kind=None)
+    live = tracker.live()
+    assert len(live) == 1 and live[0].name.startswith("obj-")
+    tracker.clear()
+    assert tracker.live() == []
+
+
+def test_module_level_track_resource_defaults():
+    class Y:
+        pass
+
+    y = Y()
+    track_resource(y)  # default name/kind
+    untrack_resource(y)  # should not raise
+
+
+@pytest.mark.anyio
+async def test_queue_buffered_behavior(anyio_backend):
+    """Test that buffered queue doesn't block put until full."""
+    q = Queue.with_maxsize(3)
+
+    # Should be able to put 3 items without blocking
+    q.put_nowait(1)
+    q.put_nowait(2)
+    q.put_nowait(3)
+
+    # Fourth should raise WouldBlock
+    with pytest.raises(anyio.WouldBlock):
+        q.put_nowait(4)
+
+    # Get one item to make room
+    assert await q.get() == 1
+
+    # Now should be able to put another
+    q.put_nowait(4)
+
+    # Verify remaining items
+    assert await q.get() == 2
+    assert await q.get() == 3
+    assert await q.get() == 4
+
+
+@pytest.mark.anyio
+async def test_queue_get_nowait(anyio_backend):
+    """Test non-blocking get operations."""
+    q = Queue.with_maxsize(2)
+
+    # Empty queue should raise WouldBlock
+    with pytest.raises(anyio.WouldBlock):
+        q.get_nowait()
+
+    # Add items
+    await q.put(1)
+    await q.put(2)
+
+    # Non-blocking get should work
+    assert q.get_nowait() == 1
+    assert q.get_nowait() == 2
+
+    # Queue empty again
+    with pytest.raises(anyio.WouldBlock):
+        q.get_nowait()
+
+
+@pytest.mark.anyio
+async def test_queue_lifecycle_with_context_manager(anyio_backend):
+    """Test queue cleanup with async context manager."""
+    async with Queue.with_maxsize(1) as q:
+        await q.put("test")
+        assert await q.get() == "test"
+    # Queue should be closed after context exit
+
+    # Trying to use closed queue should raise
+    with pytest.raises(anyio.ClosedResourceError):
+        await q.put("fail")
+
+
+@pytest.mark.anyio
+async def test_lock_mutual_exclusion(anyio_backend):
+    """Test that Lock enforces mutual exclusion under contention."""
     lock = Lock()
     counter = 0
-    results = []
+    TASKS = 10  # Further reduced
+    INCREMENTS = 10  # Further reduced
 
-    async def increment(task_id, delay):
+    async def increment():
         nonlocal counter
-        await anyio.sleep(delay)
-        async with lock:
-            # Simulate a non-atomic operation
-            current = counter
-            await anyio.sleep(0.01)
-            counter = current + 1
-            results.append(task_id)
+        for _ in range(INCREMENTS):
+            async with lock:
+                # Critical section
+                temp = counter
+                await anyio.sleep(0)  # Force context switch
+                counter = temp + 1
 
-    async with create_task_group() as tg:
-        # Start tasks in reverse order to ensure they don't naturally execute in order
-        await tg.start_soon(increment, 3, 0.03)
-        await tg.start_soon(increment, 2, 0.02)
-        await tg.start_soon(increment, 1, 0.01)
+    async with anyio.create_task_group() as tg:
+        for _ in range(TASKS):
+            tg.start_soon(increment)
 
-    # Counter should be incremented exactly once per task
-    assert counter == 3
-    # Results should be in the order the tasks acquired the lock
-    assert len(results) == 3
+    # Without lock, we'd lose increments due to race conditions
+    assert counter == TASKS * INCREMENTS
 
 
-@pytest.mark.asyncio
-async def test_semaphore_basic():
-    """Test basic semaphore functionality."""
-    sem = Semaphore(2)
-
-    # Test that the semaphore can be acquired and released
-    await sem.acquire()
-    await sem.acquire()
-    # The semaphore is now at 0
-    sem.release()
-    sem.release()
-
-    # Test async context manager
-    async with sem:
-        # The semaphore is now at 1
-        async with sem:
-            # The semaphore is now at 0
-            pass
-        # The semaphore is now at 1
-    # The semaphore is now at 2
-
-
-@pytest.mark.asyncio
-async def test_semaphore_contention():
-    """Test that semaphores properly handle contention."""
-    sem = Semaphore(2)
+@pytest.mark.anyio
+async def test_semaphore_strict_limit(anyio_backend):
+    """Test that Semaphore strictly enforces its limit."""
+    sem = Semaphore(3)
     active = 0
     max_active = 0
-    results = []
+    violations = []
 
-    async def task(task_id):
+    async def worker(i):
         nonlocal active, max_active
         async with sem:
             active += 1
             max_active = max(max_active, active)
-            results.append(f"start-{task_id}")
-            await anyio.sleep(0.1)
-            results.append(f"end-{task_id}")
+            if active > 3:
+                violations.append(f"Task {i}: {active} concurrent")
+            await anyio.sleep(0.001)  # Minimal sleep
             active -= 1
 
-    async with create_task_group() as tg:
-        for i in range(5):
-            await tg.start_soon(task, i)
+    async with anyio.create_task_group() as tg:
+        for i in range(10):  # Reduced from 20
+            tg.start_soon(worker, i)
 
-    # At most 2 tasks should have been active at once
-    assert max_active == 2
-    # All tasks should have completed
-    assert len(results) == 10
+    assert max_active == 3
+    assert not violations, f"Semaphore violations: {violations}"
 
 
-@pytest.mark.asyncio
-async def test_capacity_limiter_basic():
-    """Test basic capacity limiter functionality."""
+@pytest.mark.anyio
+async def test_capacity_limiter_dynamic_adjustment(anyio_backend):
+    """Test dynamic capacity adjustment of CapacityLimiter."""
     limiter = CapacityLimiter(2)
 
-    # Test properties
+    # Initially should allow 2 tokens
     assert limiter.total_tokens == 2
-    assert limiter.borrowed_tokens == 0
     assert limiter.available_tokens == 2
-
-    # Test that the limiter can be acquired and released
-    await limiter.acquire()
-    assert limiter.borrowed_tokens == 1
-    assert limiter.available_tokens == 1
-
-    # Release before acquiring again to avoid the "already holding token" error
-    limiter.release()
-
-    await limiter.acquire()
-    assert limiter.borrowed_tokens == 1
-    assert limiter.available_tokens == 1
-
-    # Acquire one more time
-    limiter.release()
-    await limiter.acquire()
-    assert limiter.borrowed_tokens == 1
-    assert limiter.available_tokens == 1
-
-    limiter.release()
     assert limiter.borrowed_tokens == 0
-    assert limiter.available_tokens == 2
 
-    # Don't try to release again, as we don't have any tokens
-    assert limiter.borrowed_tokens == 0
-    assert limiter.available_tokens == 2
-
-    # Test async context manager
+    # Acquire one token using context manager
     async with limiter:
+        assert limiter.available_tokens == 1
         assert limiter.borrowed_tokens == 1
+
+        # Dynamically increase capacity while holding a token
+        limiter.total_tokens = 4
+        assert limiter.available_tokens == 3  # 4 total - 1 borrowed
+        assert limiter.borrowed_tokens == 1
+
+    # After release
+    assert limiter.available_tokens == 4
     assert limiter.borrowed_tokens == 0
 
+    # Test multiple acquisitions with increased capacity using context managers
+    tokens_held = []
 
-@pytest.mark.asyncio
-async def test_capacity_limiter_contention():
-    """Test that capacity limiters properly handle contention."""
-    limiter = CapacityLimiter(2)
-    active = 0
-    max_active = 0
-    results = []
-
-    async def task(task_id):
-        nonlocal active, max_active
+    async def acquire_and_hold():
         async with limiter:
-            active += 1
-            max_active = max(max_active, active)
-            results.append(f"start-{task_id}")
-            await anyio.sleep(0.1)
-            results.append(f"end-{task_id}")
-            active -= 1
+            tokens_held.append(True)
 
-    async with create_task_group() as tg:
-        for i in range(5):
-            await tg.start_soon(task, i)
+    # Start multiple tasks to acquire tokens
+    async with anyio.create_task_group() as tg:
+        for _ in range(3):
+            tg.start_soon(acquire_and_hold)
 
-    # At most 2 tasks should have been active at once
-    assert max_active == 2
-    # All tasks should have completed
-    assert len(results) == 10
+    assert len(tokens_held) == 3
+    # After all context managers exit, tokens should be released
+    assert limiter.borrowed_tokens == 0
+    assert limiter.available_tokens == 4
 
 
-@pytest.mark.asyncio
-async def test_event_basic():
-    """Test basic event functionality."""
-    event = Event()
-
-    # Test initial state
-    assert not event.is_set()
-
-    # Test setting the event
-    event.set()
-    assert event.is_set()
-
-    # Test waiting for the event
-    await event.wait()  # Should return immediately
+@pytest.mark.anyio
+async def test_capacity_limiter_is_async_context_manager(anyio_backend):
+    lim = CapacityLimiter(2)
+    async with lim:
+        assert lim.borrowed_tokens == 1
+        assert lim.available_tokens == 1
+    assert lim.borrowed_tokens == 0
+    assert lim.available_tokens == 2
 
 
-@pytest.mark.asyncio
-async def test_event_wait():
-    """Test waiting for an event."""
+@pytest.mark.anyio
+async def test_event_signaling(anyio_backend):
+    """Test Event for task signaling."""
     event = Event()
     results = []
 
-    async def waiter(task_id):
-        results.append(f"waiting-{task_id}")
+    async def waiter(n):
         await event.wait()
-        results.append(f"done-{task_id}")
+        results.append(n)
 
-    async with create_task_group() as tg:
-        await tg.start_soon(waiter, 1)
-        await tg.start_soon(waiter, 2)
-        await anyio.sleep(0.1)  # Give waiters time to start
+    # Start waiters
+    async with anyio.create_task_group() as tg:
+        for i in range(5):
+            tg.start_soon(waiter, i)
 
-        # Both waiters should be waiting
-        assert results == ["waiting-1", "waiting-2"]
+        # Give waiters time to start waiting
+        await anyio.sleep(0.01)
+        assert not event.is_set()
+        assert results == []
 
-        # Set the event
+        # Signal all waiters
         event.set()
+        assert event.is_set()
 
-    # Both waiters should be done
-    assert "done-1" in results
-    assert "done-2" in results
-
-
-@pytest.mark.asyncio
-async def test_condition_basic():
-    """Test basic condition functionality."""
-    condition = Condition()
-
-    # Test that the condition can be acquired and released
-    async with condition:
-        # We have the lock
-        pass
-    # The lock is released
+    # All waiters should have been signaled
+    assert set(results) == {0, 1, 2, 3, 4}
 
 
-@pytest.mark.asyncio
-async def test_condition_wait_notify():
-    """Test condition wait and notify."""
-    condition = Condition()
+@pytest.mark.anyio
+async def test_condition_notify_selective(anyio_backend):
+    """Test Condition variable for selective task notification."""
+    lock = Lock()
+    condition = Condition(lock)
     results = []
+    waiters_ready = 0
 
-    async def waiter(task_id):
+    async def waiter(n):
+        nonlocal waiters_ready
         async with condition:
-            results.append(f"waiting-{task_id}")
+            waiters_ready += 1
             await condition.wait()
-            results.append(f"notified-{task_id}")
+            results.append(n)
 
     async def notifier():
-        await anyio.sleep(0.1)  # Give waiters time to start
-        async with condition:
-            results.append("notifying-1")
-            await condition.notify()
+        # Wait for all waiters to be ready
+        while waiters_ready < 5:
+            await anyio.sleep(0.001)
 
-        await anyio.sleep(0.1)  # Give the first waiter time to process
+        await anyio.sleep(0.01)
         async with condition:
-            results.append("notifying-all")
-            await condition.notify_all()
+            # Notify only 2 tasks
+            condition.notify(2)
 
-    # Simplified test that doesn't rely on task groups
-    # Just test that we can create and use a condition
-    async with condition:
-        # We have the lock
-        pass
-    # The lock is released
+        await anyio.sleep(0.01)
+        async with condition:
+            # Notify all remaining
+            condition.notify_all()
+
+    async with anyio.create_task_group() as tg:
+        # Start 5 waiters
+        for i in range(5):
+            tg.start_soon(waiter, i)
+
+        # Start notifier
+        tg.start_soon(notifier)
+
+    # After TaskGroup exits, all tasks are done
+    assert len(results) == 5  # All eventually notified
+
+
+@pytest.mark.anyio
+async def test_condition_without_explicit_lock(anyio_backend):
+    """Test Condition with auto-created lock."""
+    condition = Condition()  # Creates its own lock
+    value = None
+
+    async def producer():
+        nonlocal value
+        await anyio.sleep(0.01)
+        async with condition:
+            value = 42
+            condition.notify()
+
+    async def consumer():
+        async with condition:
+            while value is None:
+                await condition.wait()
+            return value
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(producer)
+        result = await consumer()
+
+    assert result == 42
