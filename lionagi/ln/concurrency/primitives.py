@@ -1,290 +1,331 @@
-"""Resource management primitives for structured concurrency.
+"""Core async primitives (thin wrappers over anyio)"""
 
-Pure async primitives focused on correctness and simplicity.
-"""
+from __future__ import annotations
 
-import math
-from types import TracebackType
+from dataclasses import dataclass
+from typing import Any, Generic, TypeVar
 
 import anyio
+import anyio.abc
 
-from .resource_tracker import track_resource, untrack_resource
+T = TypeVar("T")
+
+
+__all__ = (
+    "Lock",
+    "Semaphore",
+    "CapacityLimiter",
+    "Queue",
+    "Event",
+    "Condition",
+)
 
 
 class Lock:
-    """A mutex lock for controlling access to a shared resource."""
+    """Async mutex lock (anyio.Lock wrapper).
 
-    def __init__(self):
-        """Initialize a new lock."""
+    Provides mutual exclusion for async code. Use with async context manager
+    for automatic acquisition/release.
+    """
+
+    __slots__ = ("_lock",)
+
+    def __init__(self) -> None:
         self._lock = anyio.Lock()
-        self._acquired = False
-        track_resource(self, f"Lock-{id(self)}", "Lock")
-
-    def __del__(self):
-        """Clean up resource tracking when lock is destroyed."""
-        try:
-            untrack_resource(self)
-        except Exception:
-            pass
-
-    async def __aenter__(self) -> None:
-        """Acquire the lock."""
-        await self._lock.acquire()
-        self._acquired = True
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Release the lock."""
-        self._lock.release()
-        self._acquired = False
 
     async def acquire(self) -> None:
-        """Acquire the lock directly."""
+        """Acquire the lock, blocking if necessary."""
         await self._lock.acquire()
-        self._acquired = True
 
     def release(self) -> None:
-        """Release the lock directly."""
-        if not self._acquired:
-            raise RuntimeError(
-                "Attempted to release lock that was not acquired by this task"
-            )
+        """Release the lock."""
         self._lock.release()
-        self._acquired = False
+
+    async def __aenter__(self) -> Lock:
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.release()
 
 
 class Semaphore:
-    """A semaphore preventing excessive releases."""
+    """Async semaphore (anyio.Semaphore wrapper).
 
-    def __init__(self, initial_value: int):
-        """Initialize a new semaphore."""
+    Limits concurrent access to a resource. Initialized with a count,
+    decremented on acquire, incremented on release.
+    """
+
+    __slots__ = ("_sem",)
+
+    def __init__(self, initial_value: int) -> None:
         if initial_value < 0:
-            raise ValueError("The initial value must be >= 0")
-        self._initial_value = initial_value
-        self._current_acquisitions = 0
-        self._semaphore = anyio.Semaphore(initial_value)
-        track_resource(self, f"Semaphore-{id(self)}", "Semaphore")
-
-    def __del__(self):
-        """Clean up resource tracking when semaphore is destroyed."""
-        try:
-            untrack_resource(self)
-        except Exception:
-            pass
-
-    async def __aenter__(self) -> None:
-        """Acquire the semaphore."""
-        await self.acquire()
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Release the semaphore."""
-        self.release()
+            raise ValueError("initial_value must be >= 0")
+        self._sem = anyio.Semaphore(initial_value)
 
     async def acquire(self) -> None:
-        """Acquire the semaphore."""
-        await self._semaphore.acquire()
-        self._current_acquisitions += 1
+        """Acquire a semaphore slot, blocking if none available."""
+        await self._sem.acquire()
 
     def release(self) -> None:
-        """Release the semaphore."""
-        if self._current_acquisitions <= 0:
-            raise RuntimeError(
-                "Cannot release semaphore: no outstanding acquisitions"
-            )
-        self._semaphore.release()
-        self._current_acquisitions -= 1
+        """Release a semaphore slot."""
+        self._sem.release()
 
-    @property
-    def current_acquisitions(self) -> int:
-        """Get the current number of outstanding acquisitions."""
-        return self._current_acquisitions
+    async def __aenter__(self) -> Semaphore:
+        await self.acquire()
+        return self
 
-    @property
-    def initial_value(self) -> int:
-        """Get the initial semaphore value."""
-        return self._initial_value
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.release()
 
 
 class CapacityLimiter:
-    """A context manager for limiting the number of concurrent operations."""
+    """Capacity limiter for controlling resource usage (anyio.CapacityLimiter wrapper).
 
-    def __init__(self, total_tokens: int | float):
-        """Initialize a new capacity limiter."""
-        if total_tokens == math.inf:
-            processed_tokens = math.inf
-        elif isinstance(total_tokens, (int, float)) and total_tokens >= 1:
-            processed_tokens = (
-                int(total_tokens) if total_tokens != math.inf else math.inf
-            )
-        else:
-            raise ValueError(
-                "The total number of tokens must be >= 1 (int or math.inf)"
-            )
+    Controls concurrent access to limited resources like threads or connections.
+    Key advantages over Semaphore:
+    - Supports fractional tokens for fine-grained control
+    - Allows dynamic capacity adjustment at runtime
+    - Provides delegation methods for resource pooling
+    """
 
-        self._limiter = anyio.CapacityLimiter(processed_tokens)
-        self._borrower_counter = 0
-        self._active_borrowers = {}
-        track_resource(self, f"CapacityLimiter-{id(self)}", "CapacityLimiter")
+    __slots__ = ("_lim",)
 
-    def __del__(self):
-        """Clean up resource tracking when limiter is destroyed."""
-        try:
-            untrack_resource(self)
-        except Exception:
-            pass
+    def __init__(self, total_tokens: float) -> None:
+        """Initialize with given capacity.
 
-    async def __aenter__(self) -> None:
-        """Acquire a token."""
-        await self.acquire()
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Release the token."""
-        self.release()
+        Args:
+            total_tokens: Maximum capacity (must be > 0).
+                         Can be fractional for fine-grained control.
+        """
+        if total_tokens <= 0:
+            raise ValueError("total_tokens must be > 0")
+        self._lim = anyio.CapacityLimiter(total_tokens)
 
     async def acquire(self) -> None:
-        """Acquire a token."""
-        # Create a unique borrower identity for each acquisition
-        self._borrower_counter += 1
-        borrower = f"borrower-{self._borrower_counter}"
-        await self._limiter.acquire_on_behalf_of(borrower)
-        self._active_borrowers[borrower] = True
+        """Acquire capacity, blocking if none available."""
+        await self._lim.acquire()
 
     def release(self) -> None:
-        """Release a token."""
-        # Find and release the first active borrower
-        if not self._active_borrowers:
-            raise RuntimeError("No tokens to release")
-
-        borrower = next(iter(self._active_borrowers))
-        self._limiter.release_on_behalf_of(borrower)
-        del self._active_borrowers[borrower]
+        """Release capacity."""
+        self._lim.release()
 
     @property
-    def total_tokens(self) -> int | float:
-        """The total number of tokens."""
-        return float(self._limiter.total_tokens)
+    def remaining_tokens(self) -> float:
+        """Current available capacity (deprecated, use available_tokens)."""
+        return self._lim.available_tokens
+
+    @property
+    def total_tokens(self) -> float:
+        """Get the current capacity limit."""
+        return self._lim.total_tokens
 
     @total_tokens.setter
-    def total_tokens(self, value: int | float) -> None:
-        """Set the total number of tokens."""
-        if value == math.inf:
-            processed_value = math.inf
-        elif isinstance(value, (int, float)) and value >= 1:
-            processed_value = int(value) if value != math.inf else math.inf
-        else:
-            raise ValueError(
-                "The total number of tokens must be >= 1 (int or math.inf)"
-            )
+    def total_tokens(self, value: float) -> None:
+        """Dynamically adjust the capacity limit.
 
-        current_borrowed = self._limiter.borrowed_tokens
-        if processed_value != math.inf and processed_value < current_borrowed:
-            raise ValueError(
-                f"Cannot set total_tokens to {processed_value}: {current_borrowed} tokens "
-                f"are currently borrowed. Wait for tokens to be released or "
-                f"set total_tokens to at least {current_borrowed}."
-            )
-
-        self._limiter.total_tokens = processed_value
+        Args:
+            value: New capacity (must be > 0).
+                  Can be adjusted at runtime to adapt to load.
+        """
+        if value <= 0:
+            raise ValueError("total_tokens must be > 0")
+        self._lim.total_tokens = value
 
     @property
-    def borrowed_tokens(self) -> int:
-        """The number of tokens currently borrowed."""
-        return self._limiter.borrowed_tokens
+    def borrowed_tokens(self) -> float:
+        """Get the number of currently borrowed tokens."""
+        return self._lim.borrowed_tokens
 
     @property
-    def available_tokens(self) -> int | float:
-        """The number of tokens currently available."""
-        return self._limiter.available_tokens
+    def available_tokens(self) -> float:
+        """Get the number of currently available tokens."""
+        return self._lim.available_tokens
+
+    def acquire_on_behalf_of(self, borrower: object) -> None:
+        """Synchronously acquire capacity on behalf of another object.
+
+        For resource pooling where the acquirer differs from the releaser.
+
+        Args:
+            borrower: Object that will be responsible for releasing.
+        """
+        self._lim.acquire_on_behalf_of(borrower)
+
+    def release_on_behalf_of(self, borrower: object) -> None:
+        """Release capacity that was acquired on behalf of an object.
+
+        Args:
+            borrower: Object that previously acquired the capacity.
+        """
+        self._lim.release_on_behalf_of(borrower)
+
+    # Support idiomatic AnyIO usage: `async with limiter: ...`
+    async def __aenter__(self) -> CapacityLimiter:
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self.release()
+
+
+@dataclass(slots=True)
+class Queue(Generic[T]):
+    """Async queue using anyio memory object streams.
+
+    Provides FIFO queue semantics with optional maxsize for backpressure.
+    Must call close() or use async context manager for proper cleanup.
+
+    Usage:
+        queue = Queue.with_maxsize(100)
+        await queue.put(item)
+        item = await queue.get()
+        await queue.close()
+    """
+
+    _send: anyio.abc.ObjectSendStream[T]
+    _recv: anyio.abc.ObjectReceiveStream[T]
+
+    @classmethod
+    def with_maxsize(cls, maxsize: int) -> Queue[T]:
+        """Create queue with maximum buffer size."""
+        send, recv = anyio.create_memory_object_stream(maxsize)
+        return cls(send, recv)
+
+    async def put(self, item: T) -> None:
+        """Put item into queue. May block if queue is full."""
+        await self._send.send(item)
+
+    def put_nowait(self, item: T) -> None:
+        """Put item into queue without blocking.
+
+        Args:
+            item: Item to put in the queue.
+
+        Raises:
+            anyio.WouldBlock: If the queue is full.
+        """
+        self._send.send_nowait(item)
+
+    async def get(self) -> T:
+        """Get item from queue. Blocks until item available."""
+        return await self._recv.receive()
+
+    def get_nowait(self) -> T:
+        """Get item from queue without blocking.
+
+        Returns:
+            Next item from the queue.
+
+        Raises:
+            anyio.WouldBlock: If the queue is empty.
+        """
+        return self._recv.receive_nowait()
+
+    async def close(self) -> None:
+        """Close both send and receive streams. Call this for cleanup."""
+        await self._send.aclose()
+        await self._recv.aclose()
+
+    async def __aenter__(self) -> Queue[T]:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        await self.close()
+
+    @property
+    def sender(self) -> anyio.abc.ObjectSendStream[T]:
+        """Direct access to send stream for advanced usage."""
+        return self._send
+
+    @property
+    def receiver(self) -> anyio.abc.ObjectReceiveStream[T]:
+        """Direct access to receive stream for advanced usage."""
+        return self._recv
 
 
 class Event:
-    """An event object for task synchronization."""
+    """Async event for signaling between tasks (anyio.Event wrapper).
 
-    def __init__(self):
-        """Initialize a new event in the unset state."""
+    An event object manages an internal flag that can be set to true
+    with set() and reset to false with clear(). The wait() method blocks
+    until the flag is true.
+    """
+
+    __slots__ = ("_event",)
+
+    def __init__(self) -> None:
         self._event = anyio.Event()
-        track_resource(self, f"Event-{id(self)}", "Event")
-
-    def __del__(self):
-        """Clean up resource tracking when event is destroyed."""
-        try:
-            untrack_resource(self)
-        except Exception:
-            pass
-
-    def is_set(self) -> bool:
-        """Check if the event is set."""
-        return self._event.is_set()
 
     def set(self) -> None:
-        """Set the event, allowing all waiting tasks to proceed."""
+        """Set the internal flag to true, waking up all waiting tasks."""
         self._event.set()
 
+    def is_set(self) -> bool:
+        """Return True if the internal flag is set."""
+        return self._event.is_set()
+
     async def wait(self) -> None:
-        """Wait until the event is set."""
+        """Block until the internal flag becomes true."""
         await self._event.wait()
+
+    def statistics(self) -> anyio.EventStatistics:
+        """Return statistics about waiting tasks."""
+        return self._event.statistics()
 
 
 class Condition:
-    """A condition variable for task synchronization."""
+    """Async condition variable (anyio.Condition wrapper).
 
-    def __init__(self, lock: Lock | None = None):
-        """Initialize a new condition."""
-        self._lock = lock or Lock()
-        self._condition = anyio.Condition(self._lock._lock)
-        track_resource(self, f"Condition-{id(self)}", "Condition")
+    A condition variable allows one or more coroutines to wait until
+    they are notified by another coroutine. Must be used with a Lock.
+    """
 
-    def __del__(self):
-        """Clean up resource tracking when condition is destroyed."""
-        try:
-            untrack_resource(self)
-        except Exception:
-            pass
+    __slots__ = ("_condition",)
 
-    async def __aenter__(self) -> "Condition":
+    def __init__(self, lock: Lock | None = None) -> None:
+        """Initialize with an optional lock.
+
+        Args:
+            lock: Lock to use. If None, creates a new Lock.
+        """
+        _lock = lock._lock if lock else None
+        self._condition = anyio.Condition(_lock)
+
+    async def acquire(self) -> None:
         """Acquire the underlying lock."""
-        await self._lock.__aenter__()
+        await self._condition.acquire()
+
+    def release(self) -> None:
+        """Release the underlying lock."""
+        self._condition.release()
+
+    async def __aenter__(self) -> Condition:
+        await self.acquire()
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Release the underlying lock."""
-        await self._lock.__aexit__(exc_type, exc_val, exc_tb)
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.release()
 
     async def wait(self) -> None:
-        """Wait for a notification.
+        """Wait until notified.
 
-        This releases the underlying lock, waits for a notification, and then
-        reacquires the lock.
+        Releases the lock, blocks until notified, then re-acquires the lock.
         """
         await self._condition.wait()
 
-    async def notify(self, n: int = 1) -> None:
-        """Notify waiting tasks.
+    def notify(self, n: int = 1) -> None:
+        """Wake up at most n tasks waiting on this condition.
 
         Args:
-            n: The number of tasks to notify
+            n: Maximum number of tasks to wake (default: 1)
         """
-        await self._condition.notify(n)
+        self._condition.notify(n)
 
-    async def notify_all(self) -> None:
-        """Notify all waiting tasks."""
-        await self._condition.notify_all()
+    def notify_all(self) -> None:
+        """Wake up all tasks waiting on this condition."""
+        self._condition.notify_all()
+
+    def statistics(self) -> anyio.abc.ConditionStatistics:
+        """Return statistics about waiting tasks."""
+        return self._condition.statistics()

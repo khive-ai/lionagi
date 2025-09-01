@@ -1,259 +1,301 @@
-"""Common concurrency patterns for structured concurrency."""
+"""Lion Async Concurrency Patterns - Structured concurrency coordination utilities.
+
+This module provides async coordination patterns built on AnyIO's structured
+concurrency primitives. All patterns are backend-neutral (asyncio/trio).
+
+Key Features:
+- gather: Concurrent execution with fail-fast or exception collection
+- race: First-to-complete coordination
+- bounded_map: Concurrent mapping with rate limiting
+- as_completed: Stream results as they become available
+- retry: Deadline-aware exponential backoff
+
+Note on Structural Concurrency:
+These patterns follow structured concurrency principles where possible, but
+some patterns (notably as_completed) have fundamental limitations when used
+with early breaks. See individual function docstrings for details.
+"""
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Awaitable, Callable
-from types import TracebackType
-from typing import Any, TypeVar
+from collections.abc import Awaitable, Callable, Iterable, Sequence
+from typing import TypeVar
 
 import anyio
 
-from .cancel import move_on_after
-from .primitives import CapacityLimiter, Lock
-from .resource_tracker import track_resource, untrack_resource
+from ._compat import ExceptionGroup
+from .cancel import effective_deadline
+from .errors import is_cancelled
+from .primitives import CapacityLimiter
 from .task import create_task_group
-
-logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
-Response = TypeVar("Response")
 
 
-class ConnectionPool:
-    """A pool of reusable connections."""
-
-    def __init__(
-        self,
-        max_connections: int,
-        connection_factory: Callable[[], Awaitable[T]],
-    ):
-        """Initialize a new connection pool."""
-        if max_connections < 1:
-            raise ValueError("max_connections must be >= 1")
-        if not callable(connection_factory):
-            raise ValueError("connection_factory must be callable")
-
-        self._connection_factory = connection_factory
-        self._limiter = CapacityLimiter(max_connections)
-        self._connections: list[T] = []
-        self._lock = Lock()
-
-        track_resource(self, f"ConnectionPool-{id(self)}", "ConnectionPool")
-
-    def __del__(self):
-        """Clean up resource tracking."""
-        try:
-            untrack_resource(self)
-        except Exception:
-            pass
-
-    async def acquire(self) -> T:
-        """Acquire a connection from the pool."""
-        await self._limiter.acquire()
-
-        try:
-            async with self._lock:
-                if self._connections:
-                    return self._connections.pop()
-
-            # No pooled connection available, create new one
-            return await self._connection_factory()
-        except Exception:
-            self._limiter.release()
-            raise
-
-    async def release(self, connection: T) -> None:
-        """Release a connection back to the pool."""
-        try:
-            async with self._lock:
-                self._connections.append(connection)
-        finally:
-            self._limiter.release()
-
-    async def __aenter__(self) -> ConnectionPool[T]:
-        """Enter the connection pool context."""
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Exit the connection pool context."""
-        # Clean up any remaining connections
-        async with self._lock:
-            self._connections.clear()
+__all__ = (
+    "gather",
+    "race",
+    "bounded_map",
+    "CompletionStream",
+    "retry",
+)
 
 
-async def parallel_requests(
-    inputs: list[str],
-    func: Callable[[str], Awaitable[Response]],
-    max_concurrency: int = 10,
-) -> list[Response]:
-    """Execute requests in parallel with controlled concurrency.
+async def gather(
+    *aws: Awaitable[T], return_exceptions: bool = False
+) -> list[T | BaseException]:
+    """Run awaitables concurrently, return list of results.
 
     Args:
-        inputs: List of inputs
-        fetch_func: Async function
-        max_concurrency: Maximum number of concurrent requests
+        *aws: Awaitables to execute concurrently
+        return_exceptions: If True, exceptions are returned as results
+                           If False, first exception cancels all tasks and re-raises
 
     Returns:
-        List of responses in the same order as inputs
+        List of results in same order as input awaitables
     """
-    if not inputs:
+    if not aws:
         return []
 
-    results: list[Response | None] = [None] * len(inputs)
+    results: list[T | BaseException | None] = [None] * len(aws)
 
-    async def bounded_fetch(
-        semaphore: anyio.Semaphore, idx: int, url: str
-    ) -> None:
-        async with semaphore:
-            results[idx] = await func(url)
+    async def _runner(idx: int, aw: Awaitable[T]) -> None:
+        try:
+            results[idx] = await aw
+        except BaseException as exc:
+            results[idx] = exc
+            if not return_exceptions:
+                raise  # Propagate to the TaskGroup
 
     try:
         async with create_task_group() as tg:
-            semaphore = anyio.Semaphore(max_concurrency)
-
-            for i, inp in enumerate(inputs):
-                await tg.start_soon(bounded_fetch, semaphore, i, inp)
-    except BaseException as e:
-        # Re-raise the first exception directly instead of ExceptionGroup
-        if hasattr(e, "exceptions") and e.exceptions:
-            raise e.exceptions[0]
-        else:
-            raise
+            for i, aw in enumerate(aws):
+                tg.start_soon(_runner, i, aw)
+    except ExceptionGroup as eg:
+        if not return_exceptions:
+            # Find the first "real" exception and raise it.
+            non_cancel_excs = [e for e in eg.exceptions if not is_cancelled(e)]
+            if non_cancel_excs:
+                raise non_cancel_excs[0]
+            raise  # Re-raise group if all were cancellations
 
     return results  # type: ignore
 
 
-async def retry_with_timeout(
-    func: Callable[[], Awaitable[T]],
-    max_retries: int = 3,
-    timeout: float = 30.0,
-    backoff_factor: float = 1.0,
-) -> T:
-    """Retry an async function with exponential backoff and timeout.
+async def race(*aws: Awaitable[T]) -> T:
+    """Run awaitables concurrently, return result of first completion.
+
+    Returns the first result to complete, whether success or failure.
+    All other tasks are cancelled when first task completes.
+    If first completion is an exception, it's re-raised.
+
+    Note: This returns first *completion*, not first *success*.
+    For first-success semantics, consider implementing a first_success variant.
+    """
+    if not aws:
+        raise ValueError("race() requires at least one awaitable")
+    send, recv = anyio.create_memory_object_stream(0)
+
+    async def _runner(aw: Awaitable[T]) -> None:
+        try:
+            res = await aw
+            await send.send((True, res))
+        except BaseException as exc:
+            await send.send((False, exc))
+
+    async with send, recv, create_task_group() as tg:
+        for aw in aws:
+            tg.start_soon(_runner, aw)
+        ok, payload = await recv.receive()
+        tg.cancel_scope.cancel()
+
+    # Raise outside the TaskGroup context to avoid ExceptionGroup wrapping
+    if ok:
+        return payload  # type: ignore[return-value]
+    raise payload  # type: ignore[misc]
+
+
+async def bounded_map(
+    func: Callable[[T], Awaitable[R]],
+    items: Iterable[T],
+    *,
+    limit: int,
+    return_exceptions: bool = False,
+) -> list[R | BaseException]:
+    """Apply async function to items with concurrency limit.
 
     Args:
-        func: The async function to retry
-        max_retries: Maximum number of retries
-        timeout: Timeout for each attempt
-        backoff_factor: Multiplier for exponential backoff
+        func: Async function to apply to each item
+        items: Items to process
+        limit: Maximum concurrent operations
+        return_exceptions: If True, exceptions are returned as results.
+                           If False, first exception cancels all tasks and re-raises.
 
     Returns:
-        The result of the successful function call
-
-    Raises:
-        Exception: The last exception raised by the function
+        List of results in same order as input items.
+        If return_exceptions is True, exceptions are included in results.
     """
-    last_exception = None
+    if limit <= 0:
+        raise ValueError("limit must be >= 1")
 
-    for attempt in range(max_retries):
-        try:
-            with move_on_after(timeout) as cancel_scope:
-                result = await func()
-                if not cancel_scope.cancelled_caught:
-                    return result
-                else:
-                    raise TimeoutError(f"Function timed out after {timeout}s")
-        except Exception as e:
-            last_exception = e
-            if attempt < max_retries - 1:
-                delay = backoff_factor * (2**attempt)
-                await anyio.sleep(delay)
-            continue
+    seq = list(items)
+    if not seq:
+        return []
 
-    if last_exception:
-        raise last_exception
-    else:
-        raise RuntimeError("Retry failed without capturing exception")
+    out: list[R | BaseException | None] = [None] * len(seq)
+    limiter = CapacityLimiter(limit)
+
+    async def _runner(i: int, x: T) -> None:
+        async with limiter:
+            try:
+                out[i] = await func(x)
+            except BaseException as exc:
+                out[i] = exc
+                if not return_exceptions:
+                    raise  # Propagate to the TaskGroup
+
+    try:
+        async with create_task_group() as tg:
+            for i, x in enumerate(seq):
+                tg.start_soon(_runner, i, x)
+    except ExceptionGroup as eg:
+        if not return_exceptions:
+            non_cancel_excs = [e for e in eg.exceptions if not is_cancelled(e)]
+            if non_cancel_excs:
+                raise non_cancel_excs[0]
+            raise
+
+    return out  # type: ignore
 
 
-class WorkerPool:
-    """A pool of worker tasks that process items from a queue."""
+class CompletionStream:
+    """Structured-concurrency-safe completion stream with explicit lifecycle management.
+
+    This provides a safer alternative to as_completed() that allows explicit cancellation
+    of remaining tasks when early termination is needed.
+
+    Usage:
+        async with CompletionStream(awaitables, limit=10) as stream:
+            async for index, result in stream:
+                if some_condition:
+                    break  # Remaining tasks are automatically cancelled
+    """
 
     def __init__(
-        self, num_workers: int, worker_func: Callable[[Any], Awaitable[None]]
+        self, aws: Sequence[Awaitable[T]], *, limit: int | None = None
     ):
-        """Initialize a new worker pool."""
-        if num_workers < 1:
-            raise ValueError("num_workers must be >= 1")
-        if not callable(worker_func):
-            raise ValueError("worker_func must be callable")
-
-        self._num_workers = num_workers
-        self._worker_func = worker_func
-        self._queue = anyio.create_memory_object_stream(1000)
+        self.aws = aws
+        self.limit = limit
         self._task_group = None
+        self._send = None
+        self._recv = None
+        self._completed_count = 0
+        self._total_count = len(aws)
 
-        track_resource(self, f"WorkerPool-{id(self)}", "WorkerPool")
-
-    def __del__(self):
-        """Clean up resource tracking."""
-        try:
-            untrack_resource(self)
-        except Exception:
-            pass
-
-    async def start(self) -> None:
-        """Start the worker pool."""
-        if self._task_group is not None:
-            raise RuntimeError("Worker pool is already started")
-
-        self._task_group = create_task_group()
+    async def __aenter__(self):
+        n = len(self.aws)
+        self._send, self._recv = anyio.create_memory_object_stream(n)
+        self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
 
-        # Start worker tasks
-        for i in range(self._num_workers):
-            await self._task_group.start_soon(self._worker_loop)
+        limiter = CapacityLimiter(self.limit) if self.limit else None
 
-    async def stop(self) -> None:
-        """Stop the worker pool."""
-        if self._task_group is None:
-            return
+        async def _runner(i: int, aw: Awaitable[T]) -> None:
+            if limiter:
+                await limiter.acquire()
+            try:
+                res = await aw
+                await self._send.send((i, res))
+            finally:
+                if limiter:
+                    limiter.release()
 
-        # Close the queue to signal workers to stop
-        await self._queue[0].aclose()
+        # Start all tasks
+        for i, aw in enumerate(self.aws):
+            self._task_group.start_soon(_runner, i, aw)
 
-        # Wait for all workers to finish
-        try:
-            await self._task_group.__aexit__(None, None, None)
-        finally:
-            self._task_group = None
-
-    async def submit(self, item: Any) -> None:
-        """Submit an item for processing."""
-        if self._task_group is None:
-            raise RuntimeError("Worker pool is not started")
-        await self._queue[0].send(item)
-
-    async def _worker_loop(self) -> None:
-        """Main loop for worker tasks."""
-        try:
-            async with self._queue[1]:
-                async for item in self._queue[1]:
-                    try:
-                        await self._worker_func(item)
-                    except Exception as e:
-                        logger.error(f"Worker error processing item: {e}")
-        except anyio.ClosedResourceError:
-            # Queue was closed, worker should exit gracefully
-            pass
-
-    async def __aenter__(self) -> WorkerPool:
-        """Enter the worker pool context."""
-        await self.start()
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Exit the worker pool context."""
-        await self.stop()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Cancel remaining tasks and clean up
+        if self._task_group:
+            await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        if self._send:
+            await self._send.aclose()
+        if self._recv:
+            await self._recv.aclose()
+        return False
+
+    def __aiter__(self):
+        if not self._recv:
+            raise RuntimeError(
+                "CompletionStream must be used as async context manager"
+            )
+        return self
+
+    async def __anext__(self):
+        if self._completed_count >= self._total_count:
+            raise StopAsyncIteration
+
+        try:
+            result = await self._recv.receive()
+            self._completed_count += 1
+            return result
+        except anyio.EndOfStream:
+            raise StopAsyncIteration
+
+
+async def retry(
+    fn: Callable[[], Awaitable[T]],
+    *,
+    attempts: int = 3,
+    base_delay: float = 0.1,
+    max_delay: float = 2.0,
+    retry_on: tuple[type[BaseException], ...] = (Exception,),
+    jitter: float = 0.1,
+) -> T:
+    """Deadline-aware exponential backoff retry.
+
+    If an ambient effective deadline exists, cap each sleep so the retry loop
+    never outlives its parent scope.
+
+    Args:
+        fn: Async function to retry (takes no args)
+        attempts: Maximum retry attempts
+        base_delay: Initial delay between retries
+        max_delay: Maximum delay between retries
+        retry_on: Exception types that trigger retry
+        jitter: Random jitter added to delay (0.0 to 1.0)
+
+    Returns:
+        Result of successful function call
+
+    Raises:
+        Last exception if all attempts fail
+    """
+    attempt = 0
+    deadline = effective_deadline()
+    while True:
+        try:
+            return await fn()
+        except retry_on as exc:
+            attempt += 1
+            if attempt >= attempts:
+                raise
+
+            delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
+            if jitter:
+                import random
+
+                delay *= 1 + random.random() * jitter
+
+            # Cap by ambient deadline if one exists
+            if deadline is not None:
+                remaining = deadline - anyio.current_time()
+                if remaining <= 0:
+                    # Out of time; surface the last error
+                    raise
+                delay = min(delay, remaining)
+
+            await anyio.sleep(delay)

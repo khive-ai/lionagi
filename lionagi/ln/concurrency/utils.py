@@ -12,4 +12,5 @@ def _is_coro_func(func: Callable[..., Any]) -> bool:
 
 
 def is_coro_func(func: Callable[..., Any]) -> bool:
+    """Check if a function is a coroutine function, with caching for performance."""
     return _is_coro_func(func)

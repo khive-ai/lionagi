@@ -1,134 +1,117 @@
-"""Cancellation scope implementation for structured concurrency."""
+"""Cancellation helpers for structured concurrency (anyio-backed)."""
 
-import time
+from __future__ import annotations
+
 from collections.abc import Iterator
 from contextlib import contextmanager
-from types import TracebackType
-from typing import TypeVar
 
 import anyio
 
-T = TypeVar("T")
+CancelScope = anyio.CancelScope
+_INF = float("inf")
 
 
-class CancelScope:
-    """A context manager for controlling cancellation of tasks."""
-
-    def __init__(self, deadline: float | None = None, shield: bool = False):
-        """Initialize a new cancel scope.
-
-        Args:
-            deadline: The time (in seconds since the epoch) when this scope should be cancelled
-            shield: If True, this scope shields its contents from external cancellation
-        """
-        self._scope = None
-        self._deadline = deadline
-        self._shield = shield
-        self.cancel_called = False
-        self.cancelled_caught = False
-
-    def cancel(self) -> None:
-        """Cancel this scope.
-
-        This will cause all tasks within this scope to be cancelled.
-        """
-        self.cancel_called = True
-        if self._scope is not None:
-            self._scope.cancel()
-
-    def __enter__(self) -> "CancelScope":
-        """Enter the cancel scope context.
-
-        Returns:
-            The cancel scope instance.
-        """
-        # Use math.inf as the default deadline (no timeout)
-        import math
-
-        deadline = self._deadline if self._deadline is not None else math.inf
-        self._scope = anyio.CancelScope(deadline=deadline, shield=self._shield)
-        if self.cancel_called:
-            self._scope.cancel()
-        self._scope.__enter__()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> bool:
-        """Exit the cancel scope context.
-
-        Returns:
-            True if the exception was handled, False otherwise.
-        """
-        if self._scope is None:
-            return False
-
-        try:
-            result = self._scope.__exit__(exc_type, exc_val, exc_tb)
-            self.cancelled_caught = self._scope.cancelled_caught
-            return result
-        finally:
-            self._scope = None
-
-
-@contextmanager
-def move_on_after(seconds: float | None) -> Iterator[CancelScope]:
-    """Return a context manager that cancels its contents after the given number of seconds.
-
-    Args:
-        seconds: The number of seconds to wait before cancelling, or None to disable the timeout
-
-    Returns:
-        A cancel scope that will be cancelled after the specified time
-
-    Example:
-        with move_on_after(5) as scope:
-            await long_running_operation()
-            if scope.cancelled_caught:
-                print("Operation timed out")
-    """
-    deadline = None if seconds is None else time.time() + seconds
-    scope = CancelScope(deadline=deadline)
-    with scope:
-        yield scope
+__all__ = (
+    "CancelScope",
+    "fail_after",
+    "move_on_after",
+    "fail_at",
+    "move_on_at",
+    "effective_deadline",
+)
 
 
 @contextmanager
 def fail_after(seconds: float | None) -> Iterator[CancelScope]:
-    """Return a context manager that raises TimeoutError if its contents take longer than the given time.
+    """Create a context with a timeout that raises TimeoutError on expiry.
 
     Args:
-        seconds: The number of seconds to wait before raising TimeoutError, or None to disable the timeout
+        seconds: Timeout duration in seconds. None means no timeout
+            (but still cancellable by outer scopes).
 
-    Returns:
-        A cancel scope that will raise TimeoutError after the specified time
+    Yields:
+        CancelScope that can be cancelled after the timeout.
 
     Raises:
-        TimeoutError: If the operation takes longer than the specified time
-
-    Example:
-        try:
-            with fail_after(5):
-                await long_running_operation()
-        except TimeoutError:
-            print("Operation timed out")
+        TimeoutError: If the timeout expires before the block completes.
     """
     if seconds is None:
-        # No timeout
-        scope = CancelScope(shield=True)
-        with scope:
+        # No timeout, but still cancellable by outer scopes
+        with CancelScope() as scope:
             yield scope
-    else:
-        deadline = time.time() + seconds
-        scope = CancelScope(deadline=deadline)
-        try:
-            with scope:
-                yield scope
-        finally:
-            if scope.cancelled_caught:
-                raise TimeoutError(
-                    f"Operation took longer than {seconds} seconds"
-                )
+        return
+    with anyio.fail_after(seconds) as scope:
+        yield scope
+
+
+@contextmanager
+def move_on_after(seconds: float | None) -> Iterator[CancelScope]:
+    """Create a context with a timeout that silently cancels on expiry.
+
+    Args:
+        seconds: Timeout duration in seconds. None means no timeout
+            (but still cancellable by outer scopes).
+
+    Yields:
+        CancelScope with cancelled_caught attribute to check if timeout occurred.
+    """
+    if seconds is None:
+        # No timeout, but still cancellable by outer scopes
+        with CancelScope() as scope:
+            yield scope
+        return
+    with anyio.move_on_after(seconds) as scope:
+        yield scope
+
+
+@contextmanager
+def fail_at(deadline: float | None) -> Iterator[CancelScope]:
+    """Create a context that raises TimeoutError at an absolute deadline.
+
+    Args:
+        deadline: Absolute monotonic timestamp for timeout.
+            None means no timeout (but still cancellable).
+
+    Yields:
+        CancelScope that expires at the specified deadline.
+
+    Raises:
+        TimeoutError: If the deadline is reached before the block completes.
+    """
+    if deadline is None:
+        # No timeout, but still cancellable by outer scopes
+        with CancelScope() as scope:
+            yield scope
+        return
+    now = anyio.current_time()
+    seconds = max(0.0, deadline - now)
+    with fail_after(seconds) as scope:
+        yield scope
+
+
+@contextmanager
+def move_on_at(deadline: float | None) -> Iterator[CancelScope]:
+    """Create a context that silently cancels at an absolute deadline.
+
+    Args:
+        deadline: Absolute monotonic timestamp for timeout.
+            None means no timeout (but still cancellable).
+
+    Yields:
+        CancelScope with cancelled_caught attribute to check if deadline was reached.
+    """
+    if deadline is None:
+        # No timeout, but still cancellable by outer scopes
+        with CancelScope() as scope:
+            yield scope
+        return
+    now = anyio.current_time()
+    seconds = max(0.0, deadline - now)
+    with anyio.move_on_after(seconds) as scope:
+        yield scope
+
+
+def effective_deadline() -> float | None:
+    """Return the ambient effective deadline, or None if unlimited."""
+    d = anyio.current_effective_deadline()
+    return None if d == _INF else d
