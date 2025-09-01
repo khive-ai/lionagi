@@ -6,6 +6,7 @@
 from .core import CallContext, Service
 from .endpoint import ChatRequestModel, RequestModel
 from .imodel import iModel
+from .settings import ServiceSettings, settings
 
 # Transport exports
 from .transport import Transport  # Legacy alias for HTTPTransport
@@ -25,6 +26,9 @@ __all__ = [
     "RequestModel",
     "ChatRequestModel",
     "iModel",
+    # Settings and configuration
+    "ServiceSettings",
+    "settings",
     # Transport types
     "Transport",  # Legacy alias
     "HTTPTransport",

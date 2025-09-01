@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -17,7 +16,7 @@ from lionagi.ln import effective_deadline
 
 from .core import CallContext
 from .endpoint import ChatRequestModel, RequestModel
-from .executor import ExecutorConfig, RateLimitedExecutor, ServiceCall
+from .executor import RateLimitedExecutor, ServiceCall
 from .hooks import HookedMiddleware, HookRegistry
 from .middleware import MetricsMW, PolicyGateMW, RedactionMW
 from .provider_detection import parse_provider_prefix
@@ -25,6 +24,7 @@ from .providers.provider_registry import (
     get_provider_registry,
     register_builtin_adapters,
 )
+from .settings import ExecutorConfig, settings
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class iModel:
 
         # Auto-detect API key if not provided
         if api_key is None:
-            api_key = self._detect_api_key(self.provider or "openai")
+            api_key = settings.get_api_key(self.provider or "openai")
 
         # Build service via registry (strongly validated if adapter supplies Pydantic model)
         service, resolved, rights = reg.create_service(
@@ -130,6 +130,7 @@ class iModel:
         self.service = service
 
         # Rate limiting and queuing (v0 feature depth)
+        # Each iModel instance gets its own executor config, falling back to settings defaults
         executor_config = ExecutorConfig(
             queue_capacity=queue_capacity,
             capacity_refresh_time=capacity_refresh_time,
@@ -150,30 +151,6 @@ class iModel:
             for key, value in provider_metadata.items():
                 setattr(self.provider_metadata, key, value)
 
-    def _detect_api_key(self, provider: str) -> str | None:
-        """Auto-detect API key from environment."""
-        env_vars = {
-            "openai": ["OPENAI_API_KEY"],
-            "anthropic": ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"],
-            "together": ["TOGETHER_API_KEY"],
-            "openrouter": ["OPENROUTER_API_KEY"],
-            "groq": ["GROQ_API_KEY"],
-            "fireworks": ["FIREWORKS_API_KEY"],
-        }
-
-        for env_var in env_vars.get(provider, []):
-            api_key = os.getenv(env_var)
-            if api_key:
-                logger.debug(f"Auto-detected API key for {provider} from {env_var}")
-                return api_key
-
-        # Generic fallback
-        generic_key = os.getenv(f"{provider.upper()}_API_KEY")
-        if generic_key:
-            logger.debug(f"Auto-detected API key for {provider} from generic env var")
-            return generic_key
-
-        return None
 
     def _setup_middleware(self, enable_policy: bool, enable_metrics: bool, enable_redaction: bool):
         """Setup middleware stack with hooks integration."""

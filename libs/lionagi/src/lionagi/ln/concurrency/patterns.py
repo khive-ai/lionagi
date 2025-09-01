@@ -34,9 +34,10 @@ R = TypeVar("R")
 
 __all__ = (
     "gather",
-    "race",
+    "race", 
     "bounded_map",
-    "as_completed",
+    "as_completed",  # Deprecated
+    "CompletionStream",  # Recommended replacement
     "retry",
 )
 
@@ -166,18 +167,106 @@ async def bounded_map(
     return out  # type: ignore
 
 
+class CompletionStream:
+    """Structured-concurrency-safe completion stream with explicit lifecycle management.
+    
+    This provides a safer alternative to as_completed() that allows explicit cancellation
+    of remaining tasks when early termination is needed.
+    
+    Usage:
+        async with CompletionStream(awaitables, limit=10) as stream:
+            async for index, result in stream:
+                if some_condition:
+                    break  # Remaining tasks are automatically cancelled
+    """
+    
+    def __init__(self, aws: Sequence[Awaitable[T]], *, limit: int | None = None):
+        self.aws = aws
+        self.limit = limit
+        self._task_group = None
+        self._send = None
+        self._recv = None
+        self._completed_count = 0
+        self._total_count = len(aws)
+    
+    async def __aenter__(self):
+        n = len(self.aws)
+        self._send, self._recv = anyio.create_memory_object_stream(n)
+        self._task_group = anyio.create_task_group()
+        await self._task_group.__aenter__()
+        
+        limiter = CapacityLimiter(self.limit) if self.limit else None
+        
+        async def _runner(i: int, aw: Awaitable[T]) -> None:
+            if limiter:
+                await limiter.acquire()
+            try:
+                res = await aw
+                await self._send.send((i, res))
+            finally:
+                if limiter:
+                    limiter.release()
+        
+        # Start all tasks
+        for i, aw in enumerate(self.aws):
+            self._task_group.start_soon(_runner, i, aw)
+        
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Cancel remaining tasks and clean up
+        if self._task_group:
+            await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        if self._send:
+            await self._send.aclose()
+        if self._recv:
+            await self._recv.aclose()
+        return False
+    
+    def __aiter__(self):
+        if not self._recv:
+            raise RuntimeError("CompletionStream must be used as async context manager")
+        return self
+    
+    async def __anext__(self):
+        if self._completed_count >= self._total_count:
+            raise StopAsyncIteration
+        
+        try:
+            result = await self._recv.receive()
+            self._completed_count += 1
+            return result
+        except anyio.EndOfStream:
+            raise StopAsyncIteration
+
+
 async def as_completed(
     aws: Sequence[Awaitable[T]], *, limit: int | None = None
 ) -> AsyncIterator[tuple[int, T]]:
     """Process completions as they occur.
 
-    WARNING: This pattern violates structured concurrency when used with early break.
+    ⚠️  DEPRECATED: This pattern violates structured concurrency when used with early break.
     Breaking from 'async for' will NOT cancel remaining tasks due to the async
     generator + TaskGroup anti-pattern. All tasks will continue to completion.
+
+    Use CompletionStream instead:
+        async with CompletionStream(awaitables, limit=10) as stream:
+            async for index, result in stream:
+                # Early breaks are properly handled
+                pass
 
     This is a known limitation of structured concurrency frameworks.
     See: https://anyio.readthedocs.io/en/stable/cancellation.html
     """
+    import warnings
+    warnings.warn(
+        "as_completed() is deprecated due to structured concurrency violations. "
+        "Use CompletionStream for safe early termination.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    # Keep existing implementation for backward compatibility but warn users
     n = len(aws)
     send, recv = anyio.create_memory_object_stream(n)
     limiter = CapacityLimiter(limit) if limit else None

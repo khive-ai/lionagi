@@ -174,10 +174,8 @@ class RateLimitedExecutor:
         if config.concurrency_limit:
             self.concurrency_limiter = CapacityLimiter(config.concurrency_limit)
 
-        # Background task management with backend compatibility
+        # Background task management (structured concurrency only)
         self._task_group = None
-        self._processor_task: asyncio.Task | None = None
-        self._replenisher_task: asyncio.Task | None = None
         self._shutdown_event = Event()
         self._running = False
         self._stats = {
@@ -190,93 +188,40 @@ class RateLimitedExecutor:
         }
 
     async def start(self) -> None:
-        """Start the executor and its background tasks with backend compatibility."""
+        """Start the executor (deprecated - use async context manager instead)."""
+        logger.warning(
+            "start() method is deprecated - use 'async with executor:' pattern for proper structured concurrency"
+        )
         if self._running:
-            return  # already started
-
-        # Reset shutdown event
+            return
+        
         self._shutdown_event = Event()
         self._running = True
 
-        # Handle backend compatibility - detect if we're on asyncio or trio
-        try:
-            asyncio.current_task()  # This will succeed on asyncio
-            self._processor_task = asyncio.create_task(self._run_processor())
-            self._replenisher_task = asyncio.create_task(self._run_replenisher())
-            # Create a dummy task group for compatibility
-            self._task_group = "asyncio_tasks"  # Marker for asyncio mode
-        except (RuntimeError, AttributeError):
-            # This is trio - for now, just start without background tasks
-            # Trio requires structured concurrency via context manager
-            self._processor_task = None
-            self._replenisher_task = None
-            self._task_group = "trio_deferred"  # Marker for trio mode
-            logger.warning(
-                "Trio backend detected - background tasks deferred. Use async context manager for full functionality."
-            )
-
-        logger.info("RateLimitedExecutor started with background processing")
-
     async def stop(self) -> None:
-        """Stop the executor and cleanly shut down background tasks."""
+        """Stop the executor (deprecated - cleanup handled by context manager)."""
+        logger.warning(
+            "stop() method is deprecated - cleanup is handled automatically by context manager"
+        )
         if not self._running:
             return
 
-        logger.info("Stopping RateLimitedExecutor...")
-
-        # Signal cooperative shutdown
+        # Signal shutdown and cancel active calls  
         self._shutdown_event.set()
         self._running = False
 
-        # Cancel any remaining active calls immediately
+        # Cancel any remaining active calls
         active_call_list = list(self.active_calls.values())
         for call in active_call_list:
             call.mark_cancelled()
 
-        # Force cleanup any remaining active calls
+        # Move cancelled calls to completed
         for call_id in list(self.active_calls.keys()):
             call = self.active_calls[call_id]
             if call.status == CallStatus.CANCELLED:
                 del self.active_calls[call_id]
                 self.completed_calls[call_id] = call
                 self._stats["calls_cancelled"] += 1
-
-        # Cancel and wait for background tasks
-        if self._task_group == "asyncio_tasks":
-            # Cancel asyncio tasks
-            if self._processor_task:
-                self._processor_task.cancel()
-                try:
-                    await self._processor_task
-                except get_cancelled_exc_class():
-                    pass
-                self._processor_task = None
-
-            if self._replenisher_task:
-                self._replenisher_task.cancel()
-                try:
-                    await self._replenisher_task
-                except get_cancelled_exc_class():
-                    pass
-                self._replenisher_task = None
-
-        elif self._task_group == "trio_active":
-            # Trio tasks are managed by context manager, just clean up
-            if hasattr(self, "_trio_task_group"):
-                try:
-                    await self._trio_task_group.__aexit__(None, None, None)
-                except get_cancelled_exc_class():
-                    pass
-                delattr(self, "_trio_task_group")
-
-        # Clear task group for clean restart
-        self._task_group = None
-
-        # Close and recreate queue for restart capability
-        await self._queue.close()
-        from lionagi.ln.concurrency.primitives import Queue
-
-        self._queue: Queue[ServiceCall] = Queue.with_maxsize(self.config.queue_capacity)
 
         logger.info(f"RateLimitedExecutor stopped. Final Stats: {self._stats}")
 
@@ -285,7 +230,14 @@ class RateLimitedExecutor:
     ) -> ServiceCall:
         """Submit a service call for execution via queue."""
         if not self._running:
-            await self.start()  # Ensure executor is running
+            raise _err.ServiceError(
+                "Executor not running - use 'async with executor:' context manager",
+                context={
+                    "service": (service.name if hasattr(service, "name") else str(service)),
+                    "error_type": "executor_not_running",
+                    "hint": "Use 'async with RateLimitedExecutor(...) as executor:' pattern",
+                }
+            )
 
         call = ServiceCall(
             id=uuid4(),
@@ -363,12 +315,17 @@ class RateLimitedExecutor:
             raise
 
     async def _run_processor(self) -> None:
-        """Continuously process queued calls (v0 pattern)."""
+        """Continuously process queued calls using structured concurrency."""
         try:
             while not self._shutdown_event.is_set():
                 try:
-                    # Try to get a call from the queue with timeout
-                    call = await asyncio.wait_for(self._queue.get(), timeout=0.1)
+                    # Get call from queue with timeout using anyio
+                    with anyio.move_on_after(0.1) as cancel_scope:
+                        call = await self._queue.get()
+                    
+                    if cancel_scope.cancelled_caught:
+                        # Timeout occurred, check for shutdown and continue
+                        continue
 
                     if self._shutdown_event.is_set():
                         call.mark_cancelled()
@@ -383,17 +340,15 @@ class RateLimitedExecutor:
                         logger.debug(f"Call {call.id} failed during capacity wait: {e}")
                         continue
 
-                    # Process call using asyncio.create_task
+                    # Process call using task group (structured concurrency)
                     self.active_calls[call.id] = call
-                    asyncio.create_task(self._execute_call(call))
+                    # Start task within current task group context
+                    self._task_group.start_soon(self._execute_call, call)
 
                     # Periodically cleanup completed
                     if len(self.completed_calls) > 100:
-                        asyncio.create_task(self._cleanup_completed())
+                        self._task_group.start_soon(self._cleanup_completed)
 
-                except TimeoutError:
-                    # Queue get timed out, loop to check shutdown
-                    continue
                 except (anyio.ClosedResourceError, anyio.EndOfStream):
                     # Queue closed - shutdown signal
                     break
@@ -604,27 +559,60 @@ class RateLimitedExecutor:
         return self._queue._recv if hasattr(self._queue, "_recv") else None
 
     async def __aenter__(self):
-        """Async context manager entry with proper trio support."""
-        await self.start()
-
-        # If trio mode and no background tasks, start them in task group
-        if self._task_group == "trio_deferred":
-            self._trio_task_group = anyio.create_task_group()
-            await self._trio_task_group.__aenter__()
-            self._trio_task_group.start_soon(self._run_processor)
-            self._trio_task_group.start_soon(self._run_replenisher)
-            self._task_group = "trio_active"
-
+        """Async context manager entry using structured concurrency."""
+        if self._running:
+            raise _err.ServiceError("Executor already running - nested context managers not supported")
+        
+        # Reset state and mark as running
+        self._shutdown_event = Event()
+        self._running = True
+        
+        # Create task group and start background tasks
+        self._task_group = anyio.create_task_group()
+        await self._task_group.__aenter__()
+        
+        # Start background tasks using structured concurrency
+        self._task_group.start_soon(self._run_processor)
+        self._task_group.start_soon(self._run_replenisher)
+        
+        logger.info("RateLimitedExecutor started with structured concurrency")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit with proper trio support."""
-        # Clean up trio task group if active
-        if self._task_group == "trio_active" and hasattr(self, "_trio_task_group"):
-            try:
-                await self._trio_task_group.__aexit__(exc_type, exc_val, exc_tb)
-            except get_cancelled_exc_class():
-                pass
+        """Async context manager exit with guaranteed cleanup."""
+        logger.info("Stopping RateLimitedExecutor...")
+        
+        # Signal shutdown to background tasks
+        self._shutdown_event.set()
+        self._running = False
+        
+        # Cancel active calls
+        active_call_list = list(self.active_calls.values())
+        for call in active_call_list:
+            call.mark_cancelled()
+            
+        # Move cancelled calls to completed
+        for call_id in list(self.active_calls.keys()):
+            call = self.active_calls[call_id]
+            if call.status == CallStatus.CANCELLED:
+                del self.active_calls[call_id]
+                self.completed_calls[call_id] = call
+                self._stats["calls_cancelled"] += 1
+        
+        # Task group cleanup is automatic - background tasks will be cancelled
+        # and awaited when the task group exits
+        try:
+            await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        except get_cancelled_exc_class():
+            # Background tasks were cancelled - this is expected
+            pass
+        finally:
             self._task_group = None
-
-        await self.stop()
+            
+            # Close and recreate queue for restart capability
+            await self._queue.close()
+            from lionagi.ln.concurrency.primitives import Queue
+            self._queue: Queue[ServiceCall] = Queue.with_maxsize(self.config.queue_capacity)
+            
+        logger.info(f"RateLimitedExecutor stopped. Final Stats: {self._stats}")
+        return False  # Don't suppress exceptions

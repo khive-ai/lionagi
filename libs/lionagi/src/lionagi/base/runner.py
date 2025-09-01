@@ -193,39 +193,46 @@ class Runner:
             logger.error(f"Node {node.id} pre-condition failed: {e}")
             raise RuntimeError(f"Node {node.id} pre-condition failed") from e
 
-        # 6) Execute with proactive deadline enforcement
-        budget_ms = getattr(node.m, "latency_budget_ms", None)
-
+        # 6-7) Execute with guaranteed IPU post-invariant cleanup
+        res = None
         try:
-            if budget_ms:
-                # Enforce deadline proactively
-                timeout_s = budget_ms / 1000.0
-                logger.debug(f"Node {node.id} has latency budget: {budget_ms}ms")
+            # 6) Execute with proactive deadline enforcement
+            budget_ms = getattr(node.m, "latency_budget_ms", None)
 
-                with fail_after(timeout_s):
+            try:
+                if budget_ms:
+                    # Enforce deadline proactively
+                    timeout_s = budget_ms / 1000.0
+                    logger.debug(f"Node {node.id} has latency budget: {budget_ms}ms")
+
+                    with fail_after(timeout_s):
+                        res = await node.m.apply(br, **kwargs)
+                else:
+                    # No deadline, but still cancellable by parent scope
                     res = await node.m.apply(br, **kwargs)
-            else:
-                # No deadline, but still cancellable by parent scope
-                res = await node.m.apply(br, **kwargs)
 
-        except TimeoutError as e:
-            logger.error(f"Node {node.id} exceeded latency budget ({budget_ms}ms)")
-            raise RuntimeError(f"Node {node.id} exceeded latency budget ({budget_ms}ms)") from e
-        except Exception as e:
-            logger.error(f"Node {node.id} execution failed: {e}")
-            raise
+            except TimeoutError as e:
+                logger.error(f"Node {node.id} exceeded latency budget ({budget_ms}ms)")
+                raise RuntimeError(f"Node {node.id} exceeded latency budget ({budget_ms}ms)") from e
+            except Exception as e:
+                logger.error(f"Node {node.id} execution failed: {e}")
+                raise
 
-        # 7) Validate post-conditions
-        try:
-            post_result = await node.m.post(br, res)
-            if not post_result:
-                raise RuntimeError(f"Node {node.id} post-condition returned False")
-        except Exception as e:
-            logger.error(f"Node {node.id} post-condition failed: {e}")
-            raise RuntimeError(f"Node {node.id} post-condition failed") from e
+            # 7) Validate post-conditions
+            try:
+                post_result = await node.m.post(br, res)
+                if not post_result:
+                    raise RuntimeError(f"Node {node.id} post-condition returned False")
+            except Exception as e:
+                logger.error(f"Node {node.id} post-condition failed: {e}")
+                raise RuntimeError(f"Node {node.id} post-condition failed") from e
 
-        # 8) Post-phase invariants and events
-        await self.ipu.after_node(br, node, res)
+        finally:
+            # 8) GUARANTEED post-phase invariants - always executed regardless of success/failure
+            # Pass res (which may be None if execution failed) to allow invariant cleanup
+            await self.ipu.after_node(br, node, res)
+
+        # 9) Emit success event only after successful completion
         await emit_node_finish(self.bus, br, node, res)
 
         return node.id, res

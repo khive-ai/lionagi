@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 import time
 from typing import Any, Protocol
 
@@ -61,15 +62,19 @@ class CapabilityMonotonicity:
     def __init__(self):
         # Snapshot per (branch,node) to avoid races under concurrent execution
         self._snap: dict[tuple, set[str]] = {}
+        # Lock to protect concurrent access to _snap dictionary
+        self._lock = threading.Lock()
 
     def pre(self, br: Branch, node: OpNode) -> bool:
-        # Take a per-node snapshot of current capabilities
-        self._snap[(br.id, node.id)] = set(br.capabilities)
+        # Take a per-node snapshot of current capabilities (thread-safe)
+        with self._lock:
+            self._snap[(br.id, node.id)] = set(br.capabilities)
         return True
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
-        # Compare against the node's snapshot to detect escalation
-        pre_caps = self._snap.pop((br.id, node.id), set())
+        # Compare against the node's snapshot to detect escalation (thread-safe)
+        with self._lock:
+            pre_caps = self._snap.pop((br.id, node.id), set())
         post_caps = set(br.capabilities)
         return post_caps.issubset(pre_caps)
 
@@ -89,17 +94,22 @@ class ObservationCompleteness:
 
     def __init__(self):
         self._started: set[tuple] = set()
+        # Lock to protect concurrent access to _started set
+        self._lock = threading.Lock()
 
     def pre(self, br: Branch, node: OpNode) -> bool:
-        self._started.add((br.id, node.id))
+        # Add node to started set (thread-safe)
+        with self._lock:
+            self._started.add((br.id, node.id))
         return True
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
-        # Check if we observed the start, then clean up to prevent memory leaks
+        # Check if we observed the start, then clean up to prevent memory leaks (thread-safe)
         token = (br.id, node.id)
-        was_started = token in self._started
-        # Clean up the token to prevent unbounded growth across many nodes/branches
-        self._started.discard(token)
+        with self._lock:
+            was_started = token in self._started
+            # Clean up the token to prevent unbounded growth across many nodes/branches
+            self._started.discard(token)
         return was_started
 
 
@@ -153,9 +163,13 @@ class LatencyBound:
 
     def __init__(self):
         self._t0: dict[tuple, float] = {}
+        # Lock to protect concurrent access to _t0 dictionary
+        self._lock = threading.Lock()
 
     def pre(self, br: Branch, node: OpNode) -> bool:
-        self._t0[(br.id, node.id)] = time.perf_counter()
+        # Record start time (thread-safe)
+        with self._lock:
+            self._t0[(br.id, node.id)] = time.perf_counter()
         budget = getattr(node.m, "latency_budget_ms", None)
         if budget and budget <= 0:
             # Invalid budget configuration
@@ -165,9 +179,14 @@ class LatencyBound:
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
         budget = getattr(node.m, "latency_budget_ms", None)
         if budget is None:
-            self._t0.pop((br.id, node.id), None)
+            # No budget defined, clean up and pass
+            with self._lock:
+                self._t0.pop((br.id, node.id), None)
             return True
-        t0 = self._t0.pop((br.id, node.id), time.perf_counter())
+        
+        # Get start time and calculate elapsed (thread-safe)
+        with self._lock:
+            t0 = self._t0.pop((br.id, node.id), time.perf_counter())
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         # Log if we're close to budget (within 90%)
@@ -228,19 +247,26 @@ class CtxWriteSet:
 
     def __init__(self):
         self._snap: dict[tuple, dict[str, Any]] = {}
+        # Lock to protect concurrent access to _snap dictionary
+        self._lock = threading.Lock()
 
     def pre(self, br: Branch, node: OpNode) -> bool:
-        # Deepcopy since ctx values can be nested
-        self._snap[(br.id, node.id)] = copy.deepcopy(br.ctx)
+        # Deepcopy since ctx values can be nested (thread-safe)
+        with self._lock:
+            self._snap[(br.id, node.id)] = copy.deepcopy(br.ctx)
         return True
 
     def post(self, br: Branch, node: OpNode, result: dict[str, Any]) -> bool:
         allowed = getattr(node.m, "ctx_writes", None)
         if not allowed:
-            # If not declared, don't enforce (opt-in)
-            self._snap.pop((br.id, node.id), None)
+            # If not declared, don't enforce (opt-in) - clean up snapshot
+            with self._lock:
+                self._snap.pop((br.id, node.id), None)
             return True
-        before = self._snap.pop((br.id, node.id), {})
+        
+        # Get snapshot and compare (thread-safe)
+        with self._lock:
+            before = self._snap.pop((br.id, node.id), {})
         after = br.ctx
         added = set(after.keys()) - set(before.keys())
         modified = {k for k in (set(after.keys()) & set(before.keys())) if after[k] != before[k]}
@@ -388,13 +414,16 @@ class CapabilityMonotonicityInvariant:
 
     def __init__(self):
         self._snapshots = {}
+        # Lock to protect concurrent access to _snapshots dictionary
+        self._lock = threading.Lock()
 
     def pre_check(self, branch, operation_context):
         """Take capability snapshot and return (success, message) tuple."""
         try:
-            # Take snapshot of current capabilities
+            # Take snapshot of current capabilities (thread-safe)
             snapshot_key = (branch.id, operation_context.get("node_id", "test_node"))
-            self._snapshots[snapshot_key] = set(branch.capabilities)
+            with self._lock:
+                self._snapshots[snapshot_key] = set(branch.capabilities)
             return True, "Capability snapshot taken"
         except Exception as e:
             return False, str(e)
@@ -402,9 +431,10 @@ class CapabilityMonotonicityInvariant:
     def post_check(self, branch, operation_context, result):
         """Check for capability escalation and return (success, message) tuple."""
         try:
-            # Get the snapshot
+            # Get the snapshot (thread-safe)
             snapshot_key = (branch.id, operation_context.get("node_id", "test_node"))
-            pre_caps = self._snapshots.get(snapshot_key, set())
+            with self._lock:
+                pre_caps = self._snapshots.get(snapshot_key, set())
             post_caps = set(branch.capabilities)
 
             # Check if capabilities were reduced or stayed the same (monotonicity)
