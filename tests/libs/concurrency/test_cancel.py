@@ -3,7 +3,7 @@ import time
 import anyio
 import pytest
 
-from lionagi.ln import (
+from lionagi.ln.concurrency import (
     CancelScope,
     effective_deadline,
     fail_after,
