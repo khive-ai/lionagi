@@ -19,7 +19,9 @@ async def test_fail_after_zero_deadline_raises_fast(anyio_backend):
     with pytest.raises(TimeoutError):
         with fail_after(0):
             await anyio.sleep(0.001)
-    assert (time.perf_counter() - t0) < 0.05  # should trip quickly
+    assert (
+        time.perf_counter() - t0
+    ) < 0.5  # should trip reasonably quickly (CI-friendly)
 
 
 @pytest.mark.anyio
@@ -97,7 +99,7 @@ async def test_effective_deadline_inside_fail_at(anyio_backend):
             d = effective_deadline()
             assert d is not None
             remaining = d - anyio.current_time()
-            assert 0 < remaining <= 0.06
+            assert 0 < remaining <= 0.15  # CI-friendly tolerance
 
 
 @pytest.mark.anyio

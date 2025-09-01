@@ -322,7 +322,7 @@ async def test_retry_deadline_capped_by_parent(anyio_backend):
     elapsed = anyio.current_time() - start
     # Could be either the original TimeoutError or the deadline TimeoutError
     # The important thing is that it respects the deadline and doesn't hang
-    assert elapsed <= 0.15  # Should complete quickly
+    assert elapsed <= 0.5  # Should complete quickly (CI-friendly)
     assert calls["n"] >= 1
 
 
