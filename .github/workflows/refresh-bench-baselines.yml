@@ -54,7 +54,28 @@ jobs:
           cp benchmarks/_ci_out/ln-trio.json benchmarks/baselines/ln-trio.json
           cp benchmarks/_ci_out/fuzzy.json benchmarks/baselines/fuzzy.json
 
-      - name: Create PR with updated baselines
+      - name: Create PR with updated baselines (using PR_TOKEN if available)
+        id: cpr
+        continue-on-error: true
+        if: ${{ secrets.PR_TOKEN != '' }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.PR_TOKEN }}
+          branch: chore/refresh-bench-baselines
+          title: "chore(benchmarks): refresh CI-native baselines"
+          commit-message: "chore(benchmarks): refresh CI-native baselines"
+          body: |
+            This PR updates benchmark baselines with CI-native measurements.
+            - Python: 3.12
+            - Repeats: 5
+            After merge, the benchmarks workflow gates at 20% thresholds.
+          add-paths: |
+            benchmarks/baselines/*.json
+
+      - name: Create PR with updated baselines (best-effort with GITHUB_TOKEN)
+        id: cpr_fallback
+        continue-on-error: true
+        if: ${{ secrets.PR_TOKEN == '' }}
         uses: peter-evans/create-pull-request@v6
         with:
           branch: chore/refresh-bench-baselines
@@ -68,3 +89,9 @@ jobs:
           add-paths: |
             benchmarks/baselines/*.json
 
+      - name: Upload baselines artifact (fallback)
+        if: ${{ always() && (steps.cpr.outcome != 'success' || steps.cpr_fallback.outcome != 'success') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: refreshed-bench-baselines
+          path: benchmarks/baselines/*.json
