@@ -12,7 +12,8 @@ using Events for synchronization and CapacityLimiter for concurrency control.
 import os
 from typing import Any
 
-from lionagi.ln import AlcallParams, CapacityLimiter, ConcurrencyEvent
+from lionagi.ln._async_call import AlcallParams
+from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
 from lionagi.operations.node import Operation
 from lionagi.protocols.types import EventStatus, Graph
 from lionagi.session.branch import Branch

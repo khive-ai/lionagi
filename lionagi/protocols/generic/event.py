@@ -5,13 +5,13 @@
 from __future__ import annotations
 
 import contextlib
-from enum import Enum
+from enum import Enum as _Enum
 from typing import Any
 
 from pydantic import Field, field_serializer
 
 from lionagi import ln
-from lionagi.utils import to_dict
+from lionagi.utils import Unset, to_dict
 
 from .element import Element
 
@@ -22,10 +22,10 @@ __all__ = (
 )
 
 
-_SIMPLE_TYPE = (str, bytes, bytearray, int, float, type(None), Enum)
+_SIMPLE_TYPE = (str, bytes, bytearray, int, float, type(None), _Enum)
 
 
-class EventStatus(str, ln.Enum):
+class EventStatus(str, ln.types.Enum):
     """Status states for tracking action execution progress.
 
     Attributes:
@@ -96,7 +96,7 @@ class Execution:
         Returns:
             dict: A dictionary representation of the execution state.
         """
-        res_ = ln.Unset
+        res_ = Unset
         json_serializable = True
 
         if not isinstance(self.response, _SIMPLE_TYPE):
@@ -119,7 +119,7 @@ class Execution:
                     res_ = d_
                     json_serializable = True
 
-        if res_ is ln.Unset and not json_serializable:
+        if res_ is Unset and not json_serializable:
             res_ = "<unserializable>"
 
         return {

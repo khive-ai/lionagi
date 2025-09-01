@@ -5,7 +5,11 @@
 import asyncio
 from typing import Any, ClassVar
 
-from lionagi.ln import ConcurrencyEvent, Semaphore, create_task_group
+from lionagi.ln.concurrency import (
+    ConcurrencyEvent,
+    Semaphore,
+    create_task_group,
+)
 
 from .._concepts import Observer
 from .element import ID
