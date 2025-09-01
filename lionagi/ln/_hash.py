@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import copy
 
+import msgspec
 from pydantic import BaseModel as PydanticBaseModel
 
 __all__ = ("hash_dict",)
@@ -12,6 +15,7 @@ _TYPE_MARKER_TUPLE = 2
 _TYPE_MARKER_SET = 3
 _TYPE_MARKER_FROZENSET = 4
 _TYPE_MARKER_PYDANTIC = 5  # Distinguishes dumped Pydantic models
+_TYPE_MARKER_MSGSPEC = 6  # Distinguishes msgspec Structs
 
 
 def _generate_hashable_representation(item: any) -> any:
@@ -22,6 +26,14 @@ def _generate_hashable_representation(item: any) -> any:
     """
     if isinstance(item, _PRIMITIVE_TYPES):
         return item
+
+    # Handle msgspec Structs
+    if isinstance(item, msgspec.Struct):
+        # Use msgspec.to_builtins for efficient conversion to built-in types
+        return (
+            _TYPE_MARKER_MSGSPEC,
+            _generate_hashable_representation(msgspec.to_builtins(item)),
+        )
 
     if isinstance(item, PydanticBaseModel):
         # Process the Pydantic model by first dumping it to a dict, then processing that dict.
@@ -58,9 +70,20 @@ def _generate_hashable_representation(item: any) -> any:
         try:  # Attempt direct sort for comparable elements
             sorted_elements = sorted(list(item))
         except TypeError:  # Fallback for unorderable mixed types
-            sorted_elements = sorted(
-                list(item), key=lambda x: (str(type(x)), str(x))
-            )
+
+            def sort_key(x):
+                # Handle bool/int equivalence - treat True as 1, False as 0
+                if isinstance(x, bool):
+                    return (
+                        0,
+                        int(x),
+                        str(type(x)),
+                        str(x),
+                    )  # bools sort first
+                else:
+                    return (1, hash(type(x)), str(type(x)), str(x))
+
+            sorted_elements = sorted(list(item), key=sort_key)
         return (
             _TYPE_MARKER_FROZENSET,
             tuple(
@@ -73,9 +96,20 @@ def _generate_hashable_representation(item: any) -> any:
         try:
             sorted_elements = sorted(list(item))
         except TypeError:
-            sorted_elements = sorted(
-                list(item), key=lambda x: (str(type(x)), str(x))
-            )
+            # For mixed types, use a stable sorting key that handles bool/int identity
+            def sort_key(x):
+                # Handle bool/int equivalence - treat True as 1, False as 0
+                if isinstance(x, bool):
+                    return (
+                        0,
+                        int(x),
+                        str(type(x)),
+                        str(x),
+                    )  # bools sort first
+                else:
+                    return (1, hash(type(x)), str(type(x)), str(x))
+
+            sorted_elements = sorted(list(item), key=sort_key)
         return (
             _TYPE_MARKER_SET,
             tuple(
@@ -87,8 +121,12 @@ def _generate_hashable_representation(item: any) -> any:
     # Fallback for other types (e.g., custom objects not derived from the above)
     try:
         return str(item)
-    except Exception:  # If str() fails for some reason
-        return repr(item)
+    except Exception:
+        try:
+            return repr(item)
+        except Exception:
+            # If both str() and repr() fail, return a stable fallback based on type and id
+            return f"<unhashable:{type(item).__name__}:{id(item)}>"
 
 
 def hash_dict(data: any, strict: bool = False) -> int:
