@@ -6,12 +6,15 @@ from collections.abc import Callable
 from time import sleep, time
 from typing import Any, TypeVar
 
+from typing_extensions import deprecated
+
 T = TypeVar("T")
 
 
 __all__ = ("Throttle",)
 
 
+@deprecated("Throttle is deprecated and will be removed in a future release.")
 class Throttle:
     """
     Provide a throttling mechanism for function calls.

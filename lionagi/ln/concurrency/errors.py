@@ -1,4 +1,6 @@
-"""Error handling utilities for structured concurrency."""
+"""Error/cancellation utilities with backend-agnostic behavior."""
+
+from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
@@ -8,28 +10,26 @@ import anyio
 T = TypeVar("T")
 
 
-def get_cancelled_exc_class() -> type[BaseException]:
-    """Get the exception class used for cancellation.
+__all__ = (
+    "get_cancelled_exc_class",
+    "is_cancelled",
+    "shield",
+)
 
-    Returns:
-        The exception class used for cancellation (CancelledError for asyncio,
-        Cancelled for trio).
-    """
+
+def get_cancelled_exc_class() -> type[BaseException]:
+    """Return the backend-native cancellation exception class."""
     return anyio.get_cancelled_exc_class()
+
+
+def is_cancelled(exc: BaseException) -> bool:
+    """True if this is the backend-native cancellation exception."""
+    return isinstance(exc, anyio.get_cancelled_exc_class())
 
 
 async def shield(
     func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
 ) -> T:
-    """Run a coroutine function with protection from cancellation.
-
-    Args:
-        func: The coroutine function to call
-        *args: Positional arguments to pass to the function
-        **kwargs: Keyword arguments to pass to the function
-
-    Returns:
-        The return value of the function
-    """
+    """Run ``func`` immune to outer cancellation."""
     with anyio.CancelScope(shield=True):
         return await func(*args, **kwargs)

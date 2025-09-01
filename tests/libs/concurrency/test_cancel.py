@@ -1,120 +1,190 @@
-"""Tests for the CancelScope implementation."""
-
 import time
 
 import anyio
 import pytest
 
-from lionagi.ln.concurrency.cancel import (
+from lionagi.ln import (
     CancelScope,
+    effective_deadline,
     fail_after,
+    fail_at,
     move_on_after,
+    move_on_at,
 )
-from lionagi.ln.concurrency.errors import get_cancelled_exc_class, shield
 
 
-@pytest.mark.asyncio
-async def test_cancel_scope_creation():
-    """Test that cancel scopes can be created."""
-    with CancelScope() as scope:
-        assert not scope.cancelled_caught
-        assert not scope.cancel_called
+@pytest.mark.anyio
+async def test_fail_after_zero_deadline_raises_fast(anyio_backend):
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError):
+        with fail_after(0):
+            await anyio.sleep(0.001)
+    assert (time.perf_counter() - t0) < 0.05  # should trip quickly
 
 
-@pytest.mark.asyncio
-async def test_cancel_scope_cancellation():
-    """Test that cancel scopes can be cancelled."""
-    with CancelScope() as scope:
-        scope.cancel()
-        assert scope.cancel_called
-        # The scope is cancelled, but we're still in the with block
-        # so cancelled_caught is not set yet
-        assert not scope.cancelled_caught
-
-    # After exiting the with block, cancel_called should be set
-    # In the current implementation, cancelled_caught might not be set
-    assert scope.cancel_called
+@pytest.mark.anyio
+async def test_move_on_after_zero_deadline_sets_flag(anyio_backend):
+    with move_on_after(0) as scope:
+        await anyio.sleep(0.001)
+    assert scope.cancelled_caught is True
 
 
-@pytest.mark.asyncio
-async def test_cancel_scope_deadline():
-    """Test that cancel scopes respect deadlines."""
-    deadline = time.time() + 0.1
-    with CancelScope(deadline=deadline) as _:
-        await anyio.sleep(0.2)
-        # The scope should be cancelled by now, but in the current implementation
-        # we can't guarantee that cancelled_caught will be set
-        # Just verify that the sleep completed
-        pass
+@pytest.mark.anyio
+async def test_nested_scopes_inner_shielded_outer_cancel(anyio_backend):
+    """Test that explicit shielding protects from outer cancellation."""
+    hit = []
+    async with anyio.create_task_group() as tg:
+
+        async def worker():
+            with CancelScope(shield=True):  # Explicitly shielded
+                hit.append("in")
+                await anyio.sleep(0.02)
+                hit.append("out")
+
+        tg.start_soon(worker)
+        await anyio.sleep(0)
+        tg.cancel_scope.cancel()
+
+    assert hit == ["in", "out"]  # shield resisted outer cancel
 
 
-@pytest.mark.asyncio
-async def test_move_on_after():
-    """Test that move_on_after cancels operations after the timeout."""
-    results = []
+@pytest.mark.anyio
+async def test_nested_scopes_fail_after_inside_move_on_after(anyio_backend):
+    # Outer move_on_after should swallow, inner fail_after should raise within block.
+    with move_on_after(0.1) as outer:
+        with pytest.raises(TimeoutError):
+            with fail_after(0.01):
+                await anyio.sleep(0.05)
+    assert (
+        outer.cancelled_caught is False
+    )  # inner raised before outer deadline
 
-    async def slow_operation():
+
+@pytest.mark.anyio
+async def test_cancel_scope_alias_is_anyio_cancel_scope(anyio_backend):
+    assert CancelScope is anyio.CancelScope
+
+
+@pytest.mark.anyio
+async def test_fail_at_future_and_past_deadlines(anyio_backend):
+    now = anyio.current_time()
+    # future: should raise inside
+    with pytest.raises(TimeoutError):
+        with fail_at(now + 0.01):
+            await anyio.sleep(0.05)
+    # past: immediate failure
+    with pytest.raises(TimeoutError):
+        with fail_at(now - 1):
+            await anyio.sleep(0)
+
+
+@pytest.mark.anyio
+async def test_move_on_at_future_and_past(anyio_backend):
+    now = anyio.current_time()
+    with move_on_at(now + 0.005) as scope_future:
+        await anyio.sleep(0.02)
+    assert scope_future.cancelled_caught is True
+    with move_on_at(now - 1) as scope_past:
+        await anyio.sleep(0)
+    assert scope_past.cancelled_caught is True
+
+
+@pytest.mark.anyio
+async def test_effective_deadline_inside_fail_at(anyio_backend):
+    deadline = anyio.current_time() + 0.05
+    with move_on_after(0.1):  # ensure outer has more time
+        with fail_at(deadline):
+            d = effective_deadline()
+            assert d is not None
+            remaining = d - anyio.current_time()
+            assert 0 < remaining <= 0.06
+
+
+@pytest.mark.anyio
+async def test_none_timeout_still_cancellable(anyio_backend):
+    """Test that None timeout doesn't shield from outer cancellation."""
+    cancelled = False
+
+    async def work():
+        nonlocal cancelled
         try:
-            await anyio.sleep(0.5)
-            results.append("completed")
-        except get_cancelled_exc_class():
-            results.append("cancelled")
+            with fail_after(None):  # No timeout
+                await anyio.sleep(1.0)  # Reduced from 10
+        except BaseException:
+            cancelled = True
             raise
 
-    with move_on_after(0.1) as _:
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(work)
+        await anyio.sleep(0.005)  # Reduced from 0.01
+        tg.cancel_scope.cancel()
+
+    assert cancelled is True
+
+
+@pytest.mark.anyio
+async def test_none_move_on_after_still_cancellable(anyio_backend):
+    """Test that move_on_after(None) doesn't shield from outer cancellation."""
+    cancelled = False
+
+    async def work():
+        nonlocal cancelled
         try:
-            await slow_operation()
-        except get_cancelled_exc_class():
-            results.append("caught")
+            with move_on_after(None) as scope:
+                await anyio.sleep(1.0)  # Reduced from 10
+        except BaseException:
+            cancelled = True
+            raise
+        # Should not reach here due to outer cancellation
+        assert False, "Should have been cancelled"
 
-    # In the current implementation, we can't guarantee that cancelled_caught will be set
-    # or that the task will be cancelled in time
-    # Just verify that the operation completed
-    assert len(results) > 0
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(work)
+        await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    assert cancelled is True
 
 
-@pytest.mark.asyncio
-async def test_fail_after():
-    """Test that fail_after raises TimeoutError after the timeout."""
+@pytest.mark.anyio
+async def test_fail_at_none_still_cancellable(anyio_backend):
+    """Test that fail_at(None) doesn't shield from outer cancellation."""
+    cancelled = False
 
-    async def slow_operation():
-        await anyio.sleep(0.5)
-        return "completed"
-
-    # In the current implementation, we can't guarantee that TimeoutError will be raised
-    # Just verify that the operation completes
-    with fail_after(0.1):
+    async def work():
+        nonlocal cancelled
         try:
-            await slow_operation()
-        except TimeoutError:
-            pass  # This is expected but not guaranteed
-
-
-@pytest.mark.asyncio
-async def test_shield():
-    """Test that shielded operations are protected from cancellation."""
-    results = []
-
-    async def cleanup():
-        await anyio.sleep(0.1)
-        results.append("cleanup_completed")
-        return "cleanup_result"
-
-    async def task_with_cleanup():
-        try:
-            await anyio.sleep(0.5)
-            results.append("task_completed")
-        except get_cancelled_exc_class():
-            results.append("task_cancelled")
-            cleanup_result = await shield(cleanup)
-            assert cleanup_result == "cleanup_result"
+            with fail_at(None):  # No deadline
+                await anyio.sleep(1.0)  # Reduced from 10
+        except BaseException:
+            cancelled = True
             raise
 
-    with move_on_after(0.2) as _:
-        try:
-            await task_with_cleanup()
-        except get_cancelled_exc_class():
-            results.append("caught")
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(work)
+        await anyio.sleep(0.005)  # Reduced from 0.01
+        tg.cancel_scope.cancel()
 
-    # In the current implementation, the task might complete before cancellation
-    assert "cleanup_completed" in results or "task_completed" in results
+    assert cancelled is True
+
+
+@pytest.mark.anyio
+async def test_move_on_at_none_still_cancellable(anyio_backend):
+    """Test that move_on_at(None) doesn't shield from outer cancellation."""
+    cancelled = False
+
+    async def work():
+        nonlocal cancelled
+        try:
+            with move_on_at(None):  # No deadline
+                await anyio.sleep(1.0)  # Reduced from 10
+        except BaseException:
+            cancelled = True
+            raise
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(work)
+        await anyio.sleep(0.005)  # Reduced from 0.01
+        tg.cancel_scope.cancel()
+
+    assert cancelled is True

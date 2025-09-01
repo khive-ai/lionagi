@@ -11,7 +11,13 @@ from ._models import Params
 from ._to_list import to_list
 from ._types import T, Unset, not_sentinel
 from .concurrency import Lock as ConcurrencyLock
-from .concurrency import Semaphore, create_task_group, is_coro_func
+from .concurrency import (
+    Semaphore,
+    create_task_group,
+    get_cancelled_exc_class,
+    is_coro_func,
+    move_on_after,
+)
 
 __all__ = (
     "alcall",
@@ -101,7 +107,7 @@ async def alcall(
         if coro_func:
             # Async function
             if retry_timeout is not None:
-                with anyio.move_on_after(retry_timeout) as cancel_scope:
+                with move_on_after(retry_timeout) as cancel_scope:
                     result = await func(item, **kwargs)
                 if cancel_scope.cancelled_caught:
                     raise asyncio.TimeoutError(
@@ -113,7 +119,7 @@ async def alcall(
         else:
             # Sync function
             if retry_timeout is not None:
-                with anyio.move_on_after(retry_timeout) as cancel_scope:
+                with move_on_after(retry_timeout) as cancel_scope:
                     result = await anyio.to_thread.run_sync(
                         func, item, **kwargs
                     )
@@ -134,7 +140,7 @@ async def alcall(
                 return index, result
 
             # if cancelled, re-raise
-            except anyio.get_cancelled_exc_class():
+            except get_cancelled_exc_class():
                 raise
 
             # handle other exceptions
@@ -173,7 +179,7 @@ async def alcall(
     # Execute all tasks using task group
     async with create_task_group() as tg:
         for idx, item in enumerate(input_):
-            await tg.start_soon(run_and_store, item, idx)
+            tg.start_soon(run_and_store, item, idx)
             # Apply throttle delay between starting tasks
             if throttle_delay and idx < len(input_) - 1:
                 await anyio.sleep(throttle_delay)

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import Enum as _Enum
 from typing import Any, ClassVar
 
+from msgspec import Struct
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
 
@@ -13,11 +14,14 @@ from ._types import UndefinedType, UnsetType
 __all__ = ("to_list", "ToListParams")
 
 
-_SKIP_TYPE = (str, bytes, bytearray, Mapping, BaseModel, _Enum)
-_TUPLE_SET_TYPES = (tuple, set, frozenset)
-_SKIP_TUPLE_SET = (*_SKIP_TYPE, *_TUPLE_SET_TYPES)
+_BYTE_LIKE = (str, bytes, bytearray)
+_MODEL_LIKE = (BaseModel, Struct)
+_MAP_LIKE = (Mapping, *_MODEL_LIKE)
+_TUPLE_SET = (tuple, set, frozenset)
 _SINGLETONE_TYPES = (UndefinedType, UnsetType, PydanticUndefinedType)
-_BYTE_LIKE_TYPES = (str, bytes, bytearray)
+
+_SKIP_TYPE = (*_BYTE_LIKE, *_MAP_LIKE, _Enum)
+_SKIP_TUPLE_SET = (*_SKIP_TYPE, *_TUPLE_SET)
 
 
 def to_list(
@@ -104,7 +108,7 @@ def to_list(
                 else list(members)
             )
 
-        if isinstance(input_, _BYTE_LIKE_TYPES):
+        if isinstance(input_, _BYTE_LIKE):
             return list(input_) if use_values else [input_]
 
         if isinstance(input_, Mapping):
@@ -117,9 +121,7 @@ def to_list(
         if isinstance(input_, BaseModel):
             return [input_]
 
-        if isinstance(input_, Iterable) and not isinstance(
-            input_, _BYTE_LIKE_TYPES
-        ):
+        if isinstance(input_, Iterable) and not isinstance(input_, _BYTE_LIKE):
             return list(input_)
 
         return [input_]
@@ -133,24 +135,46 @@ def to_list(
     if unique:
         seen = set()
         out = []
-        try:
-            return [x for x in processed if not (x in seen or seen.add(x))]
-        except TypeError:
-            for i in processed:
-                hash_value = None
-                try:
-                    hash_value = hash(i)
-                except TypeError:
-                    if isinstance(i, (BaseModel, Mapping)):
-                        hash_value = hash_dict(i)
-                    else:
-                        raise ValueError(
-                            "Unhashable type encountered in list unique value processing."
-                        )
-                if hash_value not in seen:
-                    seen.add(hash_value)
-                    out.append(i)
-            return out
+        use_hash_fallback = False
+        for i in processed:
+            try:
+                if not use_hash_fallback:
+                    # Direct approach - try to use the item as hash key
+                    if i not in seen:
+                        seen.add(i)
+                        out.append(i)
+                else:
+                    # Hash-based approach for unhashable items
+                    hash_value = (
+                        hash(i)
+                        if hasattr(i, "__hash__") and i.__hash__ is not None
+                        else hash_dict(i)
+                    )
+                    if hash_value not in seen:
+                        seen.add(hash_value)
+                        out.append(i)
+            except TypeError:
+                # Switch to hash-based approach and restart
+                if not use_hash_fallback:
+                    use_hash_fallback = True
+                    seen = set()
+                    out = []
+                    # Restart from beginning with hash-based approach
+                    for j in processed:
+                        try:
+                            hash_value = hash(j)
+                        except TypeError:
+                            if isinstance(j, _MAP_LIKE):
+                                hash_value = hash_dict(j)
+                            else:
+                                raise ValueError(
+                                    "Unhashable type encountered in list unique value processing."
+                                )
+                        if hash_value not in seen:
+                            seen.add(hash_value)
+                            out.append(j)
+                    break
+        return out
 
     return processed
 
