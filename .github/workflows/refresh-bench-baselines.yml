@@ -64,13 +64,29 @@ jobs:
           cp benchmarks/_ci_out/ln-trio.json benchmarks/baselines/ln-trio.json
           cp benchmarks/_ci_out/fuzzy.json benchmarks/baselines/fuzzy.json
 
-      - name: Commit and push updated baselines
+      - name: Commit and create PR for updated baselines
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          
+          # Create a unique branch name with timestamp
+          BRANCH_NAME="chore/refresh-baselines-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH_NAME"
+          
+          # Add and commit changes
           git add benchmarks/baselines/*.json
           git commit -m "chore(benchmarks): refresh CI-native baselines [skip ci]"
-          git push origin main
+          
+          # Push the branch
+          git push origin "$BRANCH_NAME"
+          
+          # Create pull request using GitHub CLI
+          gh pr create \
+            --title "chore(benchmarks): refresh CI-native baselines" \
+            --body "Automated refresh of benchmark baselines from GitHub Actions workflow." \
+            --label "chore" \
+            --head "$BRANCH_NAME" \
+            --base main
 
       - name: Upload baselines artifact (fallback)
         if: ${{ failure() }}
