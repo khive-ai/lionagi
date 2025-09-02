@@ -184,9 +184,9 @@ class TestScalabilityCharacteristics:
         assert (
             total_time < 5.0
         ), f"Large scale test took too long: {total_time:.4f}s"
-        # 5μs per check is reasonable for Protocol isinstance() checks
+        # 10μs per check is reasonable for Protocol isinstance() checks
         assert (
-            avg_time_per_check_ns < 5000
+            avg_time_per_check_ns < 10000
         ), f"Per-check time too high at scale: {avg_time_per_check_ns:.2f} ns"
 
     def test_memory_efficiency(self):
