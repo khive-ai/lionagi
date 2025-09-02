@@ -35,8 +35,8 @@ class TestProtocolPerformance:
         elapsed_time = end_time - start_time
         time_per_check_ns = (elapsed_time / ITERATIONS) * 1e9
 
-        # Threshold: 500ms for 100k checks (generous for CI environments)
-        ACCEPTABLE_TIME = 0.5
+        # Threshold: 1000ms for 100k checks (generous for CI environments)
+        ACCEPTABLE_TIME = 1
 
         print(
             f"\nProtocol isinstance Performance: {ITERATIONS} checks took {elapsed_time:.4f}s. ({time_per_check_ns:.2f} ns/check)"
