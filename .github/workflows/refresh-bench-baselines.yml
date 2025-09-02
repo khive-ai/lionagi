@@ -65,6 +65,8 @@ jobs:
           cp benchmarks/_ci_out/fuzzy.json benchmarks/baselines/fuzzy.json
 
       - name: Commit and create PR for updated baselines
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
@@ -84,7 +86,7 @@ jobs:
           gh pr create \
             --title "chore(benchmarks): refresh CI-native baselines" \
             --body "Automated refresh of benchmark baselines from GitHub Actions workflow." \
-            --label "chore" \
+            --label "enhancement" \
             --head "$BRANCH_NAME" \
             --base main
 
