@@ -582,7 +582,7 @@ async def test_behavior_diamond_pattern_with_conditions():
         START
         /   \
        A     B  (conditional branches)
-        \   /
+        \\   /
         END
     """
     start = Operation(operation="chat", parameters={"instruction": "Start"})

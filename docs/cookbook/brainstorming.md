@@ -117,10 +117,10 @@ async def get_perspective(name, agent):
     results[name] = await agent.communicate(prompt)
 
 async with ln.create_task_group() as tg:
-    await tg.start_soon(get_perspective, "user_advocate", user_advocate)
-    await tg.start_soon(get_perspective, "tech_expert", tech_expert)
-    await tg.start_soon(get_perspective, "business_analyst", business_analyst)
-    await tg.start_soon(get_perspective, "creative_director", creative_director)
+    tg.start_soon(get_perspective, "user_advocate", user_advocate)
+    tg.start_soon(get_perspective, "tech_expert", tech_expert)
+    tg.start_soon(get_perspective, "business_analyst", business_analyst)
+    tg.start_soon(get_perspective, "creative_director", creative_director)
 
 # Synthesize perspectives
 synthesizer = Branch(system="Synthesize diverse perspectives into solutions")
@@ -150,7 +150,7 @@ async def quick_ideas(generator):
 
 async with ln.create_task_group() as tg:
     for generator in generators:
-        await tg.start_soon(quick_ideas, generator)
+        tg.start_soon(quick_ideas, generator)
 
 # Curate best ideas
 curator = Branch(system="Identify and combine best ideas")

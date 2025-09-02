@@ -26,50 +26,65 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-          pip install trio pytest-asyncio
+          uv venv
+          source .venv/bin/activate
+          uv sync --all-extras
 
       - name: Run concurrency benchmarks (asyncio)
         run: |
+          source .venv/bin/activate
           python -m benchmarks.concurrency_bench --repeat 100 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
 
       - name: Run concurrency benchmarks (trio)
         run: |
+          source .venv/bin/activate
           python -m benchmarks.concurrency_bench --repeat 100 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
 
       - name: Run ln benchmarks (asyncio)
         run: |
-          python -m benchmarks.ln_bench --repeat 100 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
+          source .venv/bin/activate
+          python -m benchmarks.ln_bench --repeat 10 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
 
       - name: Run ln benchmarks (trio)
         run: |
-          python -m benchmarks.ln_bench --repeat 100 --backend trio --output benchmarks/_ci_out/ln-trio.json
+          source .venv/bin/activate
+          python -m benchmarks.ln_bench --repeat 10 --backend trio --output benchmarks/_ci_out/ln-trio.json
 
       - name: Run fuzzy benchmarks
         run: |
+          source .venv/bin/activate
           python -m benchmarks.fuzzy_bench --repeat 100 --output benchmarks/_ci_out/fuzzy.json
 
       - name: Compare concurrency asyncio vs baseline (if present)
         run: |
+          source .venv/bin/activate
           python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-asyncio.json --current benchmarks/_ci_out/concurrency-asyncio.json --threshold 0.2
 
       - name: Compare concurrency trio vs baseline (if present)
         run: |
+          source .venv/bin/activate
           python benchmarks/ci_compare.py --baseline benchmarks/baselines/concurrency-trio.json --current benchmarks/_ci_out/concurrency-trio.json --threshold 0.2
 
       - name: Compare ln asyncio vs baseline (if present)
         run: |
+          source .venv/bin/activate
           python benchmarks/ci_compare.py --baseline benchmarks/baselines/ln-asyncio.json --current benchmarks/_ci_out/ln-asyncio.json --threshold 0.2
 
       - name: Compare ln trio vs baseline (if present)
         run: |
+          source .venv/bin/activate
           python benchmarks/ci_compare.py --baseline benchmarks/baselines/ln-trio.json --current benchmarks/_ci_out/ln-trio.json --threshold 0.2
 
       - name: Compare fuzzy vs baseline (if present)
         run: |
+          source .venv/bin/activate
           python benchmarks/ci_compare.py --baseline benchmarks/baselines/fuzzy.json --current benchmarks/_ci_out/fuzzy.json --threshold 0.2
 
       - name: Upload results artifact

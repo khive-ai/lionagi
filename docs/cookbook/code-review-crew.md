@@ -49,9 +49,9 @@ async def maintainability_review():
     reviews["maintainability"] = await maintainability.chat(f"Code quality review: {code}")
 
 async with ln.create_task_group() as tg:
-    await tg.start_soon(security_review)
-    await tg.start_soon(performance_review)
-    await tg.start_soon(maintainability_review)
+    tg.start_soon(security_review)
+    tg.start_soon(performance_review)
+    tg.start_soon(maintainability_review)
 
 # All tasks complete when TaskGroup context exits
 review_results = reviews
@@ -180,9 +180,9 @@ Format response as:
 ```python
 # LionAGI TaskGroup (recommended)
 async with ln.create_task_group() as tg:
-    await tg.start_soon(security_task)
-    await tg.start_soon(performance_task)
-    await tg.start_soon(quality_task)
+    tg.start_soon(security_task)
+    tg.start_soon(performance_task)
+    tg.start_soon(quality_task)
 
 # Or asyncio.gather() for simple cases
 reviews = await asyncio.gather(

@@ -97,15 +97,15 @@ class Lexer:
         self.pos = 0
         self.line = 1
         self.column = 1
-        self.tokens: List[Token] = []
+        self.tokens: list[Token] = []
 
-    def current_char(self) -> Optional[str]:
+    def current_char(self) -> str | None:
         """Get current character"""
         if self.pos >= len(self.text):
             return None
         return self.text[self.pos]
 
-    def peek_char(self, offset: int = 1) -> Optional[str]:
+    def peek_char(self, offset: int = 1) -> str | None:
         """Peek at character ahead"""
         peek_pos = self.pos + offset
         if peek_pos >= len(self.text):
@@ -196,7 +196,7 @@ class Lexer:
 
         return result.strip()
 
-    def tokenize(self) -> List[Token]:
+    def tokenize(self) -> list[Token]:
         """Tokenize LNDL source code"""
         while self.current_char():
             # Skip whitespace

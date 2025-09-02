@@ -22,7 +22,7 @@ class ParseError(Exception):
 class Parser:
     """Parser for LNDL cognitive programming language"""
 
-    def __init__(self, tokens: List[Token]):
+    def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.pos = 0
 
@@ -77,7 +77,7 @@ class Parser:
 
         return Program(statements)
 
-    def parse_statement(self) -> Optional[Stmt]:
+    def parse_statement(self) -> Stmt | None:
         """Parse a statement"""
         self.skip_newlines()
 
@@ -347,7 +347,7 @@ class Parser:
             self.current_token(),
         )
 
-    def parse_argument_list(self) -> List[Expr]:
+    def parse_argument_list(self) -> list[Expr]:
         """Parse comma-separated argument list"""
         args = []
 

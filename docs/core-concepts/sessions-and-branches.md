@@ -77,8 +77,8 @@ async def critique_task():
     results["critique"] = await critic.communicate("Critique quantum computing risks")
 
 async with ln.create_task_group() as tg:
-    await tg.start_soon(research_task)
-    await tg.start_soon(critique_task)
+    tg.start_soon(research_task)
+    tg.start_soon(critique_task)
 
 print(results)  # Both tasks complete when TaskGroup exits
 ```
@@ -175,7 +175,7 @@ async def expert_panel():
     
     async with ln.create_task_group() as tg:
         for expert in experts:
-            await tg.start_soon(get_opinion, expert)
+            tg.start_soon(get_opinion, expert)
     
     # Synthesis
     moderator = session.new_branch(name="moderator", system="Consensus builder")
