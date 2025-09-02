@@ -54,7 +54,7 @@ jobs:
       - name: Run fuzzy benchmarks
         run: |
           source .venv/bin/activate
-          python -m benchmarks.fuzzy_bench --repeat 100 --output benchmarks/_ci_out/fuzzy.json
+          python -m benchmarks.fuzzy_bench --repeat 10 --output benchmarks/_ci_out/fuzzy.json
 
       - name: Copy outputs to baselines
         run: |
