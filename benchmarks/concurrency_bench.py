@@ -7,10 +7,11 @@ import platform
 import statistics
 import sys
 import time
+from collections.abc import Callable, Coroutine
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Dict, List, Tuple
+from typing import Any
 
 import anyio
 
@@ -33,7 +34,7 @@ class Stat:
     max: float
 
 
-def _aggregate(name: str, values: List[float]) -> Stat:
+def _aggregate(name: str, values: list[float]) -> Stat:
     return Stat(
         name=name,
         runs=len(values),
@@ -159,7 +160,7 @@ def scenario_taskgroup_start_1000_noop() -> (
     return _run
 
 
-SCENARIOS: List[Tuple[str, Callable[[], Coroutine[Any, Any, Any]]]] = [
+SCENARIOS: list[tuple[str, Callable[[], Coroutine[Any, Any, Any]]]] = [
     ("gather_100_yield", scenario_gather_100_yield()),
     ("bounded_map_2000_limit_100", scenario_bounded_map_2000_limit_100()),
     (
@@ -172,15 +173,15 @@ SCENARIOS: List[Tuple[str, Callable[[], Coroutine[Any, Any, Any]]]] = [
 ]
 
 
-async def run_benchmarks_async(repeat: int) -> Dict[str, Any]:
-    results: Dict[str, Any] = {}
+async def run_benchmarks_async(repeat: int) -> dict[str, Any]:
+    results: dict[str, Any] = {}
     for name, fn in SCENARIOS:
         stat = await _bench_repeat(name, repeat, fn)
         results[name] = asdict(stat)
     return results
 
 
-def system_info() -> Dict[str, Any]:
+def system_info() -> dict[str, Any]:
     import anyio as _anyio
 
     return {
@@ -191,12 +192,12 @@ def system_info() -> Dict[str, Any]:
     }
 
 
-def save_results(data: Dict[str, Any], path: Path) -> None:
+def save_results(data: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def compare_results(current: Dict[str, Any], baseline: Dict[str, Any]) -> str:
+def compare_results(current: dict[str, Any], baseline: dict[str, Any]) -> str:
     lines = []
     lines.append("Comparison vs baseline (negative = faster):")
     for name, cur in current.get("results", {}).items():
@@ -241,7 +242,7 @@ def main() -> None:
         run_benchmarks_async, args.repeat, backend=args.backend
     )
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "meta": {
             "backend": args.backend,
             **system_info(),
