@@ -28,23 +28,23 @@ jobs:
 
       - name: Run concurrency benchmarks (asyncio)
         run: |
-          python -m benchmarks.concurrency_bench --repeat 5 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
+          python -m benchmarks.concurrency_bench --repeat 1000 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
 
       - name: Run concurrency benchmarks (trio)
         run: |
-          python -m benchmarks.concurrency_bench --repeat 5 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
+          python -m benchmarks.concurrency_bench --repeat 1000 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
 
       - name: Run ln benchmarks (asyncio)
         run: |
-          python -m benchmarks.ln_bench --repeat 5 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
+          python -m benchmarks.ln_bench --repeat 1000 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
 
       - name: Run ln benchmarks (trio)
         run: |
-          python -m benchmarks.ln_bench --repeat 5 --backend trio --output benchmarks/_ci_out/ln-trio.json
+          python -m benchmarks.ln_bench --repeat 1000 --backend trio --output benchmarks/_ci_out/ln-trio.json
 
       - name: Run fuzzy benchmarks
         run: |
-          python -m benchmarks.fuzzy_bench --repeat 5 --output benchmarks/_ci_out/fuzzy.json
+          python -m benchmarks.fuzzy_bench --repeat 1000 --output benchmarks/_ci_out/fuzzy.json
 
       - name: Copy outputs to baselines
         run: |
@@ -54,20 +54,13 @@ jobs:
           cp benchmarks/_ci_out/ln-trio.json benchmarks/baselines/ln-trio.json
           cp benchmarks/_ci_out/fuzzy.json benchmarks/baselines/fuzzy.json
 
-      - name: Create PR with updated baselines
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: chore/refresh-bench-baselines
-          title: "chore(benchmarks): refresh CI-native baselines"
-          commit-message: "chore(benchmarks): refresh CI-native baselines"
-          body: |
-            This PR updates benchmark baselines with CI-native measurements.
-            - Python: 3.12
-            - Repeats: 5
-            After merge, the benchmarks workflow gates at 20% thresholds.
-          add-paths: |
-            benchmarks/baselines/*.json
+      - name: Commit and push updated baselines
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add benchmarks/baselines/*.json
+          git commit -m "chore(benchmarks): refresh CI-native baselines [skip ci]"
+          git push origin main
 
       - name: Upload baselines artifact (fallback)
         if: ${{ failure() }}

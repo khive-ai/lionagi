@@ -34,23 +34,23 @@ jobs:
 
       - name: Run concurrency benchmarks (asyncio)
         run: |
-          python -m benchmarks.concurrency_bench --repeat 5 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
+          python -m benchmarks.concurrency_bench --repeat 1000 --backend asyncio --output benchmarks/_ci_out/concurrency-asyncio.json
 
       - name: Run concurrency benchmarks (trio)
         run: |
-          python -m benchmarks.concurrency_bench --repeat 5 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
+          python -m benchmarks.concurrency_bench --repeat 1000 --backend trio --output benchmarks/_ci_out/concurrency-trio.json
 
       - name: Run ln benchmarks (asyncio)
         run: |
-          python -m benchmarks.ln_bench --repeat 5 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
+          python -m benchmarks.ln_bench --repeat 1000 --backend asyncio --output benchmarks/_ci_out/ln-asyncio.json
 
       - name: Run ln benchmarks (trio)
         run: |
-          python -m benchmarks.ln_bench --repeat 5 --backend trio --output benchmarks/_ci_out/ln-trio.json
+          python -m benchmarks.ln_bench --repeat 1000 --backend trio --output benchmarks/_ci_out/ln-trio.json
 
       - name: Run fuzzy benchmarks
         run: |
-          python -m benchmarks.fuzzy_bench --repeat 5 --output benchmarks/_ci_out/fuzzy.json
+          python -m benchmarks.fuzzy_bench --repeat 1000 --output benchmarks/_ci_out/fuzzy.json
 
       - name: Compare concurrency asyncio vs baseline (if present)
         run: |
