@@ -8,7 +8,7 @@ import statistics
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Tuple
 
@@ -220,7 +220,7 @@ def system_info() -> Dict[str, Any]:
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "anyio": getattr(_anyio, "__version__", "unknown"),
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -277,7 +277,7 @@ def main() -> None:
     if args.output:
         out_path = Path(args.output)
     else:
-        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         out_dir = Path(__file__).parent / "results"
         out_path = out_dir / f"fuzzy-{ts}.json"
     save_results(payload, out_path)
