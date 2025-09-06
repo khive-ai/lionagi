@@ -18,8 +18,7 @@ class PlannedAction(HashableModel):
     action_type: str | None = Field(
         default=None,
         description=(
-            "The name or type of tool/action to invoke. "
-            "(e.g., 'search_exa', 'reader_tool')"
+            "The name or type of tool/action to invoke. (e.g., 'search_exa', 'reader_tool')"
         ),
     )
     description: str | None = Field(

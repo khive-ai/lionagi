@@ -63,7 +63,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         self, obj_key: str, many=False, **kwargs: Any
     ) -> Any:
         kwargs["adapt_meth"] = "to_dict"
-        kwargs["mode"] = "db"
+        kwargs["adapt_kw"] = {"mode": "db"}
         return await super().adapt_to_async(
             obj_key=obj_key, many=many, **kwargs
         )
@@ -77,7 +77,6 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         **kwargs: Any,
     ) -> Node:
         kwargs["adapt_meth"] = "from_dict"
-        kwargs["mode"] = "db"
         return await super().adapt_from_async(
             obj, obj_key=obj_key, many=many, **kwargs
         )
@@ -87,7 +86,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         Convert this Node to another format using a registered adapter.
         """
         kwargs["adapt_meth"] = "to_dict"
-        kwargs["mode"] = "db"
+        kwargs["adapt_kw"] = {"mode": "db"}
         return super().adapt_to(obj_key=obj_key, many=many, **kwargs)
 
     @classmethod
@@ -104,7 +103,6 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         auto-delegate to the correct subclass via from_dict.
         """
         kwargs["adapt_meth"] = "from_dict"
-        kwargs["mode"] = "db"
         return super().adapt_from(obj, obj_key=obj_key, many=many, **kwargs)
 
     @field_serializer("content")

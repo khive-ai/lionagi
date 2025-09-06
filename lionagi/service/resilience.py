@@ -216,8 +216,7 @@ class CircuitBreaker:
                     self._metrics["rejected_count"] += 1
 
                     logger.warning(
-                        f"Circuit '{self.name}' is HALF_OPEN and at capacity. "
-                        f"Try again later."
+                        f"Circuit '{self.name}' is HALF_OPEN and at capacity. Try again later."
                     )
 
                     return False

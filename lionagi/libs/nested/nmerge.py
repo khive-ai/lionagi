@@ -51,8 +51,7 @@ def nmerge(
         return _merge_sequences(nested_structure, sort_list, custom_sort)
     else:
         raise TypeError(
-            "All items in the input list must be of the same type, "
-            "either dict, list, or Iterable."
+            "All items in the input list must be of the same type, either dict, list, or Iterable."
         )
 
 

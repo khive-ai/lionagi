@@ -89,7 +89,7 @@ class LionAGIAsyncPostgresAdapter(AsyncPostgresAdapter[T]):
                         sa.Column("id", sa.String, primary_key=True),
                         sa.Column("content", json_type),
                         sa.Column("node_metadata", json_type),
-                        sa.Column("created_at", sa.DateTime),
+                        sa.Column("created_at", sa.Float),
                         sa.Column("embedding", json_type, nullable=True),
                     ).create(sync_conn, checkfirst=True)
                 )

@@ -56,8 +56,7 @@ class ClaudeCodeEndpoint(Endpoint):
                 "Please install it with `uv pip install lionagi[claude_code_sdk]`."
             )
         warnings.warn(
-            "The claude_code `query` endpoint is deprecated. "
-            "Use `query_cli` endpoint instead.",
+            "The claude_code `query` endpoint is deprecated. Use `query_cli` endpoint instead.",
             DeprecationWarning,
         )
 
