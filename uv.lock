@@ -2065,19 +2065,19 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
     { name = "aiohttp" },
     { name = "anyio" },
     { name = "backoff" },
-    { name = "exceptiongroup" },
     { name = "jinja2" },
     { name = "json-repair" },
     { name = "msgspec" },
     { name = "pillow" },
     { name = "psutil" },
+    { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pydapter", extra = ["pandas"] },
     { name = "python-dotenv" },
@@ -2176,7 +2176,6 @@ requires-dist = [
     { name = "claude-code-sdk", marker = "extra == 'claude-code'", specifier = ">=0.0.15" },
     { name = "datamodel-code-generator", marker = "extra == 'schema'", specifier = ">=0.31.2" },
     { name = "docling", marker = "extra == 'reader'", specifier = ">=2.15.0" },
-    { name = "exceptiongroup", specifier = ">=1.3.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.10.5" },
     { name = "jinja2", specifier = ">=3.0.0" },
     { name = "json-repair", specifier = ">=0.40.0" },
@@ -2197,8 +2196,9 @@ requires-dist = [
     { name = "opencv-python", marker = "extra == 'unstructured'", specifier = ">=4.2.0.34" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "psutil", specifier = ">=6.0.0" },
+    { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.0.5" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.1.0" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
@@ -3921,16 +3921,15 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "1.0.5"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
-    { name = "pydantic" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/19/82/604e121532ea08631dc697131cb682c7c0c436bfa1dc8362ac07c688c6c1/pydapter-1.0.5.tar.gz", hash = "sha256:1a97aee90de74a2a7a17be74224ffdfda7290ec7819d01a540aa3607e681562d", size = 409260, upload-time = "2025-08-30T16:44:03.256Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/01/8d82c7f8bf6b6a872a943288587834e8b26569a10317e366e70ed00d7b3b/pydapter-1.1.0.tar.gz", hash = "sha256:04ec3f47f8f6cbab0675903f33406d24af6d6a17af48d739b51e78bf5dd13046", size = 410293, upload-time = "2025-09-06T01:54:50.626Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/ec/f76d246bcccaeaef147766e097517aa6555ae6eafaca86d9fe1a014ea5ba/pydapter-1.0.5-py3-none-any.whl", hash = "sha256:ccd7eafd403e413fc9c32b709ee4017b46c5ef8f39c9c39b51221f6fa35963db", size = 95756, upload-time = "2025-08-30T16:44:01.82Z" },
+    { url = "https://files.pythonhosted.org/packages/97/f0/8de7da8f235d656b349a5e2e018af4b8e16e421e10bba46b3dbbe18a9852/pydapter-1.1.0-py3-none-any.whl", hash = "sha256:b6e41a99b887d1a523a6396c283a29e876722e706cf4a429d10f516925cc48c2", size = 96457, upload-time = "2025-09-06T01:54:49.183Z" },
 ]
 
 [package.optional-dependencies]
