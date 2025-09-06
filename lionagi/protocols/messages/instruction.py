@@ -587,8 +587,7 @@ class Instruction(RoledMessage):
 
         if request_model and request_fields:
             raise ValueError(
-                "You cannot pass both request_model and request_fields "
-                "to create_instruction"
+                "You cannot pass both request_model and request_fields to create_instruction"
             )
         if guidance:
             self.guidance = guidance

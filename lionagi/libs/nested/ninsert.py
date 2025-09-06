@@ -50,8 +50,7 @@ def ninsert(
         if isinstance(part, int):
             if isinstance(nested_structure, dict):
                 raise TypeError(
-                    f"Unsupported key type: {type(part).__name__}."
-                    "Only string keys are acceptable.",
+                    f"Unsupported key type: {type(part).__name__}.Only string keys are acceptable.",
                 )
             while len(nested_structure) <= part:
                 nested_structure.append(None)
@@ -67,8 +66,7 @@ def ninsert(
                 raise TypeError("Cannot use NoneType as a key in a dictionary")
             if isinstance(part, (float, complex)):
                 raise TypeError(
-                    f"Unsupported key type: {type(part).__name__}."
-                    "Only string keys are acceptable.",
+                    f"Unsupported key type: {type(part).__name__}.Only string keys are acceptable.",
                 )
             if part not in nested_structure:
                 next_part = indices[i + 1]
@@ -77,8 +75,7 @@ def ninsert(
                 )
         else:
             raise TypeError(
-                f"Invalid container type: {type(nested_structure)} "
-                "encountered during insertion"
+                f"Invalid container type: {type(nested_structure)} encountered during insertion"
             )
 
         nested_structure = nested_structure[part]

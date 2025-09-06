@@ -87,8 +87,7 @@ class Graph(Element, Relational, Generic[T]):
             or edge.tail not in self.internal_nodes
         ):
             raise RelationError(
-                "Failed to add edge: Either edge head or tail node does"
-                " not exist in the graph."
+                "Failed to add edge: Either edge head or tail node does not exist in the graph."
             )
         try:
             self.internal_edges.insert(len(self.internal_edges), edge)

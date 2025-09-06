@@ -130,10 +130,7 @@ class FunctionCalling(Event):
         Returns:
             A string containing the class name and key attributes.
         """
-        return (
-            f"FunctionCalling(function={self.func_tool.function}, "
-            f"arguments={self.arguments})"
-        )
+        return f"FunctionCalling(function={self.func_tool.function}, arguments={self.arguments})"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert instance to dictionary.

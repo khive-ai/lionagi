@@ -241,10 +241,7 @@ class RoledMessage(Node, Sendable):
             if len(str(self.content)) > 75
             else str(self.content)
         )
-        return (
-            f"Message(role={self.role}, sender={self.sender}, "
-            f"content='{content_preview}')"
-        )
+        return f"Message(role={self.role}, sender={self.sender}, content='{content_preview}')"
 
 
 # File: lionagi/protocols/messages/message.py

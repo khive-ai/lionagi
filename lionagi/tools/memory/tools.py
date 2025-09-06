@@ -63,8 +63,7 @@ class MemoryRequest(BaseModel):
     content: str | None = Field(
         None,
         description=(
-            "Content to store. REQUIRED if action='store'. "
-            "For other actions, leave it None."
+            "Content to store. REQUIRED if action='store'. For other actions, leave it None."
         ),
     )
 
@@ -96,8 +95,7 @@ class MemoryRequest(BaseModel):
     query: str | None = Field(
         None,
         description=(
-            "Query text for semantic search. "
-            "REQUIRED for actions: 'recall', 'search', 'explore'."
+            "Query text for semantic search. REQUIRED for actions: 'recall', 'search', 'explore'."
         ),
     )
 

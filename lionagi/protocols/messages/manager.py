@@ -216,8 +216,7 @@ class MessageManager(Manager):
         """
         if not isinstance(action_request, ActionRequest):
             raise ValueError(
-                "Error: please provide a corresponding action request for an "
-                "action response."
+                "Error: please provide a corresponding action request for an action response."
             )
         params = {
             "action_request": action_request,
