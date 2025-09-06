@@ -313,7 +313,6 @@ class Element(BaseModel, Observable):
         if mode == "db":
             dict_ = orjson.loads(self.to_json(decode=False))
             dict_["node_metadata"] = dict_.pop("metadata", {})
-            dict_["created_at"] = self.created_datetime.isoformat(sep=" ")
             return dict_
 
     def as_jsonable(self) -> dict:
@@ -321,19 +320,13 @@ class Element(BaseModel, Observable):
         return self.to_dict(mode="json")
 
     @classmethod
-    def from_dict(cls, data: dict, /, mode: str = "python") -> Element:
+    def from_dict(cls, data: dict) -> Element:
         """Deserializes a dictionary into an Element or subclass of Element.
 
         If `lion_class` in `metadata` refers to a subclass, this method
         is polymorphic, it will attempt to create an instance of that subclass.
-
-        Args:
-            data (dict): A dictionary of field data.
-            mode (str): Format mode - "python" for normal dicts, "db" for database format.
         """
         # Preprocess database format if needed
-        if mode == "db":
-            data = cls._preprocess_db_data(data.copy())
         metadata = {}
 
         if "node_metadata" in data:
@@ -366,56 +359,6 @@ class Element(BaseModel, Observable):
                         return subcls_type.from_dict(data)
         data["metadata"] = metadata
         return cls.model_validate(data)
-
-    @classmethod
-    def _preprocess_db_data(cls, data: dict) -> dict:
-        """Preprocess raw database data for Element compatibility."""
-        import datetime as dt
-        import json
-
-        # Handle created_at field - convert datetime string to timestamp
-        if "created_at" in data and isinstance(data["created_at"], str):
-            try:
-                # Parse datetime string and convert to timestamp
-                dt_obj = dt.datetime.fromisoformat(
-                    data["created_at"].replace(" ", "T")
-                )
-                # Treat as UTC if naive
-                if dt_obj.tzinfo is None:
-                    dt_obj = dt_obj.replace(tzinfo=dt.timezone.utc)
-                data["created_at"] = dt_obj.timestamp()
-            except (ValueError, TypeError):
-                # Keep as string if parsing fails
-                pass
-
-        # Handle JSON string fields - parse to dict/list
-        json_fields = ["content", "node_metadata", "embedding"]
-        for field in json_fields:
-            if field in data and isinstance(data[field], str):
-                if data[field] in ("null", ""):
-                    data[field] = None if field == "embedding" else {}
-                else:
-                    try:
-                        data[field] = json.loads(data[field])
-                    except (json.JSONDecodeError, TypeError):
-                        # Keep as empty dict for metadata fields, None for embedding
-                        data[field] = {} if field != "embedding" else None
-
-        # Handle node_metadata -> metadata mapping
-        if "node_metadata" in data:
-            if (
-                data["node_metadata"] == "null"
-                or data["node_metadata"] is None
-            ):
-                data["metadata"] = {}
-            else:
-                data["metadata"] = (
-                    data["node_metadata"] if data["node_metadata"] else {}
-                )
-            # Remove node_metadata to avoid Pydantic validation error
-            data.pop("node_metadata", None)
-
-        return data
 
     def to_json(self, decode: bool = True) -> str:
         """Converts this Element to a JSON string."""
