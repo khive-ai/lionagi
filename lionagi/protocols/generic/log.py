@@ -176,9 +176,9 @@ class DataLogger:
         suffix = fp.suffix.lower()
         try:
             if suffix == ".csv":
-                self.logs.to_csv_file(fp)
+                self.logs.dump(fp, "csv")
             elif suffix == ".json":
-                self.logs.to_json_file(fp)
+                self.logs.dump(fp, "json")
             else:
                 raise ValueError(f"Unsupported file extension: {suffix}")
 

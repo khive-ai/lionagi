@@ -315,10 +315,6 @@ class Element(BaseModel, Observable):
             dict_["node_metadata"] = dict_.pop("metadata", {})
             return dict_
 
-    def as_jsonable(self) -> dict:
-        """Converts this Element to a JSON-serializable dictionary."""
-        return self.to_dict(mode="json")
-
     @classmethod
     def from_dict(cls, data: dict) -> Element:
         """Deserializes a dictionary into an Element or subclass of Element.
@@ -363,19 +359,14 @@ class Element(BaseModel, Observable):
     def to_json(self, decode: bool = True) -> str:
         """Converts this Element to a JSON string."""
         dict_ = self._to_dict()
-        if decode:
-            return orjson.dumps(
-                dict_,
-                default=DEFAULT_ELEMENT_SERIALIZER,
-                option=ln.DEFAULT_SERIALIZER_OPTION,
-            ).decode()
-        return orjson.dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER)
+        return ln.json_dumps(
+            dict_, default=DEFAULT_ELEMENT_SERIALIZER, decode=decode
+        )
 
     @classmethod
-    def from_json(cls, json_str: str, mode: str = "python") -> Element:
+    def from_json(cls, json_str: str) -> Element:
         """Deserializes a JSON string into an Element or subclass of Element."""
-        data = orjson.loads(json_str)
-        return cls.from_dict(data, mode=mode)
+        return cls.from_dict(orjson.loads(json_str))
 
 
 DEFAULT_ELEMENT_SERIALIZER = ln.get_orjson_default(
