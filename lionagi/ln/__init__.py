@@ -4,7 +4,10 @@ from ._json_dump import (
     DEFAULT_SERIALIZER,
     DEFAULT_SERIALIZER_OPTION,
     get_orjson_default,
+    json_dumpb,
     json_dumps,
+    json_lines_iter,
+    make_options,
 )
 from ._list_call import lcall
 from ._to_list import to_list
@@ -47,6 +50,9 @@ __all__ = (
     "DEFAULT_SERIALIZER_OPTION",
     "get_orjson_default",
     "json_dumps",
+    "make_options",
+    "json_dumpb",
+    "json_lines_iter",
     "lcall",
     "to_list",
     "acreate_path",

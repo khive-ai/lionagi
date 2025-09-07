@@ -89,7 +89,14 @@ def save_chunks(
             random_hash_digits=random_hash_digits,
         )
         save_to_file(
-            ln.json_dumps(chunk),
+            ln.json_dumps(
+                chunk,
+                pretty=True,
+                sort_keys=True,
+                append_newline=True,
+                deterministic_sets=True,
+                decimal_as_float=True,
+            ),
             directory=file_path.parent,
             filename=file_path.name,
             verbose=verbose,

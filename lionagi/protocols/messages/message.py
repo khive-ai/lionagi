@@ -116,7 +116,14 @@ class RoledMessage(Node, Sendable):
             if isinstance(self.template, Template):
                 return self.template.render(**self.content)
         except Exception:
-            return ln.json_dumps(self.content)
+            return ln.json_dumps(
+                self.content,
+                pretty=True,
+                sort_keys=True,
+                append_newline=True,
+                deterministic_sets=True,
+                decimal_as_float=True,
+            )
 
     @classmethod
     def create(cls, **kwargs):

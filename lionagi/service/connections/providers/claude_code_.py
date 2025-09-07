@@ -266,7 +266,12 @@ def _verbose_output(res) -> str:
                 inp_ = None
 
                 if isinstance(block.input, dict | list):
-                    inp_ = ln.json_dumps(block.input)
+                    inp_ = ln.json_dumps(
+                        block.input,
+                        pretty=True,
+                        sort_keys=True,
+                        append_newline=True,
+                    )
                 else:
                     inp_ = str(block.input)
 
