@@ -170,7 +170,7 @@ def scenario_json_dumps_medium_1000() -> (
             "flags": {"a": True, "b": False, "n": None},
         }
         for _ in range(1000):
-            json_dumps(obj, False)
+            json_dumps(obj, decode=False)
 
     return _run
 
