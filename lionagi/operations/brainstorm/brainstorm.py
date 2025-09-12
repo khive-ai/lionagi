@@ -309,8 +309,8 @@ async def brainstormStream(
                             )
                             print(f"\n-----Exploring Idea-----\n{snippet}")
                         new_branch = session.split(branch)
-                        resp = await new_branch.instruct(
-                            ins_, **(explore_kwargs or {})
+                        resp = await new_branch.operate(
+                            **ins_.to_dict(), **(explore_kwargs or {})
                         )
                         return InstructResponse(instruct=ins_, response=resp)
 
@@ -357,8 +357,8 @@ async def brainstormStream(
                                 else i.guidance
                             )
                             print(f"\n-----Exploring Idea-----\n{snippet}")
-                        seq_res = await branch.instruct(
-                            i, **(explore_kwargs or {})
+                        seq_res = await branch.operate(
+                            **i.to_dict(), **(explore_kwargs or {})
                         )
                         ins_res = InstructResponse(
                             instruct=i, response=seq_res
@@ -389,8 +389,8 @@ async def brainstormStream(
 
                         async def _explore(ins_: Instruct):
                             child_branch = session.split(base_branch)
-                            child_resp = await child_branch.instruct(
-                                ins_, **(explore_kwargs or {})
+                            child_resp = await child_branch.operate(
+                                **ins_.to_dict(), **(explore_kwargs or {})
                             )
                             return InstructResponse(
                                 instruct=ins_, response=child_resp
@@ -453,8 +453,8 @@ async def brainstormStream(
                                     f"\n-----Exploring Idea (sequential in chunk)-----\n{snippet}"
                                 )
 
-                            seq_resp = await local_branch.instruct(
-                                ins_, **(explore_kwargs or {})
+                            seq_resp = await local_branch.operate(
+                                **ins_.to_dict(), **(explore_kwargs or {})
                             )
                             chunk_results.append(
                                 InstructResponse(
@@ -468,8 +468,8 @@ async def brainstormStream(
                     all_responses = await alcall(
                         all_chunks,
                         explore_chunk_sequentially,
-                        flatten=True,
-                        dropna=True,
+                        output_flatten=True,
+                        output_dropna=True,
                     )
                     out.explore = all_responses
 

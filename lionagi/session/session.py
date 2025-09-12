@@ -174,7 +174,7 @@ class Session(Node, Communicatable, Relational):
         """Create and include a new branch in the session."""
         params = {
             k: v
-            for k, v in locals()
+            for k, v in locals().items()
             if k not in ("self", "as_default_branch", "kwargs")
             and v is not None
         }

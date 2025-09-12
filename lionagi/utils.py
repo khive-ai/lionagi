@@ -35,7 +35,6 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefinedType
 from typing_extensions import deprecated
 
-from .libs.validate.xml_parser import xml_to_dict
 from .ln import (
     extract_json,
     fuzzy_json,
@@ -746,6 +745,8 @@ def _str_to_dict(
     """
     if not parser:
         if str_type == "xml" and not parser:
+            from .libs.validate.xml_parser import xml_to_dict
+
             parser = partial(
                 xml_to_dict, remove_root=remove_root, root_tag=root_tag
             )
