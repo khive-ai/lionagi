@@ -50,7 +50,7 @@ from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
 from lionagi.utils import UNDEFINED
 from lionagi.utils import alcall as alcall_legacy
-from lionagi.utils import copy, is_coro_func
+from lionagi.utils import copy
 
 from .prompts import LION_SYSTEM_MESSAGE
 
@@ -1307,68 +1307,6 @@ class Branch(Element, Communicatable, Relational):
             )
         return results
 
-    async def translate(
-        self,
-        text: str,
-        technique: Literal["SynthLang"] = "SynthLang",
-        technique_kwargs: dict = None,
-        compress: bool = False,
-        chat_model: iModel = None,
-        compress_model: iModel = None,
-        compression_ratio: float = 0.2,
-        compress_kwargs=None,
-        verbose: bool = True,
-        new_branch: bool = True,
-        **kwargs,
-    ) -> str:
-        """
-        An example "translate" operation that transforms text using a chosen technique
-        (e.g., "SynthLang"). Optionally compresses text with a custom `compress_model`.
-
-        Args:
-            text (str):
-                The text to be translated or transformed.
-            technique (Literal["SynthLang"]):
-                The translation/transform technique (currently only "SynthLang").
-            technique_kwargs (dict, optional):
-                Additional parameters for the chosen technique.
-            compress (bool):
-                Whether to compress the resulting text further.
-            chat_model (iModel, optional):
-                A custom model for the translation step (defaults to self.chat_model).
-            compress_model (iModel, optional):
-                A separate model for compression (if `compress=True`).
-            compression_ratio (float):
-                Desired compression ratio if compressing text (0.0 - 1.0).
-            compress_kwargs (dict, optional):
-                Additional arguments for the compression step.
-            verbose (bool):
-                If True, prints debug/logging info.
-            new_branch (bool):
-                If True, performs the translation in a new branch context.
-            **kwargs:
-                Additional parameters passed through to the technique function.
-
-        Returns:
-            str: The transformed (and optionally compressed) text.
-        """
-        from lionagi.operations.translate.translate import translate
-
-        return await translate(
-            branch=self,
-            text=text,
-            technique=technique,
-            technique_kwargs=technique_kwargs,
-            compress=compress,
-            chat_model=chat_model,
-            compress_model=compress_model,
-            compression_ratio=compression_ratio,
-            compress_kwargs=compress_kwargs,
-            verbose=verbose,
-            new_branch=new_branch,
-            **kwargs,
-        )
-
     async def select(
         self,
         instruct: Instruct | dict[str, Any],
@@ -1409,44 +1347,6 @@ class Branch(Element, Communicatable, Relational):
             branch_kwargs=branch_kwargs,
             verbose=verbose,
             **kwargs,
-        )
-
-    async def compress(
-        self,
-        text: str,
-        system: str = None,
-        compression_ratio: float = 0.2,
-        n_samples: int = 5,
-        max_tokens_per_sample=80,
-        verbose=True,
-    ) -> str:
-        """
-        Uses the `chat_model`'s built-in compression routine to shorten text.
-
-        Args:
-            text (str):
-                The text to compress.
-            system (str, optional):
-                System-level instructions, appended to the prompt.
-            compression_ratio (float):
-                Desired compression ratio (0.0-1.0).
-            n_samples (int):
-                How many compression attempts to combine or evaluate.
-            max_tokens_per_sample (int):
-                Max token count per sample chunk.
-            verbose (bool):
-                If True, logs or prints progress.
-
-        Returns:
-            str: The compressed text.
-        """
-        return await self.chat_model.compress_text(
-            text=text,
-            system=system,
-            compression_ratio=compression_ratio,
-            n_samples=n_samples,
-            max_tokens_per_sample=max_tokens_per_sample,
-            verbose=verbose,
         )
 
     async def interpret(
