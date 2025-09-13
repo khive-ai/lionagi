@@ -79,7 +79,7 @@ class Session(Node, Communicatable, Relational):
 
     def include_branches(self, branches: ID[Branch].ItemSeq):
         def _take_in_branch(branch: Branch):
-            if not branch in self.branches:
+            if branch not in self.branches:
                 self.branches.include(branch)
                 self.mail_manager.add_sources(branch)
 
@@ -171,19 +171,14 @@ class Session(Node, Communicatable, Relational):
         as_default_branch: bool = False,
         **kwargs,
     ) -> Branch:
-        kwargs["system"] = system
-        kwargs["system_sender"] = system_sender
-        kwargs["system_datetime"] = system_datetime
-        kwargs["user"] = user
-        kwargs["name"] = name
-        kwargs["imodel"] = imodel
-        kwargs["messages"] = messages
-        kwargs["progress"] = progress
-        kwargs["tool_manager"] = tool_manager
-        kwargs["tools"] = tools
-        kwargs = {k: v for k, v in kwargs.items() if v is not None}
-
-        branch = Branch(**kwargs)  # type: ignore
+        """Create and include a new branch in the session."""
+        params = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "as_default_branch", "kwargs")
+            and v is not None
+        }
+        branch = Branch(**params, **kwargs)  # type: ignore
         self.include_branches(branch)
         if as_default_branch:
             self.default_branch = branch

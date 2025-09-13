@@ -9,10 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from typing_extensions import override
 
 from lionagi.libs.nested.flatten import flatten
-from lionagi.libs.nested.nget import nget
-from lionagi.libs.nested.ninsert import ninsert
-from lionagi.libs.nested.npop import npop
-from lionagi.libs.nested.nset import nset
 from lionagi.utils import UNDEFINED, copy, to_list
 
 IndiceType: TypeAlias = str | list[str | int]
@@ -120,6 +116,8 @@ class Note(BaseModel):
         Raises:
             KeyError: If the path is not found and no default value is provided.
         """
+        from lionagi.libs.nested.npop import npop
+
         indices = to_list(indices, flatten=True, dropna=True)
         return npop(self.content, indices, default)
 
@@ -130,6 +128,8 @@ class Note(BaseModel):
             indices: Path where to insert
             value: Value to insert
         """
+        from lionagi.libs.nested.ninsert import ninsert
+
         indices = to_list(indices, flatten=True, dropna=True)
         ninsert(self.content, indices, value)
 
@@ -144,6 +144,8 @@ class Note(BaseModel):
         if self.get(indices, None) is None:
             self.insert(indices, value)
         else:
+            from lionagi.libs.nested.nset import nset
+
             nset(self.content, indices, value)
 
     def get(
@@ -170,6 +172,8 @@ class Note(BaseModel):
         Raises:
             KeyError: If the path is not found and no default value is provided.
         """
+        from lionagi.libs.nested.nget import nget
+
         indices = to_list(indices, flatten=True, dropna=True)
         return nget(self.content, indices, default)
 

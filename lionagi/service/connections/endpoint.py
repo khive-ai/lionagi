@@ -150,6 +150,13 @@ class Endpoint:
                 "branch",
                 "aggregation_sources",
                 "aggregation_count",
+                "action_strategy",
+                "parse_model",
+                "reason",
+                "actions",
+                "return_operative",
+                "operative_model",
+                "request_model",
             }
             payload = {
                 k: v for k, v in payload.items() if k not in non_api_params
