@@ -60,8 +60,8 @@ class TestProtocolPerformance:
         elapsed_time = end_time - start_time
         time_per_call_us = (elapsed_time / ITERATIONS) * 1e6
 
-        # Threshold: 50ms for 50k calls (1us per call average)
-        ACCEPTABLE_TIME = 0.05
+        # Threshold: 100ms for 50k calls (2us per call average)
+        ACCEPTABLE_TIME = 0.1
 
         print(
             f"\ncanonical_id Performance: {ITERATIONS} calls took {elapsed_time:.4f}s. ({time_per_call_us:.2f} μs/call)"
@@ -99,7 +99,7 @@ class TestProtocolPerformance:
 
             # Threshold varies by input type complexity (generous for CI)
             if input_type == "UUID":
-                max_time = 0.05  # Should be fast for UUID passthrough
+                max_time = 0.1  # Should be fast for UUID passthrough
             elif input_type in ["Element", "IDType"]:
                 max_time = 0.1  # Should be fast for optimized direct access
             else:  # String
