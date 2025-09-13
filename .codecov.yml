@@ -1,0 +1,24 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 2%
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+
+comment:
+  layout: "reach,diff,flags,tree,reach"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "tests/"
+  - "examples/"
+  - "docs/"
+  - "**/__init__.py"
+
+github_checks:
+  annotations: true

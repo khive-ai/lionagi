@@ -470,7 +470,7 @@ def test_pile_with_abc():
 
 
 @pytest.fixture
-async def async_sample_pile():
+def async_sample_pile():
     return Pile([Node(content=i) for i in range(5)])
 
 
