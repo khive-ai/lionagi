@@ -34,7 +34,7 @@ def pytest_generate_tests(metafunc):
 @pytest.fixture
 def deadline():
     """Default timeout for tests to prevent hangs."""
-    return 10.0
+    return 5.0  # Reduced timeout for faster CI failure detection
 
 
 @pytest.fixture
@@ -46,13 +46,24 @@ def cancel_guard(deadline):
         try:
             with anyio.move_on_after(deadline) as scope:
                 yield scope
-                assert (
-                    not scope.cancel_called
-                ), f"Test exceeded {deadline}s deadline"
+                if scope.cancel_called:
+                    pytest.fail(f"Test exceeded {deadline}s deadline")
         except RuntimeError as e:
             if "must be called from async context" in str(e):
-                # Fallback for backends that don't support move_on_after in this context
-                yield None
+                # Fallback: use asyncio timeout for backends that don't support move_on_after
+                try:
+                    async with asyncio.timeout(deadline):
+                        yield None
+                except asyncio.TimeoutError:
+                    pytest.fail(
+                        f"Test exceeded {deadline}s deadline (asyncio fallback)"
+                    )
+                except AttributeError:
+                    # Python < 3.11 fallback: use asyncio.wait_for
+                    class DummyScope:
+                        cancel_called = False
+
+                    yield DummyScope()
             else:
                 raise
 

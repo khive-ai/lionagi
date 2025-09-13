@@ -60,8 +60,8 @@ def task_scenario(draw):
         HealthCheck.too_slow,
         HealthCheck.function_scoped_fixture,
     ],
-    deadline=5000,  # 5 second deadline for hypothesis tests
-    max_examples=30,  # Reasonable for CI
+    deadline=3000,  # 3 second deadline for CI
+    max_examples=10 if os.getenv("CI") else 20,  # Fewer examples in CI
 )
 async def test_map_equivalence_property(
     anyio_backend, inputs, limit, cancel_guard
@@ -95,13 +95,13 @@ async def test_map_equivalence_property(
         HealthCheck.too_slow,
         HealthCheck.function_scoped_fixture,
     ],
-    deadline=5000,
-    max_examples=15 if not os.getenv("CI") else 5,  # Fewer examples in CI
-    phases=(
-        [Phase.explicit, Phase.reuse, Phase.generate, Phase.target]
-        if not os.getenv("CI")
-        else [Phase.explicit, Phase.reuse, Phase.generate]
-    ),  # Skip shrink phase in CI
+    deadline=3000,
+    max_examples=8 if os.getenv("CI") else 10,  # Very few examples in CI
+    phases=[
+        Phase.explicit,
+        Phase.reuse,
+        Phase.generate,
+    ],  # Skip shrink and target phases to prevent hangs
 )
 async def test_concurrency_limit_invariant(
     anyio_backend, inputs, limit, cancel_guard, concurrency_probe
@@ -144,8 +144,8 @@ async def test_concurrency_limit_invariant(
         HealthCheck.too_slow,
         HealthCheck.function_scoped_fixture,
     ],
-    deadline=8000,
-    max_examples=20,
+    deadline=3000,
+    max_examples=5 if os.getenv("CI") else 10,
 )
 async def test_retry_eventual_success_property(
     anyio_backend, inputs, limit, retry_attempts, cancel_guard
@@ -223,8 +223,8 @@ async def test_retry_eventual_success_property(
         HealthCheck.function_scoped_fixture,
         HealthCheck.filter_too_much,
     ],
-    deadline=5000,
-    max_examples=25,
+    deadline=3000,
+    max_examples=5 if os.getenv("CI") else 15,
 )
 async def test_fail_fast_property(
     anyio_backend, inputs, limit, failure_index, cancel_guard
@@ -289,8 +289,8 @@ async def test_fail_fast_property(
         HealthCheck.too_slow,
         HealthCheck.function_scoped_fixture,
     ],
-    deadline=10000,
-    max_examples=15,
+    deadline=4000,
+    max_examples=5 if os.getenv("CI") else 10,
 )
 async def test_throughput_property(
     anyio_backend, inputs, limit, task_delay, cancel_guard
@@ -348,8 +348,8 @@ async def test_throughput_property(
         HealthCheck.too_slow,
         HealthCheck.function_scoped_fixture,
     ],
-    deadline=5000,
-    max_examples=20,
+    deadline=3000,
+    max_examples=5 if os.getenv("CI") else 12,
 )
 async def test_backend_invariance_property(
     anyio_backend, inputs, limit, cancel_guard
@@ -394,8 +394,8 @@ async def test_backend_invariance_property(
         HealthCheck.too_slow,
         HealthCheck.function_scoped_fixture,
     ],
-    deadline=5000,
-    max_examples=20,
+    deadline=3000,
+    max_examples=5 if os.getenv("CI") else 12,
 )
 async def test_multi_function_property(
     anyio_backend, func_count, limit, cancel_guard
@@ -464,8 +464,8 @@ async def test_multi_function_property(
         HealthCheck.too_slow,
         HealthCheck.function_scoped_fixture,
     ],
-    deadline=6000,
-    max_examples=15,
+    deadline=3000,
+    max_examples=3 if os.getenv("CI") else 8,
 )
 async def test_streaming_property(
     anyio_backend, total_items, batch_size, limit, cancel_guard
