@@ -22,7 +22,6 @@ dependencies = [
     "pydapter[pandas]>=1.1.1",
     "python-dotenv>=1.1.0",
     "tiktoken>=0.9.0",
-    "trio>=0.30.0",
 ]
 license = {file = "LICENSE"}
 classifiers=[
@@ -120,6 +119,9 @@ unstructured = [
     "opencv-python>=4.2.0.34",
 ]
 
+trio = [
+    "trio>=0.30.0",
+]
 
 all = [
     "lionagi[reader]",
@@ -131,6 +133,7 @@ all = [
     "lionagi[postgres]",
     "lionagi[graph]",
     "lionagi[sqlite]",
+    "lionagi[trio]",
 ]
 
 

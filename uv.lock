@@ -2096,7 +2096,6 @@ dependencies = [
     { name = "pydapter", extra = ["pandas"] },
     { name = "python-dotenv" },
     { name = "tiktoken" },
-    { name = "trio" },
 ]
 
 [package.optional-dependencies]
@@ -2112,6 +2111,7 @@ all = [
     { name = "ollama" },
     { name = "pydapter", extra = ["postgres"] },
     { name = "rich" },
+    { name = "trio" },
 ]
 claude-code = [
     { name = "claude-code-sdk" },
@@ -2144,6 +2144,9 @@ sqlite = [
 ]
 tools = [
     { name = "docling" },
+]
+trio = [
+    { name = "trio" },
 ]
 unstructured = [
     { name = "opencv-python" },
@@ -2206,6 +2209,7 @@ requires-dist = [
     { name = "lionagi", extras = ["rich"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["schema"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["sqlite"], marker = "extra == 'all'" },
+    { name = "lionagi", extras = ["trio"], marker = "extra == 'all'" },
     { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.7.0" },
     { name = "msgspec", specifier = ">=0.18.0" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0.0" },
@@ -2220,10 +2224,10 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
     { name = "tiktoken", specifier = ">=0.9.0" },
-    { name = "trio", specifier = ">=0.30.0" },
+    { name = "trio", marker = "extra == 'trio'", specifier = ">=0.30.0" },
     { name = "xmltodict", marker = "extra == 'xml'", specifier = ">=0.12.0" },
 ]
-provides-extras = ["reader", "tools", "ollama", "claude-code", "mcp", "rich", "schema", "postgres", "sqlite", "graph", "xml", "unstructured", "all"]
+provides-extras = ["reader", "tools", "ollama", "claude-code", "mcp", "rich", "schema", "postgres", "sqlite", "graph", "xml", "unstructured", "trio", "all"]
 
 [package.metadata.requires-dev]
 dev = [
