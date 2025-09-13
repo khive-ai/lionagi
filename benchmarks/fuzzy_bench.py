@@ -77,7 +77,7 @@ def scenario_fuzzy_json_valid_1000() -> Callable[[], None]:
 
 def scenario_fuzzy_json_dirty_single_quotes_500() -> Callable[[], None]:
     # Requires cleaning: single quotes + trailing comma
-    s = "{" "a" ": 1, 'b': [1,2,3], }"
+    s = "{a: 1, 'b': [1,2,3], }"
 
     def _run():
         for _ in range(500):

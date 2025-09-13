@@ -6,16 +6,11 @@ import asyncio
 import logging
 
 import aiohttp
-import backoff
 from aiocache import cached
 from pydantic import BaseModel
 
 from lionagi.config import settings
-from lionagi.service.resilience import (
-    CircuitBreaker,
-    RetryConfig,
-    retry_with_backoff,
-)
+from lionagi.ln.concurrency.patterns import retry
 from lionagi.utils import to_dict
 
 from .endpoint_config import EndpointConfig
@@ -28,8 +23,11 @@ class Endpoint:
     def __init__(
         self,
         config: dict | EndpointConfig,
-        circuit_breaker: CircuitBreaker | None = None,
-        retry_config: RetryConfig | None = None,
+        retry_attempts: int = 3,
+        retry_delay: float = 0.1,
+        retry_max_delay: float = 2.0,
+        retry_jitter: float = 0.1,
+        retry_on: tuple[type[BaseException], ...] = (Exception,),
         **kwargs,
     ):
         """
@@ -40,8 +38,11 @@ class Endpoint:
 
         Args:
             config: The endpoint configuration.
-            circuit_breaker: Optional circuit breaker for resilience.
-            retry_config: Optional retry configuration for resilience.
+            retry_attempts: Maximum retry attempts for failed requests.
+            retry_delay: Base delay between retries in seconds.
+            retry_max_delay: Maximum delay between retries in seconds.
+            retry_jitter: Random jitter factor (0.0 to 1.0) for retry delays.
+            retry_on: Exception types that trigger retry.
             **kwargs: Additional keyword arguments to update the configuration.
         """
         if isinstance(config, dict):
@@ -54,13 +55,15 @@ class Endpoint:
                 "Config must be a dict or EndpointConfig instance"
             )
         self.config = _config
-        self.circuit_breaker = circuit_breaker
-        self.retry_config = retry_config
+        self.retry_attempts = retry_attempts
+        self.retry_delay = retry_delay
+        self.retry_max_delay = retry_max_delay
+        self.retry_jitter = retry_jitter
+        self.retry_on = retry_on
 
         logger.debug(
             f"Initialized Endpoint with provider={self.config.provider}, "
-            f"endpoint={self.config.endpoint}, circuit_breaker={circuit_breaker is not None}, "
-            f"retry_config={retry_config is not None}"
+            f"endpoint={self.config.endpoint}, retry_attempts={retry_attempts}"
         )
 
     def _create_http_session(self):
@@ -203,58 +206,35 @@ class Endpoint:
                 request, extra_headers=extra_headers, **kwargs
             )
 
-        # Apply resilience patterns if configured
-        call_func = self._call
-
-        # Apply retry if configured
-        if self.retry_config:
-
-            async def call_func(p, h, **kw):
-                return await retry_with_backoff(
-                    self._call, p, h, **kw, **self.retry_config.as_kwargs()
-                )
-
-        # Apply circuit breaker if configured
-        if self.circuit_breaker:
-            if self.retry_config:
-                # If both are configured, apply circuit breaker to the retry-wrapped function
-                if not cache_control:
-                    return await self.circuit_breaker.execute(
-                        call_func, payload, headers, **kwargs
-                    )
-            else:
-                # If only circuit breaker is configured, apply it directly
-                if not cache_control:
-                    return await self.circuit_breaker.execute(
-                        self._call, payload, headers, **kwargs
-                    )
+        # Apply retry if configured (using our concurrency patterns)
+        async def call_with_retry():
+            return await retry(
+                lambda: self._call(payload, headers, **kwargs),
+                attempts=self.retry_attempts,
+                base_delay=self.retry_delay,
+                max_delay=self.retry_max_delay,
+                retry_on=self.retry_on,
+                jitter=self.retry_jitter,
+            )
 
         # Handle caching if requested
         if cache_control:
 
             @cached(**settings.aiocache_config.as_kwargs())
             async def _cached_call(payload: dict, headers: dict, **kwargs):
-                # Apply resilience patterns to cached call if configured
-                if self.circuit_breaker and self.retry_config:
-                    return await self.circuit_breaker.execute(
-                        call_func, payload, headers, **kwargs
-                    )
-                if self.circuit_breaker:
-                    return await self.circuit_breaker.execute(
-                        self._call, payload, headers, **kwargs
-                    )
-                if self.retry_config:
-                    return await call_func(payload, headers, **kwargs)
-
-                return await self._call(payload, headers, **kwargs)
+                return await retry(
+                    lambda: self._call(payload, headers, **kwargs),
+                    attempts=self.retry_attempts,
+                    base_delay=self.retry_delay,
+                    max_delay=self.retry_max_delay,
+                    retry_on=self.retry_on,
+                    jitter=self.retry_jitter,
+                )
 
             return await _cached_call(payload, headers, **kwargs)
 
-        # No caching, apply resilience patterns directly
-        if self.retry_config:
-            return await call_func(payload, headers, **kwargs)
-
-        return await self._call(payload, headers, **kwargs)
+        # No caching, apply retry directly
+        return await call_with_retry()
 
     async def _call_aiohttp(self, payload: dict, headers: dict, **kwargs):
         """
@@ -269,7 +249,8 @@ class Endpoint:
             The response from the endpoint.
         """
 
-        async def _make_request_with_backoff():
+        async def _make_request():
+            """Make a single request attempt."""
             # Create a new session for this request
             async with self._create_http_session() as session:
                 response = None
@@ -284,7 +265,7 @@ class Endpoint:
 
                     # Check for rate limit or server errors that should be retried
                     if response.status == 429 or response.status >= 500:
-                        response.raise_for_status()  # This will be caught by backoff
+                        response.raise_for_status()  # This will trigger retry
                     elif response.status != 200:
                         # Try to get error details from response body
                         try:
@@ -295,13 +276,22 @@ class Endpoint:
                                 f"Request failed with status {response.status}"
                             )
 
-                        raise aiohttp.ClientResponseError(
+                        error = aiohttp.ClientResponseError(
                             request_info=response.request_info,
                             history=response.history,
                             status=response.status,
                             message=error_message,
                             headers=response.headers,
                         )
+
+                        # Don't retry on 4xx errors except 429 (rate limit)
+                        if (
+                            400 <= response.status < 500
+                            and response.status != 429
+                        ):
+                            raise error  # Will not be retried
+                        else:
+                            raise error  # Will be retried
 
                     # Extract and return the JSON response
                     return await response.json()
@@ -310,25 +300,15 @@ class Endpoint:
                     if response is not None and not response.closed:
                         await response.release()
 
-        # Define a giveup function for backoff
-        def giveup_on_client_error(e):
-            # Don't retry on 4xx errors except 429 (rate limit)
-            if isinstance(e, aiohttp.ClientResponseError):
-                return 400 <= e.status < 500 and e.status != 429
-            return False
-
-        # Use backoff for retries with exponential backoff and jitter
-        # Moved inside the method to reference runtime config
-        backoff_handler = backoff.on_exception(
-            backoff.expo,
-            (aiohttp.ClientError, asyncio.TimeoutError),
-            max_tries=self.config.max_retries,
-            giveup=giveup_on_client_error,
-            jitter=backoff.full_jitter,
+        # Use our retry primitive with exponential backoff and jitter
+        return await retry(
+            _make_request,
+            attempts=self.config.max_retries,
+            base_delay=self.retry_delay,
+            max_delay=self.retry_max_delay,
+            retry_on=(aiohttp.ClientError, asyncio.TimeoutError),
+            jitter=self.retry_jitter,
         )
-
-        # Apply the decorator at runtime
-        return await backoff_handler(_make_request_with_backoff)()
 
     async def stream(
         self,
@@ -396,33 +376,25 @@ class Endpoint:
 
     def to_dict(self):
         return {
-            "retry_config": (
-                self.retry_config.to_dict() if self.retry_config else None
-            ),
-            "circuit_breaker": (
-                self.circuit_breaker.to_dict()
-                if self.circuit_breaker
-                else None
-            ),
+            "retry_attempts": self.retry_attempts,
+            "retry_delay": self.retry_delay,
+            "retry_max_delay": self.retry_max_delay,
+            "retry_jitter": self.retry_jitter,
             "config": self.config.model_dump(exclude_none=True),
         }
 
     @classmethod
     def from_dict(cls, data: dict):
         data = to_dict(data, recursive=True)
-        retry_config = data.get("retry_config")
-        circuit_breaker = data.get("circuit_breaker")
         config = data.get("config")
 
-        if retry_config:
-            retry_config = RetryConfig(**retry_config)
-        if circuit_breaker:
-            circuit_breaker = CircuitBreaker(**circuit_breaker)
         if config:
             config = EndpointConfig(**config)
 
         return cls(
             config=config,
-            circuit_breaker=circuit_breaker,
-            retry_config=retry_config,
+            retry_attempts=data.get("retry_attempts", 3),
+            retry_delay=data.get("retry_delay", 0.1),
+            retry_max_delay=data.get("retry_max_delay", 2.0),
+            retry_jitter=data.get("retry_jitter", 0.1),
         )

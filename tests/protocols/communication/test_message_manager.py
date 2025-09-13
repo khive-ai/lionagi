@@ -167,6 +167,7 @@ def test_clear_messages(message_manager):
     assert len(message_manager.messages) == 0
 
 
+@pytest.mark.asyncio
 async def test_async_operations(message_manager):
     """Test async operations"""
     await message_manager.a_add_message(

@@ -1,6 +1,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/lionagi?labelColor=233476aa&color=231fc935)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/lionagi?color=blue)
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
+[![codecov](https://codecov.io/github/khive-ai/lionagi/graph/badge.svg?token=FAE47FY26T)](https://codecov.io/github/khive-ai/lionagi)
 
 [Documentation](https://khive-ai.github.io/lionagi/) |
 [Discord](https://discord.gg/JDj9ENhUE8) |

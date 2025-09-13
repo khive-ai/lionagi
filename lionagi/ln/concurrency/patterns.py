@@ -219,7 +219,12 @@ class CompletionStream:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Cancel remaining tasks and clean up
+        # FIX: Explicitly cancel remaining tasks on early exit
+        if self._task_group and self._completed_count < self._total_count:
+            # If we haven't completed all tasks, cancel remaining ones
+            self._task_group.cancel_scope.cancel()
+
+        # Clean up task group and streams
         if self._task_group:
             await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
         if self._send:
