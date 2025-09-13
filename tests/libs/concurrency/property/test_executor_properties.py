@@ -91,7 +91,11 @@ async def test_map_equivalence_property(
     ],
     deadline=5000,
     max_examples=15 if not os.getenv("CI") else 5,  # Fewer examples in CI
-    phases=[Phase.explicit, Phase.reuse, Phase.generate, Phase.target] if not os.getenv("CI") else [Phase.explicit, Phase.reuse, Phase.generate],  # Skip shrink phase in CI
+    phases=(
+        [Phase.explicit, Phase.reuse, Phase.generate, Phase.target]
+        if not os.getenv("CI")
+        else [Phase.explicit, Phase.reuse, Phase.generate]
+    ),  # Skip shrink phase in CI
 )
 async def test_concurrency_limit_invariant(
     anyio_backend, inputs, limit, cancel_guard, concurrency_probe
