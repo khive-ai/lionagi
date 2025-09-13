@@ -265,25 +265,27 @@ async def cleanup_tasks():
     """Automatically cleanup hanging tasks after each test."""
     yield  # Run the test
 
-    # Cleanup any hanging tasks
+    # Gentle cleanup of orphaned tasks only
     try:
         import asyncio
         import gc
 
-        # Cancel all pending tasks
-        tasks = [t for t in asyncio.all_tasks() if not t.done()]
-        for task in tasks:
-            if not task.cancelled():
-                task.cancel()
+        # Only cancel tasks that appear to be orphaned/hanging
+        # Don't cancel framework or fixture tasks
+        current_task = asyncio.current_task()
+        tasks = [
+            t for t in asyncio.all_tasks()
+            if not t.done()
+            and t is not current_task
+            and not t.get_name().startswith('anyio')
+            and not t.get_name().startswith('pytest')
+        ]
 
-        # Wait briefly for cancellation to complete
-        if tasks:
-            try:
-                await asyncio.wait(
-                    tasks, timeout=0.1, return_when=asyncio.ALL_COMPLETED
-                )
-            except asyncio.TimeoutError:
-                pass  # Some tasks didn't cancel in time, that's okay
+        # Only proceed if there are suspicious tasks
+        if len(tasks) > 2:  # Allow a few normal tasks
+            for task in tasks[:3]:  # Only cancel first few suspicious tasks
+                if not task.cancelled() and not task.done():
+                    task.cancel()
 
         # Force garbage collection
         gc.collect()
