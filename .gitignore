@@ -174,3 +174,5 @@ cython_debug/
 .khive/
 .roo/
 *logs/
+
+*.gitignore

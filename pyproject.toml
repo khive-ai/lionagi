@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.16.2"
+version = "0.16.3"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -22,6 +22,7 @@ dependencies = [
     "pydapter[pandas]>=1.1.1",
     "python-dotenv>=1.1.0",
     "tiktoken>=0.9.0",
+    "trio>=0.30.0",
 ]
 license = {file = "LICENSE"}
 classifiers=[
@@ -63,6 +64,9 @@ dev = [
     "mkdocstrings>=0.30.0",
     "mkdocstrings-python>=1.17.0",
     "trio>=0.30.0",
+    "hypothesis>=6.138.15",
+    "pytest-timeout>=2.4.0",
+    "pytest-benchmark>=5.1.0",
 ]
 
 [project.optional-dependencies]
@@ -143,15 +147,6 @@ ignore = ["E203", "W503", "E501", "E402"]
 max-line-length = 79
 exclude = [".git", "__pycache__", "build", "dist", ".venv"]
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-markers = [
-    "performance: marks tests as performance",
-    "slow: marks tests as slow",
-]
 
 [tool.coverage.run]
 source = ["lionagi"]
