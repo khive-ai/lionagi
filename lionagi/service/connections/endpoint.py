@@ -6,7 +6,6 @@ import asyncio
 import logging
 
 import aiohttp
-import backoff
 from aiocache import cached
 from pydantic import BaseModel
 
@@ -250,7 +249,8 @@ class Endpoint:
             The response from the endpoint.
         """
 
-        async def _make_request_with_backoff():
+        async def _make_request():
+            """Make a single request attempt."""
             # Create a new session for this request
             async with self._create_http_session() as session:
                 response = None
@@ -265,7 +265,7 @@ class Endpoint:
 
                     # Check for rate limit or server errors that should be retried
                     if response.status == 429 or response.status >= 500:
-                        response.raise_for_status()  # This will be caught by backoff
+                        response.raise_for_status()  # This will trigger retry
                     elif response.status != 200:
                         # Try to get error details from response body
                         try:
@@ -276,13 +276,19 @@ class Endpoint:
                                 f"Request failed with status {response.status}"
                             )
 
-                        raise aiohttp.ClientResponseError(
+                        error = aiohttp.ClientResponseError(
                             request_info=response.request_info,
                             history=response.history,
                             status=response.status,
                             message=error_message,
                             headers=response.headers,
                         )
+
+                        # Don't retry on 4xx errors except 429 (rate limit)
+                        if 400 <= response.status < 500 and response.status != 429:
+                            raise error  # Will not be retried
+                        else:
+                            raise error  # Will be retried
 
                     # Extract and return the JSON response
                     return await response.json()
@@ -291,25 +297,15 @@ class Endpoint:
                     if response is not None and not response.closed:
                         await response.release()
 
-        # Define a giveup function for backoff
-        def giveup_on_client_error(e):
-            # Don't retry on 4xx errors except 429 (rate limit)
-            if isinstance(e, aiohttp.ClientResponseError):
-                return 400 <= e.status < 500 and e.status != 429
-            return False
-
-        # Use backoff for retries with exponential backoff and jitter
-        # Moved inside the method to reference runtime config
-        backoff_handler = backoff.on_exception(
-            backoff.expo,
-            (aiohttp.ClientError, asyncio.TimeoutError),
-            max_tries=self.config.max_retries,
-            giveup=giveup_on_client_error,
-            jitter=backoff.full_jitter,
+        # Use our retry primitive with exponential backoff and jitter
+        return await retry(
+            _make_request,
+            attempts=self.config.max_retries,
+            base_delay=self.retry_delay,
+            max_delay=self.retry_max_delay,
+            retry_on=(aiohttp.ClientError, asyncio.TimeoutError),
+            jitter=self.retry_jitter,
         )
-
-        # Apply the decorator at runtime
-        return await backoff_handler(_make_request_with_backoff)()
 
     async def stream(
         self,
