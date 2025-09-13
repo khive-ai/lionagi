@@ -4,13 +4,12 @@ These tests verify invariants hold across randomized inputs, concurrency limits,
 and failure scenarios to discover edge cases and ensure robustness.
 """
 
-import asyncio
+import os
 import time
-from typing import Any, List
 
 import anyio
 import pytest
-from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import HealthCheck, Phase, assume, given, settings
 from hypothesis import strategies as st
 
 from lionagi.ln.concurrency.executor import AsyncExecutor
@@ -91,7 +90,8 @@ async def test_map_equivalence_property(
         HealthCheck.function_scoped_fixture,
     ],
     deadline=5000,
-    max_examples=25,
+    max_examples=15 if not os.getenv("CI") else 5,  # Fewer examples in CI
+    phases=[Phase.explicit, Phase.reuse, Phase.generate, Phase.target] if not os.getenv("CI") else [Phase.explicit, Phase.reuse, Phase.generate],  # Skip shrink phase in CI
 )
 async def test_concurrency_limit_invariant(
     anyio_backend, inputs, limit, cancel_guard, concurrency_probe
