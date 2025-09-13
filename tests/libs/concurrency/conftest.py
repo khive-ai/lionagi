@@ -274,11 +274,12 @@ async def cleanup_tasks():
         # Don't cancel framework or fixture tasks
         current_task = asyncio.current_task()
         tasks = [
-            t for t in asyncio.all_tasks()
+            t
+            for t in asyncio.all_tasks()
             if not t.done()
             and t is not current_task
-            and not t.get_name().startswith('anyio')
-            and not t.get_name().startswith('pytest')
+            and not t.get_name().startswith("anyio")
+            and not t.get_name().startswith("pytest")
         ]
 
         # Only proceed if there are suspicious tasks
