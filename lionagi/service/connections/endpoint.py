@@ -285,7 +285,10 @@ class Endpoint:
                         )
 
                         # Don't retry on 4xx errors except 429 (rate limit)
-                        if 400 <= response.status < 500 and response.status != 429:
+                        if (
+                            400 <= response.status < 500
+                            and response.status != 429
+                        ):
                             raise error  # Will not be retried
                         else:
                             raise error  # Will be retried
