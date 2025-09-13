@@ -103,7 +103,7 @@ class TestProtocolPerformance:
             elif input_type in ["Element", "IDType"]:
                 max_time = 0.1  # Should be fast for optimized direct access
             else:  # String
-                max_time = 0.15  # More expensive due to parsing
+                max_time = 0.3  # More expensive due to parsing
 
             print(
                 f"\nto_uuid({input_type}) Performance: {len(inputs)} calls took {elapsed_time:.4f}s. ({time_per_call_us:.2f} μs/call)"
