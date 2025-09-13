@@ -9,7 +9,7 @@ import time
 import tracemalloc
 import weakref
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import anyio
 import pytest
@@ -59,9 +59,19 @@ def cancel_guard(deadline):
                         f"Test exceeded {deadline}s deadline (asyncio fallback)"
                     )
                 except AttributeError:
-                    # Python < 3.11 fallback: use asyncio.wait_for
+                    # Python < 3.11 fallback: use asyncio.wait_for with manual timeout
+                    import time
+                    start_time = time.time()
+
                     class DummyScope:
                         cancel_called = False
+                        def __init__(self):
+                            self.start_time = start_time
+                            self.deadline = deadline
+
+                        def check_timeout(self):
+                            if time.time() - self.start_time > self.deadline:
+                                pytest.fail(f"Test exceeded {self.deadline}s deadline (manual timeout)")
 
                     yield DummyScope()
             else:
@@ -86,6 +96,8 @@ def mem_tracer():
             return self
 
         def __exit__(self, exc_type, exc_val, exc_tb):
+            # Suppress unused parameter warnings
+            del exc_type, exc_val, exc_tb
             self.end_snapshot = tracemalloc.take_snapshot()
             if self.start_snapshot:
                 self.stats = self.end_snapshot.compare_to(
@@ -143,6 +155,8 @@ def resource_tracker():
             for (resource, name), weak_ref in zip(
                 self.resources, self.weak_refs
             ):
+                # Suppress unused parameter warning for resource
+                del resource
                 if weak_ref() is not None:
                     alive_resources.append(name)
 
@@ -240,3 +254,33 @@ def task_factory():
             return a + b + c
 
     return TaskFactory()
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_tasks():
+    """Automatically cleanup hanging tasks after each test."""
+    yield  # Run the test
+
+    # Cleanup any hanging tasks
+    try:
+        import asyncio
+        import gc
+
+        # Cancel all pending tasks
+        tasks = [t for t in asyncio.all_tasks() if not t.done()]
+        for task in tasks:
+            if not task.cancelled():
+                task.cancel()
+
+        # Wait briefly for cancellation to complete
+        if tasks:
+            try:
+                await asyncio.wait(tasks, timeout=0.1, return_when=asyncio.ALL_COMPLETED)
+            except asyncio.TimeoutError:
+                pass  # Some tasks didn't cancel in time, that's okay
+
+        # Force garbage collection
+        gc.collect()
+
+    except Exception:
+        pass  # Ignore cleanup errors, just move on
