@@ -27,15 +27,7 @@ jobs:
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
-    - name: Load cached dependencies
-      id: cached-uv-dependencies
-      uses: actions/cache@v4
-      with:
-        path: .venv
-        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
-    
     - name: Install dependencies
-      if: steps.cached-uv-dependencies.outputs.cache-hit != 'true'
       run: |
         uv venv
         uv sync --extra all
