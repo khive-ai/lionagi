@@ -61,17 +61,21 @@ def cancel_guard(deadline):
                 except AttributeError:
                     # Python < 3.11 fallback: use asyncio.wait_for with manual timeout
                     import time
+
                     start_time = time.time()
 
                     class DummyScope:
                         cancel_called = False
+
                         def __init__(self):
                             self.start_time = start_time
                             self.deadline = deadline
 
                         def check_timeout(self):
                             if time.time() - self.start_time > self.deadline:
-                                pytest.fail(f"Test exceeded {self.deadline}s deadline (manual timeout)")
+                                pytest.fail(
+                                    f"Test exceeded {self.deadline}s deadline (manual timeout)"
+                                )
 
                     yield DummyScope()
             else:
@@ -275,7 +279,9 @@ async def cleanup_tasks():
         # Wait briefly for cancellation to complete
         if tasks:
             try:
-                await asyncio.wait(tasks, timeout=0.1, return_when=asyncio.ALL_COMPLETED)
+                await asyncio.wait(
+                    tasks, timeout=0.1, return_when=asyncio.ALL_COMPLETED
+                )
             except asyncio.TimeoutError:
                 pass  # Some tasks didn't cancel in time, that's okay
 

@@ -56,7 +56,7 @@ def task_scenario(draw):
 @pytest.mark.anyio
 @pytest.mark.skipif(
     os.getenv("CI") and os.getenv("CI") != "false",
-    reason="Skip in CI to prevent timeouts"
+    reason="Skip in CI to prevent timeouts",
 )
 @given(inputs=small_lists, limit=concurrency_limits)
 @settings(
@@ -95,7 +95,7 @@ async def test_map_equivalence_property(
 @pytest.mark.anyio
 @pytest.mark.skipif(
     os.getenv("CI") and os.getenv("CI") != "false",
-    reason="Skip in CI to prevent timeouts"
+    reason="Skip in CI to prevent timeouts",
 )
 @given(inputs=small_lists, limit=concurrency_limits)
 @settings(
@@ -144,7 +144,7 @@ async def test_concurrency_limit_invariant(
 @pytest.mark.anyio
 @pytest.mark.skipif(
     os.getenv("CI") and os.getenv("CI") != "false",
-    reason="Skip in CI to prevent timeouts"
+    reason="Skip in CI to prevent timeouts",
 )
 @given(
     inputs=small_lists,
@@ -226,7 +226,7 @@ async def test_retry_eventual_success_property(
 @pytest.mark.anyio
 @pytest.mark.skipif(
     os.getenv("CI") and os.getenv("CI") != "false",
-    reason="Skip in CI to prevent timeouts"
+    reason="Skip in CI to prevent timeouts",
 )
 @given(
     inputs=small_lists,
