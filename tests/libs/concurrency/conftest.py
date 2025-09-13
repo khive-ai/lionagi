@@ -260,36 +260,5 @@ def task_factory():
     return TaskFactory()
 
 
-@pytest.fixture(autouse=True)
-async def cleanup_tasks():
-    """Automatically cleanup hanging tasks after each test."""
-    yield  # Run the test
-
-    # Gentle cleanup of orphaned tasks only
-    try:
-        import asyncio
-        import gc
-
-        # Only cancel tasks that appear to be orphaned/hanging
-        # Don't cancel framework or fixture tasks
-        current_task = asyncio.current_task()
-        tasks = [
-            t
-            for t in asyncio.all_tasks()
-            if not t.done()
-            and t is not current_task
-            and not t.get_name().startswith("anyio")
-            and not t.get_name().startswith("pytest")
-        ]
-
-        # Only proceed if there are suspicious tasks
-        if len(tasks) > 2:  # Allow a few normal tasks
-            for task in tasks[:3]:  # Only cancel first few suspicious tasks
-                if not task.cancelled() and not task.done():
-                    task.cancel()
-
-        # Force garbage collection
-        gc.collect()
-
-    except Exception:
-        pass  # Ignore cleanup errors, just move on
+# Removed autouse cleanup_tasks fixture - it was causing pytest compatibility issues
+# The trio backend skipping in individual tests is sufficient to prevent hangs

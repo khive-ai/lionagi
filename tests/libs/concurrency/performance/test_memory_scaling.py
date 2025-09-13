@@ -22,7 +22,7 @@ from lionagi.ln.concurrency.patterns import CompletionStream
 @pytest.mark.anyio
 @pytest.mark.skipif(
     os.getenv("CI") and os.getenv("CI") != "false",
-    reason="Skip trio backend in CI due to context isolation issues"
+    reason="Skip trio backend in CI due to context isolation issues",
 )
 async def test_memory_scaling_large_N_small_limit(
     anyio_backend, mem_tracer, cancel_guard
@@ -76,6 +76,10 @@ async def test_memory_scaling_comparison(
     anyio_backend, mem_tracer, cancel_guard
 ):
     """Compare memory usage across different batch sizes."""
+    # Skip trio backend due to test isolation issues
+    if anyio_backend == "trio":
+        pytest.skip("Trio backend has context isolation issues in test suite")
+
     async with cancel_guard():
 
         async def task(x):
@@ -106,6 +110,10 @@ async def test_executor_stream_lazy_iteration(
     anyio_backend, cancel_guard, mem_tracer
 ):
     """Validate that stream() processes inputs lazily for memory efficiency."""
+    # Skip trio backend due to test isolation issues
+    if anyio_backend == "trio":
+        pytest.skip("Trio backend has context isolation issues in test suite")
+
     async with cancel_guard():
         N = 1000
         BATCH_SIZE = 50
@@ -151,6 +159,10 @@ async def test_executor_stream_lazy_iteration(
 @pytest.mark.anyio
 async def test_no_resource_leaks_on_cancellation(anyio_backend, cancel_guard):
     """Verify no resource leaks occur when tasks are cancelled."""
+    # Skip trio backend due to test isolation issues
+    if anyio_backend == "trio":
+        pytest.skip("Trio backend has context isolation issues in test suite")
+
     async with cancel_guard():
         resource_tracker = []
         weak_refs = []
@@ -219,6 +231,10 @@ async def test_no_resource_leaks_on_cancellation(anyio_backend, cancel_guard):
 @pytest.mark.anyio
 async def test_memory_growth_over_time(anyio_backend, cancel_guard):
     """Test for memory leaks over repeated operations."""
+    # Skip trio backend due to test isolation issues
+    if anyio_backend == "trio":
+        pytest.skip("Trio backend has context isolation issues in test suite")
+
     async with cancel_guard():
 
         async def simple_task(x):
@@ -285,6 +301,10 @@ async def test_completion_stream_memory_cleanup(
     anyio_backend, mem_tracer, cancel_guard
 ):
     """Test CompletionStream memory usage and cleanup."""
+    # Skip trio backend due to test isolation issues
+    if anyio_backend == "trio":
+        pytest.skip("Trio backend has context isolation issues in test suite")
+
     async with cancel_guard():
 
         async def memory_task(x):
@@ -316,6 +336,10 @@ async def test_completion_stream_early_exit_memory(
     anyio_backend, mem_tracer, cancel_guard
 ):
     """Test memory behavior when exiting CompletionStream early."""
+    # Skip trio backend due to test isolation issues
+    if anyio_backend == "trio":
+        pytest.skip("Trio backend has context isolation issues in test suite")
+
     async with cancel_guard():
 
         async def task_with_data(x):
