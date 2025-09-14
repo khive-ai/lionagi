@@ -71,16 +71,8 @@ reader = [
     "docling>=2.15.0",
 ]
 
-tools = [
-    "lionagi[reader]",
-]
-
 ollama = [
     "ollama>=0.4.0",
-]
-
-claude-code = [
-    "claude-code-sdk>=0.0.15"
 ]
 
 mcp = [
@@ -112,15 +104,10 @@ xml = [
     "xmltodict>=0.12.0",
 ]
 
-unstructured = [
-    "opencv-python>=4.2.0.34",
-]
-
 
 all = [
     "lionagi[reader]",
     "lionagi[ollama]",
-    "lionagi[claude-code]",
     "lionagi[mcp]",
     "lionagi[rich]",
     "lionagi[schema]",
