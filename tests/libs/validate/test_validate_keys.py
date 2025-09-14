@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from lionagi.libs.validate.fuzzy_match_keys import fuzzy_match_keys
+from lionagi.ln.fuzzy._fuzzy_match import fuzzy_match_keys
 
 
 class TestValidateKeys:

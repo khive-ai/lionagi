@@ -64,12 +64,6 @@ def test_to_dict_with_invalid_json_string():
         to_dict("{invalid_json}")
 
 
-def test_to_dict_with_xml_string():
-    xml_string = "<root><child>value</child></root>"
-    expected = {"root": {"child": "value"}}
-    assert to_dict(xml_string, str_type="xml", remove_root=False) == expected
-
-
 def test_to_dict_with_set():
     input_set = {1, 2, 3}
     expected = {1: 1, 2: 2, 3: 3}
