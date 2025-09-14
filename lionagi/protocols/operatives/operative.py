@@ -2,12 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from lionagi.libs.validate.fuzzy_match_keys import fuzzy_match_keys
+from lionagi.ln.fuzzy._fuzzy_match import fuzzy_match_keys
 from lionagi.models import FieldModel, ModelParams, OperableModel
 from lionagi.utils import UNDEFINED, to_json
 

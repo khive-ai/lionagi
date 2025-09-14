@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, TypeVar
 
-from lionagi.libs.concurrency import get_cancelled_exc_class
+from lionagi.ln.concurrency import get_cancelled_exc_class
 from lionagi.protocols.types import Event, EventStatus
 from lionagi.utils import UNDEFINED
 

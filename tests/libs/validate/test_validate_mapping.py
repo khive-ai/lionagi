@@ -1,11 +1,10 @@
 # File: tests/test_validate/test_validate_mapping.py
 
-from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
-from lionagi.libs.validate.fuzzy_validate_mapping import fuzzy_validate_mapping
+from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 
 
 class TestValidateMapping:

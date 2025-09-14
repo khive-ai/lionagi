@@ -57,17 +57,9 @@ def match_endpoint(
 
             return NvidiaNimChatEndpoint(None, **kwargs)
     if provider == "claude_code":
-        if "cli" in endpoint:
-            from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
+        from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
 
-            return ClaudeCodeCLIEndpoint(None, **kwargs)
-
-        if "query" in endpoint or "code" in endpoint:
-            from lionagi.service.connections.providers.claude_code_ import (
-                ClaudeCodeEndpoint,
-            )
-
-            return ClaudeCodeEndpoint(None, **kwargs)
+        return ClaudeCodeCLIEndpoint(None, **kwargs)
 
     from .providers.oai_ import OpenaiChatEndpoint
 

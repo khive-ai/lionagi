@@ -39,12 +39,17 @@ jobs:
       run: |
         uv venv
         uv sync --extra all
-    
-    - name: Run tests
+
+    - name: Run tests with coverage
       run: |
         source .venv/bin/activate
-        uv run pytest --asyncio-mode=auto --maxfail=1 --disable-warnings tests/
-    
+        uv run pytest --asyncio-mode=auto --maxfail=1 --disable-warnings --cov=lionagi --cov-report=xml --cov-report=term tests/
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+
     - name: Check code style and compatibility
       run: |
         source .venv/bin/activate

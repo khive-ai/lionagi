@@ -37,8 +37,10 @@ from .fuzzy import (
     extract_json,
     fuzzy_json,
     fuzzy_match_keys,
+    fuzzy_validate_mapping,
     fuzzy_validate_pydantic,
     string_similarity,
+    to_dict,
 )
 from .types import is_sentinel, not_sentinel
 
@@ -80,4 +82,6 @@ __all__ = (
     "string_similarity",
     "is_sentinel",
     "not_sentinel",
+    "to_dict",
+    "fuzzy_validate_mapping",
 )

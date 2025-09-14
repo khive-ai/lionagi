@@ -8,7 +8,7 @@ from typing import Any
 import anyio
 from pydantic import Field, PrivateAttr
 
-from lionagi.libs.concurrency import fail_after, get_cancelled_exc_class
+from lionagi.ln.concurrency import fail_after, get_cancelled_exc_class
 from lionagi.protocols.types import Event, EventStatus
 
 from ._types import AssosiatedEventInfo, HookEventTypes
