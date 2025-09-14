@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.16.2"
+version = "0.16.3"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -131,6 +131,7 @@ max-line-length = 79
 exclude = [".git", "__pycache__", "build", "dist", ".venv"]
 
 [tool.pytest.ini_options]
+addopts = "-q -ra --strict-config --strict-markers --tb=short --maxfail=5"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
