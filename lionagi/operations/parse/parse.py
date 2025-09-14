@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from lionagi.libs.validate.fuzzy_validate_mapping import fuzzy_validate_mapping
+from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 from lionagi.protocols.types import Operative
 from lionagi.utils import breakdown_pydantic_annotation
 

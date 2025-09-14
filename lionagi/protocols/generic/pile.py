@@ -25,7 +25,7 @@ from pydapter import Adaptable, AsyncAdaptable
 from typing_extensions import Self, deprecated, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError, ValidationError
-from lionagi.libs.concurrency import Lock as ConcurrencyLock
+from lionagi.ln.concurrency import Lock as ConcurrencyLock
 from lionagi.utils import (
     UNDEFINED,
     is_same_dtype,
