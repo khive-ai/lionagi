@@ -6,12 +6,7 @@ import copy as _copy
 import logging
 import types
 import uuid
-from collections.abc import (
-    AsyncGenerator,
-    Callable,
-    Iterable,
-    Mapping,
-)
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from inspect import isclass
 from pathlib import Path

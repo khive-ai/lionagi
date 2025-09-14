@@ -3,15 +3,16 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import Enum as _Enum
-from typing import Any, Callable, Literal
-from ._fuzzy_json import fuzzy_json
+from typing import Any, Literal
 
+from ._fuzzy_json import fuzzy_json
 
 # ----------------------------
 # Helpers (small, tight, local)
 # ----------------------------
+
 
 def _is_na(obj: Any) -> bool:
     """None / Pydantic undefined sentinels -> treat as NA."""
@@ -19,10 +20,17 @@ def _is_na(obj: Any) -> bool:
         return True
     # Avoid importing pydantic types; match by typename to stay lightweight
     tname = type(obj).__name__
-    return tname in {"Undefined", "UndefinedType", "PydanticUndefined", "PydanticUndefinedType"}
+    return tname in {
+        "Undefined",
+        "UndefinedType",
+        "PydanticUndefined",
+        "PydanticUndefinedType",
+    }
 
 
-def _enum_class_to_dict(enum_cls: type[_Enum], use_enum_values: bool) -> dict[str, Any]:
+def _enum_class_to_dict(
+    enum_cls: type[_Enum], use_enum_values: bool
+) -> dict[str, Any]:
     members = dict(enum_cls.__members__)  # cheap, stable
     if use_enum_values:
         return {k: v.value for k, v in members.items()}
@@ -44,6 +52,7 @@ def _parse_str(
     if str_type == "xml":
         # xmltodict is optional; import only if needed
         import xmltodict
+
         return xmltodict.parse(s, **kwargs)
 
     # JSON path
@@ -101,6 +110,7 @@ def _enumerate_iterable(it: Iterable) -> dict[int, Any]:
 # Recursive pre-processing (single pass)
 # ---------------------------------------
 
+
 def _preprocess_recursive(
     obj: Any,
     *,
@@ -141,15 +151,17 @@ def _preprocess_recursive(
     # Dict-like
     if isinstance(obj, Mapping):
         # Recurse only into values (keys kept as-is)
-        return {k: _preprocess_recursive(
-                    v,
-                    depth=depth + 1,
-                    max_depth=max_depth,
-                    recursive_custom_types=recursive_custom_types,
-                    str_parse_opts=str_parse_opts,
-                    use_model_dump=use_model_dump,
-                )
-                for k, v in obj.items()}
+        return {
+            k: _preprocess_recursive(
+                v,
+                depth=depth + 1,
+                max_depth=max_depth,
+                recursive_custom_types=recursive_custom_types,
+                str_parse_opts=str_parse_opts,
+                use_model_dump=use_model_dump,
+            )
+            for k, v in obj.items()
+        }
 
     # Sequence/Set-like (but not str)
     if isinstance(obj, (list, tuple, set, frozenset)):
@@ -176,7 +188,10 @@ def _preprocess_recursive(
     # Enum *class* (rare in values, but preserve your original attempt)
     if isinstance(obj, type) and issubclass(obj, _Enum):
         try:
-            enum_map = _enum_class_to_dict(obj, use_enum_values=str_parse_opts.get("use_enum_values", True))
+            enum_map = _enum_class_to_dict(
+                obj,
+                use_enum_values=str_parse_opts.get("use_enum_values", True),
+            )
             return _preprocess_recursive(
                 enum_map,
                 depth=depth + 1,
@@ -191,7 +206,9 @@ def _preprocess_recursive(
     # Custom objects
     if recursive_custom_types:
         with contextlib.suppress(Exception):
-            mapped = _object_to_mapping_like(obj, use_model_dump=use_model_dump)
+            mapped = _object_to_mapping_like(
+                obj, use_model_dump=use_model_dump
+            )
             return _preprocess_recursive(
                 mapped,
                 depth=depth + 1,
@@ -207,6 +224,7 @@ def _preprocess_recursive(
 # ---------------------------------------
 # Top-level conversion (non-recursive)
 # ---------------------------------------
+
 
 def _convert_top_level_to_dict(
     obj: Any,
@@ -240,7 +258,13 @@ def _convert_top_level_to_dict(
 
     # str -> parse (and return *as parsed*, which may be list, dict, etc.)
     if isinstance(obj, str):
-        return _parse_str(obj, fuzzy_parse=fuzzy_parse, str_type=str_type, parser=parser, **kwargs)
+        return _parse_str(
+            obj,
+            fuzzy_parse=fuzzy_parse,
+            str_type=str_type,
+            parser=parser,
+            **kwargs,
+        )
 
     # Try "custom" object conversions
     # (Covers BaseModel via model_dump, dataclasses, __dict__, json-strings, etc.)
@@ -248,14 +272,23 @@ def _convert_top_level_to_dict(
         # If it's *not* a Sequence (e.g., numbers, objects) we try object conversion first,
         # faithfully following your previous "non-Sequence -> model path" behavior.
         if not isinstance(obj, Sequence):
-            converted = _object_to_mapping_like(obj, use_model_dump=use_model_dump, **kwargs)
+            converted = _object_to_mapping_like(
+                obj, use_model_dump=use_model_dump, **kwargs
+            )
             # If conversion returned a string, try to parse JSON to mapping; else pass-through
             if isinstance(converted, str):
-                return _parse_str(converted, fuzzy_parse=fuzzy_parse, str_type="json", parser=None)
+                return _parse_str(
+                    converted,
+                    fuzzy_parse=fuzzy_parse,
+                    str_type="json",
+                    parser=None,
+                )
             if isinstance(converted, Mapping):
                 return dict(converted)
             # If it's a list/tuple/etc., enumerate (your original did that after the fact)
-            if isinstance(converted, Iterable) and not isinstance(converted, (str, bytes, bytearray)):
+            if isinstance(converted, Iterable) and not isinstance(
+                converted, (str, bytes, bytearray)
+            ):
                 return _enumerate_iterable(converted)
             # Best effort final cast
             return dict(converted)
@@ -265,7 +298,9 @@ def _convert_top_level_to_dict(
         pass
 
     # Iterable (list/tuple/namedtuple/frozenset/…): enumerate
-    if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes, bytearray)):
+    if isinstance(obj, Iterable) and not isinstance(
+        obj, (str, bytes, bytearray)
+    ):
         return _enumerate_iterable(obj)
 
     # Dataclass fallback (reachable only if it wasn't caught above)
@@ -280,6 +315,7 @@ def _convert_top_level_to_dict(
 # ---------------
 # Public function
 # ---------------
+
 
 def to_dict(
     input_: Any,
@@ -306,9 +342,13 @@ def to_dict(
             max_depth = 5
         else:
             if max_recursive_depth < 0:
-                raise ValueError("max_recursive_depth must be a non-negative integer")
+                raise ValueError(
+                    "max_recursive_depth must be a non-negative integer"
+                )
             if max_recursive_depth > 10:
-                raise ValueError("max_recursive_depth must be less than or equal to 10")
+                raise ValueError(
+                    "max_recursive_depth must be less than or equal to 10"
+                )
             max_depth = max_recursive_depth
 
         # Prepare one small dict to avoid repeated arg passing and lookups

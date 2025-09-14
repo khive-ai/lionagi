@@ -1,4 +1,5 @@
-from typing import Any, Callable, Literal, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
