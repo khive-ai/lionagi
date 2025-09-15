@@ -10,15 +10,18 @@ using Events for synchronization and CapacityLimiter for concurrency control.
 """
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lionagi.ln._async_call import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
 from lionagi.operations.node import Operation
-from lionagi.protocols.types import EventStatus, Graph
-from lionagi.session.branch import Branch
-from lionagi.session.session import Session
+from lionagi.protocols.types import EventStatus
 from lionagi.utils import to_dict
+
+if TYPE_CHECKING:
+    from lionagi.protocols.graph.graph import Graph
+    from lionagi.session.session import Branch, Session
+
 
 # Maximum concurrency when None is specified (effectively unlimited)
 UNLIMITED_CONCURRENCY = int(os.environ.get("LIONAGI_MAX_CONCURRENCY", "10000"))
@@ -29,12 +32,12 @@ class DependencyAwareExecutor:
 
     def __init__(
         self,
-        session: Session,
-        graph: Graph,
+        session: "Session",
+        graph: "Graph",
         context: dict[str, Any] | None = None,
         max_concurrent: int = 5,
         verbose: bool = False,
-        default_branch: Branch | None = None,
+        default_branch: "Branch" = None,
         alcall_params: AlcallParams | None = None,
     ):
         """Initialize the executor.
@@ -402,7 +405,7 @@ class DependencyAwareExecutor:
         branch = self._resolve_branch_for_operation(operation)
         self.operation_branches[operation.id] = branch
 
-    def _resolve_branch_for_operation(self, operation: Operation) -> Branch:
+    def _resolve_branch_for_operation(self, operation: Operation) -> "Branch":
         """Resolve which branch an operation should use - all branches are pre-allocated."""
         # All branches should be pre-allocated
         if operation.id in self.operation_branches:
@@ -501,10 +504,10 @@ class DependencyAwareExecutor:
 
 
 async def flow(
-    session: Session,
-    graph: Graph,
+    session: "Session",
+    graph: "Graph",
     *,
-    branch: Branch | None = None,
+    branch: "Branch" = None,
     context: dict[str, Any] | None = None,
     parallel: bool = True,
     max_concurrent: int = None,

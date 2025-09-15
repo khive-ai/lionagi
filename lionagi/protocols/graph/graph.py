@@ -19,10 +19,8 @@ from .node import Node
 
 T = TypeVar("T", bound=Node)
 
-from ._utils import check_matplotlib_available, check_networkx_available
-
-_NETWORKX_AVAILABLE = check_networkx_available()
-_MATPLIB_AVAILABLE = check_matplotlib_available()
+_NETWORKX_AVAILABLE = None
+_MATPLIB_AVAILABLE = None
 __all__ = ("Graph",)
 
 
@@ -219,8 +217,17 @@ class Graph(Element, Relational, Generic[T]):
 
     def to_networkx(self, **kwargs) -> Any:
         """Convert the graph to a NetworkX graph object."""
+        global _NETWORKX_AVAILABLE
+        if _NETWORKX_AVAILABLE is None:
+            from lionagi.ln import is_import_installed
+
+            _NETWORKX_AVAILABLE = is_import_installed("networkx")
+
         if _NETWORKX_AVAILABLE is not True:
-            raise _NETWORKX_AVAILABLE
+            raise ImportError(
+                "The 'networkx' package is required for this feature. "
+                "Please install `networkx` or `'lionagi[graph]'`."
+            )
 
         from networkx import DiGraph  # type: ignore
 
@@ -248,8 +255,18 @@ class Graph(Element, Relational, Generic[T]):
     ):
         """Display the graph using NetworkX and Matplotlib."""
         g = self.to_networkx(**kwargs)
+
+        global _MATPLIB_AVAILABLE
+        if _MATPLIB_AVAILABLE is None:
+            from lionagi.ln import is_import_installed
+
+            _MATPLIB_AVAILABLE = is_import_installed("matplotlib")
+
         if _MATPLIB_AVAILABLE is not True:
-            raise _MATPLIB_AVAILABLE
+            raise ImportError(
+                "The 'matplotlib' package is required for this feature. "
+                "Please install `matplotlib` or `'lionagi[graph]'`."
+            )
 
         import matplotlib.pyplot as plt  # type: ignore
         import networkx as nx  # type: ignore

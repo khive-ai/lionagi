@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
@@ -12,11 +12,13 @@ from lionagi.fields.instruct import (
     Instruct,
     InstructResponse,
 )
-from lionagi.ln import alcall
+from lionagi.ln import alcall, to_list
 from lionagi.protocols.generic.element import ID
-from lionagi.session.branch import Branch
-from lionagi.session.session import Session
-from lionagi.utils import to_list
+
+if TYPE_CHECKING:
+    from lionagi.session.branch import Branch
+    from lionagi.session.session import Session
+
 
 from ..utils import prepare_instruct, prepare_session
 from .prompt import PROMPT
@@ -58,8 +60,8 @@ def chunked(iterable, n):
 
 async def run_instruct(
     ins: Instruct,
-    session: Session,
-    branch: Branch,
+    session: "Session",
+    branch: "Branch",
     auto_run: bool,
     verbose: bool = True,
     **kwargs: Any,
@@ -113,8 +115,8 @@ async def run_instruct(
 async def brainstorm(
     instruct: Instruct | dict[str, Any],
     num_instruct: int = 2,
-    session: Session | None = None,
-    branch: Branch | ID.Ref | None = None,
+    session: "Session" = None,
+    branch: ID["Branch"].Ref | None = None,
     auto_run: bool = True,
     auto_explore: bool = False,
     explore_kwargs: dict[str, Any] | None = None,
@@ -156,8 +158,8 @@ async def brainstorm(
 async def brainstormStream(
     instruct: Instruct | dict[str, Any],
     num_instruct: int = 2,
-    session: Session | None = None,
-    branch: Branch | ID.Ref | None = None,
+    session: "Session" = None,
+    branch: ID["Branch"].Ref | None = None,
     auto_run: bool = True,
     auto_explore: bool = False,
     explore_kwargs: dict[str, Any] | None = None,
@@ -377,7 +379,7 @@ async def brainstormStream(
                     all_responses = []
 
                     async def explore_concurrent_chunk(
-                        sub_instructs: list[Instruct], base_branch: Branch
+                        sub_instructs: list[Instruct], base_branch: "Branch"
                     ):
                         """
                         Explore instructions in a single chunk concurrently.

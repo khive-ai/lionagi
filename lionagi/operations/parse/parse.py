@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
-from lionagi.protocols.types import Operative
 from lionagi.utils import breakdown_pydantic_annotation
 
 if TYPE_CHECKING:
@@ -22,7 +21,7 @@ async def parse(
     ] = "return_value",
     max_retries: int = 3,
     request_type: type[BaseModel] = None,
-    operative: Operative = None,
+    operative=None,
     similarity_algo="jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,

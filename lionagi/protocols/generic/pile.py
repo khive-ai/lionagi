@@ -18,7 +18,6 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
-import pandas as pd
 from pydantic import Field, field_serializer
 from pydantic.fields import FieldInfo
 from pydapter import Adaptable, AsyncAdaptable
@@ -1047,9 +1046,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         kw["adapt_meth"] = "from_dict"
         return await super().adapt_from_async(obj, obj_key, many=many, **kw)
 
-    def to_df(
-        self, columns: list[str] | None = None, **kw: Any
-    ) -> pd.DataFrame:
+    def to_df(self, columns: list[str] | None = None, **kw: Any):
         """Convert to DataFrame."""
         from pydapter.extras.pandas_ import DataFrameAdapter
 
@@ -1207,11 +1204,10 @@ def to_list_type(value: Any, /) -> list[Any]:
 
 if not _ADAPATER_REGISTERED:
     from pydapter.adapters import CsvAdapter, JsonAdapter
-    from pydapter.extras.pandas_ import DataFrameAdapter
 
     Pile.register_adapter(CsvAdapter)
     Pile.register_adapter(JsonAdapter)
-    Pile.register_adapter(DataFrameAdapter)
+
     _ADAPATER_REGISTERED = True
 
 Pile = Pile

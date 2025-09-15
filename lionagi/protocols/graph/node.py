@@ -124,11 +124,9 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
 
 if not _ADAPATER_REGISTERED:
     from pydapter.adapters import JsonAdapter, TomlAdapter
-    from pydapter.extras.pandas_ import SeriesAdapter
 
     Node.register_adapter(JsonAdapter)
     Node.register_adapter(TomlAdapter)
-    Node.register_adapter(SeriesAdapter)
 
     from lionagi.adapters._utils import check_async_postgres_available
 
