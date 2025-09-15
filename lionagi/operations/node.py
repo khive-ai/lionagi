@@ -1,13 +1,15 @@
 import asyncio
 import logging
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from anyio import get_cancelled_exc_class
 from pydantic import BaseModel, Field
 
 from lionagi.protocols.types import ID, Event, EventStatus, IDType, Node
-from lionagi.session.branch import Branch
+
+if TYPE_CHECKING:
+    from lionagi.session.branch import Branch
 
 BranchOperations = Literal[
     "chat",
@@ -74,7 +76,7 @@ class Operation(Node, Event):
         """Get the response from the execution."""
         return self.execution.response if self.execution else None
 
-    async def invoke(self, branch: Branch):
+    async def invoke(self, branch: "Branch"):
         meth = branch.get_operation(self.operation)
         if meth is None:
             raise ValueError(f"Unsupported operation type: {self.operation}")
@@ -108,3 +110,12 @@ class Operation(Node, Event):
                 res.append(i)
             return res
         return await meth(**self.request)
+
+
+def create_operation(
+    operation: BranchOperations | str,
+    parameters: dict[str, Any] | BaseModel = None,
+    **kwargs,
+):
+    """Create an Operation node."""
+    return Operation(operation=operation, parameters=parameters, **kwargs)

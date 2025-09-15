@@ -4,10 +4,8 @@
 
 from collections.abc import AsyncGenerator, Callable
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
-import pandas as pd
-from jinja2 import Template
 from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
 
 from lionagi.config import settings
@@ -15,11 +13,11 @@ from lionagi.fields import Instruct
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.models.field_model import FieldModel
 from lionagi.operations.manager import OperationManager
+from lionagi.protocols.action.manager import ActionManager
 from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
-    ActionManager,
     ActionRequest,
     ActionResponse,
     AssistantResponse,
@@ -34,8 +32,6 @@ from lionagi.protocols.types import (
     Mailbox,
     MessageManager,
     MessageRole,
-    Operative,
-    Package,
     PackageCategory,
     Pile,
     Progression,
@@ -53,6 +49,10 @@ from lionagi.utils import alcall as alcall_legacy
 from lionagi.utils import copy
 
 from .prompts import LION_SYSTEM_MESSAGE
+
+if TYPE_CHECKING:
+    from lionagi.protocols.operatives.operative import Operative
+
 
 __all__ = ("Branch",)
 
@@ -117,18 +117,18 @@ class Branch(Element, Communicatable, Relational):
     def __init__(
         self,
         *,
-        user: SenderRecipient = None,
+        user: "SenderRecipient" = None,
         name: str | None = None,
         messages: Pile[RoledMessage] = None,  # message manager kwargs
         system: System | JsonValue = None,
-        system_sender: SenderRecipient = None,
+        system_sender: "SenderRecipient" = None,
         chat_model: iModel | dict = None,  # iModelManager kwargs
         parse_model: iModel | dict = None,
         imodel: iModel = None,  # deprecated, alias of chat_model
         tools: FuncTool | list[FuncTool] = None,  # ActionManager kwargs
         log_config: LogManagerConfig | dict = None,  # LogManager kwargs
         system_datetime: bool | str = None,
-        system_template: Template | str = None,
+        system_template=None,
         system_template_context: dict = None,
         logs: Pile[Log] = None,
         use_lion_system_message: bool = False,
@@ -163,7 +163,7 @@ class Branch(Element, Communicatable, Relational):
             system_datetime (bool | str, optional):
                 Whether to include timestamps in system messages (True/False)
                 or a string format for datetime.
-            system_template (Template | str, optional):
+            system_template (jinja2.Template | str, optional):
                 Optional Jinja2 template for system messages.
             system_template_context (dict, optional):
                 Context for rendering the system template.
@@ -177,6 +177,8 @@ class Branch(Element, Communicatable, Relational):
         super().__init__(user=user, name=name, **kwargs)
 
         # --- MessageManager ---
+        from lionagi.protocols.messages.manager import MessageManager
+
         self._message_manager = MessageManager(messages=messages)
 
         if any(
@@ -401,7 +403,7 @@ class Branch(Element, Communicatable, Relational):
     # -------------------------------------------------------------------------
     # Conversion / Serialization
     # -------------------------------------------------------------------------
-    def to_df(self, *, progression: Progression = None) -> pd.DataFrame:
+    def to_df(self, *, progression: Progression = None):
         """
         Convert branch messages into a `pandas.DataFrame`.
 
@@ -412,6 +414,8 @@ class Branch(Element, Communicatable, Relational):
         Returns:
             pd.DataFrame: Each row represents a message, with columns defined by MESSAGE_FIELDS.
         """
+        from lionagi.protocols.generic.pile import Pile
+
         if progression is None:
             progression = self.msgs.progression
 
@@ -429,7 +433,7 @@ class Branch(Element, Communicatable, Relational):
     def send(
         self,
         recipient: IDType,
-        category: PackageCategory | None,
+        category: Optional["PackageCategory"],
         item: Any,
         request_source: IDType | None = None,
     ) -> None:
@@ -446,6 +450,8 @@ class Branch(Element, Communicatable, Relational):
             request_source (IDType | None):
                 The ID that prompted or requested this send operation (optional).
         """
+        from lionagi.protocols.mail.package import Package
+
         package = Package(
             category=category,
             item=item,
@@ -833,7 +839,7 @@ class Branch(Element, Communicatable, Relational):
         ] = "return_value",
         max_retries: int = 3,
         request_type: type[BaseModel] = None,
-        operative: Operative = None,
+        operative: "Operative" = None,
         similarity_algo="jaro_winkler",
         similarity_threshold: float = 0.85,
         fuzzy_match: bool = True,
@@ -911,8 +917,8 @@ class Branch(Element, Communicatable, Relational):
         instruction: Instruction | JsonValue = None,
         guidance: JsonValue = None,
         context: JsonValue = None,
-        sender: SenderRecipient = None,
-        recipient: SenderRecipient = None,
+        sender: "SenderRecipient" = None,
+        recipient: "SenderRecipient" = None,
         progression: Progression = None,
         chat_model: iModel = None,
         invoke_actions: bool = True,
@@ -922,7 +928,7 @@ class Branch(Element, Communicatable, Relational):
         parse_model: iModel = None,
         skip_validation: bool = False,
         tools: ToolRef = None,
-        operative: Operative = None,
+        operative: "Operative" = None,
         response_format: type[
             BaseModel
         ] = None,  # alias of operative.request_type
@@ -1063,8 +1069,8 @@ class Branch(Element, Communicatable, Relational):
         guidance: JsonValue = None,
         context: JsonValue = None,
         plain_content: str = None,
-        sender: SenderRecipient = None,
-        recipient: SenderRecipient = None,
+        sender: "SenderRecipient" = None,
+        recipient: "SenderRecipient" = None,
         progression: ID.IDSeq = None,
         response_format: type[BaseModel] = None,
         request_fields: dict | list[str] = None,

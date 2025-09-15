@@ -4,13 +4,13 @@ from pydantic import BaseModel
 
 from lionagi.fields.action import ActionResponseModel
 from lionagi.fields.instruct import Instruct
+from lionagi.protocols.operatives.operative import Operative
 from lionagi.protocols.types import (
     ActionRequest,
     AssistantResponse,
     Instruction,
     LogManagerConfig,
     MessageRole,
-    Operative,
     PackageCategory,
     RoledMessage,
 )

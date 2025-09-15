@@ -2,18 +2,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import TYPE_CHECKING
+
 from lionagi.fields.instruct import Instruct
-from lionagi.session.session import Branch, Session
+
+if TYPE_CHECKING:
+    from lionagi.session.session import Branch, Session
 
 
 def prepare_session(
-    session: Session | None = None,
-    branch: Branch | None = None,
+    session: "Session" = None,
+    branch: "Branch" = None,
     branch_kwargs=None,
-) -> tuple[Session, Branch]:
+) -> tuple["Session", "Branch"]:
+    from lionagi.session.session import Branch, Session
+
     if session is not None:
         if branch is not None:
-            branch: Branch = session.branches[branch]
+            branch: "Branch" = session.branches[branch]
         else:
             branch = session.new_branch(**(branch_kwargs or {}))
     else:

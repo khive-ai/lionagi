@@ -1,8 +1,6 @@
 from ._async_call import alcall, bcall
 from ._hash import hash_dict
 from ._json_dump import (
-    DEFAULT_SERIALIZER,
-    DEFAULT_SERIALIZER_OPTION,
     get_orjson_default,
     json_dumpb,
     json_dumps,
@@ -48,8 +46,6 @@ __all__ = (
     "alcall",
     "bcall",
     "hash_dict",
-    "DEFAULT_SERIALIZER",
-    "DEFAULT_SERIALIZER_OPTION",
     "get_orjson_default",
     "json_dumps",
     "make_options",

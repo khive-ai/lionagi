@@ -6,7 +6,6 @@ import contextlib
 from collections.abc import Callable
 from typing import Any
 
-import pandas as pd
 from pydantic import (
     Field,
     JsonValue,
@@ -19,7 +18,6 @@ from typing_extensions import Self
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
-    ActionManager,
     Communicatable,
     Exchange,
     Graph,
@@ -33,13 +31,12 @@ from lionagi.protocols.types import (
     RoledMessage,
     SenderRecipient,
     System,
-    Tool,
 )
 
 from .._errors import ItemNotFoundError
 from ..ln import lcall
 from ..service.imodel import iModel
-from .branch import Branch, OperationManager
+from .branch import ActionManager, Branch, OperationManager, Tool
 
 
 class Session(Node, Communicatable, Relational):
@@ -257,7 +254,7 @@ class Session(Node, Communicatable, Relational):
         branches: ID.RefSeq = None,
         exclude_clone: bool = False,
         exlcude_load: bool = False,
-    ) -> pd.DataFrame:
+    ):
         out = self.concat_messages(
             branches=branches,
             exclude_clone=exclude_clone,
@@ -297,19 +294,6 @@ class Session(Node, Communicatable, Relational):
         return Pile(
             collections=messages, item_type={RoledMessage}, strict_type=False
         )
-
-    def to_df(
-        self,
-        branches: ID.RefSeq = None,
-        exclude_clone: bool = False,
-        exclude_load: bool = False,
-    ) -> pd.DataFrame:
-        out = self.concat_messages(
-            branches=branches,
-            exclude_clone=exclude_clone,
-            exclude_load=exclude_load,
-        )
-        return out.to_df(columns=MESSAGE_FIELDS)
 
     def send(self, to_: ID.RefSeq = None):
         """

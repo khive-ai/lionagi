@@ -2,7 +2,7 @@
 
 from pydantic import Field
 
-from lionagi.protocols.types import Form
+from lionagi.protocols.forms.form import Form
 from lionagi.utils import UNDEFINED
 
 

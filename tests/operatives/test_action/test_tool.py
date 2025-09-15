@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from lionagi.protocols.types import Tool
+from lionagi.protocols.action.tool import Tool
 
 
 # Helper functions - not test cases
