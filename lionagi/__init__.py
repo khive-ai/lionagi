@@ -19,6 +19,7 @@ logger.setLevel(logging.INFO)
 # Module-level lazy loading cache
 _lazy_imports = {}
 
+
 def __getattr__(name: str):
     """Lazy loading for expensive imports."""
     if name in _lazy_imports:
@@ -26,14 +27,17 @@ def __getattr__(name: str):
 
     if name == "types":
         from . import _types as types
+
         _lazy_imports["types"] = types
         return types
     elif name == "Builder":
         from .operations.builder import OperationGraphBuilder as Builder
+
         _lazy_imports["Builder"] = Builder
         return Builder
 
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 __all__ = (
     "Session",

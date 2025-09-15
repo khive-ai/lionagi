@@ -132,7 +132,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
 
 def _ensure_postgres_adapter():
     """Lazy registration of postgres adapter when needed"""
-    if not hasattr(Node, '_postgres_adapter_checked'):
+    if not hasattr(Node, "_postgres_adapter_checked"):
         from lionagi.adapters._utils import check_async_postgres_available
 
         if check_async_postgres_available() is True:
@@ -140,10 +140,12 @@ def _ensure_postgres_adapter():
                 from lionagi.adapters.async_postgres_adapter import (
                     LionAGIAsyncPostgresAdapter,
                 )
+
                 Node.register_async_adapter(LionAGIAsyncPostgresAdapter)
             except ImportError:
                 pass  # Graceful degradation if postgres dependencies missing
         Node._postgres_adapter_checked = True
+
 
 if not _ADAPATER_REGISTERED:
     from pydapter.adapters import JsonAdapter, TomlAdapter

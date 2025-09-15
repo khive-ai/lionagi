@@ -15,10 +15,13 @@ from lionagi.service.hooks import HookEvent, HookEventTypes, global_hook_logger
 
 from .endpoint import Endpoint
 
+
 # Lazy import for TokenCalculator
 def _get_token_calculator():
     from lionagi.service.token_calculator import TokenCalculator
+
     return TokenCalculator
+
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +162,9 @@ class APICalling(Event):
             )
         # Handle embeddings endpoint
         elif "embed" in self.endpoint.config.endpoint:
-            return _get_token_calculator().calculate_embed_token(**self.payload)
+            return _get_token_calculator().calculate_embed_token(
+                **self.payload
+            )
 
         return None
 

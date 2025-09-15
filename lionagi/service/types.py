@@ -14,6 +14,7 @@ from .rate_limited_processor import RateLimitedAPIExecutor
 # Lazy loading cache
 _lazy_imports = {}
 
+
 def __getattr__(name: str):
     """Lazy loading for heavy service imports."""
     if name in _lazy_imports:
@@ -21,10 +22,12 @@ def __getattr__(name: str):
 
     if name == "TokenCalculator":
         from .token_calculator import TokenCalculator
+
         _lazy_imports["TokenCalculator"] = TokenCalculator
         return TokenCalculator
 
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 __all__ = (
     "APICalling",

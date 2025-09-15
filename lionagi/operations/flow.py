@@ -551,7 +551,9 @@ async def flow(
     return await executor.execute()
 
 
-def cleanup_flow_results(result: dict[str, Any], keep_only: list[str] = None) -> dict[str, Any]:
+def cleanup_flow_results(
+    result: dict[str, Any], keep_only: list[str] = None
+) -> dict[str, Any]:
     """
     Clean up flow execution results to reduce memory usage.
 
@@ -568,13 +570,15 @@ def cleanup_flow_results(result: dict[str, Any], keep_only: list[str] = None) ->
     # If keep_only is specified, only keep those results
     if keep_only is not None:
         filtered_results = {
-            op_id: res for op_id, res in result["operation_results"].items()
+            op_id: res
+            for op_id, res in result["operation_results"].items()
             if op_id in keep_only
         }
         result["operation_results"] = filtered_results
         # Update completed_operations to match
         result["completed_operations"] = [
-            op_id for op_id in result.get("completed_operations", [])
+            op_id
+            for op_id in result.get("completed_operations", [])
             if op_id in keep_only
         ]
     else:
@@ -628,7 +632,7 @@ async def flow_with_cleanup(
     )
 
     # Clean up session memory
-    if hasattr(session, 'cleanup_memory'):
+    if hasattr(session, "cleanup_memory"):
         session.cleanup_memory()
 
     # Clean up results if requested
