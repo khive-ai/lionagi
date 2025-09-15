@@ -24,8 +24,6 @@ from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.flow import flow
 from lionagi.session.session import Session
 
-# from lionagi.service.connections.providers.claude_code_cli import ClaudeCodeModel  # Not needed for these tests
-
 
 class MockClaudeCode:
     """Mock Claude Code model for testing."""

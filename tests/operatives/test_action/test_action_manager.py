@@ -1,13 +1,13 @@
 import pytest
 
 from lionagi.fields.action import ActionRequestModel
-from lionagi.protocols.generic.event import EventStatus
-from lionagi.protocols.types import (
+from lionagi.protocols.action.manager import (
     ActionManager,
     ActionRequest,
     FunctionCalling,
     Tool,
 )
+from lionagi.protocols.generic.event import EventStatus
 
 
 # Helper functions for testing
