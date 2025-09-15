@@ -549,3 +549,90 @@ async def flow(
     )
 
     return await executor.execute()
+
+
+def cleanup_flow_results(result: dict[str, Any], keep_only: list[str] = None) -> dict[str, Any]:
+    """
+    Clean up flow execution results to reduce memory usage.
+
+    Args:
+        result: Flow execution result dictionary
+        keep_only: List of operation IDs to keep results for (optional)
+
+    Returns:
+        Modified result dictionary with reduced memory footprint
+    """
+    if not isinstance(result, dict) or "operation_results" not in result:
+        return result
+
+    # If keep_only is specified, only keep those results
+    if keep_only is not None:
+        filtered_results = {
+            op_id: res for op_id, res in result["operation_results"].items()
+            if op_id in keep_only
+        }
+        result["operation_results"] = filtered_results
+        # Update completed_operations to match
+        result["completed_operations"] = [
+            op_id for op_id in result.get("completed_operations", [])
+            if op_id in keep_only
+        ]
+    else:
+        # Clear all results to free memory
+        result["operation_results"] = {}
+        result["completed_operations"] = []
+
+    return result
+
+
+async def flow_with_cleanup(
+    session: "Session",
+    graph: "Graph",
+    context: dict[str, Any] | None = None,
+    parallel: bool = True,
+    max_concurrent: int = 5,
+    verbose: bool = False,
+    branch: "Branch" = None,
+    alcall_params: AlcallParams | None = None,
+    cleanup_results: bool = True,
+    keep_only: list[str] = None,
+) -> dict[str, Any]:
+    """
+    Execute flow with automatic cleanup to prevent memory accumulation.
+
+    Args:
+        session: Session instance for branch management
+        graph: Operation graph to execute
+        context: Initial context data
+        parallel: Execute independent operations in parallel
+        max_concurrent: Max concurrent operations (1 if not parallel)
+        verbose: Enable verbose logging
+        branch: Default branch for operations
+        alcall_params: Parameters for async parallel call execution
+        cleanup_results: Whether to clean up operation results after execution
+        keep_only: List of operation IDs to keep results for (if cleanup_results=True)
+
+    Returns:
+        Execution results (potentially with cleaned up memory footprint)
+    """
+    # Execute the flow normally
+    result = await flow(
+        session=session,
+        graph=graph,
+        context=context,
+        parallel=parallel,
+        max_concurrent=max_concurrent,
+        verbose=verbose,
+        branch=branch,
+        alcall_params=alcall_params,
+    )
+
+    # Clean up session memory
+    if hasattr(session, 'cleanup_memory'):
+        session.cleanup_memory()
+
+    # Clean up results if requested
+    if cleanup_results:
+        result = cleanup_flow_results(result, keep_only=keep_only)
+
+    return result

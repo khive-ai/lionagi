@@ -12,9 +12,13 @@ from typing_extensions import Self
 from lionagi.protocols.generic.event import Event, EventStatus
 from lionagi.protocols.types import Log
 from lionagi.service.hooks import HookEvent, HookEventTypes, global_hook_logger
-from lionagi.service.token_calculator import TokenCalculator
 
 from .endpoint import Endpoint
+
+# Lazy import for TokenCalculator
+def _get_token_calculator():
+    from lionagi.service.token_calculator import TokenCalculator
+    return TokenCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +133,7 @@ class APICalling(Event):
 
         # Handle chat completions format
         if "messages" in self.payload:
-            return TokenCalculator.calculate_message_tokens(
+            return _get_token_calculator().calculate_message_tokens(
                 self.payload["messages"], **self.payload
             )
         # Handle responses API format
@@ -150,12 +154,12 @@ class APICalling(Event):
                             messages.append(item)
             else:
                 return None
-            return TokenCalculator.calculate_message_tokens(
+            return _get_token_calculator().calculate_message_tokens(
                 messages, **self.payload
             )
         # Handle embeddings endpoint
         elif "embed" in self.endpoint.config.endpoint:
-            return TokenCalculator.calculate_embed_token(**self.payload)
+            return _get_token_calculator().calculate_embed_token(**self.payload)
 
         return None
 

@@ -416,6 +416,44 @@ class Session(Node, Communicatable, Relational):
             alcall_params=alcall_params,
         )
 
+    def cleanup_memory(self, clear_branches: bool = True, clear_mail: bool = True):
+        """
+        Clean up session memory to prevent memory accumulation.
+
+        Args:
+            clear_branches: Whether to clear branch logs and memory
+            clear_mail: Whether to clear mail transfer history
+        """
+        if clear_branches and self.branches:
+            for branch in self.branches:
+                if hasattr(branch, 'dump_logs'):
+                    branch.dump_logs(clear=True)
+
+        if clear_mail and self.mail_transfer:
+            # Clear mail transfer history if available
+            if hasattr(self.mail_transfer, 'clear'):
+                self.mail_transfer.clear()
+
+    async def acleanup_memory(self, clear_branches: bool = True, clear_mail: bool = True):
+        """
+        Asynchronously clean up session memory to prevent memory accumulation.
+
+        Args:
+            clear_branches: Whether to clear branch logs and memory
+            clear_mail: Whether to clear mail transfer history
+        """
+        if clear_branches and self.branches:
+            for branch in self.branches:
+                if hasattr(branch, 'adump_logs'):
+                    await branch.adump_logs(clear=True)
+
+        if clear_mail and self.mail_transfer:
+            # Clear mail transfer history if available
+            if hasattr(self.mail_transfer, 'aclear'):
+                await self.mail_transfer.aclear()
+            elif hasattr(self.mail_transfer, 'clear'):
+                self.mail_transfer.clear()
+
 
 __all__ = ["Session"]
 # File: autoos/session/session.py

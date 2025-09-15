@@ -62,6 +62,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
     async def adapt_to_async(
         self, obj_key: str, many=False, **kwargs: Any
     ) -> Any:
+        # Only register postgres adapter if this specific operation needs it
+        if obj_key == "lionagi_async_pg":
+            _ensure_postgres_adapter()
+
         kwargs["adapt_meth"] = "to_dict"
         kwargs["adapt_kw"] = {"mode": "db"}
         return await super().adapt_to_async(
@@ -76,6 +80,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         many=False,
         **kwargs: Any,
     ) -> Node:
+        # Only register postgres adapter if this specific operation needs it
+        if obj_key == "lionagi_async_pg":
+            _ensure_postgres_adapter()
+
         kwargs["adapt_meth"] = "from_dict"
         return await super().adapt_from_async(
             obj, obj_key=obj_key, many=many, **kwargs
@@ -122,20 +130,29 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         return value
 
 
+def _ensure_postgres_adapter():
+    """Lazy registration of postgres adapter when needed"""
+    if not hasattr(Node, '_postgres_adapter_checked'):
+        from lionagi.adapters._utils import check_async_postgres_available
+
+        if check_async_postgres_available() is True:
+            try:
+                from lionagi.adapters.async_postgres_adapter import (
+                    LionAGIAsyncPostgresAdapter,
+                )
+                Node.register_async_adapter(LionAGIAsyncPostgresAdapter)
+            except ImportError:
+                pass  # Graceful degradation if postgres dependencies missing
+        Node._postgres_adapter_checked = True
+
 if not _ADAPATER_REGISTERED:
     from pydapter.adapters import JsonAdapter, TomlAdapter
 
     Node.register_adapter(JsonAdapter)
     Node.register_adapter(TomlAdapter)
 
-    from lionagi.adapters._utils import check_async_postgres_available
-
-    if check_async_postgres_available() is True:
-        from lionagi.adapters.async_postgres_adapter import (
-            LionAGIAsyncPostgresAdapter,
-        )
-
-        Node.register_async_adapter(LionAGIAsyncPostgresAdapter)
+    # PostgreSQL adapter registration is now lazy - only loaded when needed
+    # Call _ensure_postgres_adapter() in methods that actually use async adapters
 
     _ADAPATER_REGISTERED = True
 
