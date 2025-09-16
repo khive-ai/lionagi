@@ -15,7 +15,6 @@ dependencies = [
     "jinja2>=3.0.0",
     "json-repair>=0.40.0",
     "matplotlib>=3.10.3",
-    "memory-profiler>=0.61.0",
     "msgspec>=0.18.0",
     "pandas>=2.3.1",
     "psutil>=7.0.0",
@@ -66,6 +65,7 @@ dev = [
     "mkdocstrings-python>=1.17.0",
     "trio>=0.30.0",
     "line-profiler>=5.0.0",
+    "memory-profiler>=0.61.0",
 ]
 
 [project.optional-dependencies]
