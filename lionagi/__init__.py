@@ -6,7 +6,6 @@ import logging
 
 from pydantic import BaseModel, Field
 
-# Eager imports for commonly used components
 from . import ln as ln
 from .operations.node import Operation
 from .service.imodel import iModel
@@ -35,6 +34,11 @@ def __getattr__(name: str):
 
         _lazy_imports["Builder"] = Builder
         return Builder
+    elif name == "load_mcp_tools":
+        from .protocols.action.manager import load_mcp_tools
+
+        _lazy_imports["load_mcp_tools"] = load_mcp_tools
+        return load_mcp_tools
 
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
