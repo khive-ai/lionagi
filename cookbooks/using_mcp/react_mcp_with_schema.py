@@ -15,7 +15,8 @@ from lionagi.service.third_party.pplx_models import PerplexityChatRequest
 
 class ExaRequest(BaseModel):
     request: ExaSearchRequest
-    
+
+
 class PerplexityRequest(BaseModel):
     request: PerplexityChatRequest
 
