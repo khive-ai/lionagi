@@ -67,13 +67,16 @@ class ActionManager(Manager):
 
         Args:
             tool (FuncTool):
-                A `Tool` object or a raw callable function.
+                A `Tool` object, a raw callable function, or an MCP config dict.
+                - Tool: Registered directly
+                - Callable: Wrapped as Tool(func_callable=...)
+                - Dict: Treated as MCP config, Tool(mcp_config=...)
             update (bool):
                 If True, allow replacing an existing tool with the same name.
 
         Raises:
             ValueError: If tool already registered and update=False.
-            TypeError: If `tool` is not a Tool or callable.
+            TypeError: If `tool` is not a Tool, callable, or dict.
         """
         # Check if tool already exists
         if not update and tool in self:
@@ -82,14 +85,20 @@ class ActionManager(Manager):
                 name = tool.function
             elif callable(tool):
                 name = tool.__name__
+            elif isinstance(tool, dict):
+                # For MCP config, extract the tool name (first key)
+                name = list(tool.keys())[0] if tool else None
             raise ValueError(f"Tool {name} is already registered.")
 
-        # Convert raw callable to a Tool if needed
+        # Convert to Tool object based on type
         if callable(tool):
             tool = Tool(func_callable=tool)
-        if not isinstance(tool, Tool):
+        elif isinstance(tool, dict):
+            # Dict is treated as MCP config
+            tool = Tool(mcp_config=tool)
+        elif not isinstance(tool, Tool):
             raise TypeError(
-                "Must provide a `Tool` object or a callable function."
+                "Must provide a `Tool` object, a callable function, or an MCP config dict."
             )
         self.registry[tool.function] = tool
 
@@ -245,7 +254,258 @@ class ActionManager(Manager):
             ]
         raise TypeError(f"Unsupported type {type(tool)}")
 
+    async def register_mcp_server(
+        self,
+        server_config: dict[str, Any],
+        tool_names: list[str] | None = None,
+        request_options: dict[str, type] | None = None,
+        update: bool = False,
+    ) -> list[str]:
+        """
+        Register tools from an MCP server with automatic discovery.
 
-__all__ = ["ActionManager"]
+        Args:
+            server_config: MCP server configuration (command, args, etc.)
+                          Can be {"server": "name"} to reference loaded config
+                          or full config dict with command/args
+            tool_names: Optional list of specific tool names to register.
+                       If None, will discover and register all available tools.
+            request_options: Optional dict mapping tool names to Pydantic model classes
+                            for request validation. E.g., {"exa_search": ExaSearchRequest}
+            update: If True, allow updating existing tools.
+
+        Returns:
+            List of registered tool names
+
+        Example:
+            # Auto-discover with Pydantic validation
+            from lionagi.service.third_party.exa_models import ExaSearchRequest
+            tools = await manager.register_mcp_server(
+                {"server": "search"},
+                request_options={"exa_search": ExaSearchRequest}
+            )
+
+            # Register specific tools only
+            tools = await manager.register_mcp_server(
+                {"command": "python", "args": ["-m", "server"]},
+                tool_names=["search", "fetch"]
+            )
+        """
+        registered_tools = []
+
+        # Extract server name for qualified naming
+        server_name = None
+        if isinstance(server_config, dict) and "server" in server_config:
+            server_name = server_config["server"]
+
+        if tool_names:
+            # Register specific tools with qualified names
+            for tool_name in tool_names:
+                # Use qualified name to avoid collisions
+                qualified_name = (
+                    f"{server_name}_{tool_name}" if server_name else tool_name
+                )
+
+                # Store original tool name in config for MCP calls
+                config_with_metadata = dict(server_config)
+                config_with_metadata["_original_tool_name"] = tool_name
+
+                mcp_config = {qualified_name: config_with_metadata}
+
+                # Get request_options for this tool if provided
+                tool_request_options = None
+                if request_options and tool_name in request_options:
+                    tool_request_options = request_options[tool_name]
+
+                # Create tool with request_options for Pydantic validation
+                tool = Tool(
+                    mcp_config=mcp_config, request_options=tool_request_options
+                )
+                self.register_tool(tool, update=update)
+                registered_tools.append(qualified_name)
+        else:
+            # Auto-discover tools from the server
+            from lionagi.service.connections.mcp.wrapper import (
+                MCPConnectionPool,
+            )
+
+            # Get client and discover tools
+            client = await MCPConnectionPool.get_client(server_config)
+            tools = await client.list_tools()
+
+            # Register each discovered tool with qualified name
+            for tool in tools:
+                # Use qualified name to avoid collisions: server_toolname
+                qualified_name = (
+                    f"{server_name}_{tool.name}" if server_name else tool.name
+                )
+
+                # Store original tool name in config for MCP calls
+                config_with_metadata = dict(server_config)
+                config_with_metadata["_original_tool_name"] = tool.name
+
+                mcp_config = {qualified_name: config_with_metadata}
+
+                # Get request_options for this tool if provided
+                tool_request_options = None
+                if request_options and tool.name in request_options:
+                    tool_request_options = request_options[tool.name]
+
+                try:
+                    # Create tool with request_options for Pydantic validation
+                    tool_obj = Tool(
+                        mcp_config=mcp_config,
+                        request_options=tool_request_options,
+                    )
+                    self.register_tool(tool_obj, update=update)
+                    registered_tools.append(qualified_name)
+                except Exception as e:
+                    print(
+                        f"Warning: Failed to register tool {qualified_name}: {e}"
+                    )
+
+        return registered_tools
+
+    async def load_mcp_config(
+        self,
+        config_path: str,
+        server_names: list[str] | None = None,
+        update: bool = False,
+    ) -> dict[str, list[str]]:
+        """
+        Load MCP configurations from a .mcp.json file with auto-discovery.
+
+        Args:
+            config_path: Path to .mcp.json configuration file
+            server_names: Optional list of server names to load.
+                         If None, loads all servers.
+            update: If True, allow updating existing tools.
+
+        Returns:
+            Dict mapping server names to lists of registered tool names
+
+        Example:
+            # Load all servers and auto-discover their tools
+            tools = await manager.load_mcp_config("/path/to/.mcp.json")
+
+            # Load specific servers only
+            tools = await manager.load_mcp_config(
+                "/path/to/.mcp.json",
+                server_names=["search", "memory"]
+            )
+        """
+        from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+
+        # Load the config file into the connection pool
+        MCPConnectionPool.load_config(config_path)
+
+        # Get server list to process
+        if server_names is None:
+            # Get all server names from loaded config
+            # The config has already been validated by load_config
+            server_names = list(MCPConnectionPool._configs.keys())
+
+        # Register tools from each server
+        all_tools = {}
+        for server_name in server_names:
+            try:
+                # Register using server reference
+                tools = await self.register_mcp_server(
+                    {"server": server_name}, update=update
+                )
+                all_tools[server_name] = tools
+                print(
+                    f"✅ Registered {len(tools)} tools from server '{server_name}'"
+                )
+            except Exception as e:
+                print(f"⚠️  Failed to register server '{server_name}': {e}")
+                all_tools[server_name] = []
+
+        return all_tools
+
+
+async def load_mcp_tools(
+    config_path: str | None = None,
+    server_names: list[str] | None = None,
+    request_options_map: dict[str, dict[str, type]] | None = None,
+    update: bool = False,
+) -> list[Tool]:
+    """
+    Standalone helper function to load MCP tools from servers.
+    Creates an ActionManager internally and returns tools ready for use.
+
+    Args:
+        config_path: Path to .mcp.json file. If None, assumes config already loaded.
+        server_names: Optional list of server names to load.
+                     If None, loads all servers from config.
+        request_options_map: Optional dict mapping server names to tool request options.
+                             E.g., {"search": {"exa_search": ExaSearchRequest}}
+        update: If True, allow updating existing tools.
+
+    Returns:
+        List of Tool objects ready to use with Branch
+
+    Example:
+        # Simple one-liner to get MCP tools
+        from lionagi.protocols.action.manager import load_mcp_tools
+        from lionagi.service.third_party.exa_models import ExaSearchRequest
+        from lionagi.service.third_party.pplx_models import PerplexityChatRequest
+
+        # Load with Pydantic validation
+        tools = await load_mcp_tools(
+            "/path/to/.mcp.json",
+            ["search"],
+            request_options_map={
+                "search": {
+                    "exa_search": ExaSearchRequest,
+                    "perplexity_search": PerplexityChatRequest
+                }
+            }
+        )
+        branch = Branch(tools=tools)
+    """
+    from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+
+    # Create a temporary ActionManager for tool management
+    manager = ActionManager()
+
+    # Load config if provided
+    if config_path:
+        MCPConnectionPool.load_config(config_path)
+
+    # If no server names specified, discover from config
+    if server_names is None and config_path:
+        # Get all server names from loaded config
+        server_names = list(MCPConnectionPool._configs.keys())
+
+    if server_names is None:
+        raise ValueError(
+            "Either provide server_names or config_path to discover servers"
+        )
+
+    # Register all servers
+    for server_name in server_names:
+        try:
+            # Get request_options for this server if provided
+            request_options = None
+            if request_options_map and server_name in request_options_map:
+                request_options = request_options_map[server_name]
+
+            tools_registered = await manager.register_mcp_server(
+                {"server": server_name},
+                request_options=request_options,
+                update=update,
+            )
+            print(
+                f"✅ Loaded {len(tools_registered)} tools from {server_name}"
+            )
+        except Exception as e:
+            print(f"⚠️  Failed to load server '{server_name}': {e}")
+
+    # Return all registered tools as a list
+    return list(manager.registry.values())
+
+
+__all__ = ["ActionManager", "load_mcp_tools"]
 
 # File: lionagi/protocols/action/manager.py
