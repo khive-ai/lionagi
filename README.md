@@ -110,6 +110,33 @@ print(result)
 The LLM can now open the PDF, read in slices, fetch references, and produce a
 final structured summary.
 
+### MCP (Model Context Protocol) Integration
+
+LionAGI supports Anthropic's Model Context Protocol for seamless tool integration:
+
+```
+pip install "lionagi[mcp]"
+```
+
+```python
+from lionagi import load_mcp_tools
+
+# Load tools from any MCP server
+tools = await load_mcp_tools(".mcp.json", ["search", "memory"])
+
+# Use with ReAct reasoning
+branch = Branch(chat_model=gpt4o, tools=tools)
+result = await branch.ReAct(
+    instruct={"instruction": "Research recent AI developments"},
+    tools=["search_exa_search"],
+    max_extensions=3
+)
+```
+
+- **Dynamic Discovery**: Auto-discover and register tools from MCP servers
+- **Type Safety**: Full Pydantic validation for tool interactions
+- **Connection Pooling**: Efficient resource management with automatic reuse
+
 ### Observability & Debugging
 
 - Inspect messages:
