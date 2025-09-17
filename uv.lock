@@ -1842,6 +1842,20 @@ wheels = [
 ]
 
 [[package]]
+name = "hypothesis"
+version = "6.139.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
+    { name = "sortedcontainers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/aa/a24d144b021839a87cf9e3cf4dc14926463e52381a49b373a1ecdc1a337f/hypothesis-6.139.1.tar.gz", hash = "sha256:ab5418737efbd5e3aa57a2896ae6c6eec8dc47ab39a56757988468ab12223728", size = 466127, upload-time = "2025-09-16T20:27:42.046Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/80/c1a96a164cf0af9043c69a8124d39c2a939da473133aa2dbb59efdac96fb/hypothesis-6.139.1-py3-none-any.whl", hash = "sha256:b0b39b194688e33208bd253ce6c167dc3c3beae3ccc4f74be130382af416b5ab", size = 533754, upload-time = "2025-09-16T20:27:37.854Z" },
+]
+
+[[package]]
 name = "identify"
 version = "2.6.12"
 source = { registry = "https://pypi.org/simple" }
@@ -2437,6 +2451,7 @@ xml = [
 dev = [
     { name = "black", extra = ["jupyter"] },
     { name = "furo" },
+    { name = "hypothesis" },
     { name = "ipykernel" },
     { name = "ipython", version = "8.37.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "ipython", version = "9.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -2503,6 +2518,7 @@ provides-extras = ["reader", "ollama", "mcp", "rich", "schema", "postgres", "sql
 dev = [
     { name = "black", extras = ["jupyter"], specifier = ">=24.10.0" },
     { name = "furo", specifier = ">=2024.8.6" },
+    { name = "hypothesis", specifier = ">=6.139.1" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipython", specifier = ">=8.31.0" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
