@@ -1048,7 +1048,12 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     def to_df(self, columns: list[str] | None = None, **kw: Any):
         """Convert to DataFrame."""
-        from pydapter.extras.pandas_ import DataFrameAdapter
+        try:
+            from pydapter.extras.pandas_ import DataFrameAdapter
+        except ImportError as e:
+            raise ImportError(
+                "pandas is required for to_df(). Please install it via `pip install pandas`."
+            ) from e
 
         df = DataFrameAdapter.to_obj(
             list(self.collections.values()), adapt_meth="to_dict", **kw
