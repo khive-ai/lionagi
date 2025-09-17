@@ -401,18 +401,9 @@ class ActionManager(Manager):
 
         # Get server list to process
         if server_names is None:
-            # Get all server names from config
-            import json
-            from pathlib import Path
-
-            config_file = Path(config_path)
-            with open(config_file) as f:
-                config_data = json.load(f)
-                if "mcpServers" not in config_data:
-                    raise ValueError(
-                        "Invalid MCP config: missing 'mcpServers' key"
-                    )
-                server_names = list(config_data["mcpServers"].keys())
+            # Get all server names from loaded config
+            # The config has already been validated by load_config
+            server_names = list(MCPConnectionPool._configs.keys())
 
         # Register tools from each server
         all_tools = {}
@@ -484,14 +475,8 @@ async def load_mcp_tools(
 
     # If no server names specified, discover from config
     if server_names is None and config_path:
-        import json
-        from pathlib import Path
-
-        config_file = Path(config_path)
-        with open(config_file) as f:
-            config_data = json.load(f)
-            if "mcpServers" in config_data:
-                server_names = list(config_data["mcpServers"].keys())
+        # Get all server names from loaded config
+        server_names = list(MCPConnectionPool._configs.keys())
 
     if server_names is None:
         raise ValueError(

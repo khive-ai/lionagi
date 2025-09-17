@@ -20,26 +20,73 @@ except ImportError:
 # Suppress MCP server logging by default
 logging.getLogger("mcp").setLevel(logging.WARNING)
 logging.getLogger("fastmcp").setLevel(logging.WARNING)
+logging.getLogger("mcp.server").setLevel(logging.WARNING)
+logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
+logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.WARNING)
 
 
 class MCPConnectionPool:
-    """Simple connection pool for MCP clients."""
+    """Simple connection pool for MCP clients.
 
-    _clients: Dict[str, Any] = {}
-    _configs: Dict[str, Dict] = {}
+    Security Model:
+    This class trusts user-provided MCP server configurations, similar to how
+    development tools trust configured language servers or extensions. Users are
+    responsible for vetting the MCP servers they choose to run.
+
+    For enhanced security in production:
+    - Run MCP servers in sandboxed environments (containers, VMs)
+    - Use process isolation and resource limits
+    - Monitor server behavior and resource usage
+    - Validate server outputs before use
+    """
+
+    _clients: dict[str, Any] = {}
+    _configs: dict[str, dict] = {}
     _lock = asyncio.Lock()
+
+    async def __aenter__(self):
+        """Context manager entry."""
+        return self
+
+    async def __aexit__(self, *_):
+        """Context manager exit - cleanup connections."""
+        await self.cleanup()
 
     @classmethod
     def load_config(cls, path: str = ".mcp.json") -> None:
-        """Load MCP server configurations from file."""
+        """Load MCP server configurations from file.
+
+        Args:
+            path: Path to .mcp.json configuration file
+
+        Raises:
+            FileNotFoundError: If config file doesn't exist
+            json.JSONDecodeError: If config file has invalid JSON
+            ValueError: If config structure is invalid
+        """
         config_path = Path(path)
-        if config_path.exists():
+        if not config_path.exists():
+            raise FileNotFoundError(f"MCP config file not found: {path}")
+
+        try:
             with open(config_path) as f:
                 data = json.load(f)
-                cls._configs.update(data.get("mcpServers", {}))
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(
+                f"Invalid JSON in MCP config file: {e.msg}", e.doc, e.pos
+            )
+
+        if not isinstance(data, dict):
+            raise ValueError("MCP config must be a JSON object")
+
+        servers = data.get("mcpServers", {})
+        if not isinstance(servers, dict):
+            raise ValueError("mcpServers must be a dictionary")
+
+        cls._configs.update(servers)
 
     @classmethod
-    async def get_client(cls, server_config: Dict[str, Any]) -> Any:
+    async def get_client(cls, server_config: dict[str, Any]) -> Any:
         """Get or create a pooled MCP client."""
         if not FASTMCP_AVAILABLE:
             raise ImportError(
@@ -80,9 +127,27 @@ class MCPConnectionPool:
             return client
 
     @classmethod
-    async def _create_client(cls, config: Dict[str, Any]) -> Any:
-        """Create a new MCP client from config."""
-        import subprocess
+    async def _create_client(cls, config: dict[str, Any]) -> Any:
+        """Create a new MCP client from config.
+
+        Security Note:
+        MCP servers are explicitly configured by users via .mcp.json files or API calls.
+        The security model trusts user-provided configurations, similar to how IDEs trust
+        configured language servers. For additional security, run MCP servers in sandboxed
+        environments (containers, VMs) rather than restricting commands at the library level.
+
+        Args:
+            config: Server configuration with 'url' or 'command' + optional 'args' and 'env'
+
+        Raises:
+            ValueError: If config format is invalid
+        """
+        # Validate config structure
+        if not isinstance(config, dict):
+            raise ValueError("Config must be a dictionary")
+
+        if not any(k in config for k in ["url", "command"]):
+            raise ValueError("Config must have either 'url' or 'command' key")
 
         # Handle different config formats
         if "url" in config:
@@ -90,25 +155,35 @@ class MCPConnectionPool:
             client = FastMCPClient(config["url"])
         elif "command" in config:
             # Command-based connection
+            # Validate args if provided
+            args = config.get("args", [])
+            if not isinstance(args, list):
+                raise ValueError("Config 'args' must be a list")
+
+            # Merge environment variables - user config takes precedence
             env = os.environ.copy()
             env.update(config.get("env", {}))
+
+            # Suppress server logging unless debug mode is enabled
+            if not (
+                config.get("debug", False)
+                or os.environ.get("MCP_DEBUG", "").lower() == "true"
+            ):
+                # Common environment variables to suppress logging
+                env.setdefault("LOG_LEVEL", "ERROR")
+                env.setdefault("PYTHONWARNINGS", "ignore")
+                env.setdefault("KHIVEMCP_LOG_LEVEL", "ERROR")
+                # Suppress FastMCP server logs
+                env.setdefault("FASTMCP_QUIET", "true")
+                env.setdefault("MCP_QUIET", "true")
 
             # Create client with command
             from fastmcp.client.transports import StdioTransport
 
-            # Suppress stderr by default unless debug mode is explicitly set
-            stderr_mode = subprocess.DEVNULL
-            if (
-                config.get("debug", False)
-                or os.environ.get("MCP_DEBUG", "").lower() == "true"
-            ):
-                stderr_mode = None  # Use default stderr
-
             transport = StdioTransport(
                 command=config["command"],
-                args=config.get("args", []),
+                args=args,
                 env=env,
-                stderr=stderr_mode,
             )
             client = FastMCPClient(transport)
         else:
@@ -122,15 +197,18 @@ class MCPConnectionPool:
     async def cleanup(cls):
         """Clean up all pooled connections."""
         async with cls._lock:
-            for client in cls._clients.values():
+            for cache_key, client in cls._clients.items():
                 try:
                     await client.__aexit__(None, None, None)
-                except:
-                    pass  # Ignore cleanup errors
+                except Exception as e:
+                    # Log cleanup errors for debugging while continuing cleanup
+                    logging.debug(
+                        f"Error cleaning up MCP client {cache_key}: {e}"
+                    )
             cls._clients.clear()
 
 
-def create_mcp_tool(mcp_config: Dict[str, Any], tool_name: str) -> Any:
+def create_mcp_tool(mcp_config: dict[str, Any], tool_name: str) -> Any:
     """Create a callable that wraps MCP tool execution.
 
     Args:
@@ -152,12 +230,6 @@ def create_mcp_tool(mcp_config: Dict[str, Any], tool_name: str) -> Any:
         }
 
         client = await MCPConnectionPool.get_client(config_for_client)
-
-        # MCP tools expect arguments wrapped in "request"
-        # If we have Pydantic validation, the kwargs are already validated
-        # but need to be wrapped for the MCP call
-        if not "request" in kwargs:
-            kwargs = {"request": kwargs}
 
         # Call the tool with the original name
         result = await client.call_tool(actual_tool_name, kwargs)
