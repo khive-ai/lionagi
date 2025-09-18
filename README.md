@@ -66,8 +66,8 @@ from pydantic import BaseModel
 class Joke(BaseModel):
     joke: str
 
-res = await hunter.communicate(
-    "Tell me a short dragon joke",
+res = await hunter.operate(
+    instruction="Tell me a short dragon joke",
     response_format=Joke
 )
 print(type(res))
