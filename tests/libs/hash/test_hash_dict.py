@@ -119,7 +119,9 @@ class TestGenerateHashableRepresentation:
         )
 
     def test_pydantic_model_representation(self):
-        class MyPydanticModel(hash_utils.PydanticBaseModel):
+        from pydantic import BaseModel
+
+        class MyPydanticModel(BaseModel):
             x: int
             y: str
 
@@ -186,7 +188,9 @@ class TestHashDict:
         assert hash_utils.hash_dict(s1) != hash_utils.hash_dict(fs1)
 
     def test_hash_pydantic_model_deterministic(self):
-        class Model(hash_utils.PydanticBaseModel):
+        from pydantic import BaseModel
+
+        class Model(BaseModel):
             name: str
             value: int
 
