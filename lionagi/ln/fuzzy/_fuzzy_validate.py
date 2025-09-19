@@ -1,7 +1,5 @@
 from collections.abc import Callable, Sequence
-from typing import Any, Literal
-
-from pydantic import BaseModel
+from typing import TYPE_CHECKING, Any, Literal
 
 from lionagi._errors import ValidationError
 
@@ -11,13 +9,17 @@ from ._fuzzy_match import FuzzyMatchKeysParams, fuzzy_match_keys
 from ._string_similarity import SIMILARITY_TYPE
 from ._to_dict import to_dict
 
+if TYPE_CHECKING:
+    from pydantic import BaseModel
+
+
 __all__ = ("fuzzy_validate_pydantic",)
 
 
 def fuzzy_validate_pydantic(
     text,
     /,
-    model_type: type[BaseModel],
+    model_type: "type[BaseModel]",
     fuzzy_parse: bool = True,
     fuzzy_match: bool = False,
     fuzzy_match_params: FuzzyMatchKeysParams | dict = None,

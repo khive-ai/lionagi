@@ -7,15 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict
-
-try:
-    from fastmcp import Client as FastMCPClient
-
-    FASTMCP_AVAILABLE = True
-except ImportError:
-    FASTMCP_AVAILABLE = False
-    FastMCPClient = None
+from typing import Any
 
 # Suppress MCP server logging by default
 logging.getLogger("mcp").setLevel(logging.WARNING)
@@ -88,11 +80,6 @@ class MCPConnectionPool:
     @classmethod
     async def get_client(cls, server_config: dict[str, Any]) -> Any:
         """Get or create a pooled MCP client."""
-        if not FASTMCP_AVAILABLE:
-            raise ImportError(
-                "FastMCP not installed. Run: pip install fastmcp"
-            )
-
         # Generate unique key for this config
         if "server" in server_config:
             # Server reference from .mcp.json
@@ -149,6 +136,13 @@ class MCPConnectionPool:
         if not any(k in config for k in ["url", "command"]):
             raise ValueError("Config must have either 'url' or 'command' key")
 
+        try:
+            from fastmcp import Client as FastMCPClient
+        except ImportError:
+            raise ImportError(
+                "FastMCP not installed. Run: pip install fastmcp"
+            )
+
         # Handle different config formats
         if "url" in config:
             # Direct URL connection
@@ -172,7 +166,6 @@ class MCPConnectionPool:
                 # Common environment variables to suppress logging
                 env.setdefault("LOG_LEVEL", "ERROR")
                 env.setdefault("PYTHONWARNINGS", "ignore")
-                env.setdefault("KHIVEMCP_LOG_LEVEL", "ERROR")
                 # Suppress FastMCP server logs
                 env.setdefault("FASTMCP_QUIET", "true")
                 env.setdefault("MCP_QUIET", "true")

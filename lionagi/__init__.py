@@ -3,14 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
-
-from . import ln as ln
-from .operations.node import Operation
-from .service.imodel import iModel
-from .session.session import Branch, Session
+from . import ln as ln  # Lightweight concurrency utilities
 from .version import __version__
+
+if TYPE_CHECKING:
+    # Type hints only - not imported at runtime
+    from pydantic import BaseModel, Field
+
+    from .operations.node import Operation
+    from .service.imodel import iModel
+    from .session.session import Branch, Session
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -24,7 +28,40 @@ def __getattr__(name: str):
     if name in _lazy_imports:
         return _lazy_imports[name]
 
-    if name == "types":
+    # Lazy load core components
+    if name == "Session":
+        from .session.session import Session
+
+        _lazy_imports[name] = Session
+        return Session
+    elif name == "Branch":
+        from .session.session import Branch
+
+        _lazy_imports[name] = Branch
+        return Branch
+    # Lazy load Pydantic components
+    elif name == "BaseModel":
+        from pydantic import BaseModel
+
+        _lazy_imports[name] = BaseModel
+        return BaseModel
+    elif name == "Field":
+        from pydantic import Field
+
+        _lazy_imports[name] = Field
+        return Field
+    # Lazy load operations
+    elif name == "Operation":
+        from .operations.node import Operation
+
+        _lazy_imports[name] = Operation
+        return Operation
+    elif name == "iModel":
+        from .service.imodel import iModel
+
+        _lazy_imports[name] = iModel
+        return iModel
+    elif name == "types":
         from . import _types as types
 
         _lazy_imports["types"] = types
@@ -54,5 +91,6 @@ __all__ = (
     "logger",
     "Builder",
     "Operation",
+    "load_mcp_tools",
     "ln",
 )

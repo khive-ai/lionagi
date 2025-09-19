@@ -3,24 +3,20 @@ from dataclasses import dataclass
 from enum import Enum as _Enum
 from typing import Any, ClassVar
 
-from msgspec import Struct
-from pydantic import BaseModel
-from pydantic_core import PydanticUndefinedType
-
 from ._hash import hash_dict
-from .types import Params, UndefinedType, UnsetType
+from .types import Params
 
 __all__ = ("to_list", "ToListParams")
 
 
+_INITIALIZED = False
+_MODEL_LIKE = None
+_MAP_LIKE = None
+_SINGLETONE_TYPES = None
+_SKIP_TYPE = None
+_SKIP_TUPLE_SET = None
 _BYTE_LIKE = (str, bytes, bytearray)
-_MODEL_LIKE = (BaseModel, Struct)
-_MAP_LIKE = (Mapping, *_MODEL_LIKE)
 _TUPLE_SET = (tuple, set, frozenset)
-_SINGLETONE_TYPES = (UndefinedType, UnsetType, PydanticUndefinedType)
-
-_SKIP_TYPE = (*_BYTE_LIKE, *_MAP_LIKE, _Enum)
-_SKIP_TUPLE_SET = (*_SKIP_TYPE, *_TUPLE_SET)
 
 
 def to_list(
@@ -50,6 +46,21 @@ def to_list(
     Raises:
         ValueError: If unique=True is used without flatten=True.
     """
+    global _INITIALIZED
+    if _INITIALIZED is False:
+        from msgspec import Struct
+        from pydantic import BaseModel
+        from pydantic_core import PydanticUndefinedType
+
+        from .types import UndefinedType, UnsetType
+
+        global _MODEL_LIKE, _MAP_LIKE, _SINGLETONE_TYPES, _SKIP_TYPE, _SKIP_TUPLE_SET
+        _MODEL_LIKE = (BaseModel, Struct)
+        _MAP_LIKE = (Mapping, *_MODEL_LIKE)
+        _SINGLETONE_TYPES = (UndefinedType, UnsetType, PydanticUndefinedType)
+        _SKIP_TYPE = (*_BYTE_LIKE, *_MAP_LIKE, _Enum)
+        _SKIP_TUPLE_SET = (*_SKIP_TYPE, *_TUPLE_SET)
+        _INITIALIZED = True
 
     def _process_list(
         lst: list[Any],
@@ -117,7 +128,7 @@ def to_list(
                 else [input_]
             )
 
-        if isinstance(input_, BaseModel):
+        if isinstance(input_, _MODEL_LIKE):
             return [input_]
 
         if isinstance(input_, Iterable) and not isinstance(input_, _BYTE_LIKE):

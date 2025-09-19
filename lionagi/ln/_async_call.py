@@ -5,7 +5,6 @@ from typing import Any, ClassVar
 
 import anyio
 import anyio.to_thread
-from pydantic import BaseModel
 
 from ._to_list import to_list
 from .concurrency import Lock as ConcurrencyLock
@@ -17,6 +16,10 @@ from .concurrency import (
     move_on_after,
 )
 from .types import Params, T, Unset, not_sentinel
+
+_INITIALIZED = False
+_MODEL_LIKE = None
+
 
 __all__ = (
     "alcall",
@@ -54,6 +57,14 @@ async def alcall(
     retries, timeout, and output processing.
     """
 
+    global _INITIALIZED, _MODEL_LIKE
+    if _INITIALIZED is False:
+        from msgspec import Struct
+        from pydantic import BaseModel
+
+        _MODEL_LIKE = (BaseModel, Struct)
+        _INITIALIZED = True
+
     # Validate func is a single callable
     if not callable(func):
         # If func is not callable, maybe it's an iterable. Extract one callable if possible.
@@ -82,7 +93,7 @@ async def alcall(
     else:
         if not isinstance(input_, list):
             # Attempt to iterate
-            if isinstance(input_, BaseModel):
+            if isinstance(input_, _MODEL_LIKE):
                 # Pydantic model, convert to list
                 input_ = [input_]
             else:
