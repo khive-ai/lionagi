@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum as _Enum
 from typing import Any, ClassVar, Final, Literal, TypeVar, Union
@@ -22,6 +23,7 @@ __all__ = (
     "not_sentinel",
     "Params",
     "DataClass",
+    "KeysLike",
 )
 
 T = TypeVar("T")
@@ -236,6 +238,16 @@ class Params:
                 data[k] = v
         return data
 
+    def __hash__(self) -> int:
+        from ._hash import hash_dict
+
+        return hash_dict(self.to_dict())
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Params):
+            return False
+        return hash(self) == hash(other)
+
 
 @dataclass(slots=True)
 class DataClass:
@@ -297,3 +309,6 @@ class DataClass:
         if value is None and cls._none_as_sentinel:
             return True
         return is_sentinel(value)
+
+
+KeysLike = Sequence[str] | KeysDict
