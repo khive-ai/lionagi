@@ -1,9 +1,9 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 from lionagi._errors import ValidationError
 
-from ..types import KeysDict
+from ..types import KeysLike
 from ._extract_json import extract_json
 from ._fuzzy_match import FuzzyMatchKeysParams, fuzzy_match_keys
 from ._string_similarity import SIMILARITY_TYPE
@@ -56,7 +56,7 @@ def fuzzy_validate_pydantic(
 
 def fuzzy_validate_mapping(
     d: Any,
-    keys: Sequence[str] | KeysDict,
+    keys: KeysLike,
     /,
     *,
     similarity_algo: (
