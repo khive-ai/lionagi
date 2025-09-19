@@ -9,18 +9,12 @@ from pydantic import BaseModel, JsonValue
 
 from lionagi.fields.instruct import Instruct
 from lionagi.models import FieldModel, ModelParams
-from lionagi.protocols.types import (
-    Instruction,
-    Operative,
-    Progression,
-    SenderRecipient,
-    Step,
-    ToolRef,
-)
+from lionagi.protocols.operatives.step import Operative, Step
+from lionagi.protocols.types import Instruction, Progression, SenderRecipient
 from lionagi.service.imodel import iModel
 
 if TYPE_CHECKING:
-    from lionagi.session.branch import Branch
+    from lionagi.session.branch import Branch, ToolRef
 
 
 def _handle_response_format_kwargs(
@@ -64,8 +58,8 @@ async def operate(
     image_detail: Literal["low", "high", "auto"] = None,
     parse_model: iModel = None,
     skip_validation: bool = False,
-    tools: ToolRef = None,
-    operative: Operative = None,
+    tools: "ToolRef" = None,
+    operative: "Operative" = None,
     response_format: type[BaseModel] = None,  # alias of operative.request_type
     return_operative: bool = False,
     actions: bool = False,

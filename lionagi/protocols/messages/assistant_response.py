@@ -198,5 +198,11 @@ class AssistantResponse(RoledMessage):
             sender=sender, recipient=recipient, template=template, **kwargs
         )
 
+    def as_context(self) -> dict:
+        return f"""
+            Response: {self.response or "Not available"}
+            Summary: {self.model_response.get("summary") or "Not available"}
+        """.strip()
+
 
 # File: lionagi/protocols/messages/assistant_response.py

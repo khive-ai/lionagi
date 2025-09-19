@@ -15,8 +15,6 @@ import orjson
 
 __all__ = [
     "get_orjson_default",
-    "DEFAULT_SERIALIZER",
-    "DEFAULT_SERIALIZER_OPTION",
     "make_options",
     "json_dumpb",
     "json_dumps",
@@ -192,10 +190,6 @@ def _cached_default(
 
 
 # --------- defaults & options -------------------------------------------------
-
-# Compact, no newline, no sorting: neutral default for most use-cases.
-DEFAULT_SERIALIZER_OPTION = 0
-DEFAULT_SERIALIZER = get_orjson_default()
 
 
 def make_options(

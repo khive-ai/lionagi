@@ -1,7 +1,7 @@
 import pytest
 from pydantic import Field
 
-from lionagi.protocols.types import BaseForm
+from lionagi.protocols.forms.base import BaseForm
 from lionagi.utils import UNDEFINED
 
 

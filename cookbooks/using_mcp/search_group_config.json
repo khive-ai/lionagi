@@ -1,0 +1,6 @@
+{
+  "name": "search",
+  "class_path": "cookbooks.using_mcp.search_group:SearchServiceGroup",
+  "description": "A group for searching information online.",
+  "env_vars": {}
+}

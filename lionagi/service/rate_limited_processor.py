@@ -8,7 +8,7 @@ from typing import Any
 
 from typing_extensions import Self, override
 
-from lionagi.libs.concurrency import CapacityLimiter, Lock, move_on_after
+from lionagi.ln.concurrency import CapacityLimiter, Lock, move_on_after
 from lionagi.protocols.types import Executor, Processor
 
 from .connections.api_calling import APICalling

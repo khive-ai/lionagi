@@ -1,6 +1,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/lionagi?labelColor=233476aa&color=231fc935)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/lionagi?color=blue)
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
+[![codecov](https://codecov.io/github/khive-ai/lionagi/graph/badge.svg?token=FAE47FY26T)](https://codecov.io/github/khive-ai/lionagi)
 
 [Documentation](https://khive-ai.github.io/lionagi/) |
 [Discord](https://discord.gg/JDj9ENhUE8) |
@@ -65,8 +66,8 @@ from pydantic import BaseModel
 class Joke(BaseModel):
     joke: str
 
-res = await hunter.communicate(
-    "Tell me a short dragon joke",
+res = await hunter.operate(
+    instruction="Tell me a short dragon joke",
     response_format=Joke
 )
 print(type(res))
@@ -109,6 +110,33 @@ print(result)
 The LLM can now open the PDF, read in slices, fetch references, and produce a
 final structured summary.
 
+### MCP (Model Context Protocol) Integration
+
+LionAGI supports Anthropic's Model Context Protocol for seamless tool integration:
+
+```
+pip install "lionagi[mcp]"
+```
+
+```python
+from lionagi import load_mcp_tools
+
+# Load tools from any MCP server
+tools = await load_mcp_tools(".mcp.json", ["search", "memory"])
+
+# Use with ReAct reasoning
+branch = Branch(chat_model=gpt4o, tools=tools)
+result = await branch.ReAct(
+    instruct={"instruction": "Research recent AI developments"},
+    tools=["search_exa_search"],
+    max_extensions=3
+)
+```
+
+- **Dynamic Discovery**: Auto-discover and register tools from MCP servers
+- **Type Safety**: Full Pydantic validation for tool interactions
+- **Connection Pooling**: Efficient resource management with automatic reuse
+
 ### Observability & Debugging
 
 - Inspect messages:
@@ -143,7 +171,7 @@ Seamlessly route to different models in the same workflow.
 
 ### Claude Code Integration
 
-LionAGI now supports Anthropic's Claude Code [Python SDK](https://github.com/anthropics/claude-code-sdk-python), and [CLI SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) enabling autonomous coding capabilities with persistent session management. The CLI endpoint
+LionAGI now supports Anthropic's Claude Code [CLI SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) enabling autonomous coding capabilities with persistent session management. The CLI endpoint
 directly connects to claude code, and is recommended, you can either use it via a [proxy server](https://github.com/khive-ai/lionagi/tree/main/cookbooks/claude_proxy) or directly with `query_cli` endpoint, provided you have already logged onto claude code cli in your terminal.
 
 ```python
@@ -211,7 +239,6 @@ Key features:
 ```
 "lionagi[reader]" - Reader tool for any unstructured data and web pages
 "lionagi[ollama]" - Ollama model support for local inference
-"lionagi[claude-code]" - Claude code python SDK integration (cli endpoint does not require this)
 "lionagi[rich]" - Rich output formatting for better console display
 "lionagi[schema]" - Convert pydantic schema to make the Model class persistent
 "lionagi[postgres]" - Postgres database support for storing and retrieving structured data

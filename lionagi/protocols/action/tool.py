@@ -7,11 +7,9 @@ import inspect
 from collections.abc import Callable
 from typing import Any, TypeAlias
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from typing_extensions import Self
 
-from lionagi.libs.schema.function_to_schema import function_to_schema
-from lionagi.libs.validate.common_field_validators import validate_callable
 from lionagi.protocols.generic.element import Element
 
 __all__ = (
@@ -38,6 +36,9 @@ class Tool(Element):
         description="The callable function to be wrapped by the tool",
         exclude=True,
     )
+
+    mcp_config: dict[str, dict[str, Any]] | None = None
+    """{tool_name: mcp_config dict}"""
 
     tool_schema: dict[str, Any] | None = Field(
         default=None,
@@ -78,15 +79,46 @@ class Tool(Element):
         description="Whether to enforce strict validation of function parameters",
     )
 
-    @field_validator("func_callable", mode="before")
-    def _validate_func_callable(cls, value: Any) -> Callable[..., Any]:
-        return validate_callable(
-            cls, value, undefind_able=False, check_name=True
-        )
+    @model_validator(mode="before")
+    def _validate_callable_config(cls, data):
+        mcp_config = data.get("mcp_config")
+        func_callable = data.get("func_callable")
+
+        if mcp_config is not None:
+            if func_callable is not None:
+                raise ValueError(
+                    "`mcp_config` and `func_callable` cannot both be set."
+                )
+            if not isinstance(mcp_config, dict):
+                raise ValueError("`mcp_config` must be a dictionary.")
+            if len(mcp_config) != 1:
+                raise ValueError(
+                    "`mcp_config` must contain exactly one entry."
+                )
+            tool_name, config = next(iter(mcp_config.items()))
+
+            from lionagi.service.connections.mcp.wrapper import create_mcp_tool
+
+            func_callable = create_mcp_tool(config, tool_name)
+        else:
+            from lionagi.libs.validate.common_field_validators import (
+                validate_callable,
+            )
+
+            validate_callable(
+                cls, func_callable, undefind_able=False, check_name=True
+            )
+
+        data["func_callable"] = func_callable
+        return data
 
     @model_validator(mode="after")
     def _validate_tool_schema(self) -> Self:
         if self.tool_schema is None:
+            from lionagi.libs.schema.function_to_schema import (
+                function_to_schema,
+            )
+
             self.tool_schema = function_to_schema(
                 self.func_callable, request_options=self.request_options
             )
@@ -117,10 +149,9 @@ class Tool(Element):
                 ).parameters.items()
                 if v.default == inspect.Parameter.empty
             }
-            if "kwargs" in a:
-                a.remove("kwargs")
-            if "args" in a:
-                a.remove("args")
+            for i in ("kw", "kwargs", "args"):
+                if i in a:
+                    a.remove(i)
             return a
         except Exception:
             return set()
@@ -142,8 +173,8 @@ class Tool(Element):
         return dict_
 
 
-FuncTool: TypeAlias = Tool | Callable[..., Any]
-"""Represents either a `Tool` instance or a raw callable function."""
+FuncTool: TypeAlias = Tool | Callable[..., Any] | dict
+"""Represents either a `Tool` instance, a raw callable function or mcp config."""
 
 FuncToolRef: TypeAlias = FuncTool | str
 """
@@ -156,20 +187,5 @@ ToolRef: TypeAlias = FuncToolRef | list[FuncToolRef] | bool
 Used for specifying one or more tool references, or a boolean
 indicating 'all' or 'none'.
 """
-
-
-def func_to_tool(func: Callable[..., Any], **kwargs) -> Tool:
-    """
-    Convenience function that wraps a raw function in a `Tool`.
-
-    Args:
-        func (Callable[..., Any]): The function to wrap.
-        **kwargs: Additional arguments passed to the `Tool` constructor.
-
-    Returns:
-        Tool: A new Tool instance wrapping `func`.
-    """
-    return Tool(func_callable=func, **kwargs)
-
 
 # File: lionagi/protocols/action/tool.py

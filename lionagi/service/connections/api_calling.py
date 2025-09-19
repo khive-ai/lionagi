@@ -12,9 +12,16 @@ from typing_extensions import Self
 from lionagi.protocols.generic.event import Event, EventStatus
 from lionagi.protocols.types import Log
 from lionagi.service.hooks import HookEvent, HookEventTypes, global_hook_logger
-from lionagi.service.token_calculator import TokenCalculator
 
 from .endpoint import Endpoint
+
+
+# Lazy import for TokenCalculator
+def _get_token_calculator():
+    from lionagi.service.token_calculator import TokenCalculator
+
+    return TokenCalculator
+
 
 logger = logging.getLogger(__name__)
 
@@ -78,20 +85,16 @@ class APICalling(Event):
                 TOKEN_LIMITS = {
                     # OpenAI models
                     "gpt-4": 128_000,
-                    "gpt-4-turbo": 128_000,
-                    "o1-mini": 128_000,
-                    "o1-preview": 128_000,
                     "o1": 200_000,
                     "o3": 200_000,
                     "gpt-4.1": 1_000_000,
+                    "gpt-5": 1_000_000,
                     # Anthropic models
                     "sonnet": 200_000,
                     "haiku": 200_000,
                     "opus": 200_000,
                     # Google models
                     "gemini": 1_000_000,
-                    # Alibaba models
-                    "qwen-turbo": 1_000_000,
                 }
 
                 token_msg = (
@@ -129,7 +132,7 @@ class APICalling(Event):
 
         # Handle chat completions format
         if "messages" in self.payload:
-            return TokenCalculator.calculate_message_tokens(
+            return _get_token_calculator().calculate_message_tokens(
                 self.payload["messages"], **self.payload
             )
         # Handle responses API format
@@ -150,12 +153,14 @@ class APICalling(Event):
                             messages.append(item)
             else:
                 return None
-            return TokenCalculator.calculate_message_tokens(
+            return _get_token_calculator().calculate_message_tokens(
                 messages, **self.payload
             )
         # Handle embeddings endpoint
         elif "embed" in self.endpoint.config.endpoint:
-            return TokenCalculator.calculate_embed_token(**self.payload)
+            return _get_token_calculator().calculate_embed_token(
+                **self.payload
+            )
 
         return None
 

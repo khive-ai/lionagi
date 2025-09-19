@@ -5,18 +5,13 @@
 import asyncio
 import logging
 
-import aiohttp
-import backoff
-from aiocache import cached
 from pydantic import BaseModel
 
-from lionagi.config import settings
 from lionagi.service.resilience import (
     CircuitBreaker,
     RetryConfig,
     retry_with_backoff,
 )
-from lionagi.utils import to_dict
 
 from .endpoint_config import EndpointConfig
 from .header_factory import HeaderFactory
@@ -65,6 +60,8 @@ class Endpoint:
 
     def _create_http_session(self):
         """Create a new HTTP session (not thread-safe, create new for each request)."""
+        import aiohttp
+
         return aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(self.config.timeout),
             **self.config.client_kwargs,
@@ -150,6 +147,13 @@ class Endpoint:
                 "branch",
                 "aggregation_sources",
                 "aggregation_count",
+                "action_strategy",
+                "parse_model",
+                "reason",
+                "actions",
+                "return_operative",
+                "operative_model",
+                "request_model",
             }
             payload = {
                 k: v for k, v in payload.items() if k not in non_api_params
@@ -224,6 +228,9 @@ class Endpoint:
 
         # Handle caching if requested
         if cache_control:
+            from aiocache import cached
+
+            from lionagi.config import settings
 
             @cached(**settings.aiocache_config.as_kwargs())
             async def _cached_call(payload: dict, headers: dict, **kwargs):
@@ -261,6 +268,8 @@ class Endpoint:
         Returns:
             The response from the endpoint.
         """
+        import aiohttp
+        import backoff
 
         async def _make_request_with_backoff():
             # Create a new session for this request
@@ -375,6 +384,8 @@ class Endpoint:
                 **kwargs,
             ) as response:
                 if response.status != 200:
+                    import aiohttp
+
                     raise aiohttp.ClientResponseError(
                         request_info=response.request_info,
                         history=response.history,
@@ -402,6 +413,8 @@ class Endpoint:
 
     @classmethod
     def from_dict(cls, data: dict):
+        from lionagi.utils import to_dict
+
         data = to_dict(data, recursive=True)
         retry_config = data.get("retry_config")
         circuit_breaker = data.get("circuit_breaker")

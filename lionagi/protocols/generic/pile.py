@@ -18,14 +18,13 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
-import pandas as pd
 from pydantic import Field, field_serializer
 from pydantic.fields import FieldInfo
 from pydapter import Adaptable, AsyncAdaptable
 from typing_extensions import Self, deprecated, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError, ValidationError
-from lionagi.libs.concurrency import Lock as ConcurrencyLock
+from lionagi.ln.concurrency import Lock as ConcurrencyLock
 from lionagi.utils import (
     UNDEFINED,
     is_same_dtype,
@@ -1047,11 +1046,14 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         kw["adapt_meth"] = "from_dict"
         return await super().adapt_from_async(obj, obj_key, many=many, **kw)
 
-    def to_df(
-        self, columns: list[str] | None = None, **kw: Any
-    ) -> pd.DataFrame:
+    def to_df(self, columns: list[str] | None = None, **kw: Any):
         """Convert to DataFrame."""
-        from pydapter.extras.pandas_ import DataFrameAdapter
+        try:
+            from pydapter.extras.pandas_ import DataFrameAdapter
+        except ImportError as e:
+            raise ImportError(
+                "pandas is required for to_df(). Please install it via `pip install pandas`."
+            ) from e
 
         df = DataFrameAdapter.to_obj(
             list(self.collections.values()), adapt_meth="to_dict", **kw
@@ -1207,11 +1209,10 @@ def to_list_type(value: Any, /) -> list[Any]:
 
 if not _ADAPATER_REGISTERED:
     from pydapter.adapters import CsvAdapter, JsonAdapter
-    from pydapter.extras.pandas_ import DataFrameAdapter
 
     Pile.register_adapter(CsvAdapter)
     Pile.register_adapter(JsonAdapter)
-    Pile.register_adapter(DataFrameAdapter)
+
     _ADAPATER_REGISTERED = True
 
 Pile = Pile

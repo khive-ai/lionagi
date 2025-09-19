@@ -2,11 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
-from difflib import SequenceMatcher
-from itertools import product
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 
 __all__ = ("string_similarity",)
 
@@ -157,6 +159,8 @@ def levenshtein_distance(a: str, b: str) -> int:
         int: Minimum number of single-character edits needed to change one
              string into the other
     """
+    from itertools import product
+
     if not a:
         return len(b)
     if not b:
@@ -213,6 +217,8 @@ def sequence_matcher_similarity(s1: str, s2: str) -> float:
     Returns:
         float: Similarity score between 0 and 1
     """
+    from difflib import SequenceMatcher
+
     return SequenceMatcher(None, s1, s2).ratio()
 
 
@@ -249,7 +255,7 @@ class MatchResult:
 
 def string_similarity(
     word: str,
-    correct_words: Sequence[str],
+    correct_words: "Sequence[str]",
     algorithm: SIMILARITY_TYPE | Callable[[str, str], float] = "jaro_winkler",
     threshold: float = 0.0,
     case_sensitive: bool = False,

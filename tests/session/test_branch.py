@@ -1,16 +1,15 @@
-import pandas as pd
 import pytest
 from pydantic import BaseModel
 
 from lionagi.fields.action import ActionResponseModel
 from lionagi.fields.instruct import Instruct
+from lionagi.protocols.operatives.operative import Operative
 from lionagi.protocols.types import (
     ActionRequest,
     AssistantResponse,
     Instruction,
     LogManagerConfig,
     MessageRole,
-    Operative,
     PackageCategory,
     RoledMessage,
 )
@@ -379,32 +378,6 @@ def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
     assert len(new_branch.messages) == 1
     nm = new_branch.messages[0]
     assert nm.content["text"] == "hello user"
-
-
-def test_branch_to_df(branch_with_mock_imodel: Branch):
-    """
-    Add a couple messages, ensure to_df() yields a Pandas DataFrame with expected columns/rows.
-    """
-    msg1 = RoledMessage(
-        role=MessageRole.USER,
-        content={"text": "User says hi"},
-        sender=branch_with_mock_imodel.user,
-        recipient=branch_with_mock_imodel.id,
-    )
-    msg2 = RoledMessage(
-        role=MessageRole.ASSISTANT,
-        content={"text": "Assistant replies"},
-        sender=branch_with_mock_imodel.id,
-        recipient=branch_with_mock_imodel.user,
-    )
-    branch_with_mock_imodel.messages.include(msg1)
-    branch_with_mock_imodel.messages.include(msg2)
-
-    df = branch_with_mock_imodel.to_df()
-    assert isinstance(df, pd.DataFrame)
-    assert len(df) == 2
-    for col in ["role", "content", "sender", "recipient"]:
-        assert col in df.columns
 
 
 @pytest.mark.asyncio

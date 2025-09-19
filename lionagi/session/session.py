@@ -6,7 +6,6 @@ import contextlib
 from collections.abc import Callable
 from typing import Any
 
-import pandas as pd
 from pydantic import (
     Field,
     JsonValue,
@@ -19,7 +18,6 @@ from typing_extensions import Self
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
-    ActionManager,
     Communicatable,
     Exchange,
     Graph,
@@ -33,13 +31,12 @@ from lionagi.protocols.types import (
     RoledMessage,
     SenderRecipient,
     System,
-    Tool,
 )
 
 from .._errors import ItemNotFoundError
 from ..ln import lcall
 from ..service.imodel import iModel
-from .branch import Branch, OperationManager
+from .branch import ActionManager, Branch, OperationManager, Tool
 
 
 class Session(Node, Communicatable, Relational):
@@ -79,7 +76,7 @@ class Session(Node, Communicatable, Relational):
 
     def include_branches(self, branches: ID[Branch].ItemSeq):
         def _take_in_branch(branch: Branch):
-            if not branch in self.branches:
+            if branch not in self.branches:
                 self.branches.include(branch)
                 self.mail_manager.add_sources(branch)
 
@@ -171,19 +168,14 @@ class Session(Node, Communicatable, Relational):
         as_default_branch: bool = False,
         **kwargs,
     ) -> Branch:
-        kwargs["system"] = system
-        kwargs["system_sender"] = system_sender
-        kwargs["system_datetime"] = system_datetime
-        kwargs["user"] = user
-        kwargs["name"] = name
-        kwargs["imodel"] = imodel
-        kwargs["messages"] = messages
-        kwargs["progress"] = progress
-        kwargs["tool_manager"] = tool_manager
-        kwargs["tools"] = tools
-        kwargs = {k: v for k, v in kwargs.items() if v is not None}
-
-        branch = Branch(**kwargs)  # type: ignore
+        """Create and include a new branch in the session."""
+        params = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "as_default_branch", "kwargs")
+            and v is not None
+        }
+        branch = Branch(**params, **kwargs)  # type: ignore
         self.include_branches(branch)
         if as_default_branch:
             self.default_branch = branch
@@ -262,7 +254,7 @@ class Session(Node, Communicatable, Relational):
         branches: ID.RefSeq = None,
         exclude_clone: bool = False,
         exlcude_load: bool = False,
-    ) -> pd.DataFrame:
+    ):
         out = self.concat_messages(
             branches=branches,
             exclude_clone=exclude_clone,
@@ -302,19 +294,6 @@ class Session(Node, Communicatable, Relational):
         return Pile(
             collections=messages, item_type={RoledMessage}, strict_type=False
         )
-
-    def to_df(
-        self,
-        branches: ID.RefSeq = None,
-        exclude_clone: bool = False,
-        exclude_load: bool = False,
-    ) -> pd.DataFrame:
-        out = self.concat_messages(
-            branches=branches,
-            exclude_clone=exclude_clone,
-            exclude_load=exclude_load,
-        )
-        return out.to_df(columns=MESSAGE_FIELDS)
 
     def send(self, to_: ID.RefSeq = None):
         """
@@ -436,6 +415,48 @@ class Session(Node, Communicatable, Relational):
             verbose=verbose,
             alcall_params=alcall_params,
         )
+
+    def cleanup_memory(
+        self, clear_branches: bool = True, clear_mail: bool = True
+    ):
+        """
+        Clean up session memory to prevent memory accumulation.
+
+        Args:
+            clear_branches: Whether to clear branch logs and memory
+            clear_mail: Whether to clear mail transfer history
+        """
+        if clear_branches and self.branches:
+            for branch in self.branches:
+                if hasattr(branch, "dump_logs"):
+                    branch.dump_logs(clear=True)
+
+        if clear_mail and self.mail_transfer:
+            # Clear mail transfer history if available
+            if hasattr(self.mail_transfer, "clear"):
+                self.mail_transfer.clear()
+
+    async def acleanup_memory(
+        self, clear_branches: bool = True, clear_mail: bool = True
+    ):
+        """
+        Asynchronously clean up session memory to prevent memory accumulation.
+
+        Args:
+            clear_branches: Whether to clear branch logs and memory
+            clear_mail: Whether to clear mail transfer history
+        """
+        if clear_branches and self.branches:
+            for branch in self.branches:
+                if hasattr(branch, "adump_logs"):
+                    await branch.adump_logs(clear=True)
+
+        if clear_mail and self.mail_transfer:
+            # Clear mail transfer history if available
+            if hasattr(self.mail_transfer, "aclear"):
+                await self.mail_transfer.aclear()
+            elif hasattr(self.mail_transfer, "clear"):
+                self.mail_transfer.clear()
 
 
 __all__ = ["Session"]

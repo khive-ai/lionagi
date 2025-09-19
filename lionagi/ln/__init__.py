@@ -1,8 +1,6 @@
 from ._async_call import alcall, bcall
 from ._hash import hash_dict
 from ._json_dump import (
-    DEFAULT_SERIALIZER,
-    DEFAULT_SERIALIZER_OPTION,
     get_orjson_default,
     json_dumpb,
     json_dumps,
@@ -37,8 +35,10 @@ from .fuzzy import (
     extract_json,
     fuzzy_json,
     fuzzy_match_keys,
+    fuzzy_validate_mapping,
     fuzzy_validate_pydantic,
     string_similarity,
+    to_dict,
 )
 from .types import is_sentinel, not_sentinel
 
@@ -46,8 +46,6 @@ __all__ = (
     "alcall",
     "bcall",
     "hash_dict",
-    "DEFAULT_SERIALIZER",
-    "DEFAULT_SERIALIZER_OPTION",
     "get_orjson_default",
     "json_dumps",
     "make_options",
@@ -80,4 +78,6 @@ __all__ = (
     "string_similarity",
     "is_sentinel",
     "not_sentinel",
+    "to_dict",
+    "fuzzy_validate_mapping",
 )

@@ -27,24 +27,22 @@ jobs:
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
-    - name: Load cached dependencies
-      id: cached-uv-dependencies
-      uses: actions/cache@v4
-      with:
-        path: .venv
-        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
-    
     - name: Install dependencies
-      if: steps.cached-uv-dependencies.outputs.cache-hit != 'true'
       run: |
         uv venv
-        uv sync --extra all
-    
-    - name: Run tests
+        uv sync --all-extras
+
+    - name: Run tests with coverage
       run: |
         source .venv/bin/activate
-        uv run pytest --asyncio-mode=auto --maxfail=1 --disable-warnings tests/
-    
+        uv run pytest --asyncio-mode=auto --maxfail=1 --disable-warnings --cov=lionagi --cov-report=xml --cov-report=term tests/
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: khive-ai/lionagi
+
     - name: Check code style and compatibility
       run: |
         source .venv/bin/activate
