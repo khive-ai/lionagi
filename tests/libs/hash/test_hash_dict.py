@@ -121,6 +121,9 @@ class TestGenerateHashableRepresentation:
     def test_pydantic_model_representation(self):
         from pydantic import BaseModel
 
+        # Trigger lazy initialization by calling hash_dict once
+        hash_utils.hash_dict({})
+
         class MyPydanticModel(BaseModel):
             x: int
             y: str
