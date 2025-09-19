@@ -87,8 +87,6 @@ __all__ = (
     "max_concurrent",
     "force_async",
     "breakdown_pydantic_annotation",
-    "run_package_manager_command",
-    "StringEnum",
     "Enum",
     "hash_dict",
     "is_union_type",
@@ -104,12 +102,6 @@ __all__ = (
     "import_module",
     "to_dict",
 )
-
-
-# --- General Global Utilities Types ---
-@deprecated("String Enum is deprecated, use `Enum` instead.")
-class StringEnum(str, Enum):
-    pass
 
 
 # --- General Global Utilities Functions ---

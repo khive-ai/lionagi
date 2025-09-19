@@ -3,9 +3,12 @@ from __future__ import annotations
 import copy
 
 import msgspec
-from pydantic import BaseModel as PydanticBaseModel
 
 __all__ = ("hash_dict",)
+
+# Global initialization state
+_INITIALIZED = False
+PydanticBaseModel = None
 
 # --- Canonical Representation Generator ---
 _PRIMITIVE_TYPES = (str, int, float, bool, type(None))
@@ -35,7 +38,7 @@ def _generate_hashable_representation(item: any) -> any:
             _generate_hashable_representation(msgspec.to_builtins(item)),
         )
 
-    if isinstance(item, PydanticBaseModel):
+    if PydanticBaseModel and isinstance(item, PydanticBaseModel):
         # Process the Pydantic model by first dumping it to a dict, then processing that dict.
         # The type marker distinguishes this from a regular dictionary.
         return (
@@ -117,6 +120,13 @@ def _generate_hashable_representation(item: any) -> any:
 
 
 def hash_dict(data: any, strict: bool = False) -> int:
+    global _INITIALIZED, PydanticBaseModel
+    if _INITIALIZED is False:
+        from pydantic import BaseModel
+
+        PydanticBaseModel = BaseModel
+        _INITIALIZED = True
+
     data_to_process = data
     if strict:
         data_to_process = copy.deepcopy(data)

@@ -85,20 +85,16 @@ class APICalling(Event):
                 TOKEN_LIMITS = {
                     # OpenAI models
                     "gpt-4": 128_000,
-                    "gpt-4-turbo": 128_000,
-                    "o1-mini": 128_000,
-                    "o1-preview": 128_000,
                     "o1": 200_000,
                     "o3": 200_000,
                     "gpt-4.1": 1_000_000,
+                    "gpt-5": 1_000_000,
                     # Anthropic models
                     "sonnet": 200_000,
                     "haiku": 200_000,
                     "opus": 200_000,
                     # Google models
                     "gemini": 1_000_000,
-                    # Alibaba models
-                    "qwen-turbo": 1_000_000,
                 }
 
                 token_msg = (
