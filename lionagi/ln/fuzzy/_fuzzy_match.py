@@ -1,8 +1,7 @@
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
-from ..types import KeysDict, Params, Unset
+from ..types import KeysLike, Params, Unset
 from ._string_similarity import (
     SIMILARITY_ALGO_MAP,
     SIMILARITY_TYPE,
@@ -21,7 +20,7 @@ HandleUnmatched = Literal["ignore", "raise", "remove", "fill", "force"]
 
 def fuzzy_match_keys(
     d_: dict[str, Any],
-    keys: Sequence[str] | KeysDict,
+    keys: KeysLike,
     /,
     *,
     similarity_algo: SIMILARITY_TYPE | SimilarityFunc = "jaro_winkler",
@@ -166,7 +165,5 @@ class FuzzyMatchKeysParams(Params):
     fill_mapping: dict[str, Any] | Any = Unset
     strict: bool = False
 
-    def __call__(
-        self, d_: dict[str, Any], keys: Sequence[str] | KeysDict
-    ) -> dict[str, Any]:
+    def __call__(self, d_: dict[str, Any], keys: KeysLike) -> dict[str, Any]:
         return fuzzy_match_keys(d_, keys, **self.default_kw())
