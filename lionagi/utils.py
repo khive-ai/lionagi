@@ -6,21 +6,10 @@ import copy as _copy
 import logging
 import types
 import uuid
-from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
-from inspect import isclass
 from pathlib import Path
-from typing import (
-    Annotated,
-    Any,
-    TypeVar,
-    Union,
-    get_args,
-    get_origin,
-)
-
-from pydantic import BaseModel
-from typing_extensions import deprecated
+from typing import Annotated, Any, TypeVar, Union, get_args, get_origin
 
 from .ln import (
     extract_json,
@@ -49,14 +38,10 @@ from .ln.types import (
 
 R = TypeVar("R")
 T = TypeVar("T")
-B = TypeVar("B", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
 UNDEFINED = Undefined
-
-to_json = extract_json
-fuzzy_parse_json = fuzzy_json
 
 __all__ = (
     "UndefinedType",
@@ -70,25 +55,15 @@ __all__ = (
     "get_class_file_registry",
     "get_class_objects",
     "is_coro_func",
-    "custom_error_handler",
     "to_list",
-    "lcall",
-    "alcall",
-    "bcall",
     "create_path",
-    "fuzzy_parse_json",
-    "fix_json_string",
     "get_bins",
     "EventStatus",
     "logger",
-    "max_concurrent",
-    "force_async",
-    "breakdown_pydantic_annotation",
     "Enum",
     "hash_dict",
     "is_union_type",
     "union_members",
-    "to_json",
     "Unset",
     "UnsetType",
     "Undefined",
@@ -171,214 +146,6 @@ def union_members(
     if drop_none:
         members = tuple(m for m in members if m is not NoneType)
     return members
-
-
-async def custom_error_handler(
-    error: Exception, error_map: dict[type, Callable[[Exception], None]]
-) -> None:
-    if type(error) in error_map:
-        if is_coro_func(error_map[type(error)]):
-            return await error_map[type(error)](error)
-        return error_map[type(error)](error)
-    logging.error(f"Unhandled error: {error}")
-    raise error
-
-
-@deprecated(
-    "Use `lionagi.ln.lcall` instead, function signature has changed, this will be removed in future versions."
-)
-def lcall(
-    input_: Iterable[T] | T,
-    func: Callable[[T], R] | Iterable[Callable[[T], R]],
-    /,
-    *args: Any,
-    sanitize_input: bool = False,
-    unique_input: bool = False,
-    flatten: bool = False,
-    dropna: bool = False,
-    unique_output: bool = False,
-    flatten_tuple_set: bool = False,
-    use_input_values: bool = False,
-    **kwargs: Any,
-) -> list[R]:
-    """Apply function to each element in input list with optional processing.
-
-    Maps a function over input elements and processes results. Can sanitize input
-    and output using various filtering options.
-
-    Args:
-        input_: Single item or iterable to process.
-        func: Function to apply or single-item iterable containing function.
-        *args: Additional positional arguments passed to func.
-        sanitize_input: If True, sanitize input using to_list.
-        unique_input: If True with sanitize_input, remove input duplicates.
-        flatten: If True, flatten output nested structures.
-        dropna: If True, remove None values from output.
-        unique_output: If True with flatten/dropna, remove output duplicates.
-        flatten_tuple_set: If True, flatten tuples and sets.
-        **kwargs: Additional keyword arguments passed to func.
-
-    Returns:
-        list: Results of applying func to each input element.
-
-    Raises:
-        ValueError: If func is not callable or unique_output used incorrectly.
-        TypeError: If func or input processing fails.
-
-    Examples:
-        >>> lcall([1, 2, 3], str)
-        ['1', '2', '3']
-        >>> lcall([1, [2, 3]], str, flatten=True)
-        ['1', '2', '3']
-    """
-    from lionagi.ln import lcall as _lcall
-
-    return _lcall(
-        input_,
-        func,
-        *args,
-        input_flatten=sanitize_input,
-        input_dropna=sanitize_input,
-        input_flatten_tuple_set=flatten_tuple_set,
-        input_unique=unique_input,
-        input_use_values=use_input_values,
-        output_flatten=flatten,
-        output_dropna=dropna,
-        output_flatten_tuple_set=flatten_tuple_set,
-        output_unique=unique_output,
-        **kwargs,
-    )
-
-
-@deprecated(
-    "Use `lionagi.ln.alcall` instead, function signature has changed, this will be removed in future versions."
-)
-async def alcall(
-    input_: list[Any],
-    func: Callable[..., T],
-    /,
-    *,
-    sanitize_input: bool = False,
-    unique_input: bool = False,
-    num_retries: int = 0,
-    initial_delay: float = 0,
-    retry_delay: float = 0,
-    backoff_factor: float = 1,
-    retry_default: Any = UNDEFINED,
-    retry_timeout: float | None = None,
-    max_concurrent: int | None = None,
-    throttle_period: float | None = None,
-    flatten: bool = False,
-    dropna: bool = False,
-    unique_output: bool = False,
-    flatten_tuple_set: bool = False,
-    **kwargs: Any,
-) -> list[T]:
-    """
-    Asynchronously apply a function to each element of a list, with optional input sanitization,
-    retries, timeout, and output processing.
-
-    Args:
-        input_ (list[Any]): The list of inputs to process.
-        func (Callable[..., T]): The function to apply (async or sync).
-        sanitize_input (bool): If True, input is flattened, dropna applied, and made unique if unique_input.
-        unique_input (bool): If True and sanitize_input is True, input is made unique.
-        num_retries (int): Number of retry attempts on exception.
-        initial_delay (float): Initial delay before starting executions.
-        retry_delay (float): Delay between retries.
-        backoff_factor (float): Multiplier for delay after each retry.
-        retry_default (Any): Default value if all retries fail.
-        retry_timeout (float | None): Timeout for each function call.
-        max_concurrent (int | None): Maximum number of concurrent operations.
-        throttle_period (float | None): Delay after each completed operation.
-        flatten (bool): Flatten the final result if True.
-        dropna (bool): Remove None values from the final result if True.
-        unique_output (bool): Deduplicate the output if True.
-        flatten_tuple_set (bool): Tuples and sets will be flattened if True.
-        **kwargs: Additional arguments passed to func.
-
-    Returns:
-        list[T]: The processed results.
-
-    Raises:
-        asyncio.TimeoutError: If a call times out and no default is provided.
-        Exception: If retries are exhausted and no default is provided.
-    """
-    from .ln._async_call import alcall as _alcall
-
-    return await _alcall(
-        input_,
-        func,
-        input_flatten=sanitize_input,
-        input_dropna=sanitize_input,
-        input_unique=unique_input,
-        input_flatten_tuple_set=flatten_tuple_set,
-        output_flatten=flatten,
-        output_dropna=dropna,
-        output_unique=unique_output,
-        output_flatten_tuple_set=flatten_tuple_set,
-        delay_before_start=initial_delay,
-        retry_initial_deplay=retry_delay,
-        retry_backoff=backoff_factor,
-        retry_default=retry_default,
-        retry_timeout=retry_timeout,
-        retry_attempts=num_retries,
-        max_concurrent=max_concurrent,
-        throttle_period=throttle_period,
-        **kwargs,
-    )
-
-
-@deprecated(
-    "Use `lionagi.ln.alcall` instead, function signature has changed, this will be removed in future versions."
-)
-async def bcall(
-    input_: Any,
-    func: Callable[..., T],
-    /,
-    batch_size: int,
-    *,
-    sanitize_input: bool = False,
-    unique_input: bool = False,
-    num_retries: int = 0,
-    initial_delay: float = 0,
-    retry_delay: float = 0,
-    backoff_factor: float = 1,
-    retry_default: Any = UNDEFINED,
-    retry_timeout: float | None = None,
-    max_concurrent: int | None = None,
-    throttle_period: float | None = None,
-    flatten: bool = False,
-    dropna: bool = False,
-    unique_output: bool = False,
-    flatten_tuple_set: bool = False,
-    **kwargs: Any,
-) -> AsyncGenerator[list[T | tuple[T, float]], None]:
-    from .ln._async_call import bcall as _bcall
-
-    async for i in _bcall(
-        input_,
-        func,
-        batch_size,
-        input_flatten=sanitize_input,
-        input_dropna=sanitize_input,
-        input_unique=unique_input,
-        input_flatten_tuple_set=flatten_tuple_set,
-        output_flatten=flatten,
-        output_dropna=dropna,
-        output_unique=unique_output,
-        output_flatten_tuple_set=flatten_tuple_set,
-        delay_before_start=initial_delay,
-        retry_initial_deplay=retry_delay,
-        retry_backoff=backoff_factor,
-        retry_default=retry_default,
-        retry_timeout=retry_timeout,
-        retry_attempts=num_retries,
-        max_concurrent=max_concurrent,
-        throttle_period=throttle_period,
-        **kwargs,
-    ):
-        yield i
 
 
 def create_path(
@@ -478,42 +245,3 @@ def get_bins(input_: list[str], upper: int) -> list[list[int]]:
     if current_bin:
         bins.append(current_bin)
     return bins
-
-
-def breakdown_pydantic_annotation(
-    model: type[B], max_depth: int | None = None, current_depth: int = 0
-) -> dict[str, Any]:
-    if not _is_pydantic_model(model):
-        raise TypeError("Input must be a Pydantic model")
-
-    if max_depth is not None and current_depth >= max_depth:
-        raise RecursionError("Maximum recursion depth reached")
-
-    out: dict[str, Any] = {}
-    for k, v in model.__annotations__.items():
-        origin = get_origin(v)
-        if _is_pydantic_model(v):
-            out[k] = breakdown_pydantic_annotation(
-                v, max_depth, current_depth + 1
-            )
-        elif origin is list:
-            args = get_args(v)
-            if args and _is_pydantic_model(args[0]):
-                out[k] = [
-                    breakdown_pydantic_annotation(
-                        args[0], max_depth, current_depth + 1
-                    )
-                ]
-            else:
-                out[k] = [args[0] if args else Any]
-        else:
-            out[k] = v
-
-    return out
-
-
-def _is_pydantic_model(x: Any) -> bool:
-    try:
-        return isclass(x) and issubclass(x, BaseModel)
-    except TypeError:
-        return False
