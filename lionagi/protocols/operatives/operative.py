@@ -7,9 +7,10 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
+from lionagi.ln import extract_json
 from lionagi.ln.fuzzy._fuzzy_match import fuzzy_match_keys
 from lionagi.models import FieldModel, ModelParams, OperableModel
-from lionagi.utils import UNDEFINED, to_json
+from lionagi.utils import UNDEFINED
 
 
 class Operative:
@@ -145,7 +146,7 @@ class Operative:
         Raises:
             Exception: If the validation fails.
         """
-        d_ = to_json(text, fuzzy_parse=True)
+        d_ = extract_json(text, fuzzy_parse=True)
         if isinstance(d_, list | tuple) and len(d_) == 1:
             d_ = d_[0]
         try:
@@ -167,7 +168,7 @@ class Operative:
         """
         d_ = text
         try:
-            d_ = to_json(text, fuzzy_parse=True)
+            d_ = extract_json(text, fuzzy_parse=True)
             if isinstance(d_, list | tuple) and len(d_) == 1:
                 d_ = d_[0]
             d_ = fuzzy_match_keys(

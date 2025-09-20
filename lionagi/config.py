@@ -83,6 +83,17 @@ class AppSettings(BaseSettings, frozen=True):
     LIONAGI_QDRANT_URL: str = "http://localhost:6333"
     LIONAGI_DEFAULT_QDRANT_COLLECTION: str = "event_logs"
 
+    # Log configuration
+    LOG_PERSIST_DIR: str = "./data/logs"
+    LOG_SUBFOLDER: str | None = None
+    LOG_CAPACITY: int = 50
+    LOG_EXTENSION: str = ".json"
+    LOG_USE_TIMESTAMP: bool = True
+    LOG_HASH_DIGITS: int = 5
+    LOG_FILE_PREFIX: str = "log"
+    LOG_AUTO_SAVE_ON_EXIT: bool = True
+    LOG_CLEAR_AFTER_DUMP: bool = True
+
     # Class variable to store the singleton instance
     _instance: ClassVar[Any] = None
 
@@ -118,6 +129,21 @@ class AppSettings(BaseSettings, frozen=True):
             return secret.get_secret_value()
 
         return str(secret)
+
+    @property
+    def LOG_CONFIG(self) -> dict[str, Any]:
+        """Get LOG configuration dict compatible with old Settings.Config.LOG format."""
+        return {
+            "persist_dir": self.LOG_PERSIST_DIR,
+            "subfolder": self.LOG_SUBFOLDER,
+            "capacity": self.LOG_CAPACITY,
+            "extension": self.LOG_EXTENSION,
+            "use_timestamp": self.LOG_USE_TIMESTAMP,
+            "hash_digits": self.LOG_HASH_DIGITS,
+            "file_prefix": self.LOG_FILE_PREFIX,
+            "auto_save_on_exit": self.LOG_AUTO_SAVE_ON_EXIT,
+            "clear_after_dump": self.LOG_CLEAR_AFTER_DUMP,
+        }
 
 
 # Create a singleton instance

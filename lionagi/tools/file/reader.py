@@ -8,6 +8,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 from lionagi.libs.validate.to_num import to_num
+from lionagi.ln import is_import_installed
 from lionagi.protocols.action.tool import Tool
 from lionagi.service.token_calculator import TokenCalculator
 
@@ -173,10 +174,11 @@ class ReaderTool(LionTool):
     system_tool_name = "reader_tool"
 
     def __init__(self):
-        from lionagi.libs.file.process import _HAS_DOCLING
-
-        if _HAS_DOCLING is not True:
-            raise _HAS_DOCLING
+        if not is_import_installed("docling"):
+            raise ImportError(
+                "The 'docling' package is required for this feature. "
+                "Please install it via 'pip install lionagi[reader]'."
+            )
 
         from docling.document_converter import DocumentConverter
 
