@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, ClassVar
 
 from lionagi.ln.concurrency.utils import is_coro_func
 from lionagi.protocols.generic.event import Event
+
+logger = logging.getLogger(__name__)
 
 __all__ = ("Broadcaster",)
 
@@ -47,7 +50,9 @@ class Broadcaster:
                 else:
                     callback(event)
             except Exception as e:
-                print(f"Error in sync subscriber callback: {e}")
+                logger.error(
+                    f"Error in subscriber callback: {e}", exc_info=True
+                )
 
     @classmethod
     def get_subscriber_count(cls) -> int:
