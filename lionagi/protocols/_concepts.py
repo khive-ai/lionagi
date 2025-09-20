@@ -18,6 +18,7 @@ __all__ = (
     "Condition",
     "Collective",
     "Ordering",
+    "Invariant",
 )
 
 
@@ -89,6 +90,10 @@ class Ordering(ABC, Generic[E]):
     @abstractmethod
     def exclude(self, item, /):
         pass
+
+
+class Invariant(ABC):
+    """Base for invariants."""
 
 
 # File: lionagi/protocols/_concepts.py

@@ -12,7 +12,8 @@ from lionagi.fields.action import (
 )
 from lionagi.fields.reason import REASON_FIELD
 from lionagi.models import FieldModel, ModelParams
-from lionagi.protocols.operatives.operative import Operative
+
+from .operative import Operative
 
 
 class Step:

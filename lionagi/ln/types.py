@@ -1,11 +1,26 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import os
+import threading
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum as _Enum
-from typing import Any, ClassVar, Final, Literal, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Final,
+    Literal,
+    OrderedDict,
+    TypeVar,
+    Union,
+)
 
-from typing_extensions import TypedDict, override
+from typing_extensions import Self, TypedDict, override
+
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
 
 __all__ = (
     "Undefined",
@@ -24,6 +39,8 @@ __all__ = (
     "Params",
     "DataClass",
     "KeysLike",
+    "Meta",
+    "FieldTemplate",
 )
 
 T = TypeVar("T")
@@ -157,6 +174,9 @@ class KeysDict(TypedDict, total=False):
     """TypedDict for keys dictionary."""
 
     key: Any  # Represents any key-type pair
+
+
+KeysLike = Sequence[str] | KeysDict
 
 
 @dataclass(slots=True, frozen=True, init=False)
@@ -311,4 +331,258 @@ class DataClass:
         return is_sentinel(value)
 
 
-KeysLike = Sequence[str] | KeysDict
+@dataclass(slots=True, frozen=True)
+class Meta:
+    """Immutable metadata container for field templates."""
+
+    key: str
+    value: Any
+
+    @override
+    def __hash__(self) -> int:
+        """Make metadata hashable for caching.
+
+        Note: For callables, we hash by id to maintain identity semantics.
+        """
+        # For callables, use their id
+        if callable(self.value):
+            return hash((self.key, id(self.value)))
+        # For other values, try to hash directly
+        try:
+            return hash((self.key, self.value))
+        except TypeError:
+            # Fallback for unhashable types
+            return hash((self.key, str(self.value)))
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        """Compare metadata for equality.
+
+        For callables, compare by id to increase cache hits when the same
+        validator instance is reused. For other values, use standard equality.
+        """
+        if not isinstance(other, Meta):
+            return NotImplemented
+
+        if self.key != other.key:
+            return False
+
+        # For callables, compare by identity
+        if callable(self.value) and callable(other.value):
+            return id(self.value) == id(other.value)
+
+        # For other values, use standard equality
+        return bool(self.value == other.value)
+
+
+# Global cache for annotated types with bounded size
+_MAX_CACHE_SIZE = int(os.environ.get("LIONAGI_FIELD_CACHE_SIZE", "10000"))
+_annotated_cache: OrderedDict[tuple[type, tuple[Meta, ...]], type] = (
+    OrderedDict()
+)
+_cache_lock = threading.RLock()  # Thread-safe access to cache
+_PYDANTIC_FIELD_PARAMS: set[str] | None = None
+
+
+def _get_pydantic_field_params() -> set[str]:
+    """Get valid Pydantic Field parameters (cached)."""
+    global _PYDANTIC_FIELD_PARAMS
+    if _PYDANTIC_FIELD_PARAMS is None:
+        import inspect
+
+        from pydantic import Field as PydanticField
+
+        _PYDANTIC_FIELD_PARAMS = set(
+            inspect.signature(PydanticField).parameters.keys()
+        )
+        _PYDANTIC_FIELD_PARAMS.discard("kwargs")
+    return _PYDANTIC_FIELD_PARAMS
+
+
+@dataclass(slots=True, frozen=True, init=False)
+class FieldTemplate:
+    base_type: type[Any]
+    metadata: tuple[Meta, ...] = field(default_factory=tuple)
+
+    def __init__(
+        self,
+        name: str,
+        value: Any = Unset,
+        base_type: type[Any] = Unset,
+        *,
+        metadata: tuple[Meta, ...] = Unset,
+        nullable: Literal[True] = Unset,
+        listable: Literal[True] = Unset,
+        default: Any = Unset,
+        default_factory: Callable[[], Any] = Unset,
+        **kw: Any,
+    ) -> None:
+
+        if is_sentinel(base_type):
+            base_type = Any
+        if is_sentinel(metadata):
+            metadata = tuple()
+
+        meta_list = list(metadata) if metadata else []
+
+        if not_sentinel(nullable) and nullable is True:
+            meta_list.append(Meta("nullable", True))
+
+        if not_sentinel(listable) and listable is True:
+            meta_list.append(Meta("listable", True))
+
+        if (
+            not_sentinel(name)
+            and isinstance(name, str)
+            and bool(n := name.strip())
+        ):
+            meta_list.append(Meta("name", n))
+
+        if sum(not_sentinel(x) for x in (default, default_factory)) > 1:
+            raise ValueError("Cannot have both default and default_factory")
+
+        if not_sentinel(default):
+            meta_list.append(Meta("default", default))
+
+        if not_sentinel(default_factory):
+            if not callable(default_factory):
+                raise ValueError("default_factory must be callable")
+            meta_list.append(Meta("default", default_factory))
+
+        # Convert remaining kwargs to Meta
+        for key, value in kw.items():
+            meta_list.append(Meta(key, value))
+
+        # Use object.__setattr__ to set frozen dataclass fields
+        object.__setattr__(self, "base_type", base_type)
+        object.__setattr__(self, "metadata", tuple(meta_list))
+
+    def __getattr__(self, name: str) -> Any:
+        """Handle access to custom attributes stored in metadata."""
+        for meta in self.metadata:
+            if meta.key == name:
+                return meta.value
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{name}'"
+        )
+
+    def as_nullable(self) -> Self:
+        """Create a new field model that allows None values. Handled at annoatation time."""
+        return self.with_meta("nullable", True)
+
+    def as_listable(self) -> Self:
+        """Create a new field model that wraps the type in a list."""
+        new_base = list[self.base_type]  # type: ignore
+        new_metadata = (*self.metadata, Meta("listable", True))
+        return type(self)(new_base, new_metadata)
+
+    def with_default(self, default: Any) -> Self:
+        """Add a default value to this field model."""
+        return self.with_meta("default", default)
+
+    def with_meta(self, key: str, value: Any) -> Self:
+        """Add custom metadata to this field."""
+        filtered_metadata = tuple(m for m in self.metadata if m.key != key)
+        new_metadata = (*filtered_metadata, Meta(key, value))
+        return type(self)(self.base_type, new_metadata)
+
+    @property
+    def is_nullable(self) -> bool:
+        """Check if this field allows None values."""
+        return any(m.key == "nullable" and m.value for m in self.metadata)
+
+    @property
+    def is_listable(self) -> bool:
+        """Check if this field is a list type."""
+        return any(m.key == "listable" and m.value for m in self.metadata)
+
+    def get_meta(self, key: str) -> Any:
+        for meta in self.metadata:
+            if meta.key == key:
+                return meta.value
+        return Undefined
+
+    def annotated(self) -> type[Any]:
+        """Materialize this template into an Annotated type."""
+        cache_key = (self.base_type, self.metadata)
+
+        with _cache_lock:
+            if cache_key in _annotated_cache:
+                # Move to end to mark as recently used
+                _annotated_cache.move_to_end(cache_key)
+                return _annotated_cache[cache_key]
+
+            # Handle nullable case - wrap in Optional-like union
+            actual_type = self.base_type
+            if any(m.key == "nullable" and m.value for m in self.metadata):
+                # Use union syntax for nullable
+                actual_type = actual_type | None  # type: ignore
+
+            if self.metadata:
+                # Python 3.10 doesn't support unpacking in Annotated, so we need to build it differently
+                # We'll use Annotated.__class_getitem__ to build the type dynamically
+                args = [actual_type] + list(self.metadata)
+                result = Annotated.__class_getitem__(tuple(args))  # type: ignore
+            else:
+                result = actual_type  # type: ignore[misc]
+
+            # Cache the result with LRU eviction
+            _annotated_cache[cache_key] = result  # type: ignore[assignment]
+
+            # Evict oldest if cache is too large (guard against empty cache)
+            while len(_annotated_cache) > _MAX_CACHE_SIZE:
+                try:
+                    _annotated_cache.popitem(last=False)  # Remove oldest
+                except KeyError:
+                    # Cache became empty during race, safe to continue
+                    break
+
+        return result  # type: ignore[return-value]
+
+    def create_pydantic_field(self) -> FieldInfo:
+        """Create a Pydantic FieldInfo object from this template.
+
+        Returns:
+            A Pydantic FieldInfo object with all metadata applied
+        """
+        from pydantic import Field as PydanticField
+
+        # Get valid Pydantic Field parameters (cached)
+        pydantic_field_params = _get_pydantic_field_params()
+
+        # Extract metadata for FieldInfo
+        field_kwargs = {}
+
+        for meta in self.metadata:
+            if meta.key == "default":
+                # Handle callable defaults as default_factory
+                if callable(meta.value):
+                    field_kwargs["default_factory"] = meta.value
+                else:
+                    field_kwargs["default"] = meta.value
+            elif meta.key == "validator":
+                # Validators are handled separately in create_model
+                continue
+            elif meta.key in pydantic_field_params:
+                # Pass through standard Pydantic field attributes
+                field_kwargs[meta.key] = meta.value
+            elif meta.key in {"nullable", "listable"}:
+                # These are FieldTemplate markers, don't pass to FieldInfo
+                pass
+            else:
+                # Any other metadata goes in json_schema_extra
+                if "json_schema_extra" not in field_kwargs:
+                    field_kwargs["json_schema_extra"] = {}
+                field_kwargs["json_schema_extra"][meta.key] = meta.value
+
+        # Handle nullable case - ensure default is set if not already
+        if (
+            self.is_nullable
+            and "default" not in field_kwargs
+            and "default_factory" not in field_kwargs
+        ):
+            field_kwargs["default"] = None
+
+        field_info = PydanticField(**field_kwargs)
+
+        return field_info

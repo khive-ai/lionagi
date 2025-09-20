@@ -2,32 +2,29 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from lionagi.models.hashable_model import HashableModel
 
 
-class FlowStep(BaseModel):
-    """
-    A minimal 'step' describing one transformation from some input fields to some output fields.
-    """
+class FlowStep(HashableModel):
+    """A minimal 'step' describing one transformation in a flow."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    name: str
+    """A unique identifier for this step."""
 
-    name: str = Field(..., description="Identifier for the step.")
-    inputs: list[str] = Field(
-        ..., description="Which fields are needed for this step."
-    )
-    outputs: list[str] = Field(
-        ..., description="Which fields are produced by this step."
-    )
-    description: str | None = None  # optional text doc
+    inputs: list[str]
+    """Which fields are needed for this step."""
+
+    outputs: list[str]
+    """Which fields are produced by this step."""
+
+    description: str | None = None
+    """An optional text doc for this step."""
 
 
-class FlowDefinition(BaseModel):
-    """
-    A minimal DSL-based multi-step flow, e.g. 'a,b->c; c->d' to yield two steps.
-    """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class FlowDefinition(HashableModel):
+    """DSL-based multi-step flow, e.g. 'a,b->c; c->d' to yield two steps."""
 
     steps: list[FlowStep] = Field(default_factory=list)
 

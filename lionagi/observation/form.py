@@ -4,25 +4,34 @@
 
 from typing import Any
 
-from pydantic import ConfigDict, Field, model_validator
-from typing_extensions import Self
+from pydantic import Field, model_validator
 
-from .base import BaseForm
-from .flow import FlowDefinition
+from lionagi.fields.flow import FlowDefinition
+from lionagi.ln import not_sentinel
+from lionagi.models.field_model import FieldModel
+from lionagi.protocols.generic.element import Element
 
 
-class Form(BaseForm):
-    """
-    A domain form that can handle either a simple 'a,b->c' assignment
-    or a multi-step flow if the assignment string has semicolons, etc.
-    """
+class Form(Element):
 
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+    assignment: str | None = None
+    """A small DSL describing transformation, e.g. 'a,b -> c'."""
+
+    output_fields: list[str] = Field(default_factory=list)
+    """Which fields are considered mandatory outputs."""
+
+    has_processed: bool = False
+    """Marks if the form is considered completed or 'processed'."""
+
+    none_as_sentinel: bool = False
+    """If True, None is treated as a sentinel value."""
+
+    fields: dict[str, tuple[FieldModel, Any]] = Field(default_factory=dict)
+    """The {name: (field_model, value)} in this form, keyed by field name."""
 
     flow_definition: FlowDefinition | None = None
-    # Possibly some extra fields, e.g. "guidance" or "task"
-    guidance: str | None = Field(default=None)
-    task: str | None = Field(default=None)
+    guidance: str | None = None
+    task: str | None = None
 
     @model_validator(mode="before")
     def parse_assignment_into_flow(cls, values):
@@ -38,7 +47,7 @@ class Form(BaseForm):
         return values
 
     @model_validator(mode="after")
-    def compute_output_fields(self) -> Self:
+    def compute_output_fields(self):
         """
         If in simple mode, we parse something like 'a,b->c' and set output_fields=[c].
         If in multi-step mode, we set output_fields to the final produced fields of the flow.
@@ -59,29 +68,25 @@ class Form(BaseForm):
                     self.output_fields = outs
         return self
 
-    def fill_fields(self, **kwargs) -> None:
+    def fill_fields(self, update_: bool = False, **kwargs) -> None:
         """
         A small helper: fill fields in this form by direct assignment.
         Usually you'd do 'myform(field=val, field2=val2)', but sometimes you want partial updates.
         """
         for k, v in kwargs.items():
-            setattr(self, k, v)
+            if k not in self.fields:
+                raise ValueError(f"Field '{k}' not defined in form.")
+            if self._not_sentinel(v):
+                field_model, current_value = self.fields[k]
+                if not update_ and self._not_sentinel(current_value):
+                    raise ValueError(
+                        f"Field '{k}' already has a value, use update_=True to overwrite."
+                    )
+                # Update the tuple by replacing it (tuples are immutable)
+                self.fields[k] = (field_model, v)
 
-    def to_instructions(self) -> dict[str, Any]:
-        """
-        Return a small dictionary that an LLM can read as an 'instruction context'.
-        """
-        return {
-            "assignment": self.assignment,
-            "flow": (
-                self.flow_definition.model_dump()
-                if self.flow_definition
-                else None
-            ),
-            "guidance": self.guidance,
-            "task": self.task,
-            "required_outputs": self.output_fields,
-        }
-
-
-# File: lionagi/protocols/forms/form.py
+    def _not_sentinel(self, value: Any) -> bool:
+        """Check if a value is not a sentinel (Undefined or Unset, optionally also None)."""
+        if value is None and self.none_as_sentinel:
+            return False
+        return not_sentinel(value)
