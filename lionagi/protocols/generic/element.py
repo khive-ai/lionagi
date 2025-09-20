@@ -21,8 +21,7 @@ from pydantic import (
 from lionagi import ln
 from lionagi._class_registry import get_class
 from lionagi._errors import IDError
-from lionagi.settings import Settings
-from lionagi.utils import import_module, time, to_dict
+from lionagi.utils import import_module, to_dict
 
 from .._concepts import Collective, Observable, Ordering
 
@@ -156,9 +155,7 @@ class Element(BaseModel, Observable):
         frozen=True,
     )
     created_at: float = Field(
-        default_factory=lambda: time(
-            tz=Settings.Config.TIMEZONE, type_="timestamp"
-        ),
+        default_factory=lambda: ln.now_utc().timestamp(),
         title="Creation Timestamp",
         description="Timestamp of element creation.",
         frozen=True,
@@ -205,7 +202,7 @@ class Element(BaseModel, Observable):
             ValueError: If `val` cannot be converted to a float timestamp.
         """
         if val is None:
-            return time(tz=Settings.Config.TIMEZONE, type_="timestamp")
+            return ln.now_utc().timestamp()
         if isinstance(val, float):
             return val
         if isinstance(val, dt.datetime):
