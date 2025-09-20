@@ -42,7 +42,6 @@ from lionagi.protocols.types import (
 )
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.types import iModel, iModelManager
-from lionagi.settings import Settings
 from lionagi.tools.base import LionTool
 from lionagi.utils import UNDEFINED
 from lionagi.utils import alcall as alcall_legacy
@@ -150,10 +149,10 @@ class Branch(Element, Communicatable, Relational):
                 Sender to attribute to the system message if it is added.
             chat_model (iModel, optional):
                 The primary "chat" iModel for conversation. If not provided,
-                a default from `Settings.iModel.CHAT` is used.
+                uses default provider and model from settings.
             parse_model (iModel, optional):
                 The "parse" iModel for structured data parsing.
-                Defaults to `Settings.iModel.PARSE`.
+                Defaults to chat_model if not provided.
             imodel (iModel, optional):
                 Deprecated. Alias for `chat_model`.
             tools (FuncTool | list[FuncTool], optional):
@@ -233,7 +232,7 @@ class Branch(Element, Communicatable, Relational):
                 log_config = LogManagerConfig(**log_config)
             self._log_manager = LogManager.from_config(log_config, logs=logs)
         else:
-            self._log_manager = LogManager(**Settings.Config.LOG, logs=logs)
+            self._log_manager = LogManager(**settings.LOG_CONFIG, logs=logs)
 
         self._operation_manager = OperationManager()
 

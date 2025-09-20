@@ -7,10 +7,10 @@ from collections.abc import AsyncGenerator, Callable
 
 from pydantic import BaseModel
 
+from lionagi.ln import is_coro_func, now_utc
 from lionagi.protocols.generic.log import Log
 from lionagi.protocols.types import ID, Event, EventStatus, IDType
 from lionagi.service.hooks.hook_event import HookEventTypes
-from lionagi.utils import is_coro_func, time
 
 from .connections.api_calling import APICalling
 from .connections.endpoint import Endpoint
@@ -106,7 +106,7 @@ class iModel:
                 raise ValueError("created_at must be a float timestamp.")
             self.created_at = created_at
         else:
-            self.created_at = time()
+            self.created_at = now_utc().timestamp()
 
         # 2. Configure Endpoint ---------------------------------------------
         model = kwargs.get("model", None)
