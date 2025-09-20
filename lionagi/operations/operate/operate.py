@@ -12,6 +12,7 @@ from lionagi.models import FieldModel, ModelParams
 from lionagi.protocols.operatives.step import Operative, Step
 from lionagi.protocols.types import Instruction, Progression, SenderRecipient
 from lionagi.service.imodel import iModel
+from lionagi.session.branch import AlcallParams
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch, ToolRef
@@ -64,10 +65,8 @@ async def operate(
     return_operative: bool = False,
     actions: bool = False,
     reason: bool = False,
-    action_kwargs: dict = None,
-    action_strategy: Literal[
-        "sequential", "concurrent", "batch"
-    ] = "concurrent",
+    call_params: AlcallParams = None,
+    action_strategy: Literal["sequential", "concurrent"] = "concurrent",
     verbose_action: bool = False,
     field_models: list[FieldModel] = None,
     exclude_fields: list | dict | None = None,
@@ -191,17 +190,14 @@ async def operate(
         getattr(response_model, "action_required", None) is True
         and getattr(response_model, "action_requests", None) is not None
     ):
-        action_kwargs = action_kwargs or {}
-        action_kwargs["strategy"] = (
-            instruct.action_strategy
-            if instruct.action_strategy
-            else action_kwargs.get("strategy", "concurrent")
+        action_strategy = (
+            action_strategy or instruct.action_strategy or "concurrent"
         )
-
         action_response_models = await branch.act(
             response_model.action_requests,
+            strategy=action_strategy,
             verbose_action=verbose_action,
-            **action_kwargs,
+            call_params=call_params,
         )
         # Possibly refine the operative with the tool outputs
         operative = Step.respond_operative(

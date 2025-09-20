@@ -6,9 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
-from lionagi.utils import breakdown_pydantic_annotation
-
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
@@ -34,6 +31,11 @@ async def parse(
     suppress_conversion_errors: bool = False,
     response_format=None,
 ):
+    from lionagi.libs.schema.breakdown_pydantic_annotation import (
+        breakdown_pydantic_annotation,
+    )
+    from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
+
     if operative is not None:
         max_retries = operative.max_retries
         response_format = operative.request_type or response_format
