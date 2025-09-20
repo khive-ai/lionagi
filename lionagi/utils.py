@@ -7,13 +7,12 @@ import logging
 import types
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
-from datetime import datetime, timezone
+from datetime import datetime
 from inspect import isclass
 from pathlib import Path
 from typing import (
     Annotated,
     Any,
-    Literal,
     TypeVar,
     Union,
     get_args,
@@ -47,7 +46,6 @@ from .ln.types import (
     Unset,
     UnsetType,
 )
-from .settings import Settings
 
 R = TypeVar("R")
 T = TypeVar("T")
@@ -78,7 +76,6 @@ __all__ = (
     "alcall",
     "bcall",
     "create_path",
-    "time",
     "fuzzy_parse_json",
     "fix_json_string",
     "get_bins",
@@ -102,62 +99,6 @@ __all__ = (
     "import_module",
     "to_dict",
 )
-
-
-# --- General Global Utilities Functions ---
-def time(
-    *,
-    tz: timezone = Settings.Config.TIMEZONE,
-    type_: Literal["timestamp", "datetime", "iso", "custom"] = "timestamp",
-    sep: str | None = "T",
-    timespec: str | None = "auto",
-    custom_format: str | None = None,
-    custom_sep: str | None = None,
-) -> float | str | datetime:
-    """
-    Get current time in various formats.
-
-    Args:
-        tz: Timezone for the time (default: utc).
-        type_: Type of time to return (default: "timestamp").
-            Options: "timestamp", "datetime", "iso", "custom".
-        sep: Separator for ISO format (default: "T").
-        timespec: Timespec for ISO format (default: "auto").
-        custom_format: Custom strftime format string for
-            type_="custom".
-        custom_sep: Custom separator for type_="custom",
-            replaces "-", ":", ".".
-
-    Returns:
-        Current time in the specified format.
-
-    Raises:
-        ValueError: If an invalid type_ is provided or if custom_format
-            is not provided when type_="custom".
-    """
-    now = datetime.now(tz=tz)
-
-    if type_ == "iso":
-        return now.isoformat(sep=sep, timespec=timespec)
-    elif type_ == "timestamp":
-        return now.timestamp()
-    elif type_ == "datetime":
-        return now
-    elif type_ == "custom":
-        if not custom_format:
-            raise ValueError(
-                "custom_format must be provided when type_='custom'"
-            )
-        formatted_time = now.strftime(custom_format)
-        if custom_sep is not None:
-            for old_sep in ("-", ":", "."):
-                formatted_time = formatted_time.replace(old_sep, custom_sep)
-        return formatted_time
-
-    raise ValueError(
-        f"Invalid value <{type_}> for `type_`, must be"
-        " one of 'timestamp', 'datetime', 'iso', or 'custom'."
-    )
 
 
 def copy(obj: T, /, *, deep: bool = True, num: int = 1) -> T | list[T]:
