@@ -36,7 +36,9 @@ class Broadcaster:
     async def broadcast(cls, event) -> None:
         """Broadcast event to all subscribers."""
         if not isinstance(event, cls._event_type):
-            raise ValueError(f"Event must be of type {cls._event_type.__name__}")
+            raise ValueError(
+                f"Event must be of type {cls._event_type.__name__}"
+            )
 
         for callback in cls._subscribers:
             try:
