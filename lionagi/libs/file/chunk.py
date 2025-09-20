@@ -28,12 +28,6 @@ def chunk_by_chars(
 
     Raises:
         ValueError: If an error occurs during the chunking process.
-
-    Examples:
-        >>> text = "This is a sample text for chunking."
-        >>> chunks = chunk_by_chars(text, chunk_size=10, overlap=0.2)
-        >>> print(chunks)
-        ['This is a ', 'a sample ', 'le text fo', 'for chunki', 'king.']
     """
     try:
         n_chunks = math.ceil(len(text) / chunk_size)
@@ -112,12 +106,6 @@ def chunk_by_tokens(
 
     Raises:
         ValueError: If an error occurs during the chunking process.
-
-    Examples:
-        >>> tokens = ["This", "is", "a", "sample", "text", "for", "chunking."]
-        >>> chunks = chunk_by_tokens(tokens, chunk_size=3, overlap=0.2)
-        >>> print(chunks)
-        ['This is a', 'a sample text', 'text for chunking.']
     """
     try:
         n_chunks = math.ceil(len(tokens) / chunk_size)
@@ -236,7 +224,6 @@ def chunk_content(
         threshold (int): The minimum size for the last chunk.
         metadata (Dict[str, Any]): Metadata to be included with each chunk.
         kwargs for tokenizer, if needed.
-
 
     Returns:
         List[Dict[str, Any]]: A list of dictionaries, each representing a chunk with metadata.
