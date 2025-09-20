@@ -43,7 +43,7 @@ async def alcall(
     output_unique: bool = False,
     output_flatten_tuple_set: bool = False,
     delay_before_start: float = 0,
-    retry_initial_deplay: float = 0,
+    retry_initial_delay: float = 0,
     retry_backoff: float = 1,
     retry_default: Any = Unset,
     retry_timeout: float = None,
@@ -143,7 +143,7 @@ async def alcall(
 
     async def execute_task(i: Any, index: int) -> Any:
         attempts = 0
-        current_delay = retry_initial_deplay
+        current_delay = retry_initial_delay
         while True:
             try:
                 result = await call_func(i)
@@ -223,10 +223,10 @@ async def bcall(
     output_unique: bool = False,
     output_flatten_tuple_set: bool = False,
     delay_before_start: float = 0,
-    retry_initial_deplay: float = 0,
+    retry_initial_delay: float = 0,
     retry_backoff: float = 1,
     retry_default: Any = Unset,
-    retry_timeout: float = 0,
+    retry_timeout: float = None,
     retry_attempts: int = 0,
     max_concurrent: int | None = None,
     throttle_period: float | None = None,
@@ -248,7 +248,7 @@ async def bcall(
             output_unique=output_unique,
             output_flatten_tuple_set=output_flatten_tuple_set,
             delay_before_start=delay_before_start,
-            retry_initial_deplay=retry_initial_deplay,
+            retry_initial_delay=retry_initial_delay,
             retry_backoff=retry_backoff,
             retry_default=retry_default,
             retry_timeout=retry_timeout,
@@ -279,7 +279,7 @@ class AlcallParams(Params):
 
     # retry and timeout
     delay_before_start: float
-    retry_initial_deplay: float
+    retry_initial_delay: float
     retry_backoff: float
     retry_default: Any
     retry_timeout: float

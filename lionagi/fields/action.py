@@ -11,8 +11,8 @@ from lionagi.libs.validate.common_field_validators import (
     validate_boolean_field,
     validate_nullable_string_field,
 )
+from lionagi.ln import extract_json, to_dict, to_list
 from lionagi.models import FieldModel, HashableModel
-from lionagi.utils import to_dict, to_json, to_list
 
 __all__ = (
     "ActionRequestModel",
@@ -27,11 +27,13 @@ def parse_action_request(content: str | dict) -> list[dict]:
         json_blocks = [content.model_dump()]
 
     elif isinstance(content, str):
-        json_blocks = to_json(content, fuzzy_parse=True)
+        json_blocks = extract_json(content, fuzzy_parse=True)
         if not json_blocks:
             pattern2 = r"```python\s*(.*?)\s*```"
             _d = re.findall(pattern2, content, re.DOTALL)
-            json_blocks = [to_json(match, fuzzy_parse=True) for match in _d]
+            json_blocks = [
+                extract_json(match, fuzzy_parse=True) for match in _d
+            ]
             json_blocks = to_list(json_blocks, dropna=True)
 
         print(json_blocks)

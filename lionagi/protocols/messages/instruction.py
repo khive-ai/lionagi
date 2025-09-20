@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, JsonValue, field_serializer
 from typing_extensions import override
 
-from lionagi.utils import UNDEFINED, breakdown_pydantic_annotation, copy
+from lionagi.utils import UNDEFINED, copy
 
 from .base import MessageRole
 from .message import RoledMessage, SenderRecipient
@@ -256,6 +256,10 @@ def prepare_instruction_content(
     Raises:
         ValueError: If request_fields and request_model are both given.
     """
+    from lionagi.libs.schema.breakdown_pydantic_annotation import (
+        breakdown_pydantic_annotation,
+    )
+
     if request_fields and request_model:
         raise ValueError(
             "only one of request_fields or request_model can be provided"
@@ -476,6 +480,10 @@ class Instruction(RoledMessage):
 
     @response_format.setter
     def response_format(self, model: type[BaseModel]) -> None:
+        from lionagi.libs.schema.breakdown_pydantic_annotation import (
+            breakdown_pydantic_annotation,
+        )
+
         if isinstance(model, BaseModel):
             self.content["request_model"] = type(model)
         else:

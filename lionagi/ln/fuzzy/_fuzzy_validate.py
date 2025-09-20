@@ -110,7 +110,6 @@ def fuzzy_validate_mapping(
     # Try converting to dictionary
     try:
         if isinstance(d, str):
-            # First try to_json for JSON strings and code blocks
             try:
                 json_result = extract_json(
                     d, fuzzy_parse=True, return_one_if_single=True
