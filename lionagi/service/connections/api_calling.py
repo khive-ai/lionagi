@@ -2,31 +2,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import logging
 
-from anyio import get_cancelled_exc_class
-from pydantic import Field, PrivateAttr, model_validator
+from pydantic import Field, model_validator
 from typing_extensions import Self
 
-from lionagi.protocols.generic.event import Event, EventStatus
-from lionagi.protocols.types import Log
-from lionagi.service.hooks import HookEvent, HookEventTypes, global_hook_logger
-
+from ..hooks.hooked_event import HookedEvent
 from .endpoint import Endpoint
-
-
-# Lazy import for TokenCalculator
-def _get_token_calculator():
-    from lionagi.service.token_calculator import TokenCalculator
-
-    return TokenCalculator
-
 
 logger = logging.getLogger(__name__)
 
 
-class APICalling(Event):
+class APICalling(HookedEvent):
     """Handles asynchronous API calls with automatic token usage tracking.
 
     This class manages API calls through endpoints, handling both regular
@@ -60,9 +47,6 @@ class APICalling(Event):
         description="Whether to include token usage information in messages",
         exclude=True,
     )
-
-    _pre_invoke_hook_event: HookEvent = PrivateAttr(None)
-    _post_invoke_hook_event: HookEvent = PrivateAttr(None)
 
     @model_validator(mode="after")
     def _validate_streaming(self) -> Self:
@@ -127,12 +111,14 @@ class APICalling(Event):
     @property
     def required_tokens(self) -> int | None:
         """Calculate the number of tokens required for this request."""
+        from lionagi.service.token_calculator import TokenCalculator
+
         if not self.endpoint.config.requires_tokens:
             return None
 
         # Handle chat completions format
         if "messages" in self.payload:
-            return _get_token_calculator().calculate_message_tokens(
+            return TokenCalculator.calculate_message_tokens(
                 self.payload["messages"], **self.payload
             )
         # Handle responses API format
@@ -153,95 +139,29 @@ class APICalling(Event):
                             messages.append(item)
             else:
                 return None
-            return _get_token_calculator().calculate_message_tokens(
+            return TokenCalculator.calculate_message_tokens(
                 messages, **self.payload
             )
         # Handle embeddings endpoint
         elif "embed" in self.endpoint.config.endpoint:
-            return _get_token_calculator().calculate_embed_token(
-                **self.payload
-            )
+            return TokenCalculator.calculate_embed_token(**self.payload)
 
         return None
 
-    async def invoke(self) -> None:
-        """Execute the API call through the endpoint.
+    async def _invoke(self):
+        return await self.endpoint.call(
+            request=self.payload,
+            cache_control=self.cache_control,
+            skip_payload_creation=True,
+            extra_headers=self.headers if self.headers else None,
+        )
 
-        Updates execution status and stores the response or error.
-        """
-        start = asyncio.get_event_loop().time()
-
-        try:
-            self.execution.status = EventStatus.PROCESSING
-            if h_ev := self._pre_invoke_hook_event:
-                await h_ev.invoke()
-                if h_ev._should_exit:
-                    raise h_ev._exit_cause or RuntimeError(
-                        "Pre-invocation hook requested exit without a cause"
-                    )
-                await global_hook_logger.alog(Log.create(h_ev))
-
-            # Make the API call with skip_payload_creation=True since payload is already prepared
-            response = await self.endpoint.call(
-                request=self.payload,
-                cache_control=self.cache_control,
-                skip_payload_creation=True,
-                extra_headers=self.headers if self.headers else None,
-            )
-
-            if h_ev := self._post_invoke_hook_event:
-                await h_ev.invoke()
-                if h_ev._should_exit:
-                    raise h_ev._exit_cause or RuntimeError(
-                        "Post-invocation hook requested exit without a cause"
-                    )
-                await global_hook_logger.alog(Log.create(h_ev))
-
-            self.execution.response = response
-            self.execution.status = EventStatus.COMPLETED
-
-        except get_cancelled_exc_class():
-            self.execution.error = "API call cancelled"
-            self.execution.status = EventStatus.CANCELLED
-            raise
-
-        except Exception as e:
-            self.execution.error = str(e)
-            self.execution.status = EventStatus.FAILED
-            logger.error(f"API call failed: {e}")
-
-        finally:
-            self.execution.duration = asyncio.get_event_loop().time() - start
-
-    async def stream(self):
-        """Stream the API response through the endpoint.
-
-        Yields:
-            Streaming chunks from the API.
-        """
-        start = asyncio.get_event_loop().time()
-        response = []
-
-        try:
-            self.execution.status = EventStatus.PROCESSING
-
-            async for chunk in self.endpoint.stream(
-                request=self.payload,
-                extra_headers=self.headers if self.headers else None,
-            ):
-                response.append(chunk)
-                yield chunk
-
-            self.execution.response = response
-            self.execution.status = EventStatus.COMPLETED
-
-        except Exception as e:
-            self.execution.error = str(e)
-            self.execution.status = EventStatus.FAILED
-            logger.error(f"Streaming failed: {e}")
-
-        finally:
-            self.execution.duration = asyncio.get_event_loop().time() - start
+    async def _stream(self):
+        async for i in self.endpoint.stream(
+            request=self.payload,
+            extra_headers=self.headers if self.headers else None,
+        ):
+            yield i
 
     @property
     def request(self) -> dict:
@@ -249,42 +169,3 @@ class APICalling(Event):
         return {
             "required_tokens": self.required_tokens,
         }
-
-    @property
-    def response(self):
-        """Get the response from the execution."""
-        return self.execution.response if self.execution else None
-
-    def create_pre_invoke_hook(
-        self,
-        hook_registry,
-        exit_hook: bool = None,
-        hook_timeout: float = 30.0,
-        hook_params: dict = None,
-    ):
-        h_ev = HookEvent(
-            hook_type=HookEventTypes.PreInvokation,
-            event_like=self,
-            registry=hook_registry,
-            exit=exit_hook,
-            timeout=hook_timeout,
-            params=hook_params or {},
-        )
-        self._pre_invoke_hook_event = h_ev
-
-    def create_post_invoke_hook(
-        self,
-        hook_registry,
-        exit_hook: bool = None,
-        hook_timeout: float = 30.0,
-        hook_params: dict = None,
-    ):
-        h_ev = HookEvent(
-            hook_type=HookEventTypes.PostInvokation,
-            event_like=self,
-            registry=hook_registry,
-            exit=exit_hook,
-            timeout=hook_timeout,
-            params=hook_params or {},
-        )
-        self._post_invoke_hook_event = h_ev
