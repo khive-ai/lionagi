@@ -37,6 +37,7 @@ class HookDict(TypedDict):
 
 
 StreamHandlers = dict[str, Callable[[SC], Awaitable[None]]]
+"""Mapping of chunk type names to their respective asynchronous handler functions."""
 
 
 class AssosiatedEventInfo(TypedDict, total=False):
