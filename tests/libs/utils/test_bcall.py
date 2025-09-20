@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from lionagi.utils import bcall
+from lionagi.ln import bcall
 
 
 async def async_func(x: int) -> int:
@@ -46,7 +46,7 @@ class TestBCallFunction(unittest.IsolatedAsyncioTestCase):
             inputs,
             async_func_with_error,
             batch_size=2,
-            num_retries=1,
+            retry_attempts=1,
             retry_default=0,
         ):
             batches.append(batch)
@@ -61,7 +61,7 @@ class TestBCallFunction(unittest.IsolatedAsyncioTestCase):
             batch_size=2,
             retry_timeout=0.05,
             retry_default="timeout",
-            num_retries=0,
+            retry_attempts=0,
         ):
             batches.append(batch)
         # All should timeout since async_func sleeps for 0.1s
@@ -90,7 +90,7 @@ class TestBCallFunction(unittest.IsolatedAsyncioTestCase):
         with patch("anyio.sleep", new_callable=AsyncMock) as mock_sleep:
             batches = []
             async for batch in bcall(
-                inputs, async_func, batch_size=2, initial_delay=0.5
+                inputs, async_func, batch_size=2, delay_before_start=0.5
             ):
                 batches.append(batch)
             mock_sleep.assert_any_call(0.5)

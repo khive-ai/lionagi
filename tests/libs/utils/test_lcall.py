@@ -3,7 +3,7 @@ import unittest
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from lionagi.utils import alcall
+from lionagi.ln import alcall
 
 
 async def mock_func(x: int, add: int = 0) -> int:
@@ -31,7 +31,7 @@ class TestLCallFunction(unittest.IsolatedAsyncioTestCase):
     async def test_lcall_with_retries(self):
         inputs = [1, 2, 3]
         results = await alcall(
-            inputs, mock_func_with_error, num_retries=1, retry_default=0
+            inputs, mock_func_with_error, retry_attempts=1, retry_default=0
         )
         self.assertEqual(results, [1, 2, 0])
 
@@ -43,7 +43,7 @@ class TestLCallFunction(unittest.IsolatedAsyncioTestCase):
             mock_func,
             retry_timeout=0.05,
             retry_default="timeout",
-            num_retries=0,
+            retry_attempts=0,
         )
         self.assertEqual(results, ["timeout", "timeout", "timeout"])
 
@@ -64,7 +64,7 @@ class TestLCallFunction(unittest.IsolatedAsyncioTestCase):
             return None if x == 2 else x
 
         inputs = [1, 2, 3]
-        results = await alcall(inputs, func, dropna=True)
+        results = await alcall(inputs, func, output_dropna=True)
         self.assertEqual(results, [1, 3])
 
     async def test_lcall_with_backoff_factor(self):
@@ -73,9 +73,9 @@ class TestLCallFunction(unittest.IsolatedAsyncioTestCase):
             await alcall(
                 inputs,
                 mock_func_with_error,
-                num_retries=2,
-                retry_delay=0.1,
-                backoff_factor=2,
+                retry_attempts=2,
+                retry_initial_delay=0.1,
+                retry_backoff=2,
                 retry_default=0,
             )
             mock_sleep.assert_any_call(0.1)
