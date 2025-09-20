@@ -9,10 +9,6 @@ from typing import Any, Literal
 
 from ._fuzzy_json import fuzzy_json
 
-# ----------------------------
-# Helpers (small, tight, local)
-# ----------------------------
-
 
 def _is_na(obj: Any) -> bool:
     """None / Pydantic undefined sentinels -> treat as NA."""
@@ -67,7 +63,7 @@ def _parse_str(
 def _object_to_mapping_like(
     obj: Any,
     *,
-    use_model_dump: bool,
+    prioritize_model_dump: bool = True,
     **kwargs: Any,
 ) -> Mapping | dict | Any:
     """
@@ -80,11 +76,11 @@ def _object_to_mapping_like(
       5) dict(obj)
     """
     # 1) Pydantic v2
-    if use_model_dump and hasattr(obj, "model_dump"):
+    if prioritize_model_dump and hasattr(obj, "model_dump"):
         return obj.model_dump(**kwargs)
 
     # 2) Common methods
-    for name in ("to_dict", "dict", "to_json", "json"):
+    for name in ("to_dict", "dict", "to_json", "json", "model_dump"):
         if hasattr(obj, name):
             res = getattr(obj, name)(**kwargs)
             return json.loads(res) if isinstance(res, str) else res
@@ -118,7 +114,7 @@ def _preprocess_recursive(
     max_depth: int,
     recursive_custom_types: bool,
     str_parse_opts: dict[str, Any],
-    use_model_dump: bool,
+    prioritize_model_dump: bool,
 ) -> Any:
     """
     Recursively process nested structures:
@@ -145,7 +141,7 @@ def _preprocess_recursive(
             max_depth=max_depth,
             recursive_custom_types=recursive_custom_types,
             str_parse_opts=str_parse_opts,
-            use_model_dump=use_model_dump,
+            prioritize_model_dump=prioritize_model_dump,
         )
 
     # Dict-like
@@ -158,7 +154,7 @@ def _preprocess_recursive(
                 max_depth=max_depth,
                 recursive_custom_types=recursive_custom_types,
                 str_parse_opts=str_parse_opts,
-                use_model_dump=use_model_dump,
+                prioritize_model_dump=prioritize_model_dump,
             )
             for k, v in obj.items()
         }
@@ -172,7 +168,7 @@ def _preprocess_recursive(
                 max_depth=max_depth,
                 recursive_custom_types=recursive_custom_types,
                 str_parse_opts=str_parse_opts,
-                use_model_dump=use_model_dump,
+                prioritize_model_dump=prioritize_model_dump,
             )
             for v in obj
         ]
@@ -198,7 +194,7 @@ def _preprocess_recursive(
                 max_depth=max_depth,
                 recursive_custom_types=recursive_custom_types,
                 str_parse_opts=str_parse_opts,
-                use_model_dump=use_model_dump,
+                prioritize_model_dump=prioritize_model_dump,
             )
         except Exception:
             return obj
@@ -207,7 +203,7 @@ def _preprocess_recursive(
     if recursive_custom_types:
         with contextlib.suppress(Exception):
             mapped = _object_to_mapping_like(
-                obj, use_model_dump=use_model_dump
+                obj, prioritize_model_dump=prioritize_model_dump
             )
             return _preprocess_recursive(
                 mapped,
@@ -215,7 +211,7 @@ def _preprocess_recursive(
                 max_depth=max_depth,
                 recursive_custom_types=recursive_custom_types,
                 str_parse_opts=str_parse_opts,
-                use_model_dump=use_model_dump,
+                prioritize_model_dump=prioritize_model_dump,
             )
 
     return obj
@@ -232,7 +228,7 @@ def _convert_top_level_to_dict(
     fuzzy_parse: bool,
     str_type: Literal["json", "xml"] | None,
     parser: Callable[[str], Any] | None,
-    use_model_dump: bool,
+    prioritize_model_dump: bool,
     use_enum_values: bool,
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -273,7 +269,7 @@ def _convert_top_level_to_dict(
         # faithfully following your previous "non-Sequence -> model path" behavior.
         if not isinstance(obj, Sequence):
             converted = _object_to_mapping_like(
-                obj, use_model_dump=use_model_dump, **kwargs
+                obj, prioritize_model_dump=prioritize_model_dump, **kwargs
             )
             # If conversion returned a string, try to parse JSON to mapping; else pass-through
             if isinstance(converted, str):
@@ -321,7 +317,7 @@ def to_dict(
     input_: Any,
     /,
     *,
-    use_model_dump: bool = True,
+    prioritize_model_dump: bool = True,
     fuzzy_parse: bool = False,
     suppress: bool = False,
     str_type: Literal["json", "xml"] | None = "json",
@@ -330,12 +326,16 @@ def to_dict(
     max_recursive_depth: int | None = None,
     recursive_python_only: bool = True,
     use_enum_values: bool = False,
+    use_model_dump: bool | None = None,  # deprecated
     **kwargs: Any,
 ) -> dict[str, Any]:
     """
     Convert various input types to a dictionary, with optional recursive processing.
     Semantics preserved from original implementation.
     """
+    if use_model_dump is not None:
+        prioritize_model_dump = use_model_dump
+
     try:
         # Clamp recursion depth (match your constraints)
         if not isinstance(max_recursive_depth, int):
@@ -368,7 +368,7 @@ def to_dict(
                 max_depth=max_depth,
                 recursive_custom_types=not recursive_python_only,
                 str_parse_opts=str_parse_opts,
-                use_model_dump=use_model_dump,
+                prioritize_model_dump=prioritize_model_dump,
             )
 
         # Final top-level conversion
@@ -377,7 +377,7 @@ def to_dict(
             fuzzy_parse=fuzzy_parse,
             str_type=str_type,
             parser=parser,
-            use_model_dump=use_model_dump,
+            prioritize_model_dump=prioritize_model_dump,
             use_enum_values=use_enum_values,
             **kwargs,
         )
