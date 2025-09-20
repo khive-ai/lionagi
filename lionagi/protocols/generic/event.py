@@ -138,7 +138,7 @@ class Event(Element):
     """
 
     execution: Execution = Field(default_factory=Execution)
-    streaming: bool = False
+    streaming: bool = Field(False, exclude=True)
 
     @field_serializer("execution")
     def _serialize_execution(self, val: Execution) -> dict:
