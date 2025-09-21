@@ -154,7 +154,9 @@ def _chunk_token_two_parts(
 ) -> list[str | list[str]]:
     """Handle chunking for two parts."""
     chunks = [tokens[: chunk_size + overlap_size]]
-    if residue > threshold:
+    # When residue == 0, we have perfect division, create the second chunk
+    # When residue > threshold, the leftover is big enough for a second chunk
+    if residue == 0 or residue > threshold:
         chunks.append(tokens[chunk_size - overlap_size :])
     else:
         return _process_single_chunk(tokens, return_tokens)

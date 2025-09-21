@@ -11,7 +11,10 @@ from typing import Any
 import pytest
 
 from lionagi._errors import ItemNotFoundError, ValidationError
-from lionagi.protocols.types import ID, Element, Node, Pile, Progression
+from lionagi.protocols.generic.element import ID, Element
+from lionagi.protocols.generic.pile import Pile
+from lionagi.protocols.generic.progression import Progression
+from lionagi.protocols.graph.node import Node
 
 
 class MockElement(Element):
@@ -399,6 +402,12 @@ def test_pile_with_context_manager():
 
         def __exit__(self, exc_type, exc_val, exc_tb):
             self.clear()
+
+    # Call model_rebuild to resolve generic types
+    # Import typing module to ensure Any is available in namespace
+    import typing
+
+    ManagedPile.model_rebuild(_types_namespace={"Any": typing.Any})
 
     with ManagedPile(
         collections=[MockElement(value=i) for i in range(5)]

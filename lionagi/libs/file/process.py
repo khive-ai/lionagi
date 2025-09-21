@@ -156,7 +156,7 @@ def chunk(
         threshold=threshold,
         metadata=metadata,
         as_node=True,
-        flatten=True,
+        output_flatten=True,
         tokenizer=tokenizer or str.split,
     )
     if threshold:
@@ -169,15 +169,12 @@ def chunk(
         if output_file.suffix == ".csv":
             p = Pile(chunks)
             p.dump(output_file, "csv")
-
-        if output_file.suffix == "json":
+        elif output_file.suffix == ".json":
             p = Pile(chunks)
             p.dump(output_file, "json")
-
-        if output_file.suffix == ".parquet":
+        elif output_file.suffix == ".parquet":
             p = Pile(chunks)
             p.dump(output_file, "parquet")
-
         else:
             raise ValueError(f"Unsupported output file format: {output_file}")
 
