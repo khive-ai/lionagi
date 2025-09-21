@@ -5,16 +5,19 @@
 import logging
 from typing import TYPE_CHECKING
 
-from . import ln as ln  # Lightweight concurrency utilities
+from . import ln as ln
 from .version import __version__
 
 if TYPE_CHECKING:
-    # Type hints only - not imported at runtime
     from pydantic import BaseModel, Field
 
+    from . import _types as types
+    from .operations.builder import OperationGraphBuilder as Builder
     from .operations.node import Operation
+    from .protocols.action.manager import load_mcp_tools
     from .service.imodel import iModel
     from .session.session import Branch, Session
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
