@@ -23,8 +23,8 @@ __all__ = (
 
 class HookEventTypes(str, Enum):
     PreEventCreate = "pre_event_create"
-    PreInvokation = "pre_invokation"
-    PostInvokation = "post_invokation"
+    PreInvocation = "pre_invocation"
+    PostInvocation = "post_invocation"
 
 
 ALLOWED_HOOKS_TYPES = HookEventTypes.allowed()
@@ -32,8 +32,8 @@ ALLOWED_HOOKS_TYPES = HookEventTypes.allowed()
 
 class HookDict(TypedDict):
     pre_event_create: Callable | None
-    pre_invokation: Callable | None
-    post_invokation: Callable | None
+    pre_invocation: Callable | None
+    post_invocation: Callable | None
 
 
 StreamHandlers = dict[str, Callable[[SC], Awaitable[None]]]
