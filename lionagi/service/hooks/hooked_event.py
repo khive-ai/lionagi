@@ -115,7 +115,7 @@ class HookedEvent(Event):
         hook_params: dict = None,
     ):
         h_ev = HookEvent(
-            hook_type=HookEventTypes.PreInvokation,
+            hook_type=HookEventTypes.PreInvocation,
             event_like=self,
             registry=hook_registry,
             exit=exit_hook,
@@ -132,7 +132,7 @@ class HookedEvent(Event):
         hook_params: dict = None,
     ):
         h_ev = HookEvent(
-            hook_type=HookEventTypes.PostInvokation,
+            hook_type=HookEventTypes.PostInvocation,
             event_like=self,
             registry=hook_registry,
             exit=exit_hook,

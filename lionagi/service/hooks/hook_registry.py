@@ -102,7 +102,7 @@ class HookRegistry:
         except Exception as e:
             return (e, exit, EventStatus.CANCELLED)
 
-    async def pre_invokation(
+    async def pre_invocation(
         self, event: E, /, exit: bool = False, **kw
     ) -> tuple[Any, bool, EventStatus]:
         """Hook to be called when an event is dequeued and right before it is invoked.
@@ -110,12 +110,12 @@ class HookRegistry:
         Typically used to check permissions.
 
         The hook function takes the content of the event as a dictionary.
-        It can either raise an exception to abort the event invokation or pass to continue (status: cancelled).
+        It can either raise an exception to abort the event invocation or pass to continue (status: cancelled).
         It cannot modify the event itself, and won't be able to access the event instance.
         """
         try:
             res = await self._call(
-                HookEventTypes.PreInvokation,
+                HookEventTypes.PreInvocation,
                 None,
                 None,
                 event,
@@ -127,16 +127,16 @@ class HookRegistry:
         except Exception as e:
             return (e, exit, EventStatus.CANCELLED)
 
-    async def post_invokation(
+    async def post_invocation(
         self, event: E, /, exit: bool = False, **kw
     ) -> tuple[None | Exception, bool, EventStatus, EventStatus]:
         """Hook to be called right after event finished its execution.
-        It can either raise an exception to abort the event invokation or pass to continue (status: aborted).
+        It can either raise an exception to abort the event invocation or pass to continue (status: aborted).
         It cannot modify the event itself, and won't be able to access the event instance.
         """
         try:
             res = await self._call(
-                HookEventTypes.PostInvokation,
+                HookEventTypes.PostInvocation,
                 None,
                 None,
                 event,
@@ -156,7 +156,7 @@ class HookRegistry:
         Typically used for logging or stream event abortion.
 
         The handler function signature should be: `async def handler(chunk: Any) -> None`
-        It can either raise an exception to mark the event invokation as "failed" or pass to continue (status: aborted).
+        It can either raise an exception to mark the event invocation as "failed" or pass to continue (status: aborted).
         """
         try:
             res = await self._call_stream_handler(
@@ -196,14 +196,14 @@ class HookRegistry:
             match hook_type:
                 case HookEventTypes.PreEventCreate:
                     return await self.pre_event_create(event_like, **kw), meta
-                case HookEventTypes.PreInvokation:
+                case HookEventTypes.PreInvocation:
                     meta["event_id"] = str(event_like.id)
                     meta["event_created_at"] = event_like.created_at
-                    return await self.pre_invokation(event_like, **kw), meta
-                case HookEventTypes.PostInvokation:
+                    return await self.pre_invocation(event_like, **kw), meta
+                case HookEventTypes.PostInvocation:
                     meta["event_id"] = str(event_like.id)
                     meta["event_created_at"] = event_like.created_at
-                    return await self.post_invokation(**kw), meta
+                    return await self.post_invocation(**kw), meta
         return await self.handle_streaming_chunk(chunk_type, chunk, exit, **kw)
 
     def _can_handle(

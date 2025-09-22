@@ -79,7 +79,7 @@ def test_dir_to_files_basic():
         # Test recursive
         files = dir_to_files(tmpdir, file_types=[".txt"], recursive=True)
         assert len(files) == 2
-        assert set(f.name for f in files) == {"test1.txt", "test4.txt"}
+        assert {f.name for f in files} == {"test1.txt", "test4.txt"}
 
         # Test all files
         files = dir_to_files(tmpdir, recursive=True)

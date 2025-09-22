@@ -11,6 +11,7 @@ from lionagi.ln import is_coro_func, now_utc
 from lionagi.protocols.generic.log import Log
 from lionagi.protocols.types import ID, Event, EventStatus, IDType
 from lionagi.service.hooks.hook_event import HookEventTypes
+from lionagi.service.hooks.hooked_event import HookedEvent
 
 from .connections.api_calling import APICalling
 from .connections.endpoint import Endpoint
@@ -186,8 +187,12 @@ class iModel:
                     "PreEventCreate hook requested exit without a cause"
                 )
 
-        if create_event_type is APICalling:
-            api_call = self.create_api_calling(**kwargs)
+        if issubclass(create_event_type, HookedEvent):
+            api_call = None
+            if create_event_type is APICalling:
+                api_call = self.create_api_calling(**kwargs)
+            else:
+                api_call = create_event_type(**kwargs)
             if h_ev:
                 h_ev.assosiated_event_info["event_id"] = str(api_call.id)
                 h_ev.assosiated_event_info["event_created_at"] = (
@@ -196,7 +201,7 @@ class iModel:
                 await global_hook_logger.alog(Log(content=h_ev.to_dict()))
 
             if self.hook_registry._can_handle(
-                ht_=HookEventTypes.PreInvokation
+                ht_=HookEventTypes.PreInvocation
             ):
                 api_call.create_pre_invoke_hook(
                     hook_registry=self.hook_registry,
@@ -210,7 +215,7 @@ class iModel:
                 )
 
             if self.hook_registry._can_handle(
-                ht_=HookEventTypes.PostInvokation
+                ht_=HookEventTypes.PostInvocation
             ):
                 api_call.create_post_invoke_hook(
                     hook_registry=self.hook_registry,
