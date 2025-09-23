@@ -25,16 +25,16 @@ def get_handler(d_: dict, k: str | type, get: bool = False, /):
     if handler is not None:
         if not is_coro_func(handler):
 
-            async def _func(x):
+            async def _func(*args, **kwargs):
                 await sleep(0)
-                return handler(x)
+                return handler(*args, **kwargs)
 
             return _func
         return handler
 
-    async def _func(x):
+    async def _func(*args, **_kwargs):
         await sleep(0)
-        return x
+        return args[0] if args else None
 
     return _func
 

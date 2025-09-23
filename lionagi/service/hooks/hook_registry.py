@@ -10,7 +10,7 @@ from lionagi.protocols.types import Event, EventStatus
 from lionagi.utils import UNDEFINED
 
 from ._types import HookDict, HookEventTypes, StreamHandlers
-from ._utils import validate_hooks, validate_stream_handlers
+from ._utils import get_handler, validate_hooks, validate_stream_handlers
 
 E = TypeVar("E", bound=Event)
 
@@ -48,17 +48,17 @@ class HookRegistry:
             raise RuntimeError(
                 "Either hook_type or chunk_type must be provided"
             )
-        if ht_ and (h := self._hooks.get(ht_)):
-            validate_hooks({ht_: h})
+        if ht_ and (self._hooks.get(ht_)):
+            validate_hooks({ht_: self._hooks[ht_]})
+            h = get_handler(self._hooks, ht_, True)
             return await h(ev_, **kw)
         elif not ct_:
             raise RuntimeError(
                 "Hook type is required when chunk_type is not provided"
             )
         else:
-            validate_stream_handlers(
-                {ct_: (h := self._stream_handlers.get(ct_))}
-            )
+            validate_stream_handlers({ct_: self._stream_handlers.get(ct_)})
+            h = get_handler(self._stream_handlers, ct_, True)
             return await h(ev_, ct_, ch_, **kw)
 
     async def _call_stream_handler(
@@ -69,8 +69,8 @@ class HookRegistry:
         /,
         **kw,
     ):
-        handler = self._stream_handlers.get(ct_)
-        validate_stream_handlers({ct_: handler})
+        validate_stream_handlers({ct_: self._stream_handlers.get(ct_)})
+        handler = get_handler(self._stream_handlers, ct_, True)
         return await handler(ev_, ct_, ch_, **kw)
 
     async def pre_event_create(
@@ -94,6 +94,7 @@ class HookRegistry:
                 None,
                 None,
                 event_type,
+                exit=exit,
                 **kw,
             )
             return (res, False, EventStatus.COMPLETED)
@@ -119,6 +120,7 @@ class HookRegistry:
                 None,
                 None,
                 event,
+                exit=exit,
                 **kw,
             )
             return (res, False, EventStatus.COMPLETED)
@@ -129,7 +131,7 @@ class HookRegistry:
 
     async def post_invocation(
         self, event: E, /, exit: bool = False, **kw
-    ) -> tuple[None | Exception, bool, EventStatus, EventStatus]:
+    ) -> tuple[None | Exception, bool, EventStatus]:
         """Hook to be called right after event finished its execution.
         It can either raise an exception to abort the event invocation or pass to continue (status: aborted).
         It cannot modify the event itself, and won't be able to access the event instance.
@@ -140,6 +142,7 @@ class HookRegistry:
                 None,
                 None,
                 event,
+                exit=exit,
                 **kw,
             )
             return (res, False, EventStatus.COMPLETED)
@@ -163,6 +166,7 @@ class HookRegistry:
                 chunk_type,
                 chunk,
                 None,
+                exit=exit,
                 **kw,
             )
             return (res, False, None)
@@ -191,20 +195,35 @@ class HookRegistry:
         if hook_type is None and chunk_type is None:
             raise ValueError("Either method or chunk_type must be provided")
         if hook_type:
-            meta = {}
-            meta["event_type"] = event_like.class_name(full=True)
+            # Align with AssosiatedEventInfo
+            meta = {"lion_class": event_like.class_name(full=True)}
             match hook_type:
                 case HookEventTypes.PreEventCreate:
-                    return await self.pre_event_create(event_like, **kw), meta
+                    return (
+                        await self.pre_event_create(
+                            event_like, exit=exit, **kw
+                        ),
+                        meta,
+                    )
                 case HookEventTypes.PreInvocation:
                     meta["event_id"] = str(event_like.id)
                     meta["event_created_at"] = event_like.created_at
-                    return await self.pre_invocation(event_like, **kw), meta
+                    return (
+                        await self.pre_invocation(event_like, exit=exit, **kw),
+                        meta,
+                    )
                 case HookEventTypes.PostInvocation:
                     meta["event_id"] = str(event_like.id)
                     meta["event_created_at"] = event_like.created_at
-                    return await self.post_invocation(**kw), meta
-        return await self.handle_streaming_chunk(chunk_type, chunk, exit, **kw)
+                    return (
+                        await self.post_invocation(
+                            event_like, exit=exit, **kw
+                        ),
+                        meta,
+                    )
+        return await self.handle_streaming_chunk(
+            chunk_type, chunk, exit=exit, **kw
+        )
 
     def _can_handle(
         self,
