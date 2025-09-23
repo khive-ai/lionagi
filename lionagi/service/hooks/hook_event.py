@@ -3,16 +3,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
-from pydantic import Field, PrivateAttr
+from pydantic import Field, PrivateAttr, field_validator
 
 from lionagi.ln.concurrency import fail_after, get_cancelled_exc_class
 from lionagi.protocols.types import Event, EventStatus
 
 from ._types import AssosiatedEventInfo, HookEventTypes
-from .hook_registry import HookRegistry
+
+if TYPE_CHECKING:
+    from .hook_registry import HookRegistry
+else:
+    # Import at runtime for Pydantic
+    from .hook_registry import HookRegistry
 
 
 class HookEvent(Event):
@@ -26,6 +31,12 @@ class HookEvent(Event):
     _exit_cause: BaseException | None = PrivateAttr(None)
 
     assosiated_event_info: AssosiatedEventInfo | None = None
+
+    @field_validator("exit", mode="before")
+    def _validate_exit(cls, v: Any) -> bool:
+        if v is None:
+            return False
+        return v
 
     async def invoke(self):
         start = anyio.current_time()
@@ -61,7 +72,9 @@ class HookEvent(Event):
             self.execution.status = EventStatus.FAILED
             self.execution.response = None
             self.execution.error = str(e)
-            self._should_exit = True
+            # Registry/wiring failures should obey the configured policy
+            self._exit_cause = e
+            self._should_exit = bool(self.exit)
 
         finally:
             self.execution.duration = anyio.current_time() - start
