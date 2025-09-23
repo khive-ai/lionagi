@@ -3,14 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
 
-from lionagi.protocols.generic.event import EventStatus
-from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.imodel import iModel

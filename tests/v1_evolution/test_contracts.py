@@ -47,9 +47,7 @@ class TestObservableProtocolDefinition:
         assert hasattr(Observable, "id"), "Observable must define 'id'"
 
         # Verify 'id' is a property
-        assert isinstance(
-            getattr(Observable, "id"), property
-        ), "'id' must be a property"
+        assert isinstance(Observable.id, property), "'id' must be a property"
 
         # Verify the return type annotation is permissive (object)
         id_getter = Observable.id.fget

@@ -37,13 +37,16 @@ def branch_with_mock_imodel() -> Branch:
     )
 
     async def invoke(*args, **kwargs):
-        from unittest.mock import MagicMock
+        from lionagi.protocols.generic.event import EventStatus, Execution
 
         a = mock_model.create_api_calling()
-        # Mock the execution with response
-        mock_execution = MagicMock()
-        mock_execution.response = """{"foo": "mocked_response", "bar": 123}"""
-        a.execution = mock_execution
+        # Use real Execution object instead of MagicMock to avoid serialization warnings
+        a.execution = Execution(
+            status=EventStatus.COMPLETED,
+            response="""{"foo": "mocked_response", "bar": 123}""",
+            duration=0.1,
+            error=None,
+        )
         return a
 
     mock_model.invoke = invoke
@@ -281,7 +284,6 @@ def test_clone_with_id_sender(branch_with_mock_imodel: Branch):
     If clone requires an ID for 'sender', pass an actual ID.
     All messages in the clone have new 'sender' and the clone's id as 'recipient'.
     """
-    from lionagi.protocols.types import ID
 
     # add a roled message
     msg = RoledMessage(
@@ -305,7 +307,6 @@ async def test_aclone(branch_with_mock_imodel: Branch):
     """
     aclone(...) => same as clone, but async context lock on messages.
     """
-    from lionagi.protocols.types import ID
 
     msg = RoledMessage(
         role=MessageRole.USER,
