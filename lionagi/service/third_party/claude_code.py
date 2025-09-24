@@ -26,7 +26,6 @@ from lionagi import ln
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.utils import is_coro_func, is_import_installed
 
-HAS_CLAUDE_CODE_SDK = is_import_installed("claude_code_sdk")
 HAS_CLAUDE_CODE_CLI = False
 CLAUDE_CLI = None
 
@@ -68,7 +67,6 @@ __all__ = (
     "ClaudeChunk",
     "ClaudeSession",
     "stream_claude_code_cli",
-    "stream_cc_sdk_events",
 )
 
 
@@ -116,6 +114,59 @@ class ClaudeCodeRequest(BaseModel):
         }:
             return "bypassPermissions"
         return v
+
+    @model_validator(mode="before")
+    def _validate_message_prompt(cls, data):
+        if "prompt" in data and data["prompt"]:
+            return data
+
+        if not (msg := data.get("messages")):
+            raise ValueError("messages may not be empty")
+        resume = data.get("resume")
+        continue_conversation = data.get("continue_conversation")
+
+        prompt = ""
+
+        # 1. if resume or continue_conversation, use the last message
+        if resume or continue_conversation:
+            continue_conversation = True
+            prompt = msg[-1]["content"]
+            if isinstance(prompt, (dict, list)):
+                prompt = ln.json_dumps(prompt)
+
+        # 2. else, use entire messages except system message
+        else:
+            prompts = []
+            continue_conversation = False
+            for message in msg:
+                if message["role"] != "system":
+                    content = message["content"]
+                    prompts.append(
+                        ln.json_dumps(content)
+                        if isinstance(content, (dict, list))
+                        else content
+                    )
+
+            prompt = "\n".join(prompts)
+
+        # 3. assemble the request data
+        data_: dict[str, Any] = dict(
+            prompt=prompt,
+            resume=resume,
+            continue_conversation=bool(continue_conversation),
+        )
+
+        # 4. extract system prompt if available
+        if (msg[0]["role"] == "system") and (resume or continue_conversation):
+            data_["system_prompt"] = msg[0]["content"]
+
+        if "append_system_prompt" in data and data["append_system_prompt"]:
+            data_["append_system_prompt"] = str(
+                data.get("append_system_prompt")
+            )
+
+        data_.update(data)
+        return data_
 
     # Workspace path derived from repo + ws
     def cwd(self) -> Path:
@@ -208,73 +259,6 @@ class ClaudeCodeRequest(BaseModel):
 
         args += ["--model", self.model or "sonnet", "--verbose"]
         return args
-
-    # ------------------------ SDK helpers -----------------------------------
-    def as_claude_options(self):
-        from claude_code_sdk import ClaudeCodeOptions
-
-        data = {
-            k: v
-            for k, v in self.model_dump(exclude_none=True).items()
-            if k in CLAUDE_CODE_OPTION_PARAMS
-        }
-        return ClaudeCodeOptions(**data)
-
-    # ------------------------ convenience constructor -----------------------
-    @classmethod
-    def create(
-        cls,
-        messages: list[dict[str, Any]],
-        resume: str | None = None,
-        continue_conversation: bool | None = None,
-        **kwargs,
-    ):
-        if not messages:
-            raise ValueError("messages may not be empty")
-
-        prompt = ""
-
-        # 1. if resume or continue_conversation, use the last message
-        if resume or continue_conversation:
-            continue_conversation = True
-            prompt = messages[-1]["content"]
-            if isinstance(prompt, (dict, list)):
-                prompt = ln.json_dumps(prompt)
-
-        # 2. else, use entire messages except system message
-        else:
-            prompts = []
-            continue_conversation = False
-            for message in messages:
-                if message["role"] != "system":
-                    content = message["content"]
-                    prompts.append(
-                        ln.json_dumps(content)
-                        if isinstance(content, (dict, list))
-                        else content
-                    )
-
-            prompt = "\n".join(prompts)
-
-        # 3. assemble the request data
-        data: dict[str, Any] = dict(
-            prompt=prompt,
-            resume=resume,
-            continue_conversation=bool(continue_conversation),
-        )
-
-        # 4. extract system prompt if available
-        if (messages[0]["role"] == "system") and (
-            resume or continue_conversation
-        ):
-            data["system_prompt"] = messages[0]["content"]
-        if kwargs.get("append_system_prompt"):
-            data["append_system_prompt"] = str(
-                kwargs.get("append_system_prompt")
-            )
-
-        data.update(kwargs)
-        return cls.model_validate(data, strict=False)
 
 
 @dataclass
@@ -497,23 +481,6 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
         with contextlib.suppress(ProcessLookupError):
             proc.terminate()
         await proc.wait()
-
-
-def _stream_claude_code(request: ClaudeCodeRequest):
-    from claude_code_sdk import query as sdk_query
-
-    return sdk_query(
-        prompt=request.prompt, options=request.as_claude_options()
-    )
-
-
-def stream_cc_sdk_events(request: ClaudeCodeRequest):
-    if not HAS_CLAUDE_CODE_SDK:
-        raise RuntimeError(
-            "claude_code_sdk not installed (uv pip install lionagi[claude_code])"
-        )
-
-    return _stream_claude_code(request)
 
 
 # --------------------------------------------------------------------------- SSE route

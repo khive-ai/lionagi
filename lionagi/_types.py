@@ -1,3 +1,5 @@
+"""lionagi type definitions."""
+
 # Lazy loading for heavy type imports to improve startup performance
 _lazy_type_imports = {}
 
