@@ -79,7 +79,7 @@ class ClaudeCodeCLIEndpoint(Endpoint):
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages")
-        req_obj = ClaudeCodeRequest.create(messages=messages, **req_dict)
+        req_obj = ClaudeCodeRequest(messages=messages, **req_dict)
         return {"request": req_obj}, {}
 
     async def stream(

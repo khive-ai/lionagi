@@ -296,19 +296,22 @@ class ActionManager(Manager):
         if isinstance(server_config, dict) and "server" in server_config:
             server_name = server_config["server"]
 
+        if request_options:
+            for k in list(request_options.keys()):
+                if not k.startswith(f"{server_name}_"):
+                    request_options[f"{server_name}_{k}"] = (
+                        request_options.pop(k)
+                    )
+
         if tool_names:
             # Register specific tools with qualified names
             for tool_name in tool_names:
                 # Use qualified name to avoid collisions
-                qualified_name = (
-                    f"{server_name}_{tool_name}" if server_name else tool_name
-                )
-
                 # Store original tool name in config for MCP calls
                 config_with_metadata = dict(server_config)
                 config_with_metadata["_original_tool_name"] = tool_name
 
-                mcp_config = {qualified_name: config_with_metadata}
+                mcp_config = {tool_name: config_with_metadata}
 
                 # Get request_options for this tool if provided
                 tool_request_options = None
@@ -320,7 +323,7 @@ class ActionManager(Manager):
                     mcp_config=mcp_config, request_options=tool_request_options
                 )
                 self.register_tool(tool, update=update)
-                registered_tools.append(qualified_name)
+                registered_tools.append(tool_name)
         else:
             # Auto-discover tools from the server
             from lionagi.service.connections.mcp.wrapper import (
@@ -333,16 +336,12 @@ class ActionManager(Manager):
 
             # Register each discovered tool with qualified name
             for tool in tools:
-                # Use qualified name to avoid collisions: server_toolname
-                qualified_name = (
-                    f"{server_name}_{tool.name}" if server_name else tool.name
-                )
 
                 # Store original tool name in config for MCP calls
                 config_with_metadata = dict(server_config)
                 config_with_metadata["_original_tool_name"] = tool.name
 
-                mcp_config = {qualified_name: config_with_metadata}
+                mcp_config = {tool.name: config_with_metadata}
 
                 # Get request_options for this tool if provided
                 tool_request_options = None
@@ -356,11 +355,9 @@ class ActionManager(Manager):
                         request_options=tool_request_options,
                     )
                     self.register_tool(tool_obj, update=update)
-                    registered_tools.append(qualified_name)
+                    registered_tools.append(tool.name)
                 except Exception as e:
-                    print(
-                        f"Warning: Failed to register tool {qualified_name}: {e}"
-                    )
+                    print(f"Warning: Failed to register tool {tool.name}: {e}")
 
         return registered_tools
 
