@@ -218,7 +218,7 @@ async def handle_instruct(instruct):
   return await sub_branch.operate(instruct=instruct)
 
 # run in parallel across all instruct models
-from lionagi.utils import alcall
+from lionagi.ln import alcall
 responses = await alcall(response3.instruct_models, handle_instruct)
 
 # now hand these reports back to the orchestrator
