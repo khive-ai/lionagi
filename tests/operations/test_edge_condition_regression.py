@@ -22,8 +22,8 @@ from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
 
-class TestCondition(EdgeCondition):
-    """Test condition that checks for a specific value."""
+class CustomCondition(EdgeCondition):
+    """Custom condition that checks for a specific value."""
 
     def __init__(self, expected_value):
         super().__init__()
@@ -60,12 +60,14 @@ async def test_edge_condition_controls_traversal():
 
     # Path with true condition
     graph.add_edge(
-        Edge(head=start.id, tail=path_true.id, condition=TestCondition(True))
+        Edge(head=start.id, tail=path_true.id, condition=CustomCondition(True))
     )
 
     # Path with false condition
     graph.add_edge(
-        Edge(head=start.id, tail=path_false.id, condition=TestCondition(False))
+        Edge(
+            head=start.id, tail=path_false.id, condition=CustomCondition(False)
+        )
     )
 
     # Create session

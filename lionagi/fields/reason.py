@@ -32,6 +32,8 @@ class Reason(HashableModel):
 
 
 def validate_confidence_score(cls, v):
+    if v is None:
+        return None
     try:
         return to_num(
             v,

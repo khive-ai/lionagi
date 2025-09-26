@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.17.9"
+version = "0.17.10"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -64,6 +64,7 @@ dev = [
     "line-profiler>=5.0.0",
     "memory-profiler>=0.61.0",
     "hypothesis>=6.139.1",
+    "pyarrow>=21.0.0",
 ]
 
 [project.optional-dependencies]

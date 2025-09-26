@@ -21,7 +21,6 @@ class TestValidateConfidenceScore:
         """Test validation of invalid confidence scores."""
         invalid_inputs = [
             "invalid",  # Non-numeric string
-            None,  # None value
             {},  # Dict
             [],  # List
             -0.5,  # Below lower bound
@@ -29,6 +28,9 @@ class TestValidateConfidenceScore:
         ]
         for input_val in invalid_inputs:
             assert validate_confidence_score(None, input_val) == -1
+
+        # None is a valid value (remains None)
+        assert validate_confidence_score(None, None) is None
 
     def test_precision_handling(self):
         """Test that confidence scores are rounded to 3 decimal places."""

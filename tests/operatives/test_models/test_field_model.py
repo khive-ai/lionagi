@@ -32,7 +32,7 @@ class TestFieldModel:
             description="A test field",
         )
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert isinstance(field_info, FieldInfo)
         assert field_info.default == "default_value"
         assert field_info.title == "Test Field"
@@ -42,7 +42,7 @@ class TestFieldModel:
         """Test field with type annotation."""
         field = FieldModel(name="test_field", annotation=int, default=42)
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert field_info.annotation == int
         assert field_info.default == 42
 
@@ -91,7 +91,7 @@ class TestFieldModel:
             exclude=False,
         )
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert field_info.annotation == list[int]
         assert callable(field_info.default_factory)
         assert field_info.title == "Test Field"
@@ -106,7 +106,7 @@ class TestFieldModel:
             name="test_field", alias="test_alias", alias_priority=2
         )
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert field_info.alias == "test_alias"
         assert field_info.alias_priority == 2
 
@@ -139,7 +139,6 @@ class TestFieldModel:
             title="Test Field",
             description="A test field",
         )
-
         dict_repr = field.to_dict()
         assert isinstance(dict_repr, dict)
         assert dict_repr["default"] == "default_value"
@@ -150,12 +149,12 @@ class TestFieldModel:
         """Test field frozen attribute."""
         field = FieldModel(name="test_field", frozen=True)
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert field_info.frozen
 
         field = FieldModel(name="test_field", frozen=False)
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert not field_info.frozen
 
     def test_field_default_factory(self):
@@ -166,7 +165,7 @@ class TestFieldModel:
 
         field = FieldModel(name="test_field", default_factory=create_list)
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert callable(field_info.default_factory)
         assert field_info.default_factory() == [1, 2, 3]
 
@@ -176,14 +175,14 @@ class TestFieldModel:
             name="test_field", examples=["example1", "example2"]
         )
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert field_info.examples == ["example1", "example2"]
 
     def test_field_with_description(self):
         """Test field with description."""
         field = FieldModel(name="test_field", description="Test description")
 
-        field_info = field.field_info
+        field_info = field.create_field()
         assert field_info.description == "Test description"
 
 
@@ -222,7 +221,7 @@ def test_exclude_field_behavior():
     from serialization.
     """
     field = FieldModel(name="excluded_field", exclude=True)
-    info = field.field_info
+    info = field.create_field()
     assert (
         info.exclude is True
     ), "Expected the field's FieldInfo to have exclude=True"
@@ -253,7 +252,7 @@ def test_type_mismatch_between_annotation_and_default(
     field = FieldModel(
         name="mismatch_field", annotation=annotation, default=default_value
     )
-    info = field.field_info
+    info = field.create_field()
     # The FieldInfo has the mismatch, but Pydantic doesn't strictly validate here in FieldModel alone.
     # You might consider implementing your own check if you want to raise an error now.
     assert info.annotation == annotation

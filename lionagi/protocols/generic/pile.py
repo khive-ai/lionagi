@@ -16,10 +16,9 @@ from collections.abc import (
 )
 from functools import wraps
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar
 
 from pydantic import Field, field_serializer
-from pydantic.fields import FieldInfo
 from pydapter import Adaptable, AsyncAdaptable
 from typing_extensions import Self, deprecated, override
 
@@ -36,6 +35,10 @@ from lionagi.utils import (
 from .._concepts import Observable
 from .element import ID, Collective, E, Element, IDType, validate_order
 from .progression import Progression
+
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
+
 
 D = TypeVar("D")
 T = TypeVar("T", bound=E)
@@ -219,13 +222,13 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         "strict_type",
     }
 
-    def __pydantic_extra__(self) -> dict[str, FieldInfo]:
+    def __pydantic_extra__(self) -> dict[str, "FieldInfo"]:
         return {
             "_lock": Field(default_factory=threading.Lock),
             "_async": Field(default_factory=ConcurrencyLock),
         }
 
-    def __pydantic_private__(self) -> dict[str, FieldInfo]:
+    def __pydantic_private__(self) -> dict[str, "FieldInfo"]:
         return self.__pydantic_extra__()
 
     @classmethod
