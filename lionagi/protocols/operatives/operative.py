@@ -79,7 +79,13 @@ class Operative:
         """Initialize from ModelParams for backward compatibility."""
         # Add field models to the request operable
         if params.field_models:
-            for field_model in params.field_models:
+            # Coerce to list if single FieldModel instance
+            field_models_list = (
+                [params.field_models]
+                if isinstance(params.field_models, FieldModel)
+                else params.field_models
+            )
+            for field_model in field_models_list:
                 self._request_operable.add_field(
                     field_model.name,
                     field_model=field_model,
@@ -296,7 +302,13 @@ class Operative:
 
         # Add field models (skip if already exists from inheritance)
         if field_models:
-            for field_model in field_models:
+            # Coerce to list if single FieldModel instance
+            field_models_list = (
+                [field_models]
+                if isinstance(field_models, FieldModel)
+                else field_models
+            )
+            for field_model in field_models_list:
                 if field_model.name not in self._response_operable.all_fields:
                     self._response_operable.add_field(
                         field_model.name,
