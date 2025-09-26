@@ -65,6 +65,9 @@ dev = [
     "memory-profiler>=0.61.0",
     "hypothesis>=6.139.1",
     "pyarrow>=21.0.0",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
+    "pytest-benchmark>=5.1.0",
 ]
 
 [project.optional-dependencies]
@@ -133,37 +136,35 @@ max-line-length = 79
 exclude = [".git", "__pycache__", "build", "dist", ".venv"]
 
 [tool.pytest.ini_options]
-addopts = "-q -ra --strict-config --strict-markers --tb=short --maxfail=5"
+addopts = "-q -ra --strict-config --strict-markers --tb=short --maxfail=5 -n auto --dist loadfile"
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+timeout = 300
+timeout_method = "thread"
 markers = [
-    "performance: marks tests as performance",
-    "slow: marks tests as slow",
+    "performance: marks tests as performance benchmarks",
+    "slow: marks tests as slow (> 1 second)",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "asyncio: marks tests as async",
+    "property: marks tests as property-based tests",
+    "migration: marks tests as migration/compatibility tests",
+    "network: marks tests requiring network calls",
 ]
 filterwarnings = [
     # Ignore Pydantic deprecation warnings from external datamodel-code-generator
     "ignore:The `parse_obj` method is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
     "ignore:The `dict` method is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
     "ignore:The `__fields_set__` attribute is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 
-[tool.coverage.run]
-source = ["lionagi"]
-omit = [
-    "lionagi/service/third_party/*",
-    "*/tests/*",
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if __name__ == .__main__.:",
-    "raise AssertionError",
-    "raise NotImplementedError",
-]
 
 [build-system]
 requires = ["hatchling"]

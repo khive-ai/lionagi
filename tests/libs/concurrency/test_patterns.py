@@ -14,6 +14,7 @@ from lionagi.ln.concurrency import (
 )
 
 
+@pytest.mark.slow
 @pytest.mark.anyio
 async def test_gather_first_error_cancels_peers(anyio_backend):
     cancelled = anyio.Event()
@@ -207,6 +208,7 @@ async def test_bounded_map_with_return_exceptions(anyio_backend):
             assert results[i] == i * 2
 
 
+@pytest.mark.slow
 @pytest.mark.anyio
 async def test_race_single_and_loser_cancelled(anyio_backend):
     # single
@@ -306,23 +308,24 @@ async def test_retry_deadline_capped_by_parent(anyio_backend):
         calls["n"] += 1
         raise TimeoutError("x")
 
-    # Base delays are large, but parent deadline is tight; retry should stop early
+    # Test that retry respects parent deadline
     start = anyio.current_time()
-    with fail_after(0.1):  # More generous deadline
-        with pytest.raises(TimeoutError) as exc_info:
-            # Use tiny delays to avoid deadline conflicts
+
+    # The fail_after deadline should cause retry to exit early
+    with pytest.raises(TimeoutError):
+        with fail_after(0.05):  # Short deadline
             await retry(
                 always,
                 attempts=50,
-                base_delay=0.001,
-                max_delay=0.001,
+                base_delay=0.01,  # Longer delays to test deadline capping
+                max_delay=0.1,
                 retry_on=(TimeoutError,),
                 jitter=0.0,
             )
+
     elapsed = anyio.current_time() - start
-    # Could be either the original TimeoutError or the deadline TimeoutError
-    # The important thing is that it respects the deadline and doesn't hang
-    assert elapsed <= 0.5  # Should complete quickly (CI-friendly)
+    # Should complete quickly due to deadline, not after many retries
+    assert elapsed <= 0.2  # CI-friendly assertion
     assert calls["n"] >= 1
 
 

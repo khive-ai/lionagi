@@ -19,14 +19,14 @@ class TestValidateBoolean:
         """Test that boolean inputs are returned unchanged."""
         assert validate_boolean(value) is value
 
-    @pytest.mark.parametrize("value", TRUE_VALUES)
+    @pytest.mark.parametrize("value", sorted(TRUE_VALUES))
     def test_true_string_values(self, value: str):
         """Test string values that should convert to True."""
         assert validate_boolean(value) is True
         assert validate_boolean(value.upper()) is True
         assert validate_boolean(f" {value} ") is True
 
-    @pytest.mark.parametrize("value", FALSE_VALUES)
+    @pytest.mark.parametrize("value", sorted(FALSE_VALUES))
     def test_false_string_values(self, value: str):
         """Test string values that should convert to False."""
         assert validate_boolean(value) is False

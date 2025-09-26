@@ -15,6 +15,7 @@ if TYPE_CHECKING or hasattr(BaseException, "__group__"):
         ExceptionGroup = BaseException
 
 
+@pytest.mark.slow
 @pytest.mark.anyio
 async def test_error_in_one_task_cancels_peers_promptly(anyio_backend):
     started = anyio.Event()
