@@ -1,6 +1,6 @@
 """Field model implementation for compositional field definitions.
 
-This module provides FieldModel, a frozen dataclass that enables
+This module provides FieldModel, a Params-based class that enables
 compositional field definitions with lazy materialization and aggressive caching.
 """
 
@@ -10,12 +10,14 @@ import os
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Annotated, Any
+from dataclasses import dataclass
+from dataclasses import field as dc_field
+from typing import Annotated, Any, ClassVar
 
 from typing_extensions import Self, override
 
 from .._errors import ValidationError
+from ..ln.types import Meta, Params
 
 # Cache of valid Pydantic Field parameters
 _PYDANTIC_FIELD_PARAMS: set[str] | None = None
@@ -38,7 +40,7 @@ def _get_pydantic_field_params() -> set[str]:
 
 # Global cache for annotated types with bounded size
 _MAX_CACHE_SIZE = int(os.environ.get("LIONAGI_FIELD_CACHE_SIZE", "10000"))
-_annotated_cache: OrderedDict[tuple[type, tuple[FieldMeta, ...]], type] = (
+_annotated_cache: OrderedDict[tuple[type, tuple[Meta, ...]], type] = (
     OrderedDict()
 )
 _cache_lock = threading.RLock()  # Thread-safe access to cache
@@ -47,56 +49,19 @@ _cache_lock = threading.RLock()  # Thread-safe access to cache
 METADATA_LIMIT = int(os.environ.get("LIONAGI_FIELD_META_LIMIT", "10"))
 
 
-@dataclass(slots=True, frozen=True)
-class FieldMeta:
-    """Immutable metadata container for field templates."""
-
-    key: str
-    value: Any
-
-    @override
-    def __hash__(self) -> int:
-        """Make metadata hashable for caching.
-
-        Note: For callables, we hash by id to maintain identity semantics.
-        """
-        # For callables, use their id
-        if callable(self.value):
-            return hash((self.key, id(self.value)))
-        # For other values, try to hash directly
-        try:
-            return hash((self.key, self.value))
-        except TypeError:
-            # Fallback for unhashable types
-            return hash((self.key, str(self.value)))
-
-    @override
-    def __eq__(self, other: object) -> bool:
-        """Compare metadata for equality.
-
-        For callables, compare by id to increase cache hits when the same
-        validator instance is reused. For other values, use standard equality.
-        """
-        if not isinstance(other, FieldMeta):
-            return NotImplemented
-
-        if self.key != other.key:
-            return False
-
-        # For callables, compare by identity
-        if callable(self.value) and callable(other.value):
-            return id(self.value) == id(other.value)
-
-        # For other values, use standard equality
-        return bool(self.value == other.value)
-
-
 @dataclass(slots=True, frozen=True, init=False)
-class FieldModel:
+class FieldModel(Params):
     """Field model for compositional field definitions.
 
     This class provides a way to define field models that can be composed
     and materialized lazily with aggressive caching for performance.
+
+    Key features:
+    - All unspecified fields are explicitly Unset (not None or empty)
+    - No silent type conversions - fails fast on incorrect types
+    - Aggressive caching of materialized types with LRU eviction
+    - Thread-safe field creation and caching
+    - Not directly instantiable - requires keyword arguments
 
     Attributes:
         base_type: The base Python type for this field
@@ -107,56 +72,123 @@ class FieldModel:
         LIONAGI_FIELD_META_LIMIT: Maximum metadata items per template (default: 10)
 
     Example:
-        >>> field = FieldModel(str)
+        >>> field = FieldModel(base_type=str, name="username")
         >>> nullable_field = field.as_nullable()
         >>> annotated_type = nullable_field.annotated()
     """
 
-    base_type: type[Any]
-    metadata: tuple[FieldMeta, ...] = field(default_factory=tuple)
+    # Class configuration - let Params handle Unset population
+    _prefill_unset: ClassVar[bool] = True
+    _none_as_sentinel: ClassVar[bool] = True
 
-    def __init__(
-        self,
-        base_type: type[Any] = None,
-        metadata: tuple[FieldMeta, ...] | None = None,
-        name: str = "field",
-        annotation: type[Any] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Initialize FieldModel with optional metadata and kwargs.
+    # Public fields (all start as Unset when not provided)
+    base_type: type[Any]
+    metadata: tuple[Meta, ...]
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize FieldModel with legacy compatibility.
+
+        Handles backward compatibility by converting old-style kwargs to the new
+        Params-based format.
 
         Args:
-            base_type: The base Python type for this field (or use annotation)
-            metadata: Tuple of metadata to attach via Annotated
-            name: Field name for backward compatibility
-            annotation: Type annotation (alias for base_type for backward compatibility)
-            **kwargs: Additional metadata as keyword arguments that will be converted to FieldMeta
+            **kwargs: Arbitrary keyword arguments, including legacy ones
         """
-        # Handle backward compatibility: use annotation if base_type not provided
-        if base_type is None and annotation is not None:
-            base_type = annotation
-        elif base_type is None:
-            base_type = Any
+        # Convert legacy kwargs to proper format
+        converted = self._convert_kwargs_to_params(**kwargs)
 
-        # Convert kwargs to FieldMeta objects
-        meta_list = list(metadata) if metadata else []
+        # Set fields directly and validate
+        for k, v in converted.items():
+            if k in self.allowed():
+                object.__setattr__(self, k, v)
+            else:
+                raise ValueError(f"Invalid parameter: {k}")
 
-        # Handle special kwargs that trigger method calls
-        if "nullable" in kwargs and kwargs["nullable"]:
-            # Add nullable marker
-            meta_list.append(FieldMeta("nullable", True))
-            kwargs.pop("nullable")
-        if "listable" in kwargs and kwargs["listable"]:
-            # Change base type to list
-            base_type = list[base_type]  # type: ignore
-            meta_list.append(FieldMeta("listable", True))
-            kwargs.pop("listable")
+        # Validate after setting all attributes
+        self._validate()
 
-        # Add name as metadata if provided
-        if name != "field":  # Only add if non-default
-            meta_list.append(FieldMeta("name", name))
+    def _validate(self) -> None:
+        """Validate field configuration and process metadata.
 
-        # Validate for conflicting defaults
+        This method performs minimal domain-specific validation, then processes
+        and validates the metadata configuration.
+
+        Raises:
+            ValueError: If base_type is invalid or metadata is malformed
+        """
+        # Let parent handle basic Unset population
+        Params._validate(self)
+
+        # Minimal domain validation - only check what matters
+        if not self._is_sentinel(self.base_type):
+            # Allow types, GenericAlias (like list[str]), and union types (like str | None)
+            # Check for type, generic types, or union types
+            import types
+
+            is_valid_type = (
+                isinstance(self.base_type, type)
+                or hasattr(self.base_type, "__origin__")
+                or isinstance(
+                    self.base_type, types.UnionType
+                )  # Python 3.10+ union types (str | None)
+                or str(type(self.base_type))
+                == "<class 'types.UnionType'>"  # Fallback check
+            )
+            if not is_valid_type:
+                raise ValueError(
+                    f"base_type must be a type or type annotation, got {self.base_type}"
+                )
+
+        # Validate metadata limit
+        if not self._is_sentinel(self.metadata):
+            if len(self.metadata) > METADATA_LIMIT:
+                import warnings
+
+                warnings.warn(
+                    f"FieldModel has {len(self.metadata)} metadata items, "
+                    f"exceeding recommended limit of {METADATA_LIMIT}. "
+                    "Consider simplifying the field definition.",
+                    stacklevel=3,
+                )
+
+    @classmethod
+    def _convert_kwargs_to_params(cls, **kwargs: Any) -> dict[str, Any]:
+        """Convert legacy kwargs to Params-compatible format.
+
+        This handles backward compatibility with the old FieldModel API.
+
+        Args:
+            **kwargs: Legacy keyword arguments
+
+        Returns:
+            Dictionary of converted parameters
+        """
+        params = {}
+
+        # Handle annotation alias for base_type
+        if "annotation" in kwargs and "base_type" not in kwargs:
+            params["base_type"] = kwargs.pop("annotation")
+
+        # Handle name in metadata
+        if "name" in kwargs:
+            name = kwargs.pop("name")
+            if name != "field":  # Only add if non-default
+                metadata = list(kwargs.get("metadata", ()))
+                metadata.append(Meta("name", name))
+                params["metadata"] = tuple(metadata)
+
+        # Handle special flags
+        if "nullable" in kwargs and kwargs.pop("nullable"):
+            metadata = list(params.get("metadata", ()))
+            metadata.append(Meta("nullable", True))
+            params["metadata"] = tuple(metadata)
+
+        if "listable" in kwargs and kwargs.pop("listable"):
+            metadata = list(params.get("metadata", ()))
+            metadata.append(Meta("listable", True))
+            params["metadata"] = tuple(metadata)
+
+        # Validate conflicting defaults
         if "default" in kwargs and "default_factory" in kwargs:
             raise ValueError("Cannot have both default and default_factory")
 
@@ -171,39 +203,31 @@ class FieldModel:
                     "Validators must be a list of functions or a function"
                 )
 
-        # Convert remaining kwargs to FieldMeta
-        for key, value in kwargs.items():
-            meta_list.append(FieldMeta(key, value))
+        # Convert remaining kwargs to metadata
+        if kwargs:
+            metadata = list(params.get("metadata", ()))
+            for key, value in kwargs.items():
+                metadata.append(Meta(key, value))
+            params["metadata"] = tuple(metadata)
 
-        # Use object.__setattr__ to set frozen dataclass fields
-        object.__setattr__(self, "base_type", base_type)
-        object.__setattr__(self, "metadata", tuple(meta_list))
-
-        # Manually call __post_init__ since we have a custom __init__
-        self.__post_init__()
+        return params
 
     def __getattr__(self, name: str) -> Any:
         """Handle access to custom attributes stored in metadata."""
         # Check if the attribute exists in metadata
-        for meta in self.metadata:
-            if meta.key == name:
-                return meta.value
+        if not self._is_sentinel(self.metadata):
+            for meta in self.metadata:
+                if meta.key == name:
+                    return meta.value
+
+        # Special handling for common attributes with defaults
+        if name == "name":
+            return "field"
+
         # If not found, raise AttributeError as usual
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{name}'"
         )
-
-    def __post_init__(self) -> None:
-        """Validate metadata limit after initialization."""
-        if len(self.metadata) > METADATA_LIMIT:
-            import warnings
-
-            warnings.warn(
-                f"FieldModel has {len(self.metadata)} metadata items, "
-                f"exceeding recommended limit of {METADATA_LIMIT}. "
-                "Consider simplifying the field definition.",
-                stacklevel=3,  # Show user's call site, not __post_init__
-            )
 
     # ---- factory helpers -------------------------------------------------- #
 
@@ -214,8 +238,16 @@ class FieldModel:
             New FieldModel with nullable metadata added
         """
         # Add nullable marker to metadata
-        new_metadata = (*self.metadata, FieldMeta("nullable", True))
-        return type(self)(self.base_type, new_metadata)
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
+        )
+        new_metadata = (*current_metadata, Meta("nullable", True))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def as_listable(self) -> Self:
         """Create a new field model that wraps the type in a list.
@@ -226,11 +258,23 @@ class FieldModel:
         Returns:
             New FieldModel with list wrapper
         """
+        # Get current base type
+        current_base = (
+            Any if self._is_sentinel(self.base_type) else self.base_type
+        )
         # Change base type to list of current type
-        new_base = list[self.base_type]  # type: ignore
+        new_base = list[current_base]  # type: ignore
         # Add listable marker to metadata
-        new_metadata = (*self.metadata, FieldMeta("listable", True))
-        return type(self)(new_base, new_metadata)
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
+        )
+        new_metadata = (*current_metadata, Meta("listable", True))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", new_base)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_validator(self, f: Callable[[Any], bool]) -> Self:
         """Add a validator function to this field model.
@@ -242,8 +286,16 @@ class FieldModel:
             New FieldModel with validator added
         """
         # Add validator to metadata
-        new_metadata = (*self.metadata, FieldMeta("validator", f))
-        return type(self)(self.base_type, new_metadata)
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
+        )
+        new_metadata = (*current_metadata, Meta("validator", f))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_description(self, description: str) -> Self:
         """Add a description to this field model.
@@ -255,14 +307,23 @@ class FieldModel:
             New FieldModel with description added
         """
         # Remove any existing description
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
+        )
         filtered_metadata = tuple(
-            m for m in self.metadata if m.key != "description"
+            m for m in current_metadata if m.key != "description"
         )
         new_metadata = (
             *filtered_metadata,
-            FieldMeta("description", description),
+            Meta("description", description),
         )
-        return type(self)(self.base_type, new_metadata)
+
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_default(self, default: Any) -> Self:
         """Add a default value to this field model.
@@ -274,11 +335,19 @@ class FieldModel:
             New FieldModel with default added
         """
         # Remove any existing default metadata to avoid conflicts
-        filtered_metadata = tuple(
-            m for m in self.metadata if m.key != "default"
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
         )
-        new_metadata = (*filtered_metadata, FieldMeta("default", default))
-        return type(self)(self.base_type, new_metadata)
+        filtered_metadata = tuple(
+            m for m in current_metadata if m.key != "default"
+        )
+        new_metadata = (*filtered_metadata, Meta("default", default))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_frozen(self, frozen: bool = True) -> Self:
         """Mark this field as frozen (immutable after creation).
@@ -290,11 +359,19 @@ class FieldModel:
             New FieldModel with frozen setting
         """
         # Remove any existing frozen metadata
-        filtered_metadata = tuple(
-            m for m in self.metadata if m.key != "frozen"
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
         )
-        new_metadata = (*filtered_metadata, FieldMeta("frozen", frozen))
-        return type(self)(self.base_type, new_metadata)
+        filtered_metadata = tuple(
+            m for m in current_metadata if m.key != "frozen"
+        )
+        new_metadata = (*filtered_metadata, Meta("frozen", frozen))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_alias(self, alias: str) -> Self:
         """Add an alias to this field.
@@ -306,8 +383,13 @@ class FieldModel:
             New FieldModel with alias
         """
         filtered_metadata = tuple(m for m in self.metadata if m.key != "alias")
-        new_metadata = (*filtered_metadata, FieldMeta("alias", alias))
-        return type(self)(self.base_type, new_metadata)
+        new_metadata = (*filtered_metadata, Meta("alias", alias))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_title(self, title: str) -> Self:
         """Add a title to this field.
@@ -319,8 +401,13 @@ class FieldModel:
             New FieldModel with title
         """
         filtered_metadata = tuple(m for m in self.metadata if m.key != "title")
-        new_metadata = (*filtered_metadata, FieldMeta("title", title))
-        return type(self)(self.base_type, new_metadata)
+        new_metadata = (*filtered_metadata, Meta("title", title))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_exclude(self, exclude: bool = True) -> Self:
         """Mark this field to be excluded from serialization.
@@ -331,11 +418,19 @@ class FieldModel:
         Returns:
             New FieldModel with exclude setting
         """
-        filtered_metadata = tuple(
-            m for m in self.metadata if m.key != "exclude"
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
         )
-        new_metadata = (*filtered_metadata, FieldMeta("exclude", exclude))
-        return type(self)(self.base_type, new_metadata)
+        filtered_metadata = tuple(
+            m for m in current_metadata if m.key != "exclude"
+        )
+        new_metadata = (*filtered_metadata, Meta("exclude", exclude))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_metadata(self, key: str, value: Any) -> Self:
         """Add custom metadata to this field.
@@ -349,8 +444,13 @@ class FieldModel:
         """
         # Replace existing metadata with same key
         filtered_metadata = tuple(m for m in self.metadata if m.key != key)
-        new_metadata = (*filtered_metadata, FieldMeta(key, value))
-        return type(self)(self.base_type, new_metadata)
+        new_metadata = (*filtered_metadata, Meta(key, value))
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def with_json_schema_extra(self, **kwargs: Any) -> Self:
         """Add JSON schema extra information.
@@ -365,14 +465,22 @@ class FieldModel:
         existing = self.extract_metadata("json_schema_extra") or {}
         updated = {**existing, **kwargs}
 
+        current_metadata = (
+            () if self._is_sentinel(self.metadata) else self.metadata
+        )
         filtered_metadata = tuple(
-            m for m in self.metadata if m.key != "json_schema_extra"
+            m for m in current_metadata if m.key != "json_schema_extra"
         )
         new_metadata = (
             *filtered_metadata,
-            FieldMeta("json_schema_extra", updated),
+            Meta("json_schema_extra", updated),
         )
-        return type(self)(self.base_type, new_metadata)
+        # Create new instance directly without going through __init__
+        new_instance = object.__new__(type(self))
+        object.__setattr__(new_instance, "base_type", self.base_type)
+        object.__setattr__(new_instance, "metadata", new_metadata)
+        new_instance._validate()
+        return new_instance
 
     def create_field(self) -> Any:
         """Create a Pydantic FieldInfo object from this template.
@@ -388,27 +496,28 @@ class FieldModel:
         # Extract metadata for FieldInfo
         field_kwargs = {}
 
-        for meta in self.metadata:
-            if meta.key == "default":
-                # Handle callable defaults as default_factory
-                if callable(meta.value):
-                    field_kwargs["default_factory"] = meta.value
+        if not self._is_sentinel(self.metadata):
+            for meta in self.metadata:
+                if meta.key == "default":
+                    # Handle callable defaults as default_factory
+                    if callable(meta.value):
+                        field_kwargs["default_factory"] = meta.value
+                    else:
+                        field_kwargs["default"] = meta.value
+                elif meta.key == "validator":
+                    # Validators are handled separately in create_model
+                    continue
+                elif meta.key in pydantic_field_params:
+                    # Pass through standard Pydantic field attributes
+                    field_kwargs[meta.key] = meta.value
+                elif meta.key in {"nullable", "listable"}:
+                    # These are FieldTemplate markers, don't pass to FieldInfo
+                    pass
                 else:
-                    field_kwargs["default"] = meta.value
-            elif meta.key == "validator":
-                # Validators are handled separately in create_model
-                continue
-            elif meta.key in pydantic_field_params:
-                # Pass through standard Pydantic field attributes
-                field_kwargs[meta.key] = meta.value
-            elif meta.key in {"nullable", "listable"}:
-                # These are FieldTemplate markers, don't pass to FieldInfo
-                pass
-            else:
-                # Any other metadata goes in json_schema_extra
-                if "json_schema_extra" not in field_kwargs:
-                    field_kwargs["json_schema_extra"] = {}
-                field_kwargs["json_schema_extra"][meta.key] = meta.value
+                    # Any other metadata goes in json_schema_extra
+                    if "json_schema_extra" not in field_kwargs:
+                        field_kwargs["json_schema_extra"] = {}
+                    field_kwargs["json_schema_extra"][meta.key] = meta.value
 
         # Handle nullable case - ensure default is set if not already
         if (
@@ -447,15 +556,21 @@ class FieldModel:
                 return _annotated_cache[cache_key]
 
             # Handle nullable case - wrap in Optional-like union
-            actual_type = self.base_type
-            if any(m.key == "nullable" and m.value for m in self.metadata):
+            actual_type = (
+                Any if self._is_sentinel(self.base_type) else self.base_type
+            )
+            current_metadata = (
+                () if self._is_sentinel(self.metadata) else self.metadata
+            )
+
+            if any(m.key == "nullable" and m.value for m in current_metadata):
                 # Use union syntax for nullable
                 actual_type = actual_type | None  # type: ignore
 
-            if self.metadata:
+            if current_metadata:
                 # Python 3.10 doesn't support unpacking in Annotated, so we need to build it differently
                 # We'll use Annotated.__class_getitem__ to build the type dynamically
-                args = [actual_type] + list(self.metadata)
+                args = [actual_type] + list(current_metadata)
                 result = Annotated.__class_getitem__(tuple(args))  # type: ignore
             else:
                 result = actual_type  # type: ignore[misc]
@@ -482,9 +597,10 @@ class FieldModel:
         Returns:
             Metadata value if found, None otherwise
         """
-        for m in self.metadata:
-            if m.key == key:
-                return m.value
+        if not self._is_sentinel(self.metadata):
+            for m in self.metadata:
+                if m.key == key:
+                    return m.value
         return None
 
     def has_validator(self) -> bool:
@@ -493,6 +609,8 @@ class FieldModel:
         Returns:
             True if validator exists in metadata
         """
+        if self._is_sentinel(self.metadata):
+            return False
         return any(m.key == "validator" for m in self.metadata)
 
     def is_valid(self, value: Any) -> bool:
@@ -504,6 +622,8 @@ class FieldModel:
         Returns:
             True if all validators pass, False otherwise
         """
+        if self._is_sentinel(self.metadata):
+            return True
         for m in self.metadata:
             if m.key == "validator":
                 validator = m.value
@@ -525,41 +645,46 @@ class FieldModel:
         if not self.has_validator():
             return
 
-        for i, m in enumerate(self.metadata):
-            if m.key == "validator":
-                validator = m.value
-                # Try to call validator with correct signature
-                try:
-                    # Try Pydantic-style validator (cls, value) - pass None for cls
-                    result = validator(None, value)
-                    # For Pydantic validators that return the value or raise exceptions,
-                    # if we get here without exception, validation passed
-                except TypeError:
-                    # Try simple validator that just takes value and returns boolean
-                    result = validator(value)
-                    # If validator returns False (simple boolean validator), raise error
-                    if result is False:
-                        validator_name = getattr(
-                            validator, "__name__", f"validator_{i}"
-                        )
-                        raise ValidationError(
-                            f"Validation failed for {validator_name}",
-                            field_name=field_name,
-                            value=value,
-                            validator_name=validator_name,
-                        )
-                except Exception:
-                    # If validator raises any other exception, let it propagate
-                    raise
+        if not self._is_sentinel(self.metadata):
+            for i, m in enumerate(self.metadata):
+                if m.key == "validator":
+                    validator = m.value
+                    # Try to call validator with correct signature
+                    try:
+                        # Try Pydantic-style validator (cls, value) - pass None for cls
+                        result = validator(None, value)
+                        # For Pydantic validators that return the value or raise exceptions,
+                        # if we get here without exception, validation passed
+                    except TypeError:
+                        # Try simple validator that just takes value and returns boolean
+                        result = validator(value)
+                        # If validator returns False (simple boolean validator), raise error
+                        if result is False:
+                            validator_name = getattr(
+                                validator, "__name__", f"validator_{i}"
+                            )
+                            raise ValidationError(
+                                f"Validation failed for {validator_name}",
+                                field_name=field_name,
+                                value=value,
+                                validator_name=validator_name,
+                            )
+                    except Exception:
+                        # If validator raises any other exception, let it propagate
+                        raise
 
     @property
     def is_nullable(self) -> bool:
         """Check if this field allows None values."""
+        if self._is_sentinel(self.metadata):
+            return False
         return any(m.key == "nullable" and m.value for m in self.metadata)
 
     @property
     def is_listable(self) -> bool:
         """Check if this field is a list type."""
+        if self._is_sentinel(self.metadata):
+            return False
         return any(m.key == "listable" and m.value for m in self.metadata)
 
     @override
@@ -574,112 +699,94 @@ class FieldModel:
             attrs.append("validated")
 
         attr_str = f" [{', '.join(attrs)}]" if attrs else ""
-        return f"FieldModel({self.base_type.__name__}{attr_str})"
+        base_type_name = (
+            "Any"
+            if self._is_sentinel(self.base_type)
+            else self.base_type.__name__
+        )
+        return f"FieldModel({base_type_name}{attr_str})"
+
+    @property
+    def field_validator(self) -> dict[str, Any] | None:
+        """Create field validator configuration for backward compatibility.
+
+        Returns:
+            Dictionary mapping validator name to validator function if defined,
+            None otherwise.
+        """
+        if not self.has_validator():
+            return None
+
+        # Extract validators and create field_validator config
+        from pydantic import field_validator
+
+        validators = {}
+
+        # Get field name from metadata or use default
+        field_name = self.extract_metadata("name") or "field"
+
+        if not self._is_sentinel(self.metadata):
+            for meta in self.metadata:
+                if meta.key == "validator":
+                    validator_name = f"{field_name}_validator"
+                    validators[validator_name] = field_validator(field_name)(
+                        meta.value
+                    )
+
+        return validators if validators else None
+
+    @property
+    def annotation(self) -> type[Any]:
+        """Get field annotation (base_type) for backward compatibility."""
+        return Any if self._is_sentinel(self.base_type) else self.base_type
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert field model to dictionary for backward compatibility.
+
+        DEPRECATED: Use metadata_dict() instead.
+
+        Returns:
+            Dictionary representation of field configuration.
+        """
+        import warnings
+
+        warnings.warn(
+            "FieldModel.to_dict() is deprecated. Use metadata_dict() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.metadata_dict(
+            exclude=[
+                "nullable",
+                "listable",
+                "validator",
+                "name",
+                "validator_kwargs",
+                "annotation",
+            ]
+        )
+
+    def metadata_dict(
+        self, exclude: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Convert all metadata to dictionary with optional exclusions.
+
+        Args:
+            exclude: List of metadata keys to exclude from the result
+
+        Returns:
+            Dictionary mapping metadata keys to their values
+        """
+        result = {}
+        exclude_set = set(exclude or [])
+
+        # Convert metadata to dictionary
+        if not self._is_sentinel(self.metadata):
+            for meta in self.metadata:
+                if meta.key not in exclude_set:
+                    result[meta.key] = meta.value
+
+        return result
 
 
-# Add backward compatibility properties and methods
-@property
-def name(self) -> str:
-    """Get field name from metadata for backward compatibility."""
-    return self.extract_metadata("name") or "field"
-
-
-@property
-def default(self) -> Any:
-    """Get field default value from metadata for backward compatibility."""
-    return self.extract_metadata("default")
-
-
-@property
-def title(self) -> str | None:
-    """Get field title from metadata for backward compatibility."""
-    return self.extract_metadata("title")
-
-
-@property
-def description(self) -> str | None:
-    """Get field description from metadata for backward compatibility."""
-    return self.extract_metadata("description")
-
-
-@property
-def annotation(self) -> type[Any]:
-    """Get field annotation (base_type) for backward compatibility."""
-    return self.base_type
-
-
-@property
-def field_info(self) -> Any:
-    """Generate Pydantic FieldInfo from current configuration for backward compatibility.
-
-    This property provides compatibility with the old FieldModel API.
-
-    Returns:
-        Configured Pydantic FieldInfo object.
-    """
-    return self.create_field()
-
-
-@property
-def field_validator(self) -> dict[str, Any] | None:
-    """Create field validator configuration for backward compatibility.
-
-    Returns:
-        Dictionary mapping validator name to validator function if defined,
-        None otherwise.
-    """
-    if not self.has_validator():
-        return None
-
-    # Extract validators and create field_validator config
-    from pydantic import field_validator
-
-    validators = {}
-
-    # Get field name from metadata or use default
-    field_name = self.extract_metadata("name") or "field"
-
-    for meta in self.metadata:
-        if meta.key == "validator":
-            validator_name = f"{field_name}_validator"
-            validators[validator_name] = field_validator(field_name)(
-                meta.value
-            )
-
-    return validators if validators else None
-
-
-def to_dict(self) -> dict[str, Any]:
-    """Convert field model to dictionary for backward compatibility.
-
-    Returns:
-        Dictionary representation of field configuration.
-    """
-    result = {}
-
-    # Convert metadata to dictionary
-    for meta in self.metadata:
-        if meta.key not in (
-            "nullable",
-            "listable",
-            "validator",
-            "name",
-            "validator_kwargs",
-            "annotation",
-        ):
-            result[meta.key] = meta.value
-
-    return result
-
-
-# Monkey patch the methods onto FieldModel for backward compatibility
-FieldModel.name = name
-FieldModel.default = default
-FieldModel.title = title
-FieldModel.description = description
-FieldModel.annotation = annotation
-FieldModel.field_info = field_info
-FieldModel.field_validator = field_validator
-FieldModel.to_dict = to_dict
-
-__all__ = ("FieldModel", "FieldMeta")
+__all__ = ("FieldModel",)

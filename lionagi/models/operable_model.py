@@ -115,13 +115,13 @@ class OperableModel(HashableModel):
         if isinstance(value, dict):
             for k, v in value.items():
                 if isinstance(v, FieldModel):
-                    out[k] = v.field_info
+                    out[k] = v.create_field()
                 elif isinstance(v, FieldInfo):
                     out[k] = v
             return out
 
         elif isinstance(value, list) and is_same_dtype(value, FieldModel):
-            return {v.name: v.field_info for v in value}
+            return {v.name: v.create_field() for v in value}
 
         raise ValueError("Invalid extra_fields value")
 
@@ -139,7 +139,7 @@ class OperableModel(HashableModel):
         if isinstance(self.extra_fields, dict):
             for k, v in self.extra_fields.items():
                 if isinstance(v, FieldModel):
-                    extra_fields[k] = v.field_info
+                    extra_fields[k] = v.create_field()
                     extra_field_models[k] = v
                 elif isinstance(v, FieldInfo):
                     extra_fields[k] = v
@@ -149,7 +149,7 @@ class OperableModel(HashableModel):
             for v in self.extra_fields:
                 # list[FieldModel]
                 if isinstance(v, FieldModel):
-                    extra_fields[v.name] = v.field_info
+                    extra_fields[v.name] = v.create_field()
                     extra_field_models[v.name] = v
 
                 # Handle list[tuple[str, FieldInfo | FieldModel]]
@@ -158,7 +158,7 @@ class OperableModel(HashableModel):
                         if isinstance(v[1], FieldInfo):
                             extra_fields[v[0]] = v[1]
                         if isinstance(v[1], FieldModel):
-                            extra_fields[v[1].name] = v[1].field_info
+                            extra_fields[v[1].name] = v[1].create_field()
                             extra_field_models[v[1].name] = v[1]
 
         object.__setattr__(self, "extra_fields", extra_fields)
@@ -349,7 +349,7 @@ class OperableModel(HashableModel):
                 raise ValueError(
                     "Invalid field_model, should be a FieldModel object"
                 )
-            self.extra_fields[field_name] = field_model.field_info
+            self.extra_fields[field_name] = field_model.create_field()
             self.extra_field_models[field_name] = field_model
 
         # Handle kwargs

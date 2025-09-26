@@ -103,8 +103,16 @@ class Operative:
             use_fields = set(self._request_operable.all_fields.keys()) - set(
                 exclude_fields
             )
+
+            # Determine model name - prefer explicit name, then base_type name, then default
+            model_name = "RequestModel"
+            if not params._is_sentinel(params.name):
+                model_name = params.name
+            elif not params._is_sentinel(params.base_type):
+                model_name = params.base_type.__name__
+
             self.request_type = self._request_operable.new_model(
-                name=params.name or "RequestModel",
+                name=model_name,
                 use_fields=use_fields,
                 base_type=params.base_type,
                 frozen=params.frozen,
@@ -112,9 +120,12 @@ class Operative:
                 doc=params.doc,
             )
 
-        # Update name if not set
-        if not self.name and params.name:
-            self.name = params.name
+        # Update name if not set - prefer explicit name, then base_type name
+        if not self.name:
+            if not params._is_sentinel(params.name):
+                self.name = params.name
+            elif not params._is_sentinel(params.base_type):
+                self.name = params.base_type.__name__
 
     def model_dump(self) -> dict[str, Any]:
         """Convert to dictionary for backward compatibility.

@@ -24,6 +24,7 @@ __all__ = (
     "Params",
     "DataClass",
     "KeysLike",
+    "Meta",
 )
 
 T = TypeVar("T")
@@ -312,3 +313,47 @@ class DataClass:
 
 
 KeysLike = Sequence[str] | KeysDict
+
+
+@dataclass(slots=True, frozen=True)
+class Meta:
+    """Immutable metadata container for field templates and other configurations."""
+
+    key: str
+    value: Any
+
+    @override
+    def __hash__(self) -> int:
+        """Make metadata hashable for caching.
+
+        Note: For callables, we hash by id to maintain identity semantics.
+        """
+        # For callables, use their id
+        if callable(self.value):
+            return hash((self.key, id(self.value)))
+        # For other values, try to hash directly
+        try:
+            return hash((self.key, self.value))
+        except TypeError:
+            # Fallback for unhashable types
+            return hash((self.key, str(self.value)))
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        """Compare metadata for equality.
+
+        For callables, compare by id to increase cache hits when the same
+        validator instance is reused. For other values, use standard equality.
+        """
+        if not isinstance(other, Meta):
+            return NotImplemented
+
+        if self.key != other.key:
+            return False
+
+        # For callables, compare by identity
+        if callable(self.value) and callable(other.value):
+            return id(self.value) == id(other.value)
+
+        # For other values, use standard equality
+        return bool(self.value == other.value)
