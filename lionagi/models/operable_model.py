@@ -161,8 +161,8 @@ class OperableModel(HashableModel):
                             extra_fields[v[1].name] = v[1].field_info
                             extra_field_models[v[1].name] = v[1]
 
-        self.extra_fields = extra_fields
-        self.extra_field_models = extra_field_models
+        object.__setattr__(self, "extra_fields", extra_fields)
+        object.__setattr__(self, "extra_field_models", extra_field_models)
         return self
 
     @override
