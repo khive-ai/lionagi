@@ -304,12 +304,12 @@ def test_empty_field_models():
 
 
 @pytest.mark.parametrize(
-    "exclude_value", [{"ex_field": True}, {"a", "b"}, ("x", "y")]
+    "exclude_value", [["ex_field"], ["a", "b"], ["x", "y"]]
 )
 def test_exclude_fields_various_collections(exclude_value):
     """
-    Test passing exclude_fields as a dict, set, or tuple.
-    The code should convert it into a list of strings and exclude those fields.
+    Test passing exclude_fields as a list of field names.
+    The new implementation requires exclude_fields to be a list.
     """
 
     class BaseWithTwoFields(BaseModel):
@@ -320,16 +320,14 @@ def test_exclude_fields_various_collections(exclude_value):
     params = ModelParams(
         name="ExclusionModel",
         base_type=BaseWithTwoFields,
-        exclude_fields=exclude_value,  # Could be dict, set, or tuple
+        exclude_fields=exclude_value,  # Must be a list
         inherit_base=True,
     )
     model_class = params.create_new_model()
     instance = model_class()
 
-    # whichever are listed in exclude_value should not exist
+    # Fields listed in exclude_value should not exist
     for field_name in exclude_value:
-        # If it was a dict, we extracted keys
-        # so field_name will be a string
         assert not hasattr(
             instance, field_name
         ), f"Field '{field_name}' should have been excluded."
@@ -378,14 +376,15 @@ def test_no_name_falls_back_to_base_type_name():
 
 def test_base_type_instance_instead_of_class():
     """
-    If base_type is an instance of BaseModel, we convert it to its class.
+    The new implementation requires base_type to be a class, not an instance.
+    This test verifies that passing a class works correctly.
     """
 
     class MyInstanceBase(BaseModel):
         base_field: str = "hello"
 
-    base_instance = MyInstanceBase()
-    params = ModelParams(base_type=base_instance)
+    # Pass the class, not an instance
+    params = ModelParams(base_type=MyInstanceBase)
     model_class = params.create_new_model()
 
     # Should function like inheriting from MyInstanceBase

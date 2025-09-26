@@ -61,7 +61,7 @@ async def test_react_basic_flow():
                 **{
                     "analysis": "final_answer_mock",
                     "extension_needed": False,
-                    "action_requests": [],
+                    "planned_actions": [],
                 }
             )
         ),
