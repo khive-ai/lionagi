@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TextContentBlock(BaseModel):
@@ -83,8 +83,7 @@ class CreateMessageRequest(BaseModel):
     tools: list[ToolDefinition] | None = None
     tool_choice: ToolChoice | dict | None = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class Usage(BaseModel):
