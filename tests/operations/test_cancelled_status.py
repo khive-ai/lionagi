@@ -21,6 +21,7 @@ from lionagi.service.connections.providers.oai_ import (
 )
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_operation_cancelled_status():
     """Test that cancelled operations have EventStatus.CANCELLED."""
@@ -51,6 +52,7 @@ async def test_operation_cancelled_status():
     assert op.execution.error == "Operation cancelled"
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_api_call_cancelled_status():
     """Test that cancelled API calls have EventStatus.CANCELLED."""
@@ -89,6 +91,7 @@ async def test_api_call_cancelled_status():
     assert EventStatus.CANCELLED == "cancelled"
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_cancelled_vs_failed_status():
     """Test that cancelled operations are distinct from failed operations."""

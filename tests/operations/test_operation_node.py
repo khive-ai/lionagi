@@ -339,6 +339,7 @@ async def test_operation_invoke_exception_handling():
     assert op.response is None
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_operation_invoke_cancellation():
     """Test handling of operation cancellation."""

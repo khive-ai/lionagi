@@ -35,7 +35,7 @@ async def test_is_cancelled_true_for_backend_exception(anyio_backend):
 
     async def victim():
         try:
-            await anyio.sleep(1.0)  # Reduced
+            await anyio.sleep(0.1)  # Further reduced for faster tests
         except BaseException as e:
             caught["e"] = e
             raise
