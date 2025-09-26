@@ -9,13 +9,10 @@ omit =
     lionagi/operations/plan/*
     lionagi/operations/select/*
     lionagi/operations/_visualize_graph.py
-    lionagi/operations/utils.py
     lionagi/operations/types.py
-    lionagi/libs/schema/extract_code_block.py
     lionagi/tools/file/reader.py
     lionagi/tools/types.py
     lionagi/_types.py
-    lionagi/service/broadcaster.py
     lionagi/version.py
 
 [report]
