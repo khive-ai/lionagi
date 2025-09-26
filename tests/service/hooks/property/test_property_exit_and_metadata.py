@@ -429,6 +429,8 @@ class TestExceptionVariability:
                 min_size=1,
                 max_size=20,
                 alphabet=st.characters(min_codepoint=97, max_codepoint=122),
+            ).filter(
+                lambda x: x not in {"exit", "hook_type", "chunk_type", "chunk"}
             ),
             values=st.one_of(
                 st.text(max_size=50),
