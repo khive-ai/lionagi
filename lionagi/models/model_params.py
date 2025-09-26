@@ -172,14 +172,21 @@ class ModelParams(Params):
 
         # Process field_models
         if not self._is_sentinel(self.field_models):
-            for fm in self.field_models:
+            # Coerce to list if single FieldModel instance
+            field_models_list = (
+                [self.field_models]
+                if isinstance(self.field_models, FieldModel)
+                else self.field_models
+            )
+
+            for fm in field_models_list:
                 if not isinstance(fm, FieldModel):
                     raise ValueError(
                         f"field_models must contain FieldModel instances, got {type(fm)}"
                     )
 
             # Apply descriptions first
-            field_models = self.field_models
+            field_models = field_models_list
             if not self._is_sentinel(self.field_descriptions):
                 field_models = [
                     (
