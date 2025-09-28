@@ -1,8 +1,10 @@
 from typing import Any
-from .base import Rule, RuleParams, RuleQualifier
-from lionagi.ln.fuzzy import fuzzy_validate_pydantic
 
 from pydantic import BaseModel
+
+from lionagi.ln.fuzzy import fuzzy_validate_pydantic
+
+from .base import Rule, RuleParams, RuleQualifier
 
 
 def _get_model_params():
@@ -11,7 +13,7 @@ def _get_model_params():
         apply_fields=set(),
         default_qualifier=RuleQualifier.CONDITION,
         auto_fix=True,
-        kw={}
+        kw={},
     )
 
 
@@ -35,7 +37,7 @@ class ModelRule(Rule):
             return (
                 isinstance(t, type)
                 and issubclass(t, BaseModel)
-                and hasattr(t, 'model_fields')
+                and hasattr(t, "model_fields")
             )
         except TypeError:
             return False
@@ -43,7 +45,9 @@ class ModelRule(Rule):
     async def validate(self, v: Any, t: type, **kw) -> None:
         """Validate that the value is an instance of the expected Pydantic model."""
         if not isinstance(v, t):
-            raise ValueError(f"Invalid model value: expected {t.__name__}, got {type(v).__name__}")
+            raise ValueError(
+                f"Invalid model value: expected {t.__name__}, got {type(v).__name__}"
+            )
 
     async def perform_fix(self, v: Any, t: type) -> Any:
         """Attempt to fix the value by parsing and validating as a Pydantic model."""
@@ -52,14 +56,10 @@ class ModelRule(Rule):
             "fuzzy_parse": True,
             "fuzzy_match": True,
             "fuzzy_match_params": None,
-            **self.validation_kwargs
+            **self.validation_kwargs,
         }
 
         try:
-            return fuzzy_validate_pydantic(
-                v,
-                model_type=t,
-                **fuzzy_params
-            )
+            return fuzzy_validate_pydantic(v, model_type=t, **fuzzy_params)
         except Exception as e:
             raise ValueError(f"Failed to validate as {t.__name__}: {e}") from e

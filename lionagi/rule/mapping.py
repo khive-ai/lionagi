@@ -1,7 +1,9 @@
 from collections.abc import Mapping
 from typing import Any
-from .base import Rule, RuleParams, RuleQualifier
+
 from lionagi.ln.fuzzy import fuzzy_validate_mapping
+
+from .base import Rule, RuleParams, RuleQualifier
 
 
 def _get_mapping_params():
@@ -10,7 +12,7 @@ def _get_mapping_params():
         apply_fields=set(),
         default_qualifier=RuleQualifier.ANNOTATION,
         auto_fix=True,
-        kw={}
+        kw={},
     )
 
 
@@ -53,7 +55,7 @@ class MappingRule(Rule):
             "handle_unmatched": "remove",
             "similarity_threshold": 0.85,
             "suppress_conversion_errors": False,
-            **self.validation_kwargs  # Pass all validation kwargs, let it fail if invalid
+            **self.validation_kwargs,  # Pass all validation kwargs, let it fail if invalid
         }
 
         try:

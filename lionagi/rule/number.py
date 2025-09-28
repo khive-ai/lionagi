@@ -1,6 +1,6 @@
 from typing import Any
-from .base import Rule, RuleParams, RuleQualifier
 
+from .base import Rule, RuleParams, RuleQualifier
 
 
 def _get_number_params():
@@ -9,7 +9,7 @@ def _get_number_params():
         apply_fields=set(),
         default_qualifier=RuleQualifier.ANNOTATION,
         auto_fix=True,
-        kw={}
+        kw={},
     )
 
 
@@ -48,6 +48,7 @@ class NumberRule(Rule):
             fixed_v = v
         else:
             from lionagi.libs.validate.to_num import to_num
+
             fixed_v = to_num(v, **self.validation_kwargs)
 
         # Re-validate the fixed value

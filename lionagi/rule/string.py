@@ -1,4 +1,5 @@
 from typing import Any
+
 from .base import Rule, RuleParams, RuleQualifier
 
 
@@ -8,7 +9,7 @@ def _get_string_params():
         apply_fields=set(),
         default_qualifier=RuleQualifier.ANNOTATION,
         auto_fix=True,
-        kw={}
+        kw={},
     )
 
 

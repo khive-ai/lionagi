@@ -1,11 +1,11 @@
 from abc import abstractmethod
+from dataclasses import dataclass
 from enum import IntEnum, auto
 from typing import Any, ClassVar, Literal
 
 from pydantic import Field, model_validator
 
 from lionagi.ln.types import Params
-from dataclasses import dataclass
 
 from .._errors import ValidationError
 from ..protocols._concepts import Condition
@@ -36,6 +36,7 @@ class RuleQualifier(IntEnum):
         else:
             raise ValueError(f"Unknown RuleQualifier: {s}")
 
+
 def _decide_qualifier_order(d=None) -> list[RuleQualifier]:
     default_order = [
         RuleQualifier.FIELD,
@@ -58,42 +59,40 @@ class RuleParams(Params):
     default_qualifier: RuleQualifier = RuleQualifier.FIELD
     auto_fix: bool = False
     kw: dict = Field(default_factory=dict)
-    
+
     @model_validator(mode="after")
     def _validate_type_or_fields(self):
         if sum(bool(x) for x in (self.apply_types, self.apply_fields)) != 1:
-            raise ValueError("Either apply_types or apply_fields must be set, but not both.")
+            raise ValueError(
+                "Either apply_types or apply_fields must be set, but not both."
+            )
         return self
 
 
 class Rule(Condition):
 
-    def __init__(
-        self,
-        params: RuleParams,
-        **kw
-    ):
+    def __init__(self, params: RuleParams, **kw):
         super().__init__()
         if kw:
             object.__setattr__(params, "kw", {**params.kw, **kw})
         self.params = params
-    
+
     @property
     def apply_types(self) -> set[type]:
         return self.params.apply_types
-    
+
     @property
     def apply_fields(self) -> set[str]:
         return self.params.apply_fields
-    
+
     @property
     def default_qualifier(self) -> RuleQualifier:
         return self.params.default_qualifier
-    
+
     @property
     def auto_fix(self) -> bool:
         return self.params.auto_fix
-    
+
     @property
     def validation_kwargs(self) -> dict:
         return self.params.kw
@@ -170,7 +169,7 @@ class Rule(Condition):
             Should raise an exception if validation fails.
         """
 
-    async def invoke(self, k: str, v: Any, t: type=None) -> Any:
+    async def invoke(self, k: str, v: Any, t: type = None) -> Any:
         """
         Invokes the rule's validation logic on a field and value.
 

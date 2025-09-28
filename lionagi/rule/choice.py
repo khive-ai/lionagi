@@ -1,10 +1,12 @@
 from enum import Enum
+from typing import Any, Literal, get_args, get_origin
+
 from .base import Rule, RuleParams, RuleQualifier
-from typing import Any, get_args, get_origin
-from typing import Literal
+
 
 def _is_literal(tp):
     return get_origin(tp) is Literal
+
 
 def _get_choice_params():
     return RuleParams(
@@ -12,12 +14,13 @@ def _get_choice_params():
         apply_fields=set(),
         default_qualifier=RuleQualifier.CONDITION,
         auto_fix=True,
-        kw={}
+        kw={},
     )
+
 
 class ChoiceRule(Rule):
 
-    def __init__(self, params=None, **kw): 
+    def __init__(self, params=None, **kw):
         if params is None:
             params = _get_choice_params()
         super().__init__(params, **kw)
@@ -59,9 +62,18 @@ class ChoiceRule(Rule):
             raise ValueError("No choices available for fixing")
 
         from lionagi.ln import string_similarity
-        fixed_v = string_similarity(v, keys, threshold=0.85, case_sensitive=True, return_most_similar=True)
+
+        fixed_v = string_similarity(
+            v,
+            keys,
+            threshold=0.85,
+            case_sensitive=True,
+            return_most_similar=True,
+        )
         if not fixed_v:
-            raise ValueError(f"Failed to suggest a fix for {v} from choices {keys}")
+            raise ValueError(
+                f"Failed to suggest a fix for {v} from choices {keys}"
+            )
         if isinstance(t, type) and issubclass(t, Enum):
             return t(fixed_v)
         return fixed_v
