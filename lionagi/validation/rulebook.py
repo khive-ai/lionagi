@@ -16,7 +16,7 @@ class RuleBook:
     For most use cases, just pass rules directly to Validator.
     """
 
-    def __init__(self, rules: Optional[Dict[str, Rule]] = None):
+    def __init__(self, rules: dict[str, Rule] | None = None):
         """
         Initialize with optional rule dictionary.
 
@@ -29,11 +29,11 @@ class RuleBook:
         """Add a rule to the book."""
         self.rules[name] = rule
 
-    def get(self, name: str) -> Optional[Rule]:
+    def get(self, name: str) -> Rule | None:
         """Get a rule by name."""
         return self.rules.get(name)
 
-    def get_rules(self) -> List[Rule]:
+    def get_rules(self) -> list[Rule]:
         """Get all rules as a list."""
         return list(self.rules.values())
 

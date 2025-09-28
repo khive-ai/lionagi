@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..rule import (
     BooleanRule,
@@ -18,7 +18,7 @@ class ValidationResult:
 
     success: bool
     value: Any = None
-    error: Optional[Exception] = None
+    error: Exception | None = None
     fixed: bool = False
 
 
@@ -38,7 +38,7 @@ class Validator:
         fixed_data = await validator.validate_dict(data, schema)
     """
 
-    def __init__(self, rules: Optional[List[Rule]] = None):
+    def __init__(self, rules: list[Rule] | None = None):
         """
         Initialize validator with rules.
 
@@ -59,8 +59,8 @@ class Validator:
     async def validate(
         self,
         value: Any,
-        field_name: Optional[str] = None,
-        field_type: Optional[type] = None,
+        field_name: str | None = None,
+        field_type: type | None = None,
         **kwargs,
     ) -> ValidationResult:
         """
@@ -101,10 +101,10 @@ class Validator:
 
     async def validate_dict(
         self,
-        data: Dict[str, Any],
-        schema: Optional[Dict[str, type]] = None,
+        data: dict[str, Any],
+        schema: dict[str, type] | None = None,
         raise_on_error: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Validate dictionary fields against optional schema.
 
@@ -138,7 +138,7 @@ class Validator:
 
         return result
 
-    def add_rule(self, rule: Rule, index: Optional[int] = None):
+    def add_rule(self, rule: Rule, index: int | None = None):
         """Add a rule to the validator."""
         if index is not None:
             self.rules.insert(index, rule)
