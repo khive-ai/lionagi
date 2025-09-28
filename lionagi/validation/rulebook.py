@@ -5,6 +5,7 @@ This is kept minimal - most users should just pass rules directly to Validator.
 """
 
 from typing import Dict, List, Optional
+
 from ..rule import Rule
 
 

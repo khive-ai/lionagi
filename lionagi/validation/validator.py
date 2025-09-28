@@ -1,16 +1,21 @@
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
-from ..rule import Rule
 from ..rule import (
-    BooleanRule, StringRule, NumberRule,
-    MappingRule, ModelRule, ChoiceRule
+    BooleanRule,
+    ChoiceRule,
+    MappingRule,
+    ModelRule,
+    NumberRule,
+    Rule,
+    StringRule,
 )
 
 
 @dataclass
 class ValidationResult:
     """Result of validation."""
+
     success: bool
     value: Any = None
     error: Optional[Exception] = None
@@ -56,7 +61,7 @@ class Validator:
         value: Any,
         field_name: Optional[str] = None,
         field_type: Optional[type] = None,
-        **kwargs
+        **kwargs,
     ) -> ValidationResult:
         """
         Validate a value using registered rules.
@@ -74,44 +79,31 @@ class Validator:
             try:
                 # Check if rule applies using the qualifier system
                 if await rule.apply(
-                    k=field_name or "",
-                    v=value,
-                    t=field_type,
-                    **kwargs
+                    k=field_name or "", v=value, t=field_type, **kwargs
                 ):
                     # Invoke validation and potential fix
                     result = await rule.invoke(
-                        k=field_name or "",
-                        v=value,
-                        t=field_type
+                        k=field_name or "", v=value, t=field_type
                     )
 
                     return ValidationResult(
                         success=True,
                         value=result if result is not None else value,
-                        fixed=result != value
+                        fixed=result != value,
                     )
 
             except Exception as e:
                 # First applicable rule that fails stops validation
-                return ValidationResult(
-                    success=False,
-                    value=value,
-                    error=e
-                )
+                return ValidationResult(success=False, value=value, error=e)
 
         # No rules applied - return original value
-        return ValidationResult(
-            success=True,
-            value=value,
-            fixed=False
-        )
+        return ValidationResult(success=True, value=value, fixed=False)
 
     async def validate_dict(
         self,
         data: Dict[str, Any],
         schema: Optional[Dict[str, type]] = None,
-        raise_on_error: bool = True
+        raise_on_error: bool = True,
     ) -> Dict[str, Any]:
         """
         Validate dictionary fields against optional schema.
@@ -133,9 +125,7 @@ class Validator:
             field_type = schema.get(field_name) if schema else None
 
             validation = await self.validate(
-                value,
-                field_name=field_name,
-                field_type=field_type
+                value, field_name=field_name, field_type=field_type
             )
 
             if validation.success:
