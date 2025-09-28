@@ -1,6 +1,7 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import IntEnum, auto
+from functools import lru_cache
 from typing import Any, ClassVar, Literal
 
 from pydantic import Field, model_validator
@@ -24,19 +25,19 @@ class RuleQualifier(IntEnum):
     ANNOTATION = auto()
     CONDITION = auto()
 
-    @classmethod
-    def map_literal(cls, s: str) -> "RuleQualifier":
-        s = s.strip().upper()
-        if s == "FIELD":
-            return cls.FIELD
-        elif s == "ANNOTATION":
-            return cls.ANNOTATION
-        elif s == "CONDITION":
-            return cls.CONDITION
-        else:
-            raise ValueError(f"Unknown RuleQualifier: {s}")
+@lru_cache
+def _map_literal(s: str) -> RuleQualifier:
+    s = s.strip().upper()
+    if s == "FIELD":
+        return RuleQualifier.FIELD
+    elif s == "ANNOTATION":
+        return RuleQualifier.ANNOTATION
+    elif s == "CONDITION":
+        return RuleQualifier.CONDITION
+    else:
+        raise ValueError(f"Unknown RuleQualifier: {s}")
 
-
+@lru_cache
 def _decide_qualifier_order(d=None) -> list[RuleQualifier]:
     default_order = [
         RuleQualifier.FIELD,
@@ -46,7 +47,7 @@ def _decide_qualifier_order(d=None) -> list[RuleQualifier]:
     if d is None:
         return default_order
     if isinstance(d, str):
-        d = RuleQualifier.map_literal(d)
+        d = _map_literal(d)
     default_order.remove(d)
     return [d] + default_order
 

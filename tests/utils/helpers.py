@@ -7,10 +7,9 @@ validation, and test data management.
 
 import asyncio
 import time
+from collections.abc import AsyncGenerator, Callable
 from typing import (
     Any,
-    AsyncGenerator,
-    Callable,
     Dict,
     List,
     Optional,
@@ -35,7 +34,7 @@ class AsyncTestHelpers:
         condition: Callable[[], bool],
         timeout: float = 5.0,
         interval: float = 0.1,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """
         Wait for an async condition to become true within timeout.
@@ -69,7 +68,7 @@ class AsyncTestHelpers:
         async_gen: AsyncGenerator[T, None],
         limit: int = 100,
         timeout: float = 10.0,
-    ) -> List[T]:
+    ) -> list[T]:
         """
         Collect results from an async generator with limits and timeout.
 
@@ -122,8 +121,8 @@ class AsyncTestHelpers:
 
     @staticmethod
     async def wait_for_all(
-        tasks: List[asyncio.Task], timeout: float = 10.0
-    ) -> List[Any]:
+        tasks: list[asyncio.Task], timeout: float = 10.0
+    ) -> list[Any]:
         """
         Wait for all tasks to complete with timeout.
 
@@ -196,7 +195,7 @@ class ValidationHelpers:
     @staticmethod
     def assert_valid_node(
         node: Any,
-        expected_type: Optional[type] = None,
+        expected_type: type | None = None,
         check_id: bool = True,
         check_timestamp: bool = True,
     ) -> None:
@@ -240,7 +239,7 @@ class ValidationHelpers:
     @staticmethod
     def assert_api_response_structure(
         response: Any,
-        required_fields: Optional[List[str]] = None,
+        required_fields: list[str] | None = None,
         check_status: bool = True,
     ) -> None:
         """
@@ -274,7 +273,7 @@ class ValidationHelpers:
 
     @staticmethod
     def assert_pydantic_model_valid(
-        model_instance: Any, expected_fields: Optional[Dict[str, Any]] = None
+        model_instance: Any, expected_fields: dict[str, Any] | None = None
     ) -> None:
         """
         Validate Pydantic model instance structure and field values.
@@ -304,8 +303,8 @@ class ValidationHelpers:
     @staticmethod
     def assert_error_handling(
         error_response: Any,
-        expected_error_type: Optional[str] = None,
-        expected_message_contains: Optional[str] = None,
+        expected_error_type: str | None = None,
+        expected_message_contains: str | None = None,
     ) -> None:
         """
         Validate error response structure and content.
@@ -349,7 +348,7 @@ class TestDataHelpers:
         count: int = 3,
         message_type: str = "user",
         base_content: str = "Test message",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Create standardized test message data.
 
@@ -375,9 +374,9 @@ class TestDataHelpers:
     @staticmethod
     def create_test_payload(
         model: str = "gpt-4o-mini",
-        messages: Optional[List[Dict[str, Any]]] = None,
+        messages: list[dict[str, Any]] | None = None,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Create standardized test API payload.
 
