@@ -9,8 +9,9 @@ import asyncio
 import functools
 import time
 import tracemalloc
+from collections.abc import Callable
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, Callable, Dict, Optional, TypeVar
+from typing import Any, Dict, Optional, TypeVar
 
 import psutil
 import pytest
@@ -22,7 +23,7 @@ class TestPerformanceMonitor:
     """Monitor performance metrics for test execution."""
 
     def __init__(self):
-        self.metrics: Dict[str, Dict[str, Any]] = {}
+        self.metrics: dict[str, dict[str, Any]] = {}
         self._memory_enabled = False
 
     def enable_memory_tracking(self):
@@ -135,17 +136,17 @@ class TestPerformanceMonitor:
 
             self.metrics[test_name] = metrics
 
-    def get_metrics(self, test_name: str) -> Optional[Dict[str, Any]]:
+    def get_metrics(self, test_name: str) -> dict[str, Any] | None:
         """Get performance metrics for a specific test."""
         return self.metrics.get(test_name)
 
-    def get_all_metrics(self) -> Dict[str, Dict[str, Any]]:
+    def get_all_metrics(self) -> dict[str, dict[str, Any]]:
         """Get all collected performance metrics."""
         return self.metrics.copy()
 
     def get_slow_tests(
         self, threshold: float = 1.0
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         Get tests that exceed duration threshold.
 
@@ -163,7 +164,7 @@ class TestPerformanceMonitor:
 
     def get_memory_heavy_tests(
         self, threshold: float = 50.0
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         Get tests that exceed memory usage threshold.
 
@@ -238,7 +239,7 @@ def performance_monitor():
     return _performance_monitor
 
 
-def monitor_performance(test_name: Optional[str] = None):
+def monitor_performance(test_name: str | None = None):
     """
     Decorator for monitoring test performance.
 
@@ -384,10 +385,10 @@ class PerformanceRegression:
 
     @staticmethod
     def compare_with_baseline(
-        current_metrics: Dict[str, Any],
-        baseline_metrics: Dict[str, Any],
+        current_metrics: dict[str, Any],
+        baseline_metrics: dict[str, Any],
         tolerance_percent: float = 10.0,
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """
         Compare current metrics with baseline and check for regressions.
 

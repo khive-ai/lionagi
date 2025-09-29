@@ -1,13 +1,5 @@
-"""
-Simplified LionAGI async PostgreSQL adapter for pydapter v1.0.4+
-
-This adapter leverages pydapter's improved raw SQL handling.
-No workarounds needed - pydapter now properly handles:
-- Raw SQL without table parameter
-- No table inspection for raw SQL
-- ORDER BY operations
-- Both SQLite and PostgreSQL connections
-"""
+# Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 

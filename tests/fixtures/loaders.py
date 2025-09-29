@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 class TestDataLoader:
     """Centralized loader for test data files."""
 
-    def __init__(self, fixtures_dir: Optional[Path] = None):
+    def __init__(self, fixtures_dir: Path | None = None):
         """
         Initialize the test data loader.
 
@@ -29,7 +29,7 @@ class TestDataLoader:
 
         self.data_dir = self.fixtures_dir / "data"
 
-    def load_json(self, filename: str) -> Dict[str, Any]:
+    def load_json(self, filename: str) -> dict[str, Any]:
         """
         Load JSON data from fixtures/data directory.
 
@@ -51,10 +51,10 @@ class TestDataLoader:
         if not file_path.exists():
             raise FileNotFoundError(f"Test data file not found: {file_path}")
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             return json.load(f)
 
-    def get_conversation_data(self, scenario: str) -> Dict[str, Any]:
+    def get_conversation_data(self, scenario: str) -> dict[str, Any]:
         """
         Get conversation data for a specific scenario.
 
@@ -73,7 +73,7 @@ class TestDataLoader:
 
         return conversations[scenario]
 
-    def get_api_response(self, response_type: str) -> Dict[str, Any]:
+    def get_api_response(self, response_type: str) -> dict[str, Any]:
         """
         Get API response data for testing.
 
@@ -92,7 +92,7 @@ class TestDataLoader:
 
         return responses[response_type]
 
-    def get_error_scenario(self, error_type: str) -> Dict[str, Any]:
+    def get_error_scenario(self, error_type: str) -> dict[str, Any]:
         """
         Get error scenario data for testing error handling.
 
@@ -111,17 +111,17 @@ class TestDataLoader:
 
         return errors[error_type]
 
-    def list_conversations(self) -> List[str]:
+    def list_conversations(self) -> list[str]:
         """List available conversation scenarios."""
         conversations = self.load_json("sample_conversations")
         return list(conversations.keys())
 
-    def list_api_responses(self) -> List[str]:
+    def list_api_responses(self) -> list[str]:
         """List available API response types."""
         responses = self.load_json("api_responses")
         return list(responses.keys())
 
-    def list_error_scenarios(self) -> List[str]:
+    def list_error_scenarios(self) -> list[str]:
         """List available error scenarios."""
         errors = self.load_json("error_scenarios")
         return list(errors.keys())
@@ -131,7 +131,7 @@ class TestDataLoader:
 _default_loader = TestDataLoader()
 
 
-def load_test_data(filename: str) -> Dict[str, Any]:
+def load_test_data(filename: str) -> dict[str, Any]:
     """
     Convenience function to load test data using default loader.
 
@@ -144,16 +144,16 @@ def load_test_data(filename: str) -> Dict[str, Any]:
     return _default_loader.load_json(filename)
 
 
-def get_conversation(scenario: str) -> Dict[str, Any]:
+def get_conversation(scenario: str) -> dict[str, Any]:
     """Get conversation data for scenario."""
     return _default_loader.get_conversation_data(scenario)
 
 
-def get_api_response(response_type: str) -> Dict[str, Any]:
+def get_api_response(response_type: str) -> dict[str, Any]:
     """Get API response data."""
     return _default_loader.get_api_response(response_type)
 
 
-def get_error_scenario(error_type: str) -> Dict[str, Any]:
+def get_error_scenario(error_type: str) -> dict[str, Any]:
     """Get error scenario data."""
     return _default_loader.get_error_scenario(error_type)

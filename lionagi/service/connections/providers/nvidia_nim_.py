@@ -1,23 +1,5 @@
-# Copyright (c) 2025, HaiyangLi <quantocean.li at gmail dot com>
-#
+# Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-
-"""
-NVIDIA NIM endpoint configurations.
-
-This module provides endpoint configurations for NVIDIA NIM (NVIDIA Inference Microservices),
-which offers GPU-accelerated inference for various AI models through an OpenAI-compatible API.
-
-NVIDIA NIM features:
-- OpenAI-compatible API endpoints
-- GPU-accelerated inference
-- Support for various open-source models (Llama, Mistral, etc.)
-- Both cloud-hosted and self-hosted options
-- Free tier with 1000 credits for development
-
-API Documentation: https://docs.nvidia.com/nim/
-Build Portal: https://build.nvidia.com/
-"""
 
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
@@ -69,15 +51,8 @@ NVIDIA_NIM_EMBED_ENDPOINT_CONFIG = _get_nvidia_nim_config(
 class NvidiaNimChatEndpoint(Endpoint):
     """NVIDIA NIM chat completion endpoint.
 
-    Supports various open-source models including:
-    - meta/llama3-8b-instruct
-    - meta/llama3-70b-instruct
-    - meta/llama3.1-405b-instruct
-    - mistralai/mixtral-8x7b-instruct-v0.1
-    - google/gemma-7b
-    - And many more...
-
     Get your API key from: https://build.nvidia.com/
+    API Documentation: https://docs.nvidia.com/nim/
     """
 
     def __init__(self, config=None, **kwargs):
