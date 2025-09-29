@@ -37,7 +37,7 @@ class LionAGIMockFactory:
     def create_mocked_branch(
         name: str = "TestBranch",
         user: str = "tester",
-        response: Union[str, Dict[str, Any]] = "mocked_response_string",
+        response: str | dict[str, Any] = "mocked_response_string",
         status: EventStatus = EventStatus.COMPLETED,
         provider: str = "openai",
         model: str = "gpt-4o-mini",
@@ -75,8 +75,8 @@ class LionAGIMockFactory:
     def create_mocked_imodel(
         provider: str = "openai",
         model: str = "gpt-4o-mini",
-        response: Union[str, Dict[str, Any]] = "mocked_response_string",
-        responses: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        response: str | dict[str, Any] = "mocked_response_string",
+        responses: list[str | dict[str, Any]] | None = None,
         status: EventStatus = EventStatus.COMPLETED,
         api_key: str = "test_key",
     ) -> iModel:
@@ -125,10 +125,10 @@ class LionAGIMockFactory:
 
     @staticmethod
     def create_api_calling_mock(
-        response_data: Union[str, Dict[str, Any]] = "mocked_response_string",
+        response_data: str | dict[str, Any] = "mocked_response_string",
         status: EventStatus = EventStatus.COMPLETED,
         model: str = "gpt-4o-mini",
-        endpoint_config: Optional[Dict[str, Any]] = None,
+        endpoint_config: dict[str, Any] | None = None,
     ) -> APICalling:
         """
         Create a mocked APICalling object with standardized structure.
@@ -161,10 +161,10 @@ class LionAGIMockFactory:
 
     @staticmethod
     def create_mocked_session(
-        branches: Optional[List[str]] = None,
-        default_branch_response: Union[
-            str, Dict[str, Any]
-        ] = "mocked_response_string",
+        branches: list[str] | None = None,
+        default_branch_response: (
+            str | dict[str, Any]
+        ) = "mocked_response_string",
     ):
         """
         Create a Session with multiple mocked branches.
