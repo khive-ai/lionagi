@@ -1,5 +1,4 @@
-# Copyright (c) 2023 - 2025, HaiyangLi <quantocean.li at gmail dot com>
-#
+# Copyright (c) 2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -222,13 +221,13 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         "strict_type",
     }
 
-    def __pydantic_extra__(self) -> dict[str, "FieldInfo"]:
+    def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
             "_lock": Field(default_factory=threading.Lock),
             "_async": Field(default_factory=ConcurrencyLock),
         }
 
-    def __pydantic_private__(self) -> dict[str, "FieldInfo"]:
+    def __pydantic_private__(self) -> dict[str, FieldInfo]:
         return self.__pydantic_extra__()
 
     @classmethod
