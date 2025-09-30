@@ -24,7 +24,6 @@ class Step:
         operative_name: str | None = None,
         reason: bool = False,
         actions: bool = False,
-        request_params: ModelParams | None = None,
         parameter_fields: dict[str, FieldInfo] | None = None,
         base_type: type[BaseModel] | None = None,
         field_models: list[FieldModel] | None = None,
@@ -171,8 +170,6 @@ class Step:
     @staticmethod
     def _create_response_type(
         operative: Operative,
-        response_params: ModelParams | None = None,
-        response_validators: dict | None = None,
         frozen_response: bool = False,
         response_config_dict: dict | None = None,
         response_doc: str | None = None,
