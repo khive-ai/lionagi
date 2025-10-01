@@ -115,29 +115,13 @@ class FunctionCalling(Event):
             self.execution.status = EventStatus.FAILED
             self.execution.error = str(e)
 
-    def __str__(self) -> str:
-        """Returns a string representation of the function call.
-
-        Returns:
-            A string in the format "function_name(arguments)".
-        """
-        return f"{self.func_tool.function}({self.arguments})"
-
-    def __repr__(self) -> str:
-        """Returns a detailed string representation of the function call.
-
-        Returns:
-            A string containing the class name and key attributes.
-        """
-        return f"FunctionCalling(function={self.func_tool.function}, arguments={self.arguments})"
-
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *args, **kw) -> dict[str, Any]:
         """Convert instance to dictionary.
 
         Returns:
             dict[str, Any]: Dictionary representation of the instance.
         """
-        dict_ = super().to_dict()
+        dict_ = super().to_dict(*args, **kw)
         dict_["function"] = self.function
         dict_["arguments"] = self.arguments
         return dict_

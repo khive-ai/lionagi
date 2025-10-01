@@ -47,21 +47,12 @@ class IDType:
     __slots__ = ("_id",)
 
     def __init__(self, id: UUID) -> None:
-        """Initializes an IDType instance.
-
-        Args:
-            id (UUID): A UUID object (version 4 preferred).
-        """
+        """Initializes an IDType instance."""
         self._id = id
 
     @classmethod
     def validate(cls, value: str | UUID | IDType) -> IDType:
         """Validates and converts a value into an IDType.
-
-        Args:
-            value (str | UUID | IDType):
-                A string representing a UUID, a UUID instance, or another
-                IDType instance.
 
         Returns:
             IDType: The validated IDType object.
@@ -103,9 +94,6 @@ class IDType:
 
     def __eq__(self, other: Any) -> bool:
         """Checks equality with another IDType based on UUID value.
-
-        Args:
-            other (Any): Another object for equality comparison.
 
         Returns:
             bool: True if both have the same underlying UUID; False otherwise.
@@ -189,17 +177,7 @@ class Element(BaseModel, Observable):
     def _coerce_created_at(
         cls, val: float | dt.datetime | str | None
     ) -> float:
-        """Coerces `created_at` to a float-based timestamp.
-
-        Args:
-            val (float | datetime | str | None): The initial creation time value.
-
-        Returns:
-            float: A float representing Unix epoch time in seconds.
-
-        Raises:
-            ValueError: If `val` cannot be converted to a float timestamp.
-        """
+        """Coerces `created_at` to a float-based timestamp."""
         if val is None:
             return ln.now_utc().timestamp()
         if isinstance(val, float):
@@ -234,36 +212,17 @@ class Element(BaseModel, Observable):
 
     @field_validator("id", mode="before")
     def _ensure_idtype(cls, val: IDType | UUID | str) -> IDType:
-        """Ensures `id` is validated as an IDType.
-
-        Args:
-            val (IDType | UUID | str):
-                The incoming value for the `id` field.
-
-        Returns:
-            IDType: A validated IDType object.
-        """
+        """Ensures `id` is validated as an IDType."""
         return IDType.validate(val)
 
     @field_serializer("id")
     def _serialize_id_type(self, val: IDType) -> str:
-        """Serializes the `id` field to a string.
-
-        Args:
-            val (IDType): The IDType object to be serialized.
-
-        Returns:
-            str: The string representation of the UUID.
-        """
+        """Serializes the `id` field to a string."""
         return str(val)
 
     @property
     def created_datetime(self) -> dt.datetime:
-        """Returns the creation time as a datetime object.
-
-        Returns:
-            datetime: The creation time in UTC.
-        """
+        """Returns the creation time as a datetime object."""
         return dt.datetime.fromtimestamp(self.created_at, tz=dt.timezone.utc)
 
     def __eq__(self, other: Any) -> bool:
@@ -293,23 +252,25 @@ class Element(BaseModel, Observable):
             return str(cls).split("'")[1]
         return cls.__name__
 
-    def _to_dict(self) -> dict:
-        dict_ = self.model_dump()
+    def _to_dict(self, **kw) -> dict:
+        """kw for model_dump."""
+        dict_ = self.model_dump(**kw)
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
         return {k: v for k, v in dict_.items() if ln.not_sentinel(v)}
 
     def to_dict(
-        self, mode: Literal["python", "json", "db"] = "python"
+        self, mode: Literal["python", "json", "db"] = "python", **kw
     ) -> dict:
         """Converts this Element to a dictionary."""
         if mode == "python":
-            return self._to_dict()
+            return self._to_dict(**kw)
         if mode == "json":
-            return orjson.loads(self.to_json(decode=False))
+            return orjson.loads(self.to_json(decode=False, **kw))
         if mode == "db":
-            dict_ = orjson.loads(self.to_json(decode=False))
+            dict_ = orjson.loads(self.to_json(decode=False, **kw))
             dict_["node_metadata"] = dict_.pop("metadata", {})
             return dict_
+        raise ValueError(f"Unsupported mode: {mode}")
 
     @classmethod
     def from_dict(cls, data: dict) -> Element:
@@ -352,9 +313,10 @@ class Element(BaseModel, Observable):
         data["metadata"] = metadata
         return cls.model_validate(data)
 
-    def to_json(self, decode: bool = True) -> str:
+    def to_json(self, decode: bool = True, **kw) -> str:
         """Converts this Element to a JSON string."""
-        dict_ = self._to_dict()
+        kw.pop("mode", None)
+        dict_ = self._to_dict(**kw)
         return ln.json_dumps(
             dict_, default=DEFAULT_ELEMENT_SERIALIZER, decode=decode
         )
@@ -381,9 +343,6 @@ def validate_order(order: Any) -> list[IDType]:
     This function accepts a variety of possible representations for ordering
     (e.g., a single Element, a list of Elements, a dictionary with ID keys,
     or a nested structure) and returns a flat list of IDType objects.
-
-    Args:
-        order (Any): A potentially nested structure of items to be ordered.
 
     Returns:
         list[IDType]: A flat list of validated IDType objects.
@@ -457,9 +416,6 @@ class ID(Generic[E]):
         - UUID: Validates and wraps it.
         - str: Interpreted as a UUID if possible.
 
-        Args:
-            item (E): The item to convert to an ID.
-
         Returns:
             IDType: The validated ID.
 
@@ -475,9 +431,6 @@ class ID(Generic[E]):
     @staticmethod
     def is_id(item: Any) -> bool:
         """Checks if an item can be validated as an IDType.
-
-        Args:
-            item (Any): The object to check.
 
         Returns:
             bool: True if `item` is or can be validated as an IDType;
