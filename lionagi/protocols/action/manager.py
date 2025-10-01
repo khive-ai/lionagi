@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 from typing import Any
 
 from lionagi.fields.action import ActionRequestModel
@@ -347,16 +348,46 @@ class ActionManager(Manager):
                 if request_options and tool.name in request_options:
                     tool_request_options = request_options[tool.name]
 
+                # Extract schema from FastMCP tool and convert to lionagi format
+                tool_schema = None
                 try:
-                    # Create tool with request_options for Pydantic validation
+                    if (
+                        hasattr(tool, "inputSchema")
+                        and tool.inputSchema is not None
+                        and isinstance(tool.inputSchema, dict)
+                    ):
+                        tool_schema = {
+                            "type": "function",
+                            "function": {
+                                "name": tool.name,
+                                "description": (
+                                    tool.description
+                                    if hasattr(tool, "description")
+                                    else None
+                                ),
+                                "parameters": tool.inputSchema,
+                            },
+                        }
+                except Exception as schema_error:
+                    # If schema extraction fails, let Tool auto-generate from function signature
+                    logging.warning(
+                        f"Could not extract schema for {tool.name}: {schema_error}"
+                    )
+                    tool_schema = None
+
+                try:
+                    # Create tool with auto-populated schema from MCP discovery
                     tool_obj = Tool(
                         mcp_config=mcp_config,
                         request_options=tool_request_options,
+                        tool_schema=tool_schema,
                     )
                     self.register_tool(tool_obj, update=update)
                     registered_tools.append(tool.name)
                 except Exception as e:
-                    print(f"Warning: Failed to register tool {tool.name}: {e}")
+                    logging.warning(
+                        f"Failed to register tool {tool.name}: {e}"
+                    )
 
         return registered_tools
 

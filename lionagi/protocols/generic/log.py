@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
+from lionagi.models.hashable_model import HashableModel
 from lionagi.utils import create_path, to_dict
 
 from .element import Element
@@ -22,6 +23,8 @@ __all__ = (
     "DataLogger",
     "LogManager",
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DataLoggerConfig(BaseModel):
@@ -87,13 +90,13 @@ class Log(Element):
         Create a new Log from an Element, storing a dict snapshot
         of the element's data.
         """
-        if hasattr(content, "to_dict"):
-            content = content.to_dict()
+        if isinstance(content, Element | HashableModel):
+            content = content.to_dict(mode="json")
         else:
             content = to_dict(content, recursive=True, suppress=True)
 
         if content is {}:
-            logging.warning(
+            logger.warning(
                 "No content to log, or original data was of invalid type. Making an empty log..."
             )
             return cls(content={"error": "No content to log."})
@@ -148,7 +151,7 @@ class DataLogger:
             try:
                 self.dump(clear=self._config.clear_after_dump)
             except Exception as e:
-                logging.error(f"Failed to auto-dump logs: {e}")
+                logger.error(f"Failed to auto-dump logs: {e}")
         self.logs.include(log_)
 
     async def alog(self, log_: Log) -> None:
@@ -168,7 +171,7 @@ class DataLogger:
         unsupported, raise ValueError. Optionally clear logs after.
         """
         if not self.logs:
-            logging.debug("No logs to dump.")
+            logger.debug("No logs to dump.")
             return
 
         fp = persist_path or self._create_path()
@@ -181,7 +184,7 @@ class DataLogger:
             else:
                 raise ValueError(f"Unsupported file extension: {suffix}")
 
-            logging.info(f"Dumped logs to {fp}")
+            logger.info(f"Dumped logs to {fp}")
             do_clear = (
                 self._config.clear_after_dump if clear is None else clear
             )
@@ -190,12 +193,12 @@ class DataLogger:
         except Exception as e:
             # Check if it's a JSON serialization error with complex objects
             if "JSON serializable" in str(e):
-                logging.debug(f"Could not serialize logs to JSON: {e}")
+                logger.debug(f"Could not serialize logs to JSON: {e}")
                 # Don't raise for JSON serialization issues during dumps
                 if clear is not False:
                     self.logs.clear()  # Still clear if requested
             else:
-                logging.error(f"Failed to dump logs: {e}")
+                logger.error(f"Failed to dump logs: {e}")
                 raise
 
     async def adump(
@@ -232,9 +235,9 @@ class DataLogger:
                 # Only log debug level for JSON serialization errors during exit
                 # These are non-critical and often occur with complex objects
                 if "JSON serializable" in str(e):
-                    logging.debug(f"Could not serialize logs to JSON: {e}")
+                    logger.debug(f"Could not serialize logs to JSON: {e}")
                 else:
-                    logging.error(f"Failed to save logs on exit: {e}")
+                    logger.error(f"Failed to save logs on exit: {e}")
 
     @classmethod
     def from_config(
