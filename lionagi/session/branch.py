@@ -11,6 +11,7 @@ from lionagi.ln.types import Unset
 from lionagi.models.field_model import FieldModel
 from lionagi.operations.flow import AlcallParams
 from lionagi.operations.manager import OperationManager
+from lionagi.operations.parse.parse import FuzzyMatchKeysParams
 from lionagi.protocols.action.manager import ActionManager
 from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
 from lionagi.protocols.types import (
@@ -833,80 +834,57 @@ class Branch(Element, Communicatable, Relational):
     async def parse(
         self,
         text: str,
+        response_format: type[BaseModel] | dict,
+        fuzzy_match_params: "FuzzyMatchKeysParams | dict" = None,
         handle_validation: Literal[
             "raise", "return_value", "return_none"
-        ] = "return_value",
-        max_retries: int = 3,
-        request_type: type[BaseModel] = None,
-        operative: "Operative" = None,
-        similarity_algo="jaro_winkler",
-        similarity_threshold: float = 0.85,
-        fuzzy_match: bool = True,
-        handle_unmatched: Literal[
-            "ignore", "raise", "remove", "fill", "force"
-        ] = "force",
-        fill_value: Any = None,
-        fill_mapping: dict[str, Any] | None = None,
-        strict: bool = False,
-        suppress_conversion_errors: bool = False,
-        response_format: type[BaseModel] = None,
+        ] = "raise",
+        alcall_params: AlcallParams | dict | None = None,
+        parse_model: iModel = None,
+        return_res_message: bool = False,
     ):
         """
-        Attempts to parse text into a structured Pydantic model using parse model logic. New messages are not appeneded to conversation context.
+        Parse text into a structured Pydantic model or dict using parse model logic.
+        New messages are not appended to conversation context.
 
-        If fuzzy matching is enabled, tries to map partial or uncertain keys
-        to the known fields of the model. Retries are performed if initial parsing fails.
+        Attempts direct fuzzy parsing first (no LLM call). If that fails, uses the
+        parse model (LLM) to reformat the text and retries with configurable retry logic.
 
         Args:
             text (str):
                 The raw text to parse.
+            response_format (type[BaseModel] | dict):
+                The Pydantic model class or dict structure to parse into.
+            fuzzy_match_params (FuzzyMatchKeysParams | dict, optional):
+                Configuration for fuzzy key matching during parsing.
             handle_validation (Literal["raise","return_value","return_none"]):
-                What to do if parsing fails (default: "return_value").
-            max_retries (int):
-                Number of times to retry parsing on failure (default: 3).
-            request_type (type[BaseModel], optional):
-                The Pydantic model to parse into.
-            operative (Operative, optional):
-                An `Operative` object with known request model and settings.
-            similarity_algo (str):
-                Algorithm name for fuzzy field matching.
-            similarity_threshold (float):
-                Threshold for matching (0.0 - 1.0).
-            fuzzy_match (bool):
-                Whether to attempt fuzzy matching for unmatched fields.
-            handle_unmatched (Literal["ignore","raise","remove","fill","force"]):
-                Policy for unrecognized fields (default: "force").
-            fill_value (Any):
-                Default placeholder for missing fields (if fill is used).
-            fill_mapping (dict[str, Any] | None):
-                A mapping of specific fields to fill values.
-            strict (bool):
-                If True, raises errors on ambiguous fields or data types.
-            suppress_conversion_errors (bool):
-                If True, logs or ignores conversion errors instead of raising.
+                What to do if parsing fails (default: "raise").
+                - "raise": Raise ValueError
+                - "return_value": Return original text
+                - "return_none": Return None
+            alcall_params (AlcallParams | dict, optional):
+                Async call parameters for retry logic, throttling, etc.
+            parse_model (iModel, optional):
+                Custom parse model to use. If None, uses branch's default parse_model.
+            return_res_message (bool):
+                If True, returns tuple (result, response_message).
 
         Returns:
-            BaseModel | dict | str | None:
+            BaseModel | dict | str | None | tuple:
                 Parsed model instance, or a fallback based on `handle_validation`.
+                If return_res_message=True, returns (result, response_message) tuple.
         """
         from lionagi.operations.parse.parse import parse
 
         return await parse(
-            self,
+            branch=self,
             text=text,
-            handle_validation=handle_validation,
-            max_retries=max_retries,
-            request_type=request_type,
-            operative=operative,
-            similarity_algo=similarity_algo,
-            similarity_threshold=similarity_threshold,
-            fuzzy_match=fuzzy_match,
-            handle_unmatched=handle_unmatched,
-            fill_value=fill_value,
-            fill_mapping=fill_mapping,
-            strict=strict,
-            suppress_conversion_errors=suppress_conversion_errors,
             response_format=response_format,
+            fuzzy_match_params=fuzzy_match_params,
+            handle_validation=handle_validation,
+            alcall_params=alcall_params,
+            parse_model=parse_model or self.parse_model,
+            return_res_message=return_res_message,
         )
 
     async def operate(
