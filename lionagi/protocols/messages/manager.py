@@ -299,18 +299,13 @@ class MessageManager(Manager):
         - ActionRequest / ActionResponse
         """
         _msg = None
-        if (
-            sum(
-                bool(x)
-                for x in (
-                    instruction,
-                    assistant_response,
-                    system,
-                    action_request,
-                )
-            )
-            > 1
-        ):
+        # When creating ActionResponse, both action_request and action_output are needed
+        # So don't count action_request as a message type when action_output is present
+        message_types = [instruction, assistant_response, system]
+        if action_request and not action_output:
+            message_types.append(action_request)
+
+        if sum(bool(x) for x in message_types) > 1:
             raise ValueError("Only one message type can be added at a time.")
 
         if system:

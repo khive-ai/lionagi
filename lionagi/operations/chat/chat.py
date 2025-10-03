@@ -89,16 +89,19 @@ async def chat_v1(
             _act_res.append(msg)
 
         if isinstance(msg, AssistantResponse):
-            _use_msgs.append(copy(msg))
+            _use_msgs.append(msg.model_copy())
 
         if isinstance(msg, Instruction):
-            j = copy(msg)
+            j = msg.model_copy()
             j.tool_schemas = None
             j.respond_schema_info = None
             j.request_response_format = None
 
             if _act_res:
-                d_ = [k.content for k in to_list(_act_res, unique=True)]
+                d_ = [
+                    k.content
+                    for k in to_list(_act_res, flatten=True, unique=True)
+                ]
                 j.context.extend([z for z in d_ if z not in j.context])
                 _use_msgs.append(j)
                 _act_res = []
@@ -106,8 +109,8 @@ async def chat_v1(
                 _use_msgs.append(j)
 
     if _act_res:
-        j = copy(ins)
-        d_ = [k.content for k in to_list(_act_res, unique=True)]
+        j = ins.model_copy()
+        d_ = [k.content for k in to_list(_act_res, flatten=True, unique=True)]
         j.context.extend([z for z in d_ if z not in j.context])
         _use_ins = j
 

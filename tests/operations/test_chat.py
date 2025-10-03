@@ -26,17 +26,17 @@ class TestAssistantResponseConsolidation:
         branch = make_mocked_branch_for_chat()
 
         # Use Branch's actual message creation methods
-        ins1 = branch.msgs.create_instruction(
+        ins1 = branch.msgs.add_message(
             instruction="First question",
             sender="user",
             recipient=branch.id,
         )
-        resp1 = branch.msgs.create_assistant_response(
+        resp1 = branch.msgs.add_message(
             assistant_response="First answer",
             sender=branch.id,
             recipient="user",
         )
-        resp2 = branch.msgs.create_assistant_response(
+        resp2 = branch.msgs.add_message(
             assistant_response="Second answer",
             sender=branch.id,
             recipient="user",
@@ -77,22 +77,22 @@ class TestAssistantResponseConsolidation:
         branch = make_mocked_branch_for_chat()
 
         # Create messages with interleaving using Branch methods
-        ins1 = branch.msgs.create_instruction(
+        ins1 = branch.msgs.add_message(
             instruction="Q1",
             sender="user",
             recipient=branch.id,
         )
-        resp1 = branch.msgs.create_assistant_response(
+        resp1 = branch.msgs.add_message(
             assistant_response="A1",
             sender=branch.id,
             recipient="user",
         )
-        ins2 = branch.msgs.create_instruction(
+        ins2 = branch.msgs.add_message(
             instruction="Q2",
             sender="user",
             recipient=branch.id,
         )
-        resp2 = branch.msgs.create_assistant_response(
+        resp2 = branch.msgs.add_message(
             assistant_response="A2",
             sender=branch.id,
             recipient="user",
@@ -168,12 +168,12 @@ class TestSystemMessageHandling:
         branch = make_mocked_branch_for_chat(system="You are helpful")
 
         # Create existing progression using Branch methods
-        ins1 = branch.msgs.create_instruction(
+        ins1 = branch.msgs.add_message(
             instruction="Previous question",
             sender="user",
             recipient=branch.id,
         )
-        resp1 = branch.msgs.create_assistant_response(
+        resp1 = branch.msgs.add_message(
             assistant_response="Answer",
             sender=branch.id,
             recipient="user",
@@ -212,7 +212,7 @@ class TestSystemMessageHandling:
         branch = make_mocked_branch_for_chat(system="You are helpful")
 
         # Invalid: progression starting with AssistantResponse
-        resp = branch.msgs.create_assistant_response(
+        resp = branch.msgs.add_message(
             assistant_response="Wrong",
             sender=branch.id,
             recipient="user",
@@ -255,17 +255,33 @@ class TestActionResponseIntegration:
         branch = make_mocked_branch_for_chat()
 
         # Create progression with ActionResponses before Instruction
-        act1 = branch.msgs.create_action_response(
-            action_request_id="req1",
-            function="test_func",
-            output="Result 1",
+        # First create action requests
+        req1 = branch.msgs.add_message(
+            action_function="test_func",
+            action_arguments={"param": "value"},
+            sender=branch.id,
+            recipient="user",
         )
-        act2 = branch.msgs.create_action_response(
-            action_request_id="req2",
-            function="test_func2",
-            output="Result 2",
+        req2 = branch.msgs.add_message(
+            action_function="test_func2",
+            action_arguments={"param": "value"},
+            sender=branch.id,
+            recipient="user",
         )
-        ins1 = branch.msgs.create_instruction(
+        # Then create action responses
+        act1 = branch.msgs.add_message(
+            action_request=req1,
+            action_output="Result 1",
+            sender="user",
+            recipient=branch.id,
+        )
+        act2 = branch.msgs.add_message(
+            action_request=req2,
+            action_output="Result 2",
+            sender="user",
+            recipient=branch.id,
+        )
+        ins1 = branch.msgs.add_message(
             instruction="Use the results",
             sender="user",
             recipient=branch.id,
@@ -303,20 +319,29 @@ class TestActionResponseIntegration:
         branch = make_mocked_branch_for_chat()
 
         # Progression ending with ActionResponse
-        ins1 = branch.msgs.create_instruction(
+        ins1 = branch.msgs.add_message(
             instruction="Do something",
             sender="user",
             recipient=branch.id,
         )
-        resp1 = branch.msgs.create_assistant_response(
+        resp1 = branch.msgs.add_message(
             assistant_response="Done",
             sender=branch.id,
             recipient="user",
         )
-        act1 = branch.msgs.create_action_response(
-            action_request_id="req1",
-            function="test",
-            output="Action result",
+        # Create action request first
+        req1 = branch.msgs.add_message(
+            action_function="test",
+            action_arguments={"param": "value"},
+            sender=branch.id,
+            recipient="user",
+        )
+        # Then create action response
+        act1 = branch.msgs.add_message(
+            action_request=req1,
+            action_output="Action result",
+            sender="user",
+            recipient=branch.id,
         )
 
         progression = [ins1.id, resp1.id, act1.id]
