@@ -1,4 +1,3 @@
-from ._async_call import alcall, bcall
 from ._hash import hash_dict
 from ._json_dump import (
     get_orjson_default,
@@ -16,6 +15,7 @@ from ._utils import (
     is_import_installed,
     now_utc,
 )
+from .async_call import AlcallParams, BcallParams, alcall, bcall
 from .concurrency import (
     bounded_map,
     create_task_group,
@@ -80,4 +80,6 @@ __all__ = (
     "not_sentinel",
     "to_dict",
     "fuzzy_validate_mapping",
+    "AlcallParams",
+    "BcallParams",
 )

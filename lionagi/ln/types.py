@@ -249,6 +249,9 @@ class Params:
             return False
         return hash(self) == hash(other)
 
+    def __bool__(self) -> bool:
+        return True
+
 
 @dataclass(slots=True)
 class DataClass:
@@ -310,6 +313,9 @@ class DataClass:
         if value is None and cls._none_as_sentinel:
             return True
         return is_sentinel(value)
+
+    def __bool__(self) -> bool:
+        return True
 
 
 KeysLike = Sequence[str] | KeysDict

@@ -2,19 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from typing import TYPE_CHECKING
+from typing import Literal
 
 from pydantic import BaseModel
 
 from lionagi.fields.action import ActionResponseModel
-from lionagi.protocols.types import ActionRequest, Log
-
-if TYPE_CHECKING:
-    from lionagi.session.branch import Branch
+from lionagi.ln.async_call import AlcallParams
+from lionagi.protocols.types import ActionRequest, ActionResponse, Log
 
 
 async def _act(
-    branch: "Branch",
+    branch,
     action_request: BaseModel | dict,
     suppress_errors: bool = False,
     verbose_action: bool = False,
@@ -84,3 +82,64 @@ async def _act(
         arguments=action_request.arguments,
         output=func_call.response,
     )
+
+
+async def act(
+    branch,
+    action_request: list | ActionRequest | BaseModel | dict,
+    *,
+    strategy: Literal["concurrent", "sequential"] = "concurrent",
+    verbose_action: bool = False,
+    suppress_errors: bool = True,
+    call_params: AlcallParams = None,
+) -> list[ActionResponse]:
+    """Execute action requests using the branch's action manager."""
+    global _DEFAULT_ALCALL_PARAMS
+    if call_params is None:
+        if _DEFAULT_ALCALL_PARAMS is None:
+            _DEFAULT_ALCALL_PARAMS = AlcallParams(output_dropna=True)
+        call_params = _DEFAULT_ALCALL_PARAMS
+
+    kw = {
+        "suppress_errors": suppress_errors,
+        "verbose_action": verbose_action,
+    }
+
+    match strategy:
+        case "concurrent":
+
+            return await _concurrent_act(
+                branch, action_request, call_params, **kw
+            )
+        case "sequential":
+            return await _sequential_act(branch, action_request, **kw)
+        case _:
+            raise ValueError(
+                "Invalid strategy. Choose 'concurrent' or 'sequential'."
+            )
+
+
+async def _concurrent_act(
+    branch,
+    action_request: ActionRequest | BaseModel | dict,
+    call_params: AlcallParams = None,
+    **kwargs,
+) -> list:
+    return await call_params(action_request, branch._act, **kwargs)
+
+
+async def _sequential_act(
+    branch,
+    action_request: ActionRequest | BaseModel | dict,
+    suppress_errors: bool = True,
+    verbose_action: bool = False,
+) -> list:
+    action_request = (
+        action_request
+        if isinstance(action_request, list)
+        else [action_request]
+    )
+    results = []
+    for req in action_request:
+        results.append(await branch._act(req, verbose_action, suppress_errors))
+    return results
