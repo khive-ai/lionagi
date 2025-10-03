@@ -68,7 +68,12 @@ async def chat_v1(
     return_ins_res_message: bool = False,
 ) -> tuple[Instruction, AssistantResponse]:
     params = chat_ctx.to_dict(
-        exclude={"imodel", "imodel_kw", "include_token_usage_to_model"}
+        exclude={
+            "imodel",
+            "imodel_kw",
+            "include_token_usage_to_model",
+            "progression",
+        }
     )
     params["sender"] = chat_ctx.sender or branch.user or "user"
     params["recipient"] = chat_ctx.recipient or branch.id

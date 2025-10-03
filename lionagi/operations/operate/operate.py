@@ -218,10 +218,11 @@ async def operate_v1(
         # Need to update chat_ctx with tool schemas
         tools = action_ctx.tools if action_ctx.tools is not True else True
         tool_schemas = branch.acts.get_tool_schema(tools=tools)
-        # Create modified chat context
-        chat_dict = chat_ctx.to_dict()
-        chat_dict["tool_schemas"] = tool_schemas
-        _chat_ctx = ChatContext(**chat_dict)
+        # Create modified chat context using copy
+        from copy import deepcopy
+
+        _chat_ctx = deepcopy(chat_ctx)
+        _chat_ctx.tool_schemas = tool_schemas
     else:
         _chat_ctx = chat_ctx
 
