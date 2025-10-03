@@ -1162,7 +1162,7 @@ class Branch(Element, Communicatable, Relational):
         suppress_errors: bool,
         verbose_action: bool,
     ) -> ActionResponse:
-        from lionagi.operations._act.act import _act
+        from lionagi.operations.act.act import _act
 
         return await _act(
             branch=self,
