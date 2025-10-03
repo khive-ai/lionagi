@@ -149,7 +149,7 @@ async def communicate_v1(
         return res.response
 
     # Handle response_format with parse
-    if parse_ctx and chat_ctx.response_format is not None:
+    if parse_ctx and chat_ctx.response_format:
         from ..parse.parse import parse_v1
 
         try:
@@ -157,7 +157,8 @@ async def communicate_v1(
                 branch, res.response, parse_ctx, return_res_message=True
             )
             if res2 and isinstance(res2, AssistantResponse):
-                res.metadata["parse_model_response"] = res2.model_response
+                res.metadata["original_model_response"] = res.model_response
+                res.model_response = res2.model_response
             return out
         except ValueError as e:
             # Re-raise with more context

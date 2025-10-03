@@ -7,7 +7,13 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from lionagi.ln import fuzzy_validate_mapping, get_cancelled_exc_class
+from lionagi.ln import (
+    extract_json,
+    fuzzy_validate_mapping,
+    get_cancelled_exc_class,
+    json_dumps,
+    to_list,
+)
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams, fuzzy_validate_pydantic
 from lionagi.protocols.types import AssistantResponse
 from lionagi.session.branch import AlcallParams
@@ -94,6 +100,7 @@ async def parse_v1(
     return_res_message: bool = False,
 ) -> Any | tuple[Any, AssistantResponse | None]:
 
+    # Try direct validation first
     with contextlib.suppress(Exception):
         result = _validate_dict_or_model(
             text, parse_ctx.response_format, parse_ctx.fuzzy_match_params
@@ -161,22 +168,32 @@ def _validate_dict_or_model(
         if isinstance(fuzzy_match_params, dict):
             fuzzy_match_params = FuzzyMatchKeysParams(**fuzzy_match_params)
 
+        d_ = extract_json(text, fuzzy_parse=True, return_one_if_single=False)
+        dict_, keys_ = None, None
+        if d_:
+            dict_ = to_list(d_, flatten=True)[0]
+        if fuzzy_match_params:
+            keys_ = (
+                response_format.model_fields
+                if isinstance(response_format, type)
+                else response_format
+            )
+            dict_ = fuzzy_validate_mapping(
+                dict_,
+                keys_,
+                handle_unmatched="force",
+                fill_value=None,
+                strict=False,
+            )
+        elif isinstance(fuzzy_match_params, FuzzyMatchKeysParams):
+            dict_ = fuzzy_validate_mapping(
+                dict_, keys_, **fuzzy_match_params.to_dict()
+            )
         if isinstance(response_format, type) and issubclass(
             response_format, BaseModel
         ):
-            return fuzzy_validate_pydantic(
-                text,
-                response_format,
-                fuzzy_match_params=fuzzy_match_params,
-            )
-
-        if isinstance(response_format, dict):
-            if fuzzy_match_params is None:
-                return fuzzy_validate_mapping(text, response_format)
-            elif isinstance(fuzzy_match_params, FuzzyMatchKeysParams):
-                return fuzzy_validate_mapping(
-                    text, response_format, **fuzzy_match_params.to_dict()
-                )
+            return response_format.model_validate(dict_)
+        return dict_
 
     except Exception as e:
         raise ValueError(f"Failed to parse text: {e}") from e

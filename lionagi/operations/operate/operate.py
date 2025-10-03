@@ -13,6 +13,7 @@ from lionagi.protocols.operatives.step import Operative
 from lionagi.protocols.types import Instruction, Progression, SenderRecipient
 from lionagi.service.imodel import iModel
 from lionagi.session.branch import AlcallParams
+from lionagi.utils import copy
 
 from ..types import ActionContext, ChatContext, HandleValidation, ParseContext
 
@@ -41,7 +42,6 @@ async def operate(
     tools: "ToolRef" = None,
     operative: "Operative" = None,
     response_format: type[BaseModel] = None,  # alias of operative.request_type
-    return_operative: bool = False,
     actions: bool = False,
     reason: bool = False,
     call_params: AlcallParams = None,
@@ -51,8 +51,6 @@ async def operate(
     exclude_fields: list | dict | None = None,
     request_params: ModelParams = None,
     request_param_kwargs: dict = None,
-    response_params: ModelParams = None,
-    response_param_kwargs: dict = None,
     handle_validation: HandleValidation = "return_value",
     operative_model: type[BaseModel] = None,
     request_model: type[BaseModel] = None,
@@ -119,18 +117,9 @@ async def operate(
         field_models=field_models,
         **(request_param_kwargs or {}),
     )
+    # Use the operative's request_type which is a proper Pydantic model
+    # created from field_models if provided
     final_response_format = operative.request_type
-
-    # If field_models provided for dict response, build dict format
-    if field_models and not isinstance(response_format, type):
-        dict_format = {}
-        fms = (
-            field_models if isinstance(field_models, list) else [field_models]
-        )
-        for fm in fms:
-            if fm.name:
-                dict_format[fm.name] = str(fm.annotated())
-        final_response_format = dict_format
 
     # Build contexts
     chat_ctx = ChatContext(
@@ -140,10 +129,10 @@ async def operate(
         recipient=recipient or branch.id,
         response_format=final_response_format,
         progression=progression,
-        tool_schemas=tool_schemas or [],
-        images=images or [],
-        image_detail=image_detail or "auto",
-        plain_content="",
+        tool_schemas=tool_schemas,
+        images=images,
+        image_detail=image_detail,
+        plain_content=None,
         include_token_usage_to_model=include_token_usage_to_model,
         imodel=chat_model,
         imodel_kw=kwargs,
@@ -182,13 +171,9 @@ async def operate(
         chat_ctx=chat_ctx,
         parse_ctx=parse_ctx,
         action_ctx=action_ctx,
-        operative=operative,
-        response_params=response_params,
-        response_param_kwargs=response_param_kwargs,
         handle_validation=handle_validation,
         invoke_actions=invoke_actions,
         skip_validation=skip_validation,
-        return_operative=return_operative,
         clear_messages=clear_messages,
     )
 
@@ -197,63 +182,74 @@ async def operate_v1(
     branch: "Branch",
     instruction: JsonValue | Instruction,
     chat_ctx: ChatContext,
-    parse_ctx: ParseContext | None = None,
     action_ctx: ActionContext | None = None,
-    operative: Operative | None = None,
-    response_params: ModelParams = None,
-    response_param_kwargs: dict = None,
+    parse_ctx: ParseContext | None = None,
     handle_validation: HandleValidation = "return_value",
     invoke_actions: bool = True,
     skip_validation: bool = False,
-    return_operative: bool = False,
     clear_messages: bool = False,
+    reason: bool = False,
+    field_models: list[FieldModel] | None = None,
 ) -> BaseModel | dict | str | None:
-    """Execute operation with contexts - clean implementation."""
 
-    if clear_messages:
-        branch.msgs.clear_messages()
+    # 1. communicate chat context building to avoid changing parameters
+    _cctx = copy(chat_ctx)
+    _pctx = (
+        copy(parse_ctx)
+        if parse_ctx
+        else ParseContext(
+            response_format=chat_ctx.response_format,
+            imodel=branch.parse_model,
+        )
+    )
+    _pctx.handle_validation = "return_value"
 
-    # Add tool schemas if action context provided
-    if action_ctx and action_ctx.tools:
-        # Need to update chat_ctx with tool schemas
-        tools = action_ctx.tools if action_ctx.tools is not True else True
-        tool_schemas = branch.acts.get_tool_schema(tools=tools)
-        # Create modified chat context using copy
-        from copy import deepcopy
+    if tools := (action_ctx.tools or True) if action_ctx else None:
+        _cctx.tool_schemas = branch.acts.get_tool_schema(tools=tools)
 
-        _chat_ctx = deepcopy(chat_ctx)
-        _chat_ctx.tool_schemas = tool_schemas
-    else:
-        _chat_ctx = chat_ctx
+    t = type if isinstance(chat_ctx.response_format, type) else dict
 
-    # Use communicate for chat + optional parse
+    def normalize_field_model(fms):
+        if not fms:
+            return []
+        if not isinstance(fms, list):
+            return [fms]
+        return fms
+
+    fms = normalize_field_model(field_models)
+    operative = None
+
+    if t is type:
+        from lionagi.protocols.operatives.step import Step
+
+        operative = Step.request_operative(
+            reason=reason,
+            actions=bool(action_ctx is not None),
+            base_type=chat_ctx.response_format,
+            field_models=fms,
+        )
+        _cctx.response_format = operative.request_type
+    elif field_models:
+        dict_ = {}
+        for fm in fms:
+            if fm.name:
+                dict_[fm.name] = str(fm.annotated())
+        _cctx.response_format = dict_
+
     from ..communicate.communicate import communicate_v1
 
     result = await communicate_v1(
         branch,
         instruction,
-        _chat_ctx,
-        parse_ctx,
-        clear_messages=False,  # Already cleared above if needed
+        _cctx,
+        _pctx,
+        clear_messages,
         skip_validation=skip_validation,
         request_fields=None,
     )
-
-    # Populate operative with raw response
-    if operative:
-        operative.response_str_dict = (
-            result if isinstance(result, str) else result
-        )
-
-    # If skip_validation, return early
     if skip_validation:
-        return operative if (return_operative and operative) else result
-
-    # Validation check
-    expected_type = (
-        type if isinstance(chat_ctx.response_format, type) else dict
-    )
-    if not isinstance(result, expected_type):
+        return result
+    if not isinstance(result, t):
         match handle_validation:
             case "return_value":
                 return result
@@ -263,54 +259,37 @@ async def operate_v1(
                 raise ValueError(
                     "Failed to parse the LLM response into the requested format."
                 )
-
-    # Update operative with response if we have one
-    if operative and isinstance(result, BaseModel):
-        operative.response_model = result
-
-    # Return early if not invoking actions
-    if not invoke_actions or not action_ctx:
-        return operative if (return_operative and operative) else result
-
-    # Check for action requests
-    if isinstance(result, BaseModel):
-        action_requests = getattr(result, "action_requests", None)
-    else:
-        action_requests = (
-            result.get("action_requests", None)
-            if isinstance(result, dict)
-            else None
-        )
-
-    # No actions needed
-    if not action_requests:
-        return operative if (return_operative and operative) else result
-
-    # Execute actions
-    from ..act.act import act_v1
-
-    action_response_models = await act_v1(
-        branch,
-        action_requests,
-        action_ctx,
-    )
-
-    # Handle dict response with actions
-    if isinstance(result, dict):
-        result["action_responses"] = action_response_models
+    if not invoke_actions:
         return result
 
-    # Handle operative response with actions
-    if operative:
-        from lionagi.protocols.operatives.step import Step
+    requests = (
+        getattr(result, "action_requests", None)
+        if t is type
+        else result.get("action_requests", None)
+    )
 
-        operative = Step.respond_operative(
-            response_params=response_params,
-            operative=operative,
-            additional_data={"action_responses": action_response_models},
-            **(response_param_kwargs or {}),
+    action_response_models = None
+    if action_ctx and requests is not None:
+        from ..act.act import act_v1
+
+        action_response_models = await act_v1(
+            branch,
+            requests,
+            action_ctx,
         )
-        return operative if return_operative else operative.response_model
 
-    # Fallback
-    return result
+    if not action_response_models:
+        return result
+
+    if t is dict:
+        result.update({"action_responses": action_response_models})
+        return result
+
+    from lionagi.protocols.operatives.step import Step
+
+    operative.response_model = result
+    operative = Step.respond_operative(
+        operative=operative,
+        additional_data={"action_responses": action_response_models},
+    )
+    return operative.response_model
