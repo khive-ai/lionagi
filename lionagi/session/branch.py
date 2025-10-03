@@ -984,12 +984,11 @@ class Branch(Element, Communicatable, Relational):
 
         if stream:
             from .ops.ReAct import ReActStream
-
             async for result in ReActStream(self, **params):
                 yield result
         else:
-            from .ops.ReAct import ReAct
 
+            from .ops.ReAct import ReAct
             return await ReAct(self, **params)
 
     @deprecated(
