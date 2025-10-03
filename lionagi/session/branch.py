@@ -2,18 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
+from typing_extensions import deprecated
 
 from lionagi.config import settings
+from lionagi.ln.async_call import AlcallParams
+from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.types import Unset
 from lionagi.models.field_model import FieldModel
-from lionagi.operations.flow import AlcallParams
 from lionagi.operations.manager import OperationManager
-from lionagi.operations.parse.parse import FuzzyMatchKeysParams
 from lionagi.protocols.action.manager import ActionManager
-from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
+from lionagi.protocols.action.tool import FuncTool, Tool
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
@@ -44,12 +45,14 @@ from lionagi.service.types import iModel, iModelManager
 from lionagi.tools.base import LionTool
 from lionagi.utils import copy
 
+from .ops.types import (
+    ActionContext,
+    ChatContext,
+    HandleValidation,
+    InterpretContext,
+    ParseContext,
+)
 from .prompts import LION_SYSTEM_MESSAGE
-
-if TYPE_CHECKING:
-    from lionagi.fields import Instruct
-    from lionagi.protocols.operatives.operative import Operative
-
 
 __all__ = ("Branch",)
 
@@ -742,143 +745,62 @@ class Branch(Element, Communicatable, Relational):
         """
         await self._log_manager.adump(clear=clear, persist_path=persist_path)
 
-    # -------------------------------------------------------------------------
-    # Asynchronous Operations (chat, parse, operate, etc.)
-    # -------------------------------------------------------------------------
     async def chat(
         self,
-        instruction: Instruction | JsonValue = None,
-        guidance: JsonValue = None,
-        context: JsonValue = None,
-        sender: ID.Ref = None,
-        recipient: ID.Ref = None,
-        request_fields: list[str] | dict[str, JsonValue] = None,
-        response_format: type[BaseModel] | BaseModel = None,
-        progression: Progression | list[ID[RoledMessage].ID] = None,
-        imodel: iModel = None,
-        tool_schemas: list[dict] = None,
-        images: list = None,
-        image_detail: Literal["low", "high", "auto"] = None,
-        plain_content: str = None,
+        instruction: JsonValue | Instruction,
+        chat_ctx: ChatContext,
         return_ins_res_message: bool = False,
-        **kwargs,
-    ) -> tuple[Instruction, AssistantResponse]:
+    ) -> str | tuple[Instruction, AssistantResponse]:
         """
-        Invokes the chat model with the current conversation history. This method does not
-        automatically add messages to the branch. It is typically used for orchestrating.
-
-        **High-level flow**:
-            1. Construct a sequence of messages from the stored progression.
-            2. Integrate any pending action responses into the context.
-            3. Invoke the chat model with the combined messages.
-            4. Capture and return the final response as an `AssistantResponse`.
+        Execute a chat operation with the given instruction and context.
 
         Args:
-            instruction (Any):
-                Main user instruction text or structured data.
-            guidance (Any):
-                Additional system or user guidance text.
-            context (Any):
-                Context data to pass to the model.
-            sender (Any):
-                The user or entity sending this message (defaults to `Branch.user`).
-            recipient (Any):
-                The recipient of this message (defaults to `self.id`).
-            request_fields (Any):
-                Partial field-level validation reference (rarely used).
-            response_format (type[BaseModel], optional):
-                A Pydantic model type for structured model responses.
-            progression (Any):
-                Custom ordering of messages in the conversation.
-            imodel (iModel, optional):
-                An override for the chat model to use. If not provided, uses `self.chat_model`.
-            tool_schemas (Any, optional):
-                Additional schemas for tool invocation in function-calling.
-            images (list, optional):
-                Optional images relevant to the model's context.
-            image_detail (Literal["low", "high", "auto"], optional):
-                Level of detail for image-based context (if relevant).
-            plain_content (str, optional):
-                Plain text content, will override any other content.
-            return_ins_res_message:
-                If `True`, returns the final `Instruction` and `AssistantResponse` objects.
-                else, returns only the response content.
-            **kwargs:
-                Additional parameters for the LLM invocation.
+            instruction: The instruction to send
+            chat_ctx: Chat context with model and configuration
+            return_ins_res_message: If True, return (Instruction, AssistantResponse) tuple
 
         Returns:
-            tuple[Instruction, AssistantResponse]:
-                The `Instruction` object and the final `AssistantResponse`.
+            str or tuple[Instruction, AssistantResponse]
         """
-        from lionagi.operations.chat.chat import chat
+        from .ops.chat import chat
 
         return await chat(
             self,
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
-            sender=sender,
-            recipient=recipient,
-            request_fields=request_fields,
-            response_format=response_format,
-            progression=progression,
-            imodel=imodel or kwargs.pop("chat_model", None) or self.chat_model,
-            tool_schemas=tool_schemas,
-            images=images,
-            image_detail=image_detail,
-            plain_content=plain_content,
-            return_ins_res_message=return_ins_res_message,
-            **kwargs,
+            instruction,
+            chat_ctx,
+            return_ins_res_message,
         )
 
     async def parse(
         self,
         text: str,
         response_format: type[BaseModel] | dict,
-        fuzzy_match_params: "FuzzyMatchKeysParams | dict" = None,
-        handle_validation: Literal[
-            "raise", "return_value", "return_none"
-        ] = "raise",
+        fuzzy_match_params: FuzzyMatchKeysParams | dict = None,
+        handle_validation: HandleValidation = "raise",
         alcall_params: AlcallParams | dict | None = None,
-        parse_model: iModel = None,
+        parse_model: "iModel" = None,
         return_res_message: bool = False,
     ):
         """
-        Parse text into a structured Pydantic model or dict using parse model logic.
-        New messages are not appended to conversation context.
-
-        Attempts direct fuzzy parsing first (no LLM call). If that fails, uses the
-        parse model (LLM) to reformat the text and retries with configurable retry logic.
+        Parse text into structured format.
 
         Args:
-            text (str):
-                The raw text to parse.
-            response_format (type[BaseModel] | dict):
-                The Pydantic model class or dict structure to parse into.
-            fuzzy_match_params (FuzzyMatchKeysParams | dict, optional):
-                Configuration for fuzzy key matching during parsing.
-            handle_validation (Literal["raise","return_value","return_none"]):
-                What to do if parsing fails (default: "raise").
-                - "raise": Raise ValueError
-                - "return_value": Return original text
-                - "return_none": Return None
-            alcall_params (AlcallParams | dict, optional):
-                Async call parameters for retry logic, throttling, etc.
-            parse_model (iModel, optional):
-                Custom parse model to use. If None, uses branch's default parse_model.
-            return_res_message (bool):
-                If True, returns tuple (result, response_message).
+            text: Text to parse
+            response_format: Target format (BaseModel or dict)
+            fuzzy_match_params: Fuzzy matching parameters
+            handle_validation: How to handle validation errors
+            alcall_params: Async call parameters
+            parse_model: Model to use for parsing
+            return_res_message: If True, return (result, response_message) tuple
 
         Returns:
-            BaseModel | dict | str | None | tuple:
-                Parsed model instance, or a fallback based on `handle_validation`.
-                If return_res_message=True, returns (result, response_message) tuple.
+            Parsed result or tuple if return_res_message=True
         """
-        from lionagi.operations.parse.parse import parse
+        from .ops.parse import parse
 
         return await parse(
-            branch=self,
-            text=text,
+            self,
+            text,
             response_format=response_format,
             fuzzy_match_params=fuzzy_match_params,
             handle_validation=handle_validation,
@@ -889,262 +811,88 @@ class Branch(Element, Communicatable, Relational):
 
     async def operate(
         self,
-        *,
-        instruct: "Instruct" = None,
-        instruction: Instruction | JsonValue = None,
-        guidance: JsonValue = None,
-        context: JsonValue = None,
-        sender: "SenderRecipient" = None,
-        recipient: "SenderRecipient" = None,
-        progression: Progression = None,
-        chat_model: iModel = None,
-        invoke_actions: bool = True,
-        tool_schemas: list[dict] = None,
-        images: list = None,
-        image_detail: Literal["low", "high", "auto"] = None,
-        parse_model: iModel = None,
-        skip_validation: bool = False,
-        tools: ToolRef = None,
-        operative: "Operative" = None,
-        response_format: type[
-            BaseModel
-        ] = None,  # alias of operative.request_type
-        actions: bool = False,
+        instruction: JsonValue | Instruction | dict,
+        chat_ctx: ChatContext,
+        action_ctx: ActionContext | None = None,
+        parse_ctx: ParseContext | None = None,
         reason: bool = False,
-        call_params: AlcallParams = None,
-        action_strategy: Literal["sequential", "concurrent"] = "concurrent",
-        verbose_action: bool = False,
-        field_models: list[FieldModel] = None,
-        exclude_fields: list | dict | None = None,
-        handle_validation: Literal[
-            "raise", "return_value", "return_none"
-        ] = "return_value",
-        include_token_usage_to_model: bool = False,
-        **kwargs,
-    ) -> list | BaseModel | None | dict | str:
+        field_models: list[FieldModel] | None = None,
+        handle_validation: HandleValidation = "raise",
+        invoke_actions: bool = True,
+        clear_messages: bool = False,
+    ):
         """
-        Orchestrates an "operate" flow with optional tool invocation and
-        structured response validation. Messages **are** automatically
-        added to the conversation.
-
-        **Workflow**:
-        1) Builds or updates an `Operative` object to specify how the LLM should respond.
-        2) Sends an instruction (`instruct`) or direct `instruction` text to `branch.chat()`.
-        3) Optionally validates/parses the result into a model or dictionary.
-        4) If `invoke_actions=True`, any requested tool calls are automatically invoked.
-        5) Returns either the final structure, raw response, or an updated `Operative`.
+        Execute a structured operation with optional actions.
 
         Args:
-            branch (Branch):
-                The active branch that orchestrates messages, models, and logs.
-            instruct (Instruct, optional):
-                Contains the instruction, guidance, context, etc. If not provided,
-                uses `instruction`, `guidance`, `context` directly.
-            instruction (Instruction | JsonValue, optional):
-                The main user instruction or content for the LLM.
-            guidance (JsonValue, optional):
-                Additional system or user instructions.
-            context (JsonValue, optional):
-                Extra context data.
-            sender (SenderRecipient, optional):
-                The sender ID for newly added messages.
-            recipient (SenderRecipient, optional):
-                The recipient ID for newly added messages.
-            progression (Progression, optional):
-                Custom ordering of conversation messages.
-
-            chat_model (iModel, optional):
-                The LLM used for the main chat operation. Defaults to `branch.chat_model`.
-            invoke_actions (bool, optional):
-                If `True`, executes any requested tools found in the LLM's response.
-            tool_schemas (list[dict], optional):
-                Additional schema definitions for tool-based function-calling.
-            images (list, optional):
-                Optional images appended to the LLM context.
-            image_detail (Literal["low","high","auto"], optional):
-                The level of image detail, if relevant.
-            parse_model (iModel, optional):
-                Model used for deeper or specialized parsing, if needed.
-            skip_validation (bool, optional):
-                If `True`, bypasses final validation and returns raw text or partial structure.
-            tools (ToolRef, optional):
-                Tools to be registered or made available if `invoke_actions` is True.
-            operative (Operative, optional):
-                If provided, reuses an existing operative's config for parsing/validation.
-            response_format (type[BaseModel], optional):
-                Expected Pydantic model for the final response (alias for `operative.request_type`).
-                rather than the structured or raw output.
-            actions (bool, optional):
-                If `True`, signals that function-calling or "action" usage is expected.
-            reason (bool, optional):
-                If `True`, signals that the LLM should provide chain-of-thought or reasoning (where applicable).
-            action_strategy (Literal["sequential","concurrent"], optional):
-                The strategy for invoking tools (default: "concurrent").
-            verbose_action (bool, optional):
-                If `True`, logs detailed information about tool invocation.
-            field_models (list[FieldModel] | None, optional):
-                Field-level definitions or overrides for the model schema.
-            exclude_fields (list|dict|None, optional):
-                Which fields to exclude from final validation or model building.
-            handle_validation (Literal["raise","return_value","return_none"], optional):
-                How to handle parsing failures (default: "return_value").
-            include_token_usage_to_model:
-                If `True`, includes token usage in the model messages.
-            **kwargs:
-                Additional keyword arguments passed to the LLM via `branch.chat()`.
+            instruction: The instruction to execute
+            chat_ctx: Chat context with model and configuration
+            action_ctx: Action context for tool invocation
+            parse_ctx: Parse context for response parsing
+            reason: Add reasoning field
+            field_models: Additional field models
+            handle_validation: How to handle validation errors
+            invoke_actions: Whether to invoke actions
+            clear_messages: Whether to clear messages before operation
 
         Returns:
-            list | BaseModel | None | dict | str:
-                - The parsed or raw response from the LLM,
-                - `None` if validation fails and `handle_validation='return_none'`,
-                - or the entire `Operative` object if `return_operative=True`.
-
-        Raises:
-            ValueError:
-                - If both `operative_model` and `response_format` or `request_model` are given.
-                - If the LLM's response cannot be parsed into the expected format and `handle_validation='raise'`.
+            Parsed operation result
         """
-        from lionagi.operations.operate.operate import operate
+        from .ops.operate import operate
 
         return await operate(
             self,
-            instruct=instruct,
             instruction=instruction,
-            guidance=guidance,
-            context=context,
-            sender=sender,
-            recipient=recipient,
-            progression=progression,
-            chat_model=chat_model,
-            invoke_actions=invoke_actions,
-            tool_schemas=tool_schemas,
-            images=images,
-            image_detail=image_detail,
-            parse_model=parse_model,
-            skip_validation=skip_validation,
-            tools=tools,
-            operative=operative,
-            response_format=response_format,
-            actions=actions,
+            chat_ctx=chat_ctx,
+            action_ctx=action_ctx,
+            parse_ctx=parse_ctx,
             reason=reason,
-            call_params=call_params,
-            action_strategy=action_strategy,
-            verbose_action=verbose_action,
             field_models=field_models,
-            exclude_fields=exclude_fields,
             handle_validation=handle_validation,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
+            invoke_actions=invoke_actions,
+            clear_messages=clear_messages,
         )
 
     async def communicate(
         self,
-        instruction: Instruction | JsonValue = None,
-        *,
-        guidance: JsonValue = None,
-        context: JsonValue = None,
-        plain_content: str = None,
-        sender: "SenderRecipient" = None,
-        recipient: "SenderRecipient" = None,
-        progression: ID.IDSeq = None,
-        response_format: type[BaseModel] = None,
-        request_fields: dict | list[str] = None,
-        chat_model: iModel = None,
-        parse_model: iModel = None,
-        skip_validation: bool = False,
-        images: list = None,
-        image_detail: Literal["low", "high", "auto"] = None,
-        num_parse_retries: int = 3,
+        instruction: JsonValue | Instruction,
+        chat_ctx: ChatContext,
+        parse_ctx: ParseContext | None = None,
         clear_messages: bool = False,
-        include_token_usage_to_model: bool = False,
-        **kwargs,
     ):
         """
-        A simpler orchestration than `operate()`, typically without tool invocation. Messages are automatically added to the conversation.
-
-        **Flow**:
-          1. Sends an instruction (or conversation) to the chat model.
-          2. Optionally parses the response into a structured model or fields.
-          3. Returns either the raw string, the parsed model, or a dict of fields.
+        Chat and optionally parse the response.
 
         Args:
-            instruction (Instruction | dict, optional):
-                The user's main query or data.
-            guidance (JsonValue, optional):
-                Additional instructions or context for the LLM.
-            context (JsonValue, optional):
-                Extra data or context.
-            plain_content (str, optional):
-                Plain text content appended to the instruction.
-            sender (SenderRecipient, optional):
-                Sender ID (defaults to `Branch.user`).
-            recipient (SenderRecipient, optional):
-                Recipient ID (defaults to `self.id`).
-            progression (ID.IDSeq, optional):
-                Custom ordering of messages.
-            response_format (type[BaseModel], optional):
-                Alias for `request_model`. If both are provided, raises ValueError.
-            request_fields (dict|list[str], optional):
-                If you only need certain fields from the LLM's response.
-            chat_model (iModel, optional):
-                An alternative to the default chat model.
-            parse_model (iModel, optional):
-                If parsing is needed, you can override the default parse model.
-            skip_validation (bool, optional):
-                If True, returns the raw response string unvalidated.
-            images (list, optional):
-                Any relevant images.
-            image_detail (Literal["low","high","auto"], optional):
-                Image detail level (if used).
-            num_parse_retries (int, optional):
-                Maximum parsing retries (capped at 5).
-            clear_messages (bool, optional):
-                Whether to clear stored messages before sending.
-            **kwargs:
-                Additional arguments for the underlying LLM call.
+            instruction: The instruction to send
+            chat_ctx: Chat context with model and configuration
+            parse_ctx: Parse context for response parsing
+            clear_messages: Whether to clear messages before operation
 
         Returns:
-            Any:
-                - Raw string (if `skip_validation=True`),
-                - A validated Pydantic model,
-                - A dict of the requested fields,
-                - or `None` if parsing fails and `handle_validation='return_none'`.
+            Response string or parsed result
         """
-        from lionagi.operations.communicate.communicate import communicate
+        from .ops.communicate import communicate
 
         return await communicate(
             self,
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
-            plain_content=plain_content,
-            sender=sender,
-            recipient=recipient,
-            progression=progression,
-            response_format=response_format,
-            request_fields=request_fields,
-            chat_model=chat_model,
-            parse_model=parse_model,
-            skip_validation=skip_validation,
-            images=images,
-            image_detail=image_detail,
-            num_parse_retries=num_parse_retries,
-            clear_messages=clear_messages,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
+            instruction,
+            chat_ctx,
+            parse_ctx,
+            clear_messages,
         )
 
     async def _act(
         self,
-        action_request: ActionRequest | BaseModel | dict,
-        suppress_errors: bool,
-        verbose_action: bool,
-    ) -> ActionResponse:
-        from lionagi.operations._act.act import _act
+        action_request: BaseModel | dict,
+        suppress_errors: bool = False,
+        verbose_action: bool = False,
+    ):
+        from .ops.act import _act
 
         return await _act(
-            branch=self,
-            action_request=action_request,
+            self,
+            action_request,
             suppress_errors=suppress_errors,
             verbose_action=verbose_action,
         )
@@ -1158,326 +906,143 @@ class Branch(Element, Communicatable, Relational):
         suppress_errors: bool = True,
         call_params: AlcallParams = None,
     ) -> list[ActionResponse]:
-        global _DEFAULT_ALCALL_PARAMS
-        if call_params is None:
-            if _DEFAULT_ALCALL_PARAMS is None:
-                _DEFAULT_ALCALL_PARAMS = AlcallParams(output_dropna=True)
-            call_params = _DEFAULT_ALCALL_PARAMS
+        from .ops.act import act
 
-        kw = {
-            "suppress_errors": suppress_errors,
-            "verbose_action": verbose_action,
-        }
-
-        match strategy:
-            case "concurrent":
-                return await self._concurrent_act(
-                    action_request, call_params, **kw
-                )
-            case "sequential":
-                return await self._sequential_act(action_request, **kw)
-            case _:
-                raise ValueError(
-                    "Invalid strategy. Choose 'concurrent' or 'sequential'."
-                )
-
-    async def _concurrent_act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        call_params: AlcallParams = None,
-        **kwargs,
-    ) -> list:
-        return await call_params(action_request, self._act, **kwargs)
-
-    async def _sequential_act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        suppress_errors: bool = True,
-        verbose_action: bool = False,
-    ) -> list:
-        action_request = (
-            action_request
-            if isinstance(action_request, list)
-            else [action_request]
-        )
-        results = []
-        for req in action_request:
-            results.append(
-                await self._act(req, verbose_action, suppress_errors)
-            )
-        return results
-
-    async def interpret(
-        self,
-        text: str,
-        domain: str | None = None,
-        style: str | None = None,
-        interpret_model=None,
-        **kwargs,
-    ) -> str:
-        """
-        Interprets (rewrites) a user's raw input into a more formal or structured
-        LLM prompt. This function can be seen as a "prompt translator," which
-        ensures the user's original query is clarified or enhanced for better
-        LLM responses. Messages are not automatically added to the conversation.
-
-        The method calls `branch.chat()` behind the scenes with a system prompt
-        that instructs the LLM to rewrite the input. You can provide additional
-        parameters in `**kwargs` (e.g., `parse_model`, `skip_validation`, etc.)
-        if you want to shape how the rewriting is done.
-
-        Args:
-            branch (Branch):
-                The active branch context for messages, logging, etc.
-            text (str):
-                The raw user input or question that needs interpreting.
-            domain (str | None, optional):
-                Optional domain hint (e.g. "finance", "marketing", "devops").
-                The LLM can use this hint to tailor its rewriting approach.
-            style (str | None, optional):
-                Optional style hint (e.g. "concise", "detailed").
-            **kwargs:
-                Additional arguments passed to `branch.communicate()`,
-                such as `parse_model`, `skip_validation`, `temperature`, etc.
-
-        Returns:
-            str:
-                A refined or "improved" user prompt string, suitable for feeding
-                back into the LLM as a clearer instruction.
-
-        Example:
-            refined = await interpret(
-                branch=my_branch, text="How do I do marketing analytics?",
-                domain="marketing", style="detailed"
-            )
-            # refined might be "Explain step-by-step how to set up a marketing analytics
-            #  pipeline to track campaign performance..."
-        """
-        from lionagi.operations.interpret.interpret import interpret
-
-        return await interpret(
+        return await act(
             self,
-            text=text,
-            domain=domain,
-            style=style,
-            interpret_model=interpret_model,
-            **kwargs,
+            action_request,
+            strategy=strategy,
+            verbose_action=verbose_action,
+            suppress_errors=suppress_errors,
+            call_params=call_params or _DEFAULT_ALCALL_PARAMS,
         )
-
-    async def instruct(
-        self,
-        instruct: "Instruct",
-        /,
-        **kwargs,
-    ):
-        """
-        A convenience method that chooses between `operate()` and `communicate()`
-        based on the contents of an `Instruct` object.
-
-        If the `Instruct` indicates tool usage or advanced response format,
-        `operate()` is used. Otherwise, it defaults to `communicate()`.
-
-        Args:
-            instruct (Instruct):
-                An object containing `instruction`, `guidance`, `context`, etc.
-            **kwargs:
-                Additional args forwarded to `operate()` or `communicate()`.
-
-        Returns:
-            Any:
-                The result of the underlying call (structured object, raw text, etc.).
-        """
-        from lionagi.operations.instruct.instruct import instruct as _ins
-
-        return await _ins(self, instruct, **kwargs)
 
     async def ReAct(
         self,
-        instruct: "Instruct | dict[str, Any]",
-        interpret: bool = False,
-        interpret_domain: str | None = None,
-        interpret_style: str | None = None,
-        interpret_sample: str | None = None,
-        interpret_model: str | None = None,
-        interpret_kwargs: dict | None = None,
-        tools: Any = None,
-        tool_schemas: Any = None,
-        response_format: type[BaseModel] | BaseModel = None,
-        intermediate_response_options: list[BaseModel] | BaseModel = None,
+        instruction: JsonValue | Instruction,
+        chat_ctx: ChatContext,
+        action_ctx: ActionContext | None = None,
+        parse_ctx: ParseContext | None = None,
+        intp_ctx: InterpretContext | bool = None,
+        resp_ctx: dict | None = None,
+        reasoning_effort: Literal["low", "medium", "high"] | None = None,
+        reason: bool = False,
+        field_models: list[FieldModel] | None = None,
+        handle_validation: HandleValidation = "raise",
+        invoke_actions: bool = True,
+        clear_messages=False,
+        intermediate_response_options: (
+            type[BaseModel] | list[type[BaseModel]]
+        ) = None,
         intermediate_listable: bool = False,
-        reasoning_effort: Literal["low", "medium", "high"] = None,
+        intermediate_nullable: bool = False,
+        max_extensions: int | None = 0,
         extension_allowed: bool = True,
-        max_extensions: int | None = 3,
-        response_kwargs: dict | None = None,
-        display_as: Literal["json", "yaml"] = "yaml",
-        return_analysis: bool = False,
-        analysis_model: iModel | None = None,
-        verbose: bool = False,
+        verbose_analysis: bool = False,
+        display_as: Literal["yaml", "json"] = "yaml",
         verbose_length: int = None,
-        include_token_usage_to_model: bool = True,
-        **kwargs,
+        continue_after_failed_response: bool = False,
+        return_analysis: bool = False,
+        stream: bool = False,
     ):
         """
-        Performs a multi-step "ReAct" flow (inspired by the ReAct paradigm in LLM usage),
-        which may include:
-        1) Optionally interpreting the user's original instructions via `branch.interpret()`.
-        2) Generating chain-of-thought analysis or reasoning using a specialized schema (`ReActAnalysis`).
-        3) Optionally expanding the conversation multiple times if the analysis indicates more steps (extensions).
-        4) Producing a final answer by invoking the branch's `instruct()` method.
+        Execute ReAct (Reasoning-Acting) operation.
 
         Args:
-            branch (Branch):
-                The active branch context that orchestrates messages, models, and actions.
-            instruct (Instruct | dict[str, Any]):
-                The user's instruction object or a dict with equivalent keys.
-            interpret (bool, optional):
-                If `True`, first interprets (`branch.interpret`) the instructions to refine them
-                before proceeding. Defaults to `False`.
-            interpret_domain (str | None, optional):
-                Optional domain hint for the interpretation step.
-            interpret_style (str | None, optional):
-                Optional style hint for the interpretation step.
-            interpret_sample (str | None, optional):
-                Optional sample hint for the interpretation step.
-            interpret_kwargs (dict | None, optional):
-                Additional arguments for the interpretation step.
-            tools (Any, optional):
-                Tools to be made available for the ReAct process. If omitted or `None`,
-                and if no `tool_schemas` are provided, it defaults to `True` (all tools).
-            tool_schemas (Any, optional):
-                Additional or custom schemas for tools if function calling is needed.
-            response_format (type[BaseModel], optional):
-                The final schema for the user-facing output after the ReAct expansions.
-                If `None`, the output is raw text or an unstructured response.
-            extension_allowed (bool, optional):
-                Whether to allow multiple expansions if the analysis indicates more steps.
-                Defaults to `False`.
-            max_extensions (int | None, optional):
-                The max number of expansions if `extension_allowed` is `True`.
-                If omitted, no upper limit is enforced (other than logic).
-            response_kwargs (dict | None, optional):
-                Extra kwargs passed into the final `_instruct()` call that produces the
-                final output. Defaults to `None`.
-            return_analysis (bool, optional):
-                If `True`, returns both the final output and the list of analysis objects
-                produced throughout expansions. Defaults to `False`.
-            analysis_model (iModel | None, optional):
-                A custom LLM model for generating the ReAct analysis steps. If `None`,
-                uses the branch's default `chat_model`.
-            include_token_usage_to_model:
-                If `True`, includes token usage in the model messages.
-            verbose (bool):
-                If `True`, logs detailed information about the process.
-            verbose_length (int):
-                If `verbose=True`, limits the length of logged strings to this value.
-            **kwargs:
-                Additional keyword arguments passed into the initial `branch.operate()` call.
+            instruction: The instruction to execute
+            chat_ctx: Chat context with model and configuration
+            action_ctx: Action context for tool invocation
+            parse_ctx: Parse context for response parsing
+            intp_ctx: Interpretation context or bool to enable interpretation
+            resp_ctx: Response context for final answer
+            reasoning_effort: Reasoning effort level (low/medium/high)
+            reason: Add reasoning field
+            field_models: Additional field models
+            handle_validation: How to handle validation errors
+            invoke_actions: Whether to invoke actions
+            clear_messages: Whether to clear messages before operation
+            intermediate_response_options: Options for intermediate responses
+            intermediate_listable: Make intermediate responses listable
+            intermediate_nullable: Make intermediate responses nullable
+            max_extensions: Maximum number of extensions allowed
+            extension_allowed: Whether extensions are allowed
+            verbose_analysis: Show verbose analysis output
+            display_as: Display format (yaml/json)
+            verbose_length: Length limit for verbose output
+            continue_after_failed_response: Continue after failed responses
+            return_analysis: Return full analysis list
+            stream: If True, return async generator streaming results
 
         Returns:
-            Any | tuple[Any, list]:
-                - If `return_analysis=False`, returns only the final output (which may be
-                a raw string, dict, or structured model depending on `response_format`).
-                - If `return_analysis=True`, returns a tuple of (final_output, list_of_analyses).
-                The list_of_analyses is a sequence of the intermediate or extended
-                ReActAnalysis objects.
-
-        Notes:
-            - Messages are automatically added to the branch context during the ReAct process.
-            - If `max_extensions` is greater than 5, a warning is logged, and it is set to 5.
-            - If `interpret=True`, the user instruction is replaced by the interpreted
-            string before proceeding.
-            - The expansions loop continues until either `analysis.extension_needed` is `False`
-            or `extensions` (the remaining allowed expansions) is `0`.
+            Final result, list of analyses if return_analysis=True, or AsyncGenerator if stream=True
         """
-        from lionagi.operations.ReAct.ReAct import ReAct
+        params = {
+            k: v
+            for k, v in locals().items()
+            if k not in ["self", "stream"] and v is not None
+        }
 
-        return await ReAct(
-            self,
-            instruct,
-            interpret=interpret,
-            interpret_domain=interpret_domain,
-            interpret_style=interpret_style,
-            interpret_sample=interpret_sample,
-            interpret_kwargs=interpret_kwargs,
-            tools=tools,
-            tool_schemas=tool_schemas,
-            response_format=response_format,
-            extension_allowed=extension_allowed,
-            max_extensions=max_extensions,
-            response_kwargs=response_kwargs,
-            return_analysis=return_analysis,
-            analysis_model=analysis_model,
-            verbose_action=verbose,
-            verbose_analysis=verbose,
-            verbose_length=verbose_length,
-            interpret_model=interpret_model,
-            intermediate_response_options=intermediate_response_options,
-            intermediate_listable=intermediate_listable,
-            reasoning_effort=reasoning_effort,
-            display_as=display_as,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
-        )
+        if stream:
+            from .ops.ReAct import ReActStream
 
+            async for result in ReActStream(self, **params):
+                yield result
+        else:
+            from .ops.ReAct import ReAct
+
+            return await ReAct(self, **params)
+
+    @deprecated(
+        "Use ReAct(stream=True) instead. This method will be removed in a future version."
+    )
     async def ReActStream(
         self,
-        instruct: "Instruct | dict[str, Any]",
-        interpret: bool = False,
-        interpret_domain: str | None = None,
-        interpret_style: str | None = None,
-        interpret_sample: str | None = None,
-        interpret_model: str | None = None,
-        interpret_kwargs: dict | None = None,
-        tools: Any = None,
-        tool_schemas: Any = None,
-        response_format: type[BaseModel] | BaseModel = None,
-        intermediate_response_options: list[BaseModel] | BaseModel = None,
+        instruction: JsonValue | Instruction,
+        chat_ctx: ChatContext,
+        action_ctx: ActionContext | None = None,
+        parse_ctx: ParseContext | None = None,
+        intp_ctx: InterpretContext | bool = None,
+        resp_ctx: dict | None = None,
+        reasoning_effort: Literal["low", "medium", "high"] | None = None,
+        reason: bool = False,
+        field_models: list[FieldModel] | None = None,
+        handle_validation: HandleValidation = "raise",
+        invoke_actions: bool = True,
+        clear_messages=False,
+        intermediate_response_options: (
+            type[BaseModel] | list[type[BaseModel]]
+        ) = None,
         intermediate_listable: bool = False,
-        reasoning_effort: Literal["low", "medium", "high"] = None,
+        intermediate_nullable: bool = False,
+        max_extensions: int | None = 0,
         extension_allowed: bool = True,
-        max_extensions: int | None = 3,
-        response_kwargs: dict | None = None,
-        analysis_model: iModel | None = None,
-        verbose: bool = False,
-        display_as: Literal["json", "yaml"] = "yaml",
+        verbose_analysis: bool = False,
+        display_as: Literal["yaml", "json"] = "yaml",
         verbose_length: int = None,
-        include_token_usage_to_model: bool = True,
-        **kwargs,
+        continue_after_failed_response: bool = False,
     ) -> AsyncGenerator:
-        from lionagi.operations.ReAct.ReAct import ReActStream
+        """
+        Stream ReAct (Reasoning-Acting) operation results.
 
-        async for result in ReActStream(
-            self,
-            instruct,
-            interpret=interpret,
-            interpret_domain=interpret_domain,
-            interpret_style=interpret_style,
-            interpret_sample=interpret_sample,
-            interpret_model=interpret_model,
-            interpret_kwargs=interpret_kwargs,
-            tools=tools,
-            tool_schemas=tool_schemas,
-            response_format=response_format,
-            intermediate_response_options=intermediate_response_options,
-            intermediate_listable=intermediate_listable,
-            reasoning_effort=reasoning_effort,
-            extension_allowed=extension_allowed,
-            max_extensions=max_extensions,
-            response_kwargs=response_kwargs,
-            analysis_model=analysis_model,
-            verbose_analysis=True,
-            display_as=display_as,
-            verbose_length=verbose_length,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
-        ):
-            analysis, str_ = result
-            if verbose:
-                from lionagi.libs.schema.as_readable import as_readable
+        .. deprecated::
+            Use ReAct(stream=True) instead. This method will be removed in a future version.
 
-                str_ += "\n---------\n"
-                as_readable(str_, md=True, display_str=True)
-            yield analysis
+        Args:
+            Same as ReAct()
+
+        Yields:
+            Analysis results at each step
+        """
+        params = {
+            k: v
+            for k, v in locals().items()
+            if k not in ["self"] and v is not None
+        }
+
+        from .ops.ReAct import ReActStream
+
+        async for result in ReActStream(self, **params):
+            yield result
 
 
 # File: lionagi/session/branch.py

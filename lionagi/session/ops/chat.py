@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import JsonValue
 
 from lionagi.protocols.types import (
     ActionResponse,
@@ -12,8 +12,10 @@ from lionagi.protocols.types import (
     Log,
     RoledMessage,
 )
-from lionagi.service.imodel import iModel
+from lionagi.service.imodel import APICalling
 from lionagi.utils import copy
+
+from .types import ChatContext
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -21,38 +23,28 @@ if TYPE_CHECKING:
 
 async def chat(
     branch: "Branch",
-    instruction=None,
-    guidance=None,
-    context=None,
-    sender=None,
-    recipient=None,
-    request_fields=None,
-    response_format: type[BaseModel] = None,
-    progression=None,
-    imodel: iModel = None,
-    tool_schemas=None,
-    images: list = None,
-    image_detail: Literal["low", "high", "auto"] = None,
-    plain_content: str = None,
+    instruction: JsonValue | Instruction,
+    chat_ctx: ChatContext,
     return_ins_res_message: bool = False,
-    include_token_usage_to_model: bool = False,
-    **kwargs,
-) -> tuple[Instruction, AssistantResponse]:
-    ins: Instruction = branch.msgs.create_instruction(
-        instruction=instruction,
-        guidance=guidance,
-        context=context,
-        sender=sender or branch.user or "user",
-        recipient=recipient or branch.id,
-        response_format=response_format,
-        request_fields=request_fields,
-        images=images,
-        image_detail=image_detail,
-        tool_schemas=tool_schemas,
-        plain_content=plain_content,
-    )
+) -> str | tuple[Instruction, AssistantResponse]:
+    dict_ = chat_ctx.to_dict()
+    dict_ = {
+        k: v
+        for k, v in dict_.items()
+        if k not in {"imodel_kw", "imodel", "progression"} and v is not None
+    }
+    if "response_format" in dict_ and isinstance(
+        dict_["response_format"], dict
+    ):
+        dict_["request_fields"] = dict_.pop("response_format")
+    if dict_.get("sender") is None:
+        dict_["sender"] = branch.user or "user"
+    if dict_.get("recipient") is None:
+        dict_["recipient"] = branch.id
 
-    progression = progression or branch.msgs.progression
+    ins = branch.msgs.create_instruction(instruction, **dict_)
+
+    progression = chat_ctx.progression or branch.msgs.progression
     messages: list[RoledMessage] = [
         branch.msgs.messages[i] for i in progression
     ]
@@ -117,8 +109,7 @@ async def chat(
                 else:
                     _msgs.append(i)
             else:
-                if isinstance(_msgs[-1], AssistantResponse):
-                    _msgs.append(i)
+                _msgs.append(i)
         messages = _msgs
 
     # All endpoints now assume sequential exchange (system message embedded in first user message)
@@ -148,16 +139,27 @@ async def chat(
     else:
         messages.append(use_ins or ins)
 
-    kwargs["messages"] = [i.chat_msg for i in messages]
-    imodel = imodel or branch.chat_model
+    kw = chat_ctx.imodel_kw or {}
+    kw["messages"] = [i.chat_msg for i in messages]
+
+    imodel = chat_ctx.imodel or branch.chat_model
 
     meth = imodel.invoke
-    if "stream" not in kwargs or not kwargs["stream"]:
-        kwargs["include_token_usage_to_model"] = include_token_usage_to_model
-    else:
-        meth = imodel.stream
 
-    api_call = await meth(**kwargs)
+    if kw.get("stream"):
+
+        async def consumer():
+            async for chunk in imodel.stream(**kw):
+                if isinstance(chunk, APICalling):
+                    return chunk
+
+        meth = consumer
+    elif chat_ctx.include_token_usage_to_model:
+        kw["include_token_usage_to_model"] = (
+            chat_ctx.include_token_usage_to_model
+        )
+
+    api_call = await meth(**kw)
     branch._log_manager.log(Log.create(api_call))
 
     if return_ins_res_message:
