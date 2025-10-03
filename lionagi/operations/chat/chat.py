@@ -3,17 +3,18 @@
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 from lionagi.protocols.types import (
     ActionResponse,
     AssistantResponse,
     Instruction,
     Log,
-    RoledMessage,
 )
 from lionagi.service.imodel import iModel
-from lionagi.utils import copy
+from lionagi.utils import copy, to_list
+
+from ..types import ChatContext
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -38,77 +39,78 @@ async def chat(
     include_token_usage_to_model: bool = False,
     **kwargs,
 ) -> tuple[Instruction, AssistantResponse]:
-    ins: Instruction = branch.msgs.create_instruction(
+    return await chat_v1(
+        branch,
         instruction=instruction,
-        guidance=guidance,
-        context=context,
-        sender=sender or branch.user or "user",
-        recipient=recipient or branch.id,
-        response_format=response_format,
-        request_fields=request_fields,
-        images=images,
-        image_detail=image_detail,
-        tool_schemas=tool_schemas,
-        plain_content=plain_content,
+        chat_ctx=ChatContext(
+            guidance=guidance,
+            context=context,
+            sender=sender or branch.user or "user",
+            recipient=recipient or branch.id,
+            response_format=response_format or request_fields,
+            progression=progression,
+            tool_schemas=tool_schemas or [],
+            images=images or [],
+            image_detail=image_detail or "auto",
+            plain_content=plain_content or "",
+            include_token_usage_to_model=include_token_usage_to_model,
+            imodel=imodel or branch.chat_model,
+            imodel_kw=kwargs,
+        ),
+        return_ins_res_message=return_ins_res_message,
     )
 
-    progression = progression or branch.msgs.progression
-    messages: list[RoledMessage] = [
-        branch.msgs.messages[i] for i in progression
-    ]
 
-    use_ins = None
-    _to_use = []
-    _action_responses: set[ActionResponse] = set()
+async def chat_v1(
+    branch: "Branch",
+    instruction: JsonValue | Instruction,
+    chat_ctx: ChatContext,
+    return_ins_res_message: bool = False,
+) -> tuple[Instruction, AssistantResponse]:
+    params = chat_ctx.to_dict(
+        exclude={"imodel", "imodel_kw", "include_token_usage_to_model"}
+    )
+    params["sender"] = chat_ctx.sender or branch.user or "user"
+    params["recipient"] = chat_ctx.recipient or branch.id
+    params["instruction"] = instruction
 
-    for i in messages:
-        if isinstance(i, ActionResponse):
-            _action_responses.add(i)
-        if isinstance(i, AssistantResponse):
-            j = AssistantResponse(
-                role=i.role,
-                content=copy(i.content),
-                sender=i.sender,
-                recipient=i.recipient,
-                template=i.template,
-            )
-            _to_use.append(j)
-        if isinstance(i, Instruction):
-            j = Instruction(
-                role=i.role,
-                content=copy(i.content),
-                sender=i.sender,
-                recipient=i.recipient,
-                template=i.template,
-            )
+    ins = branch.msgs.create_instruction(**params)
+
+    _use_ins, _use_msgs, _act_res = None, [], []
+    progression = chat_ctx.progression or branch.msgs.progression
+
+    for msg in (branch.msgs.messages[j] for j in progression):
+        if isinstance(msg, ActionResponse):
+            _act_res.append(msg)
+
+        if isinstance(msg, AssistantResponse):
+            _use_msgs.append(copy(msg))
+
+        if isinstance(msg, Instruction):
+            j = copy(msg)
             j.tool_schemas = None
             j.respond_schema_info = None
             j.request_response_format = None
 
-            if _action_responses:
-                d_ = [k.content for k in _action_responses]
-                for z in d_:
-                    if z not in j.context:
-                        j.context.append(z)
-
-                _to_use.append(j)
-                _action_responses = set()
+            if _act_res:
+                d_ = [k.content for k in to_list(_act_res, unique=True)]
+                j.context.extend([z for z in d_ if z not in j.context])
+                _use_msgs.append(j)
+                _act_res = []
             else:
-                _to_use.append(j)
+                _use_msgs.append(j)
 
-    messages = _to_use
-    if _action_responses:
-        j = ins.model_copy()
-        d_ = [k.content for k in _action_responses]
-        for z in d_:
-            if z not in j.context:
-                j.context.append(z)
-        use_ins = j
+    if _act_res:
+        j = copy(ins)
+        d_ = [k.content for k in to_list(_act_res, unique=True)]
+        j.context.extend([z for z in d_ if z not in j.context])
+        _use_ins = j
 
-    if messages and len(messages) > 1:
-        _msgs = [messages[0]]
+    messages = _use_msgs
+    if _use_msgs and len(_use_msgs) > 1:
+        _msgs = [_use_msgs[0]]
 
-        for i in messages[1:]:
+        for i in _use_msgs[1:]:
             if isinstance(i, AssistantResponse):
                 if isinstance(_msgs[-1], AssistantResponse):
                     _msgs[-1].response = (
@@ -127,7 +129,7 @@ async def chat(
         first_instruction = None
 
         if len(messages) == 0:
-            first_instruction = ins.model_copy()
+            first_instruction = copy(ins)
             first_instruction.guidance = branch.msgs.system.rendered + (
                 first_instruction.guidance or ""
             )
@@ -138,26 +140,28 @@ async def chat(
                 raise ValueError(
                     "First message in progression must be an Instruction or System"
                 )
-            first_instruction = first_instruction.model_copy()
+            first_instruction = copy(first_instruction)
             first_instruction.guidance = branch.msgs.system.rendered + (
                 first_instruction.guidance or ""
             )
             messages[0] = first_instruction
-            messages.append(use_ins or ins)
+            messages.append(_use_ins or ins)
 
     else:
-        messages.append(use_ins or ins)
+        messages.append(_use_ins or ins)
 
-    kwargs["messages"] = [i.chat_msg for i in messages]
-    imodel = imodel or branch.chat_model
+    kw = (chat_ctx.imodel_kw or {}).copy()
+    kw["messages"] = [i.chat_msg for i in messages]
 
-    meth = imodel.invoke
-    if "stream" not in kwargs or not kwargs["stream"]:
-        kwargs["include_token_usage_to_model"] = include_token_usage_to_model
-    else:
-        meth = imodel.stream
+    imodel = chat_ctx.imodel or branch.chat_model
+    meth = imodel.stream if "stream" in kw and kw["stream"] else imodel.invoke
 
-    api_call = await meth(**kwargs)
+    if meth is imodel.invoke:
+        kw["include_token_usage_to_model"] = (
+            chat_ctx.include_token_usage_to_model
+        )
+    api_call = await meth(**kw)
+
     branch._log_manager.log(Log.create(api_call))
 
     if return_ins_res_message:

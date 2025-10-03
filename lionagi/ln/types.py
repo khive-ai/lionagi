@@ -232,10 +232,13 @@ class Params:
         dict_.update(kw_)
         return dict_
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self, exclude: set[str] = None) -> dict[str, str]:
         data = {}
+        exclude = exclude or set()
         for k in self.allowed():
-            if not self._is_sentinel(v := getattr(self, k, Undefined)):
+            if k not in exclude and not self._is_sentinel(
+                v := getattr(self, k, Undefined)
+            ):
                 data[k] = v
         return data
 
@@ -248,6 +251,12 @@ class Params:
         if not isinstance(other, Params):
             return False
         return hash(self) == hash(other)
+
+    def with_updates(self, **kwargs: Any) -> DataClass:
+        """Return a new instance with updated fields."""
+        dict_ = self.to_dict()
+        dict_.update(kwargs)
+        return type(self)(**dict_)
 
 
 @dataclass(slots=True)
@@ -296,11 +305,13 @@ class DataClass:
         for k in self.allowed():
             _validate_strict(k)
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self, exclude: set[str] = None) -> dict[str, str]:
         data = {}
-        print(self.allowed())
+        exclude = exclude or set()
         for k in type(self).allowed():
-            if not self._is_sentinel(v := getattr(self, k)):
+            if k not in exclude and not self._is_sentinel(
+                v := getattr(self, k)
+            ):
                 data[k] = v
         return data
 
@@ -310,6 +321,22 @@ class DataClass:
         if value is None and cls._none_as_sentinel:
             return True
         return is_sentinel(value)
+
+    def with_updates(self, **kwargs: Any) -> DataClass:
+        """Return a new instance with updated fields."""
+        dict_ = self.to_dict()
+        dict_.update(kwargs)
+        return type(self)(**dict_)
+
+    def __hash__(self) -> int:
+        from ._hash import hash_dict
+
+        return hash_dict(self.to_dict())
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, DataClass):
+            return False
+        return hash(self) == hash(other)
 
 
 KeysLike = Sequence[str] | KeysDict
