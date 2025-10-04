@@ -182,8 +182,12 @@ class TestiModel:
         )
 
         # NOTE: request_options removed due to incorrect role literals in generated models
-        # Should return None when not configured
-        assert imodel.request_options is None
+        # Should return OpenAIChatCompletionsRequest for OpenAI
+        from lionagi.service.third_party.openai_models import (
+            OpenAIChatCompletionsRequest,
+        )
+
+        assert imodel.request_options == OpenAIChatCompletionsRequest
 
     @pytest.mark.asyncio
     async def test_error_handling_in_invoke(self):

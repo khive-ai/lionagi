@@ -39,8 +39,7 @@ from lionagi.protocols.types import (
     SenderRecipient,
     System,
 )
-from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.types import iModel, iModelManager
+from lionagi.service import Endpoint, iModel, iModelManager
 from lionagi.tools.base import LionTool
 from lionagi.utils import copy
 

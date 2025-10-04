@@ -18,45 +18,21 @@ from pydantic import BaseModel
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.third_party.openai_model_names import (
-    REASONING_MODELS,
-    is_reasoning_model,
-)
-
-__all__ = (
-    "OpenaiChatEndpoint",
-    "OpenaiResponseEndpoint",
-    "OpenaiEmbedEndpoint",
-    "OpenrouterChatEndpoint",
-    "GroqChatEndpoint",
-    "OPENAI_CHAT_ENDPOINT_CONFIG",
-    "OPENAI_RESPONSE_ENDPOINT_CONFIG",
-    "OPENAI_EMBEDDING_ENDPOINT_CONFIG",
-    "OPENROUTER_CHAT_ENDPOINT_CONFIG",
-    "OPENROUTER_GEMINI_ENDPOINT_CONFIG",
-    "GROQ_CHAT_ENDPOINT_CONFIG",
-    "REASONING_MODELS",
-    "REASONING_NOT_SUPPORT_PARAMS",
+from lionagi.service.third_party.openai_models import (
+    OpenAIChatCompletionsRequest,
 )
 
 
-def _get_openai_config(**kwargs):
-    """Create OpenAI endpoint configuration with defaults."""
-    config = dict(
-        name="openai_chat",
-        provider="openai",
-        base_url="https://api.openai.com/v1",
-        endpoint="chat/completions",
-        kwargs={"model": settings.OPENAI_DEFAULT_MODEL},
-        api_key=settings.OPENAI_API_KEY or "dummy-key-for-testing",
-        auth_type="bearer",
-        content_type="application/json",
-        method="POST",
-        requires_tokens=True,
-        # NOTE: OpenAI models have incorrect role literals, only use for param validation
-        # request_options=CreateChatCompletionRequest,
-    )
-    config.update(kwargs)
+def _get_oai_config(**kw):
+    config = {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "auth_type": "bearer",
+        "content_type": "application/json",
+        "method": "POST",
+        "api_key": settings.OPENAI_API_KEY or "dummy-key-for-testing",
+    }
+    config.update(kw)
     return EndpointConfig(**config)
 
 
@@ -72,8 +48,7 @@ def _get_openrouter_config(**kwargs):
         auth_type="bearer",
         content_type="application/json",
         method="POST",
-        # NOTE: OpenRouter uses OpenAI-compatible format
-        # request_options=CreateChatCompletionRequest,
+        request_options=OpenAIChatCompletionsRequest,
     )
     config.update(kwargs)
     return EndpointConfig(**config)
@@ -91,48 +66,21 @@ def _get_groq_config(**kwargs):
         auth_type="bearer",
         content_type="application/json",
         method="POST",
+        request_options=OpenAIChatCompletionsRequest,
     )
     config.update(kwargs)
     return EndpointConfig(**config)
 
 
-# OpenAI endpoints
-OPENAI_CHAT_ENDPOINT_CONFIG = _get_openai_config()
-
-OPENAI_RESPONSE_ENDPOINT_CONFIG = _get_openai_config(
-    name="openai_response",
-    endpoint="responses",
-)
-
-OPENAI_EMBEDDING_ENDPOINT_CONFIG = _get_openai_config(
-    name="openai_embed",
-    endpoint="embeddings",
-    kwargs={"model": "text-embedding-3-small"},
-)
-
-# OpenRouter endpoints
-OPENROUTER_CHAT_ENDPOINT_CONFIG = _get_openrouter_config()
-
-OPENROUTER_GEMINI_ENDPOINT_CONFIG = _get_openrouter_config(
-    name="openrouter_gemini",
-    kwargs={"model": "google/gemini-2.5-flash"},
-)
-
-# Groq endpoints
-GROQ_CHAT_ENDPOINT_CONFIG = _get_groq_config()
-
-REASONING_NOT_SUPPORT_PARAMS = (
-    "temperature",
-    "top_p",
-    "logit_bias",
-    "logprobs",
-    "top_logprobs",
-)
-
-
 class OpenaiChatEndpoint(Endpoint):
     def __init__(self, config=None, **kwargs):
-        config = config or _get_openai_config()
+        config = config or _get_oai_config(
+            name="oai_chat",
+            endpoint="chat/completions",
+            request_options=OpenAIChatCompletionsRequest,
+            kwargs={"model": settings.OPENAI_DEFAULT_MODEL},
+            requires_tokens=True,
+        )
         super().__init__(config, **kwargs)
 
     def create_payload(
@@ -145,34 +93,20 @@ class OpenaiChatEndpoint(Endpoint):
         payload, headers = super().create_payload(
             request, extra_headers, **kwargs
         )
-
-        # Handle reasoning models
-        model = payload.get("model")
-        if (
-            model
-            and is_reasoning_model(model)
-            and not model.startswith("gpt-5")
-        ):
-            # Remove unsupported parameters for reasoning models
-            for param in REASONING_NOT_SUPPORT_PARAMS:
-                payload.pop(param, None)
-
-            # Convert system role to developer role for reasoning models
-            if "messages" in payload and payload["messages"]:
-                if payload["messages"][0].get("role") == "system":
-                    payload["messages"][0]["role"] = "developer"
-        else:
-            # Remove reasoning_effort for non-reasoning models
-            payload.pop("reasoning_effort", None)
+        # Convert system role to developer role for reasoning models
+        if "messages" in payload and payload["messages"]:
+            if payload["messages"][0].get("role") == "system":
+                payload["messages"][0]["role"] = "developer"
 
         return (payload, headers)
 
 
 class OpenaiResponseEndpoint(Endpoint):
     def __init__(self, config=None, **kwargs):
-        config = config or _get_openai_config(
+        config = config or _get_oai_config(
             name="openai_response",
             endpoint="responses",
+            requires_tokens=True,
         )
         super().__init__(config, **kwargs)
 
@@ -191,9 +125,10 @@ class GroqChatEndpoint(Endpoint):
 
 class OpenaiEmbedEndpoint(Endpoint):
     def __init__(self, config=None, **kwargs):
-        config = config or _get_openai_config(
+        config = config or _get_oai_config(
             name="openai_embed",
             endpoint="embeddings",
             kwargs={"model": "text-embedding-3-small"},
+            requires_tokens=True,
         )
         super().__init__(config, **kwargs)

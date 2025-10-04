@@ -71,12 +71,14 @@ class AlwaysFalseCondition(EdgeCondition):
 
 def create_mock_branch(name: str = "TestBranch") -> Branch:
     """Create a Branch with mocked operations for testing."""
+    from lionagi.protocols.generic.event import EventStatus
     from lionagi.service.connections.api_calling import APICalling
     from lionagi.service.connections.endpoint import Endpoint
-    from lionagi.service.connections.providers.oai_ import (
-        OPENAI_CHAT_ENDPOINT_CONFIG,
-    )
+    from lionagi.service.connections.providers.oai_ import _get_oai_config
     from lionagi.service.imodel import iModel
+    from lionagi.service.third_party.openai_models import (
+        OpenAIChatCompletionsRequest,
+    )
 
     branch = Branch(user="test_user", name=name)
 
@@ -87,7 +89,13 @@ def create_mock_branch(name: str = "TestBranch") -> Branch:
         instruction = kwargs.get("messages", [{}])[0].get("content", "")
         branch.metadata["execution_history"].append(("chat", instruction))
 
-        endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+        config = _get_oai_config(
+            name="oai_chat",
+            endpoint="chat/completions",
+            request_options=OpenAIChatCompletionsRequest,
+            kwargs={"model": "gpt-4.1-mini"},
+        )
+        endpoint = Endpoint(config=config)
         fake_call = APICalling(
             payload={"model": "gpt-4-mini", "messages": []},
             headers={"Authorization": "Bearer test"},
@@ -756,11 +764,18 @@ async def test_performance_skip_expensive_operations():
         # Return proper API call format
         from lionagi.service.connections.api_calling import APICalling
         from lionagi.service.connections.endpoint import Endpoint
-        from lionagi.service.connections.providers.oai_ import (
-            OPENAI_CHAT_ENDPOINT_CONFIG,
+        from lionagi.service.connections.providers.oai_ import _get_oai_config
+        from lionagi.service.third_party.openai_models import (
+            OpenAIChatCompletionsRequest,
         )
 
-        endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+        config = _get_oai_config(
+            name="oai_chat",
+            endpoint="chat/completions",
+            request_options=OpenAIChatCompletionsRequest,
+            kwargs={"model": "gpt-4.1-mini"},
+        )
+        endpoint = Endpoint(config=config)
         fake_call = APICalling(
             payload={"model": "gpt-4-mini", "messages": []},
             headers={"Authorization": "Bearer test"},

@@ -103,7 +103,9 @@ class TestOpenAIIntegration:
         )
 
         assert len(payload["messages"]) == 2
-        assert payload["messages"][0]["role"] == "system"
+        assert (
+            payload["messages"][0]["role"] == "developer"
+        )  # Converted to developer for reasoning models
         assert payload["messages"][1]["role"] == "user"
 
     @pytest.mark.asyncio

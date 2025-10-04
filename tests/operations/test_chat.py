@@ -385,10 +385,19 @@ class TestStreamModeHandling:
             from lionagi.service.connections.api_calling import APICalling
             from lionagi.service.connections.endpoint import Endpoint
             from lionagi.service.connections.providers.oai_ import (
-                OPENAI_CHAT_ENDPOINT_CONFIG,
+                _get_oai_config,
+            )
+            from lionagi.service.third_party.openai_models import (
+                OpenAIChatCompletionsRequest,
             )
 
-            endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+            config = _get_oai_config(
+                name="oai_chat",
+                endpoint="chat/completions",
+                request_options=OpenAIChatCompletionsRequest,
+                kwargs={"model": "gpt-4.1-mini"},
+            )
+            endpoint = Endpoint(config=config)
             fake_call = APICalling(
                 payload={"model": "gpt-4.1-mini", "messages": []},
                 headers={"Authorization": "Bearer test"},
@@ -576,10 +585,11 @@ def make_mocked_branch_for_chat():
         from lionagi.protocols.generic.event import EventStatus
         from lionagi.service.connections.api_calling import APICalling
         from lionagi.service.connections.endpoint import Endpoint
-        from lionagi.service.connections.providers.oai_ import (
-            OPENAI_CHAT_ENDPOINT_CONFIG,
-        )
+        from lionagi.service.connections.providers.oai_ import _get_oai_config
         from lionagi.service.imodel import iModel
+        from lionagi.service.third_party.openai_models import (
+            OpenAIChatCompletionsRequest,
+        )
         from lionagi.session.branch import Branch
 
         branch = Branch(
@@ -589,7 +599,13 @@ def make_mocked_branch_for_chat():
 
         # Mock imodel.invoke
         async def _fake_invoke(**kwargs):
-            endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+            config = _get_oai_config(
+                name="oai_chat",
+                endpoint="chat/completions",
+                request_options=OpenAIChatCompletionsRequest,
+                kwargs={"model": "gpt-4.1-mini"},
+            )
+            endpoint = Endpoint(config=config)
             fake_call = APICalling(
                 payload={"model": "gpt-4.1-mini", "messages": []},
                 headers={"Authorization": "Bearer test"},

@@ -122,10 +122,7 @@ class Endpoint:
             # Validate the filtered payload
             payload = self.config.validate_payload(filtered_payload)
         else:
-            # If no request_options, we still need to remove obvious non-API params
-            # These are parameters that are never part of any API payload
             non_api_params = {
-                "task",
                 "provider",
                 "base_url",
                 "endpoint",
@@ -133,13 +130,9 @@ class Endpoint:
                 "api_key",
                 "queue_capacity",
                 "capacity_refresh_time",
-                "interval",
-                "limit_requests",
-                "limit_tokens",
                 "invoke_with_endpoint",
                 "extra_headers",
                 "headers",
-                "cache_control",
                 "include_token_usage_to_model",
                 "chat_model",
                 "imodel",
@@ -148,7 +141,6 @@ class Endpoint:
                 "aggregation_count",
                 "action_strategy",
                 "parse_model",
-                "reason",
                 "actions",
                 "return_operative",
                 "operative_model",
