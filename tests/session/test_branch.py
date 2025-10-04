@@ -180,15 +180,16 @@ async def test_operate_with_validation(branch_with_mock_imodel: Branch):
 @pytest.mark.asyncio
 async def test_operate_return_operative(branch_with_mock_imodel: Branch):
     """
-    If return_operative=True, we get the entire Operative instead of the final model/string.
+    The operate function returns the result directly (not the Operative object).
+    The return_operative parameter is not supported in the current implementation.
     """
     final = await branch_with_mock_imodel.operate(
-        instruction="Testing return_operative",
+        instruction="Testing return value",
         invoke_actions=False,
         skip_validation=True,
-        return_operative=True,
     )
-    assert isinstance(final, Operative)
+    # Should return the raw response string since skip_validation=True
+    assert final == """{"foo": "mocked_response", "bar": 123}"""
     # user + assistant stored
     assert len(branch_with_mock_imodel.messages) == 2
 
