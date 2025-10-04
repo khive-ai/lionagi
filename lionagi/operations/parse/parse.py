@@ -172,7 +172,16 @@ def _validate_dict_or_model(
         dict_, keys_ = None, None
         if d_:
             dict_ = to_list(d_, flatten=True)[0]
-        if fuzzy_match_params:
+        if isinstance(fuzzy_match_params, FuzzyMatchKeysParams):
+            keys_ = (
+                response_format.model_fields
+                if isinstance(response_format, type)
+                else response_format
+            )
+            dict_ = fuzzy_validate_mapping(
+                dict_, keys_, **fuzzy_match_params.to_dict()
+            )
+        elif fuzzy_match_params:
             keys_ = (
                 response_format.model_fields
                 if isinstance(response_format, type)
@@ -184,10 +193,6 @@ def _validate_dict_or_model(
                 handle_unmatched="force",
                 fill_value=None,
                 strict=False,
-            )
-        elif isinstance(fuzzy_match_params, FuzzyMatchKeysParams):
-            dict_ = fuzzy_validate_mapping(
-                dict_, keys_, **fuzzy_match_params.to_dict()
             )
         if isinstance(response_format, type) and issubclass(
             response_format, BaseModel
