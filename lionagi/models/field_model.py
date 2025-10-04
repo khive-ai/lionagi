@@ -513,6 +513,15 @@ class FieldModel(Params):
                     # These are FieldTemplate markers, don't pass to FieldInfo
                     pass
                 else:
+                    # Filter out unserializable objects from json_schema_extra
+                    # to avoid Pydantic serialization errors when generating JSON schema
+                    from pydantic import BaseModel
+
+                    # Skip model classes and other unserializable types
+                    if isinstance(meta.value, type):
+                        # Skip type objects (including model classes) - they can't be serialized
+                        continue
+
                     # Any other metadata goes in json_schema_extra
                     if "json_schema_extra" not in field_kwargs:
                         field_kwargs["json_schema_extra"] = {}

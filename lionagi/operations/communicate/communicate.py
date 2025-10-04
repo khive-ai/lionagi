@@ -1,11 +1,17 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-import logging
-from typing import TYPE_CHECKING
+import warnings
+from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import JsonValue
+
+from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
-from lionagi.utils import UNDEFINED
+from lionagi.ln.types import Undefined
+from lionagi.protocols.types import AssistantResponse, Instruction
+
+from ..types import ChatContext, ParseContext
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -29,7 +35,7 @@ async def communicate(
     parse_model=None,
     skip_validation=False,
     images=None,
-    image_detail="auto",
+    image_detail: Literal["low", "high", "auto"] = "auto",
     num_parse_retries=3,
     fuzzy_match_kwargs=None,
     clear_messages=False,
@@ -37,88 +43,138 @@ async def communicate(
     include_token_usage_to_model: bool = False,
     **kwargs,
 ):
+    # Handle deprecated parameters
     if operative_model:
-        logging.warning(
-            "operative_model is deprecated. Use response_format instead."
+        warnings.warn(
+            "Parameter 'operative_model' is deprecated. Use 'response_format' instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
+
     if (
         (operative_model and response_format)
         or (operative_model and request_model)
         or (response_format and request_model)
     ):
         raise ValueError(
-            "Cannot specify both operative_model and response_format"
-            "or operative_model and request_model as they are aliases"
+            "Cannot specify both operative_model and response_format "
+            "or operative_model and request_model as they are aliases "
             "for the same parameter."
         )
 
     response_format = response_format or operative_model or request_model
-
     imodel = imodel or chat_model or branch.chat_model
     parse_model = parse_model or branch.parse_model
 
-    if clear_messages:
-        branch.msgs.clear_messages()
-
     if num_parse_retries > 5:
-        logging.warning(
-            f"Are you sure you want to retry {num_parse_retries} "
-            "times? lowering retry attempts to 5. Suggestion is under 3"
+        warnings.warn(
+            f"num_parse_retries={num_parse_retries} is high. Lowering to 5. Suggestion: <3",
+            UserWarning,
+            stacklevel=2,
         )
         num_parse_retries = 5
 
-    ins, res = await branch.chat(
-        instruction=instruction,
+    # Build contexts
+    chat_ctx = ChatContext(
         guidance=guidance,
         context=context,
-        sender=sender,
-        recipient=recipient,
+        sender=sender or branch.user or "user",
+        recipient=recipient or branch.id,
         response_format=response_format,
         progression=progression,
-        imodel=imodel,
-        images=images,
+        tool_schemas=[],
+        images=images or [],
         image_detail=image_detail,
-        plain_content=plain_content,
-        return_ins_res_message=True,
+        plain_content=plain_content or "",
         include_token_usage_to_model=include_token_usage_to_model,
-        **kwargs,
+        imodel=imodel,
+        imodel_kw=kwargs,
     )
+
+    parse_ctx = None
+    if response_format and not skip_validation:
+        from ..parse.parse import get_default_call
+
+        fuzzy_kw = fuzzy_match_kwargs or {}
+        handle_validation = fuzzy_kw.pop("handle_validation", "raise")
+
+        parse_ctx = ParseContext(
+            response_format=response_format,
+            fuzzy_match_params=(
+                FuzzyMatchKeysParams(**fuzzy_kw)
+                if fuzzy_kw
+                else FuzzyMatchKeysParams()
+            ),
+            handle_validation=handle_validation,
+            alcall_params=get_default_call().with_updates(
+                retry_attempts=num_parse_retries
+            ),
+            imodel=parse_model,
+            imodel_kw={},
+        )
+
+    return await communicate_v1(
+        branch,
+        instruction=instruction,
+        chat_ctx=chat_ctx,
+        parse_ctx=parse_ctx,
+        clear_messages=clear_messages,
+        skip_validation=skip_validation,
+        request_fields=request_fields,
+    )
+
+
+async def communicate_v1(
+    branch: "Branch",
+    instruction: JsonValue | Instruction,
+    chat_ctx: ChatContext,
+    parse_ctx: ParseContext | None = None,
+    clear_messages: bool = False,
+    skip_validation: bool = False,
+    request_fields: dict | None = None,
+) -> Any:
+    if clear_messages:
+        branch.msgs.clear_messages()
+
+    from ..chat.chat import chat_v1
+
+    ins, res = await chat_v1(
+        branch, instruction, chat_ctx, return_ins_res_message=True
+    )
+
     branch.msgs.add_message(instruction=ins)
     branch.msgs.add_message(assistant_response=res)
 
     if skip_validation:
         return res.response
 
-    if response_format is not None:
-        # Default to raising errors unless explicitly set in fuzzy_match_kwargs
-        parse_kwargs = {
-            "handle_validation": "raise",  # Default to raising errors
-            **(fuzzy_match_kwargs or {}),
-        }
+    # Handle response_format with parse
+    if parse_ctx and chat_ctx.response_format:
+        from ..parse.parse import parse_v1
 
         try:
-            return await branch.parse(
-                text=res.response,
-                request_type=response_format,
-                max_retries=num_parse_retries,
-                **parse_kwargs,
+            out, res2 = await parse_v1(
+                branch, res.response, parse_ctx, return_res_message=True
             )
+            if res2 and isinstance(res2, AssistantResponse):
+                res.metadata["original_model_response"] = res.model_response
+                # model_response is read-only property - update metadata instead
+                res.metadata["model_response"] = res2.model_response
+            return out
         except ValueError as e:
             # Re-raise with more context
-            logging.error(
-                f"Failed to parse response '{res.response}' into {response_format}: {e}"
-            )
             raise ValueError(
-                f"Failed to parse model response into {response_format.__name__}: {e}"
+                f"Failed to parse model response into {chat_ctx.response_format}: {e}"
             ) from e
 
+    # Handle request_fields with fuzzy validation
     if request_fields is not None:
         _d = fuzzy_validate_mapping(
             res.response,
             request_fields,
             handle_unmatched="force",
-            fill_value=UNDEFINED,
+            fill_value=Undefined,
         )
-        return {k: v for k, v in _d.items() if v != UNDEFINED}
+        return {k: v for k, v in _d.items() if v != Undefined}
 
     return res.response

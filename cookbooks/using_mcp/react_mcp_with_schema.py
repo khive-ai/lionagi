@@ -69,7 +69,7 @@ async def test_react_with_mcp():
                 ),
                 "context": {},
             },
-            tools=["search_exa_search", "search_perplexity_search"],
+            tools=["exa_search", "perplexity_search"],
             max_extensions=3,
             verbose=True,
         )

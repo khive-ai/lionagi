@@ -3,23 +3,36 @@
 
 import logging
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Literal
+from copy import copy as shallow_copy
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from lionagi.fields.instruct import Instruct
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.libs.validate.common_field_validators import (
     validate_model_to_type,
 )
-from lionagi.models import FieldModel, ModelParams
+from lionagi.ln.fuzzy import FuzzyMatchKeysParams
+from lionagi.models import FieldModel, OperableModel
 from lionagi.service.imodel import iModel
-from lionagi.utils import copy
 
+from ..types import (
+    ActionContext,
+    ChatContext,
+    HandleValidation,
+    InterpretContext,
+    ParseContext,
+)
 from .utils import Analysis, ReActAnalysis
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
+
+B = TypeVar("B", bound=type[BaseModel])
+logger = logging.getLogger(__name__)
 
 
 async def ReAct(
@@ -29,7 +42,7 @@ async def ReAct(
     interpret_domain: str | None = None,
     interpret_style: str | None = None,
     interpret_sample: str | None = None,
-    interpret_model: str | None = None,
+    interpret_model: iModel | None = None,
     interpret_kwargs: dict | None = None,
     tools: Any = None,
     tool_schemas: Any = None,
@@ -49,33 +62,158 @@ async def ReAct(
     continue_after_failed_response: bool = False,
     **kwargs,
 ):
+    """ReAct reasoning loop with legacy API - wrapper around ReAct_v1."""
+
+    # Convert Instruct to dict if needed
+    instruct_dict = (
+        instruct.to_dict()
+        if isinstance(instruct, Instruct)
+        else dict(instruct)
+    )
+
+    # Build InterpretContext if interpretation requested
+    intp_ctx = None
+    if interpret:
+        intp_ctx = InterpretContext(
+            domain=interpret_domain or "general",
+            style=interpret_style or "concise",
+            sample_writing=interpret_sample or "",
+            imodel=interpret_model or analysis_model or branch.chat_model,
+            imodel_kw=interpret_kwargs or {},
+        )
+
+    # Build ChatContext
+    chat_ctx = ChatContext(
+        guidance=instruct_dict.get("guidance"),
+        context=instruct_dict.get("context"),
+        sender=branch.user or "user",
+        recipient=branch.id,
+        response_format=None,  # Will be set in operate calls
+        progression=None,
+        tool_schemas=tool_schemas or [],
+        images=[],
+        image_detail="auto",
+        plain_content="",
+        include_token_usage_to_model=include_token_usage_to_model,
+        imodel=analysis_model or branch.chat_model,
+        imodel_kw=kwargs,
+    )
+
+    # Build ActionContext
+    action_ctx = None
+    if tools is not None or tool_schemas is not None:
+        from ..act.act import _get_default_call_params
+
+        action_ctx = ActionContext(
+            action_call_params=_get_default_call_params(),
+            tools=tools or True,
+            strategy="concurrent",
+            suppress_errors=True,
+            verbose_action=False,
+        )
+
+    # Build ParseContext
+    from ..parse.parse import get_default_call
+
+    parse_ctx = ParseContext(
+        response_format=ReActAnalysis,  # Initial format
+        fuzzy_match_params=FuzzyMatchKeysParams(),
+        handle_validation="return_value",
+        alcall_params=get_default_call(),
+        imodel=analysis_model or branch.chat_model,
+        imodel_kw={},
+    )
+
+    # Response context for final answer
+    resp_ctx = response_kwargs or {}
+    if response_format:
+        resp_ctx["response_format"] = response_format
+
+    return await ReAct_v1(
+        branch,
+        instruction=instruct_dict.get("instruction", str(instruct)),
+        chat_ctx=chat_ctx,
+        action_ctx=action_ctx,
+        parse_ctx=parse_ctx,
+        intp_ctx=intp_ctx,
+        resp_ctx=resp_ctx,
+        reasoning_effort=reasoning_effort,
+        reason=True,  # ReAct always uses reasoning
+        field_models=None,
+        handle_validation="return_value",
+        invoke_actions=True,  # ReAct always invokes actions
+        clear_messages=False,
+        intermediate_response_options=intermediate_response_options,
+        intermediate_listable=intermediate_listable,
+        intermediate_nullable=False,
+        max_extensions=max_extensions,
+        extension_allowed=extension_allowed,
+        verbose_analysis=verbose_analysis,
+        display_as=display_as,
+        verbose_length=verbose_length,
+        continue_after_failed_response=continue_after_failed_response,
+        return_analysis=return_analysis,
+    )
+
+
+async def ReAct_v1(
+    branch: "Branch",
+    instruction: str,
+    chat_ctx: ChatContext,
+    action_ctx: ActionContext | None = None,
+    parse_ctx: ParseContext | None = None,
+    intp_ctx: InterpretContext | None = None,
+    resp_ctx: dict | None = None,
+    reasoning_effort: Literal["low", "medium", "high"] | None = None,
+    reason: bool = False,
+    field_models: list[FieldModel] | None = None,
+    handle_validation: HandleValidation = "raise",
+    invoke_actions: bool = True,
+    clear_messages=False,
+    intermediate_response_options: B | list[B] = None,
+    intermediate_listable: bool = False,
+    intermediate_nullable: bool = False,
+    max_extensions: int | None = 0,
+    extension_allowed: bool = True,
+    verbose_analysis: bool = False,
+    display_as: Literal["yaml", "json"] = "yaml",
+    verbose_length: int = None,
+    continue_after_failed_response: bool = False,
+    return_analysis: bool = False,
+):
+    """
+    Context-based ReAct implementation - collects all outputs from ReActStream.
+
+    Args:
+        return_analysis: If True, returns list of all intermediate analyses.
+                        If False, returns only the final result.
+    """
     outs = []
+
     if verbose_analysis:
         async for i in ReActStream(
             branch=branch,
-            instruct=instruct,
-            interpret=interpret,
-            interpret_domain=interpret_domain,
-            interpret_style=interpret_style,
-            interpret_sample=interpret_sample,
-            interpret_model=interpret_model,
-            interpret_kwargs=interpret_kwargs,
-            tools=tools,
-            tool_schemas=tool_schemas,
-            response_format=response_format,
+            instruction=instruction,
+            chat_ctx=chat_ctx,
+            action_ctx=action_ctx,
+            parse_ctx=parse_ctx,
+            intp_ctx=intp_ctx,
+            resp_ctx=resp_ctx,
+            reasoning_effort=reasoning_effort,
+            reason=reason,
+            field_models=field_models,
+            handle_validation=handle_validation,
+            invoke_actions=invoke_actions,
+            clear_messages=clear_messages,
             intermediate_response_options=intermediate_response_options,
             intermediate_listable=intermediate_listable,
-            reasoning_effort=reasoning_effort,
-            extension_allowed=extension_allowed,
+            intermediate_nullable=intermediate_nullable,
             max_extensions=max_extensions,
-            response_kwargs=response_kwargs,
-            analysis_model=analysis_model,
+            extension_allowed=extension_allowed,
             verbose_analysis=verbose_analysis,
             display_as=display_as,
             verbose_length=verbose_length,
-            include_token_usage_to_model=include_token_usage_to_model,
             continue_after_failed_response=continue_after_failed_response,
-            **kwargs,
         ):
             analysis, str_ = i
             str_ += "\n---------\n"
@@ -84,228 +222,260 @@ async def ReAct(
     else:
         async for i in ReActStream(
             branch=branch,
-            instruct=instruct,
-            interpret=interpret,
-            interpret_domain=interpret_domain,
-            interpret_style=interpret_style,
-            interpret_sample=interpret_sample,
-            interpret_model=interpret_model,
-            interpret_kwargs=interpret_kwargs,
-            tools=tools,
-            tool_schemas=tool_schemas,
-            response_format=response_format,
+            instruction=instruction,
+            chat_ctx=chat_ctx,
+            action_ctx=action_ctx,
+            parse_ctx=parse_ctx,
+            intp_ctx=intp_ctx,
+            resp_ctx=resp_ctx,
+            reasoning_effort=reasoning_effort,
+            reason=reason,
+            field_models=field_models,
+            handle_validation=handle_validation,
+            invoke_actions=invoke_actions,
+            clear_messages=clear_messages,
             intermediate_response_options=intermediate_response_options,
             intermediate_listable=intermediate_listable,
-            reasoning_effort=reasoning_effort,
-            extension_allowed=extension_allowed,
+            intermediate_nullable=intermediate_nullable,
             max_extensions=max_extensions,
-            response_kwargs=response_kwargs,
-            analysis_model=analysis_model,
+            extension_allowed=extension_allowed,
+            verbose_analysis=verbose_analysis,
             display_as=display_as,
             verbose_length=verbose_length,
-            include_token_usage_to_model=include_token_usage_to_model,
             continue_after_failed_response=continue_after_failed_response,
-            **kwargs,
         ):
             outs.append(i)
+
     if return_analysis:
         return outs
     return outs[-1]
 
 
+async def handle_instruction_interpretation(
+    branch: "Branch",
+    instruction: str,
+    chat_ctx: ChatContext,
+    intp_ctx: InterpretContext | None,
+):
+    """Handle instruction interpretation if requested."""
+    if not intp_ctx:
+        return instruction
+
+    from ..interpret.interpret import interpret_v1
+
+    return await interpret_v1(branch, instruction, intp_ctx)
+
+
+def handle_field_models(
+    field_models: list[FieldModel] | None,
+    intermediate_response_options: B | list[B] = None,
+    intermediate_listable: bool = False,
+    intermediate_nullable: bool = False,
+):
+    """Build field models including intermediate response options."""
+    fms = [] if not field_models else field_models
+
+    if intermediate_response_options:
+
+        def create_intermediate_response_field_model():
+            _iro = intermediate_response_options
+            iro = [_iro] if not isinstance(_iro, list) else _iro
+            opm = OperableModel()
+
+            for i in iro:
+                type_ = validate_model_to_type(None, i)
+                opm.add_field(
+                    str(type_.__name__).lower(),
+                    annotation=type_ | None,
+                    # Remove lambda validator to avoid Pydantic serialization errors
+                )
+
+            m_ = opm.new_model(name="IntermediateResponseOptions")
+            irfm = FieldModel(
+                name="intermediate_response_options",
+                base_type=m_,
+                description="Intermediate deliverable outputs. fill as needed ",
+                # Remove lambda validator to avoid Pydantic serialization errors
+            )
+
+            if intermediate_listable:
+                irfm = irfm.as_listable()
+
+            if intermediate_nullable:
+                irfm = irfm.as_nullable()
+
+            return irfm
+
+        fms = [fms] if not isinstance(fms, list) else fms
+        fms += [create_intermediate_response_field_model()]
+
+    return fms
+
+
 async def ReActStream(
     branch: "Branch",
-    instruct: Instruct | dict[str, Any],
-    interpret: bool = False,
-    interpret_domain: str | None = None,
-    interpret_style: str | None = None,
-    interpret_sample: str | None = None,
-    interpret_model: str | None = None,
-    interpret_kwargs: dict | None = None,
-    tools: Any = None,
-    tool_schemas: Any = None,
-    response_format: type[BaseModel] | BaseModel = None,
-    intermediate_response_options: list[BaseModel] | BaseModel = None,
+    instruction: str,
+    chat_ctx: ChatContext,
+    action_ctx: ActionContext | None = None,
+    parse_ctx: ParseContext | None = None,
+    intp_ctx: InterpretContext | None = None,
+    resp_ctx: dict | None = None,
+    reasoning_effort: Literal["low", "medium", "high"] | None = None,
+    reason: bool = False,
+    field_models: list[FieldModel] | None = None,
+    handle_validation: HandleValidation = "raise",
+    invoke_actions: bool = True,
+    clear_messages=False,
+    intermediate_response_options: B | list[B] = None,
     intermediate_listable: bool = False,
-    reasoning_effort: Literal["low", "medium", "high"] = None,
+    intermediate_nullable: bool = False,
+    max_extensions: int | None = 0,
     extension_allowed: bool = True,
-    max_extensions: int | None = 3,
-    response_kwargs: dict | None = None,
-    analysis_model: iModel | None = None,
     verbose_analysis: bool = False,
-    display_as: Literal["json", "yaml"] = "yaml",
+    display_as: Literal["yaml", "json"] = "yaml",
     verbose_length: int = None,
-    include_token_usage_to_model: bool = True,
     continue_after_failed_response: bool = False,
-    **kwargs,
 ) -> AsyncGenerator:
-    irfm: FieldModel | None = None
+    """Core ReAct streaming implementation with context-based architecture."""
 
-    if intermediate_response_options is not None:
-        iro = (
-            [intermediate_response_options]
-            if not isinstance(intermediate_response_options, list)
-            else intermediate_response_options
-        )
-        field_models = []
-        for i in iro:
-            type_ = validate_model_to_type(None, i)
-            fm = FieldModel(
-                name=str(type_.__name__).lower(),
-                annotation=type_ | None,
-                validator=lambda cls, x: None if x == {} else x,
-            )
-            field_models.append(fm)
-
-        m_ = ModelParams(
-            name="IntermediateResponseOptions", field_models=field_models
-        ).create_new_model()
-
-        irfm = FieldModel(
-            name="intermediate_response_options",
-            annotation=(
-                m_ | None if not intermediate_listable else list[m_] | None
-            ),
-            description="Optional intermediate deliverable outputs. fill as needed ",
-            validator=lambda cls, x: None if not x else x,
-        )
-
-    # If no tools or tool schemas are provided, default to "all tools"
-    if not tools and not tool_schemas:
-        tools = True
-
-    # Possibly interpret the instruction to refine it
-    instruction_str = None
-    if interpret:
-        instruction_str = await branch.interpret(
-            str(
-                instruct.to_dict()
-                if isinstance(instruct, Instruct)
-                else instruct
-            ),
-            domain=interpret_domain,
-            style=interpret_style,
-            sample_writing=interpret_sample,
-            interpret_model=interpret_model,
-            **(interpret_kwargs or {}),
-        )
-        if verbose_analysis:
-            str_ = "\n### Interpreted instruction:\n"
-            str_ += as_readable(
-                instruction_str,
-                md=True,
-                format_curly=True if display_as == "yaml" else False,
-                max_chars=verbose_length,
-            )
-            yield instruction_str, str_
-        else:
-            yield instruction_str
-
-    # Convert Instruct to dict if necessary
-    instruct_dict = (
-        instruct.to_dict()
-        if isinstance(instruct, Instruct)
-        else dict(instruct)
-    )
-
-    # Overwrite "instruction" with the interpreted prompt (if any) plus a note about expansions
-    max_ext_info = f"\nIf needed, you can do up to {max_extensions or 0 if extension_allowed else 0} expansions."
-    instruct_dict["instruction"] = (
-        instruction_str
-        or (instruct_dict.get("instruction") or "")  # in case it's missing
-    ) + max_ext_info
-
-    # Prepare a copy of user-provided kwargs for the first operate call
-    kwargs_for_operate = copy(kwargs)
-    kwargs_for_operate["actions"] = True
-    kwargs_for_operate["reason"] = True
-    kwargs_for_operate["include_token_usage_to_model"] = (
-        include_token_usage_to_model
-    )
-
-    # Step 1: Generate initial ReAct analysis
-    analysis: ReActAnalysis = await branch.operate(
-        instruct=instruct_dict,
-        response_format=ReActAnalysis,
-        tools=tools,
-        tool_schemas=tool_schemas,
-        chat_model=analysis_model or branch.chat_model,
-        **kwargs_for_operate,
-    )
-    # If verbose, show round #1 analysis
-    if verbose_analysis:
-        str_ = "\n### ReAct Round No.1 Analysis:\n"
-        str_ += as_readable(
-            analysis,
-            md=True,
-            format_curly=True if display_as == "yaml" else False,
-            max_chars=verbose_length,
-        )
-        yield analysis, str_
-    else:
-        yield analysis
-
-    # Validate and clamp max_extensions if needed
+    # Validate and clamp max_extensions
     if max_extensions and max_extensions > 100:
-        logging.warning(
+        logger.warning(
             "max_extensions should not exceed 100; defaulting to 100."
         )
         max_extensions = 100
 
-    # Step 2: Possibly loop through expansions if extension_needed
-    extensions = max_extensions
+    def verbose_yield(title, s_):
+        if verbose_analysis:
+            str_ = title + "\n"
+            str_ += as_readable(
+                s_,
+                md=True,
+                format_curly=True if display_as == "yaml" else False,
+                max_chars=verbose_length,
+            )
+            return s_, str_
+        else:
+            return s_
+
+    # Step 1: Interpret instruction if requested
+    ins_str = await handle_instruction_interpretation(
+        branch, instruction=instruction, chat_ctx=chat_ctx, intp_ctx=intp_ctx
+    )
+    # Only yield interpreted instruction if verbose or if interpretation was actually done
+    if verbose_analysis or intp_ctx:
+        out = verbose_yield("\n### Interpreted instruction:\n", ins_str)
+        yield out
+
+    # Step 2: Handle field models
+    fms = handle_field_models(
+        field_models,
+        intermediate_response_options,
+        intermediate_listable,
+        intermediate_nullable,
+    )
+
+    # Step 3: Initial ReAct analysis
+    analysis = await branch.operate(
+        instruction=ins_str
+        + f"\nIf needed, you can do up to {max_extensions or 0 if extension_allowed else 0} expansions.",
+        response_format=ReActAnalysis,
+        tools=action_ctx.tools if action_ctx else True,
+        actions=True,
+        reason=reason,
+        field_models=fms,
+        handle_validation=handle_validation,
+        invoke_actions=invoke_actions,
+        skip_validation=False,
+        clear_messages=clear_messages,
+        chat_model=chat_ctx.imodel,
+        **chat_ctx.imodel_kw,
+    )
+
+    out = verbose_yield("\n### ReAct Round No.1 Analysis:\n", analysis)
+    yield out
+
+    # Step 4: Extension loop
+    extensions = max_extensions or 0
     round_count = 1
 
-    while (
-        extension_allowed and analysis.extension_needed
-        if hasattr(analysis, "extension_needed")
-        else (
-            analysis.get("extension_needed", None)
-            if isinstance(analysis, dict)
-            else False
-        )
-        and (extensions - 1 if max_extensions else 0) > 0
-    ):
+    def _need_extension(analysis):
+        if hasattr(analysis, "extension_needed"):
+            return analysis.extension_needed
+        if isinstance(analysis, dict):
+            return analysis.get("extension_needed", False)
+        return False
+
+    def _extension_allowed(exts):
+        return extension_allowed and exts > 0
+
+    def prepare_analysis_kwargs(exts):
         new_instruction = None
-        if extensions == max_extensions:
+        if exts == max_extensions:
             new_instruction = ReActAnalysis.FIRST_EXT_PROMPT.format(
-                extensions=extensions
+                extensions=exts
             )
         else:
             new_instruction = ReActAnalysis.CONTINUE_EXT_PROMPT.format(
-                extensions=extensions
+                extensions=exts
             )
 
-        operate_kwargs = copy(kwargs)
-        operate_kwargs["actions"] = True
-        operate_kwargs["reason"] = True
-        operate_kwargs["response_format"] = ReActAnalysis
-        operate_kwargs["action_strategy"] = analysis.action_strategy
-        operate_kwargs["include_token_usage_to_model"] = (
-            include_token_usage_to_model
+        # Shallow copy contexts to avoid mutation (deep copy fails with unpicklable iModel)
+        _cctx = shallow_copy(chat_ctx)
+        _cctx.response_format = ReActAnalysis
+
+        _actx = (
+            shallow_copy(action_ctx)
+            if action_ctx
+            else ActionContext(
+                action_call_params=None,
+                tools=True,
+                strategy="concurrent",
+                suppress_errors=True,
+                verbose_action=False,
+            )
         )
-        if irfm:
-            operate_kwargs["field_models"] = operate_kwargs.get(
-                "field_models", []
-            ) + [irfm]
-        if reasoning_effort:
-            guide = None
-            if reasoning_effort == "low":
-                guide = "Quick concise reasoning.\n"
-            if reasoning_effort == "medium":
-                guide = "Reasonably balanced reasoning.\n"
-            if reasoning_effort == "high":
-                guide = "Thorough, try as hard as you can in reasoning.\n"
-            operate_kwargs["guidance"] = guide + operate_kwargs.get(
-                "guidance", ""
-            )
-            operate_kwargs["reasoning_effort"] = reasoning_effort
+        _actx.strategy = getattr(analysis, "action_strategy", "concurrent")
 
+        if reasoning_effort:
+            guide = {
+                "low": "Quick concise reasoning.\n",
+                "medium": "Reasonably balanced reasoning.\n",
+                "high": "Thorough, try as hard as you can in reasoning.\n",
+            }.get(reasoning_effort, "")
+
+            _cctx.guidance = (guide or "") + (_cctx.guidance or "")
+            if _cctx.imodel_kw is None:
+                _cctx.imodel_kw = {}
+            _cctx.imodel_kw["reasoning_effort"] = reasoning_effort
+
+        return {
+            "instruction": new_instruction,
+            "chat_ctx": _cctx,
+            "action_ctx": _actx,
+            "reason": reason,
+            "field_models": fms,
+        }
+
+    while _extension_allowed(extensions) and _need_extension(analysis):
+        kwargs = prepare_analysis_kwargs(extensions)
+        # Convert contexts back to legacy parameters
         analysis = await branch.operate(
-            instruction=new_instruction,
-            tools=tools,
-            tool_schemas=tool_schemas,
-            **operate_kwargs,
+            instruction=kwargs["instruction"],
+            response_format=kwargs["chat_ctx"].response_format,
+            tools=(
+                kwargs["action_ctx"].tools
+                if kwargs.get("action_ctx")
+                else True
+            ),
+            actions=True,
+            reason=kwargs.get("reason", True),
+            field_models=kwargs.get("field_models"),
+            handle_validation=handle_validation,
+            invoke_actions=invoke_actions,
+            skip_validation=False,
+            chat_model=kwargs["chat_ctx"].imodel,
+            **kwargs["chat_ctx"].imodel_kw,
         )
         round_count += 1
 
@@ -319,40 +489,32 @@ async def ReActStream(
                     "Set `continue_after_failed_response=True` to ignore this error."
                 )
 
-        # If verbose, show round analysis
-        if verbose_analysis:
-            str_ = f"\n### ReAct Round No.{round_count} Analysis:\n"
-
-            str_ += as_readable(
-                analysis,
-                md=True,
-                format_curly=True if display_as == "yaml" else False,
-                max_chars=verbose_length,
-            )
-
-            yield analysis, str_
-        else:
-            yield analysis
+        out = verbose_yield(
+            f"\n### ReAct Round No.{round_count} Analysis:\n", analysis
+        )
+        yield out
 
         if extensions:
             extensions -= 1
 
-    # Step 3: Produce final answer by calling branch.instruct with an answer prompt
-    answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(
-        instruction=instruct_dict["instruction"]
+    # Step 5: Final answer
+    answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction=ins_str)
+
+    final_response_format = (
+        resp_ctx.get("response_format") if resp_ctx else None
     )
-    if not response_format:
-        response_format = Analysis
+    if not final_response_format:
+        final_response_format = Analysis
 
     try:
         out = await branch.operate(
             instruction=answer_prompt,
-            response_format=response_format,
-            **(response_kwargs or {}),
+            response_format=final_response_format,
+            chat_model=chat_ctx.imodel,
+            **(resp_ctx or {}),
         )
-        if isinstance(analysis, dict) and all(
-            i is None for i in analysis.values()
-        ):
+
+        if isinstance(out, dict) and all(i is None for i in out.values()):
             if not continue_after_failed_response:
                 raise ValueError(
                     "All values in the response are None. "
@@ -362,20 +524,6 @@ async def ReActStream(
     except Exception:
         out = branch.msgs.last_response.response
 
-    if isinstance(out, Analysis):
-        out = out.answer
-
-    if verbose_analysis:
-        str_ = "\n### ReAct Final Answer:\n"
-        str_ += as_readable(
-            out,
-            md=True,
-            format_curly=True if display_as == "yaml" else False,
-            max_chars=verbose_length,
-        )
-        yield out, str_
-    else:
-        yield out
-
-
-# TODO: Do partial intermeditate output for longer analysis with form and report
+    # Don't extract .answer - return the full Analysis object
+    _o = verbose_yield("\n### ReAct Final Answer:\n", out)
+    yield _o

@@ -283,8 +283,19 @@ def prepare_instruction_content(
 
     if request_model:
         out_["request_model"] = request_model
-        request_fields = breakdown_pydantic_annotation(request_model)
-        out_["respond_schema_info"] = request_model.model_json_schema()
+        # Handle both dict and BaseModel types for request_model
+        if isinstance(request_model, dict):
+            # If it's already a dict, use it as request_fields directly
+            request_fields = request_model
+        elif isinstance(request_model, type) and issubclass(
+            request_model, BaseModel
+        ):
+            # If it's a Pydantic model class, break it down
+            request_fields = breakdown_pydantic_annotation(request_model)
+            out_["respond_schema_info"] = request_model.model_json_schema()
+        else:
+            # Otherwise, skip processing
+            request_fields = None
 
     if request_fields:
         _fields = request_fields if isinstance(request_fields, dict) else {}

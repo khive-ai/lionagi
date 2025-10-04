@@ -1,20 +1,36 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+import contextlib
+import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
+
+from lionagi.ln import (
+    extract_json,
+    fuzzy_validate_mapping,
+    get_cancelled_exc_class,
+    json_dumps,
+    to_list,
+)
+from lionagi.ln.fuzzy import FuzzyMatchKeysParams, fuzzy_validate_pydantic
+from lionagi.protocols.types import AssistantResponse
+from lionagi.session.branch import AlcallParams
+
+from ..types import HandleValidation, ParseContext
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
+_CALL = None  # type: ignore
+
+
 async def parse(
     branch: "Branch",
     text: str,
-    handle_validation: Literal[
-        "raise", "return_value", "return_none"
-    ] = "return_value",
+    handle_validation: HandleValidation = "return_value",
     max_retries: int = 3,
     request_type: type[BaseModel] = None,
     operative=None,
@@ -29,159 +45,173 @@ async def parse(
     strict: bool = False,
     suppress_conversion_errors: bool = False,
     response_format=None,
+    request_fields=None,
+    return_res_message: bool = False,
+    **kw,
 ):
-    from lionagi.libs.schema.breakdown_pydantic_annotation import (
-        breakdown_pydantic_annotation,
-    )
-    from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 
-    if operative is not None:
-        max_retries = operative.max_retries
-        response_format = operative.request_type or response_format
-        request_type = request_type or operative.request_type
-
-    if not request_type and not response_format:
-        raise ValueError(
-            "Either request_type or response_format must be provided"
+    if suppress_conversion_errors:
+        warnings.warn(
+            "Parameter 'suppress_conversion_errors' is deprecated and no longer used. "
+            "It will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
         )
 
-    request_type = request_type or response_format
+    response_format = (
+        operative.request_type
+        if operative
+        else response_format or request_type
+    )
+    _alcall_params = get_default_call()
+    max_retries = operative.max_retries if operative else max_retries or 3
 
-    # First attempt: try to parse the text directly
-    import logging
+    fuzzy_params = FuzzyMatchKeysParams(
+        similarity_algo=similarity_algo,
+        similarity_threshold=similarity_threshold,
+        handle_unmatched=handle_unmatched,
+        fill_value=fill_value,
+        fill_mapping=fill_mapping,
+        strict=strict,
+        fuzzy_match=fuzzy_match,
+    )
 
-    initial_error = None
-    parsed_data = None  # Initialize to avoid scoping issues
+    return await parse_v1(
+        branch,
+        text,
+        parse_ctx=ParseContext(
+            response_format=response_format or request_fields,
+            fuzzy_match_params=fuzzy_params,
+            handle_validation=handle_validation,
+            alcall_params=_alcall_params.with_updates(
+                retry_attempts=max_retries
+            ),
+            imodel=branch.parse_model,
+            imodel_kw=kw,
+        ),
+        return_res_message=return_res_message,
+    )
+
+
+async def parse_v1(
+    branch: "Branch",
+    text: str,
+    parse_ctx: ParseContext,
+    return_res_message: bool = False,
+) -> Any | tuple[Any, AssistantResponse | None]:
+
+    # Try direct validation first
+    with contextlib.suppress(Exception):
+        result = _validate_dict_or_model(
+            text, parse_ctx.response_format, parse_ctx.fuzzy_match_params
+        )
+        return result if not return_res_message else (result, None)
+
+    async def _inner_parse(i):
+        _, res = await branch.chat(
+            instruction="reformat text into specified model or structure",
+            guidance="follow the required response format, using the model schema as a guide",
+            context=[{"text_to_format": text}],
+            request_fields=(
+                parse_ctx.response_format
+                if isinstance(parse_ctx.response_format, dict)
+                else None
+            ),
+            response_format=(
+                parse_ctx.response_format
+                if isinstance(parse_ctx.response_format, BaseModel)
+                else None
+            ),
+            imodel=parse_ctx.imodel or branch.parse_model,
+            sender=branch.user,
+            recipient=branch.id,
+            return_ins_res_message=True,
+        )
+
+        res.metadata["is_parsed"] = True
+        res.metadata["original_text"] = text
+
+        return (
+            _validate_dict_or_model(
+                res.response,
+                parse_ctx.response_format,
+                parse_ctx.fuzzy_match_params,
+            ),
+            res,
+        )
+
+    _call = parse_ctx.alcall_params or get_default_call()
+    if isinstance(parse_ctx.alcall_params, dict):
+        _call = AlcallParams(**parse_ctx.alcall_params)
 
     try:
-        # Try fuzzy validation first
-        parsed_data = fuzzy_validate_mapping(
-            text,
-            breakdown_pydantic_annotation(request_type),
-            similarity_algo=similarity_algo,
-            similarity_threshold=similarity_threshold,
-            fuzzy_match=fuzzy_match,
-            handle_unmatched=handle_unmatched,
-            fill_value=fill_value,
-            fill_mapping=fill_mapping,
-            strict=strict,
-            suppress_conversion_errors=False,  # Don't suppress on first attempt
-        )
+        result = await _call([0], _inner_parse)
+    except get_cancelled_exc_class():
+        raise
+    except Exception as e:
+        match parse_ctx.handle_validation:
+            case "raise":
+                raise ValueError(f"Failed to parse response: {e}") from e
+            case "return_none":
+                return (None, None) if return_res_message else None
+            case "return_value":
+                return (text, None) if return_res_message else text
+    return (*result[0],) if return_res_message else result[0][0]
 
-        logging.debug(f"Parsed data from fuzzy validation: {parsed_data}")
 
-        # Validate with pydantic
-        if operative is not None:
-            response_model = operative.update_response_model(parsed_data)
-        else:
-            response_model = request_type.model_validate(parsed_data)
+def _validate_dict_or_model(
+    text: str,
+    response_format: type[BaseModel] | dict,
+    fuzzy_match_params: FuzzyMatchKeysParams | dict = None,
+):
+    try:
+        if isinstance(fuzzy_match_params, dict):
+            fuzzy_match_params = FuzzyMatchKeysParams(**fuzzy_match_params)
 
-        # If successful, return immediately
-        if isinstance(response_model, BaseModel):
-            return response_model
+        d_ = extract_json(text, fuzzy_parse=True, return_one_if_single=False)
+        dict_, keys_ = None, None
+        if d_:
+            dict_ = to_list(d_, flatten=True)[0]
+        if isinstance(fuzzy_match_params, FuzzyMatchKeysParams):
+            keys_ = (
+                response_format.model_fields
+                if isinstance(response_format, type)
+                else response_format
+            )
+            dict_ = fuzzy_validate_mapping(
+                dict_, keys_, **fuzzy_match_params.to_dict()
+            )
+        elif fuzzy_match_params:
+            keys_ = (
+                response_format.model_fields
+                if isinstance(response_format, type)
+                else response_format
+            )
+            dict_ = fuzzy_validate_mapping(
+                dict_,
+                keys_,
+                handle_unmatched="force",
+                fill_value=None,
+                strict=False,
+            )
+        if isinstance(response_format, type) and issubclass(
+            response_format, BaseModel
+        ):
+            return response_format.model_validate(dict_)
+        return dict_
 
     except Exception as e:
-        initial_error = e
-        # Log the initial parsing error for debugging
-        logging.debug(
-            f"Initial parsing failed for text '{text[:100]}...': {e}"
+        raise ValueError(f"Failed to parse text: {e}") from e
+
+
+def get_default_call() -> AlcallParams:
+    global _CALL
+    if _CALL is None:
+        _CALL = AlcallParams(
+            retry_initial_delay=1,
+            retry_backoff=1.85,
+            retry_attempts=3,
+            max_concurrent=1,
+            throttle_period=1,
         )
-        logging.debug(
-            f"Parsed data was: {locals().get('parsed_data', 'not set')}"
-        )
-
-        # Only continue if we have retries left
-        if max_retries <= 0:
-            if handle_validation == "raise":
-                raise ValueError(f"Failed to parse response: {e}") from e
-            elif handle_validation == "return_none":
-                return None
-            else:  # return_value
-                return text
-
-    # If direct parsing failed, try using the parse model
-    num_try = 0
-    last_error = initial_error
-
-    # Check if the parsed_data exists but just failed validation
-    # This might mean we have the right structure but wrong values
-    if parsed_data is not None and isinstance(parsed_data, dict):
-        logging.debug(
-            f"Have parsed_data dict, checking if it's close to valid..."
-        )
-        # If we got a dict with the right keys, maybe we just need to clean it up
-        expected_fields = set(request_type.model_fields.keys())
-        parsed_fields = set(parsed_data.keys())
-        if expected_fields == parsed_fields and all(
-            parsed_data.get(k) is not None for k in expected_fields
-        ):
-            # We have the right structure with non-None values, don't retry with parse model
-            logging.debug(
-                "Structure matches with valid values, returning original error"
-            )
-            if handle_validation == "raise":
-                raise ValueError(
-                    f"Failed to parse response: {initial_error}"
-                ) from initial_error
-            elif handle_validation == "return_none":
-                return None
-            else:
-                return text
-
-    while num_try < max_retries:
-        num_try += 1
-
-        try:
-            logging.debug(f"Retry {num_try}: Using parse model to reformat")
-            _, res = await branch.chat(
-                instruction="reformat text into specified model",
-                guidance="follow the required response format, using the model schema as a guide",
-                context=[{"text_to_format": text}],
-                response_format=request_type,
-                sender=branch.user,
-                recipient=branch.id,
-                imodel=branch.parse_model,
-                return_ins_res_message=True,
-            )
-
-            # Try to parse the reformatted response
-            parsed_data = fuzzy_validate_mapping(
-                res.response,
-                breakdown_pydantic_annotation(request_type),
-                similarity_algo=similarity_algo,
-                similarity_threshold=similarity_threshold,
-                fuzzy_match=fuzzy_match,
-                handle_unmatched=handle_unmatched,
-                fill_value=fill_value,
-                fill_mapping=fill_mapping,
-                strict=strict,
-                suppress_conversion_errors=suppress_conversion_errors,
-            )
-
-            if operative is not None:
-                response_model = operative.update_response_model(parsed_data)
-            else:
-                response_model = request_type.model_validate(parsed_data)
-
-            # If successful, return
-            if isinstance(response_model, BaseModel):
-                return response_model
-
-        except InterruptedError as e:
-            raise e
-        except Exception as e:
-            last_error = e
-            # Continue to next retry
-            continue
-
-    # All retries exhausted
-    match handle_validation:
-        case "return_value":
-            return text
-        case "return_none":
-            return None
-        case "raise":
-            error_msg = "Failed to parse response into request format"
-            if last_error:
-                error_msg += f": {last_error}"
-            raise ValueError(error_msg) from last_error
+    return _CALL
