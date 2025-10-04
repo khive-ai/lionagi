@@ -15,8 +15,9 @@ from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.providers.oai_ import (
-    OPENAI_CHAT_ENDPOINT_CONFIG,
+from lionagi.service.connections.providers.oai_ import _get_oai_config
+from lionagi.service.third_party.openai_models import (
+    OpenAIChatCompletionsRequest,
 )
 
 
@@ -56,7 +57,13 @@ async def test_operation_cancelled_status():
 async def test_api_call_cancelled_status():
     """Test that cancelled API calls have EventStatus.CANCELLED."""
     # Create an API call
-    endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+    config = _get_oai_config(
+        name="oai_chat",
+        endpoint="chat/completions",
+        request_options=OpenAIChatCompletionsRequest,
+        kwargs={"model": "gpt-4.1-mini"},
+    )
+    endpoint = Endpoint(config=config)
     api_call = APICalling(
         payload={"model": "gpt-4", "messages": []},
         headers={"Authorization": "Bearer test"},

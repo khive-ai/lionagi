@@ -39,7 +39,10 @@ def branch_with_mock_imodel() -> Branch:
     async def invoke(*args, **kwargs):
         from lionagi.protocols.generic.event import EventStatus, Execution
 
-        a = mock_model.create_api_calling()
+        # Ensure messages field is present for validation
+        if "messages" not in kwargs:
+            kwargs["messages"] = []
+        a = mock_model.create_api_calling(**kwargs)
         # Use real Execution object instead of MagicMock to avoid serialization warnings
         a.execution = Execution(
             status=EventStatus.COMPLETED,

@@ -23,10 +23,11 @@ from unittest.mock import AsyncMock
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.providers.oai_ import (
-    OPENAI_CHAT_ENDPOINT_CONFIG,
-)
+from lionagi.service.connections.providers.oai_ import _get_oai_config
 from lionagi.service.imodel import iModel
+from lionagi.service.third_party.openai_models import (
+    OpenAIChatCompletionsRequest,
+)
 from lionagi.session.branch import Branch
 
 
@@ -143,7 +144,12 @@ class LionAGIMockFactory:
             APICalling instance with mocked response data
         """
         if endpoint_config is None:
-            endpoint_config = OPENAI_CHAT_ENDPOINT_CONFIG
+            endpoint_config = _get_oai_config(
+                name="oai_chat",
+                endpoint="chat/completions",
+                request_options=OpenAIChatCompletionsRequest,
+                kwargs={"model": model},
+            )
 
         endpoint = Endpoint(config=endpoint_config)
 

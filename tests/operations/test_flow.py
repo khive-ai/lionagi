@@ -13,10 +13,11 @@ from lionagi.protocols.graph.edge import Edge, EdgeCondition
 from lionagi.protocols.graph.graph import Graph
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.providers.oai_ import (
-    OPENAI_CHAT_ENDPOINT_CONFIG,
-)
+from lionagi.service.connections.providers.oai_ import _get_oai_config
 from lionagi.service.imodel import iModel
+from lionagi.service.third_party.openai_models import (
+    OpenAIChatCompletionsRequest,
+)
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
@@ -54,7 +55,13 @@ def make_mock_branch(name: str = "TestBranch") -> Branch:
     branch = Branch(user="test_user", name=name)
 
     async def _fake_invoke(**kwargs):
-        endpoint = Endpoint(config=OPENAI_CHAT_ENDPOINT_CONFIG)
+        config = _get_oai_config(
+            name="oai_chat",
+            endpoint="chat/completions",
+            request_options=OpenAIChatCompletionsRequest,
+            kwargs={"model": "gpt-4.1-mini"},
+        )
+        endpoint = Endpoint(config=config)
         fake_call = APICalling(
             payload={"model": "gpt-4.1-mini", "messages": []},
             headers={"Authorization": "Bearer test"},
