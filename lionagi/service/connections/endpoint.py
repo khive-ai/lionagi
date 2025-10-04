@@ -121,6 +121,34 @@ class Endpoint:
 
             # Validate the filtered payload
             payload = self.config.validate_payload(filtered_payload)
+        else:
+            non_api_params = {
+                "provider",
+                "base_url",
+                "endpoint",
+                "endpoint_params",
+                "api_key",
+                "queue_capacity",
+                "capacity_refresh_time",
+                "invoke_with_endpoint",
+                "extra_headers",
+                "headers",
+                "include_token_usage_to_model",
+                "chat_model",
+                "imodel",
+                "branch",
+                "aggregation_sources",
+                "aggregation_count",
+                "action_strategy",
+                "parse_model",
+                "actions",
+                "return_operative",
+                "operative_model",
+                "request_model",
+            }
+            payload = {
+                k: v for k, v in payload.items() if k not in non_api_params
+            }
 
         return (payload, headers)
 
