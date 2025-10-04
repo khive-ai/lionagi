@@ -68,8 +68,8 @@ class TestBasicParsing:
             text,
             response_format=response_format,
             fuzzy_match=True,
-            similarity_threshold=0.7,  # Lower threshold for better matching
-            handle_unmatched="ignore",  # Don't fail on extra fields
+            similarity_threshold=0.7,
+            handle_unmatched="ignore",
         )
 
         assert isinstance(result, dict)
@@ -276,7 +276,7 @@ class TestAdvancedFeatures:
         )
 
         assert isinstance(result, dict)
-        # Fuzzy matching may keep original keys or map to target keys
+        # Fuzzy matching should map usr_name → name
         assert (
             result.get("name") == "Charlie"
             or result.get("usr_name") == "Charlie"
