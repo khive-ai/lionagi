@@ -193,9 +193,10 @@ async def operate_v1(
 ) -> BaseModel | dict | str | None:
 
     # 1. communicate chat context building to avoid changing parameters
-    _cctx = copy(chat_ctx)
+    # Use shallow copy to avoid issues with unpicklable objects in iModel
+    _cctx = copy(chat_ctx, deep=False)
     _pctx = (
-        copy(parse_ctx)
+        copy(parse_ctx, deep=False)
         if parse_ctx
         else ParseContext(
             response_format=chat_ctx.response_format,
@@ -207,7 +208,7 @@ async def operate_v1(
     if tools := (action_ctx.tools or True) if action_ctx else None:
         _cctx.tool_schemas = branch.acts.get_tool_schema(tools=tools)
 
-    t = type if isinstance(chat_ctx.response_format, type) else dict
+    t = chat_ctx.response_format if isinstance(chat_ctx.response_format, type) else dict
 
     def normalize_field_model(fms):
         if not fms:
