@@ -24,6 +24,8 @@ _HAS_OLLAMA = is_import_installed("ollama")
 
 def _get_ollama_config(**kwargs):
     """Create Ollama endpoint configuration with defaults."""
+    from ...third_party.openai_models import OpenAIChatCompletionsRequest
+
     config = dict(
         name="ollama_chat",
         provider="ollama",
@@ -36,8 +38,7 @@ def _get_ollama_config(**kwargs):
         content_type="application/json",
         auth_type="none",  # No authentication
         default_headers={},  # No auth headers needed
-        # NOTE: Not using request_options due to OpenAI model role literal issues
-        # request_options=CreateChatCompletionRequest,
+        request_options=OpenAIChatCompletionsRequest,
     )
     config.update(kwargs)
     return EndpointConfig(**config)
