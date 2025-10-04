@@ -208,7 +208,11 @@ async def operate_v1(
     if tools := (action_ctx.tools or True) if action_ctx else None:
         _cctx.tool_schemas = branch.acts.get_tool_schema(tools=tools)
 
-    t = chat_ctx.response_format if isinstance(chat_ctx.response_format, type) else dict
+    t = (
+        chat_ctx.response_format
+        if isinstance(chat_ctx.response_format, type)
+        else dict
+    )
 
     def normalize_field_model(fms):
         if not fms:
@@ -220,7 +224,7 @@ async def operate_v1(
     fms = normalize_field_model(field_models)
     operative = None
 
-    if t is type:
+    if isinstance(t, type):
         from lionagi.protocols.operatives.step import Step
 
         operative = Step.request_operative(
@@ -250,7 +254,7 @@ async def operate_v1(
     )
     if skip_validation:
         return result
-    if not isinstance(result, t):
+    if isinstance(t, type) and not isinstance(result, t):
         match handle_validation:
             case "return_value":
                 return result
@@ -265,7 +269,7 @@ async def operate_v1(
 
     requests = (
         getattr(result, "action_requests", None)
-        if t is type
+        if isinstance(t, type)
         else result.get("action_requests", None)
     )
 
@@ -282,7 +286,7 @@ async def operate_v1(
     if not action_response_models:
         return result
 
-    if t is dict:
+    if t == dict:
         result.update({"action_responses": action_response_models})
         return result
 

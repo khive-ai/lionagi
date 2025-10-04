@@ -101,6 +101,9 @@ class ReActAnalysis(HashableModel):
         ),
     )
 
+    # Note: action_requests and action_responses are added dynamically by Step.request_operative()
+    # when actions=True, so they don't need to be defined here. The operate() function will add them.
+
 
 class Analysis(HashableModel):
     answer: str | None = None

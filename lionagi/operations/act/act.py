@@ -153,7 +153,14 @@ async def _concurrent_act(
     async def _wrapper(req):
         return await _act(branch, req, suppress_errors, verbose_action)
 
-    return await call_params(action_request, _wrapper)
+    # AlcallParams expects a list as first argument
+    action_request_list = (
+        action_request
+        if isinstance(action_request, list)
+        else [action_request]
+    )
+
+    return await call_params(action_request_list, _wrapper)
 
 
 async def _sequential_act(

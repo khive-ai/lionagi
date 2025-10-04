@@ -158,7 +158,8 @@ async def communicate_v1(
             )
             if res2 and isinstance(res2, AssistantResponse):
                 res.metadata["original_model_response"] = res.model_response
-                res.model_response = res2.model_response
+                # model_response is read-only property - update metadata instead
+                res.metadata["model_response"] = res2.model_response
             return out
         except ValueError as e:
             # Re-raise with more context

@@ -3,10 +3,12 @@
 
 import logging
 from collections.abc import AsyncGenerator
-from copy import deepcopy
+from copy import copy as shallow_copy
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from lionagi.fields.instruct import Instruct
 from lionagi.libs.schema.as_readable import as_readable
@@ -285,7 +287,7 @@ def handle_field_models(
                 opm.add_field(
                     str(type_.__name__).lower(),
                     annotation=type_ | None,
-                    validator=lambda cls, x: None if x == {} else x,
+                    # Remove lambda validator to avoid Pydantic serialization errors
                 )
 
             m_ = opm.new_model(name="IntermediateResponseOptions")
@@ -293,7 +295,7 @@ def handle_field_models(
                 name="intermediate_response_options",
                 base_type=m_,
                 description="Intermediate deliverable outputs. fill as needed ",
-                validator=lambda cls, x: None if not x else x,
+                # Remove lambda validator to avoid Pydantic serialization errors
             )
 
             if intermediate_listable:
@@ -385,7 +387,6 @@ async def ReActStream(
         handle_validation=handle_validation,
         invoke_actions=invoke_actions,
         skip_validation=False,
-        return_operative=False,
         clear_messages=clear_messages,
         chat_model=chat_ctx.imodel,
         **chat_ctx.imodel_kw,
@@ -419,12 +420,12 @@ async def ReActStream(
                 extensions=exts
             )
 
-        # Deep copy contexts to avoid mutation
-        _cctx = deepcopy(chat_ctx)
+        # Shallow copy contexts to avoid mutation (deep copy fails with unpicklable iModel)
+        _cctx = shallow_copy(chat_ctx)
         _cctx.response_format = ReActAnalysis
 
         _actx = (
-            deepcopy(action_ctx)
+            shallow_copy(action_ctx)
             if action_ctx
             else ActionContext(
                 action_call_params=None,
@@ -470,6 +471,9 @@ async def ReActStream(
             actions=True,
             reason=kwargs.get("reason", True),
             field_models=kwargs.get("field_models"),
+            handle_validation=handle_validation,
+            invoke_actions=invoke_actions,
+            skip_validation=False,
             chat_model=kwargs["chat_ctx"].imodel,
             **kwargs["chat_ctx"].imodel_kw,
         )

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
 
 from lionagi.config import settings
+from lionagi.fields import Instruct
 from lionagi.ln.types import Unset
 from lionagi.models.field_model import FieldModel
 from lionagi.operations.flow import AlcallParams
@@ -1413,6 +1414,13 @@ class Branch(Element, Communicatable, Relational):
         """
         from lionagi.operations.ReAct.ReAct import ReAct
 
+        # Remove potential duplicate parameters from kwargs
+        kwargs_filtered = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in {"verbose_analysis", "verbose_action"}
+        }
+
         return await ReAct(
             self,
             instruct,
@@ -1438,7 +1446,7 @@ class Branch(Element, Communicatable, Relational):
             reasoning_effort=reasoning_effort,
             display_as=display_as,
             include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
+            **kwargs_filtered,
         )
 
     async def ReActStream(
@@ -1466,40 +1474,114 @@ class Branch(Element, Communicatable, Relational):
         include_token_usage_to_model: bool = True,
         **kwargs,
     ) -> AsyncGenerator:
+        from lionagi.ln.fuzzy import FuzzyMatchKeysParams
         from lionagi.operations.ReAct.ReAct import ReActStream
+        from lionagi.operations.ReAct.utils import ReActAnalysis
+        from lionagi.operations.types import (
+            ActionContext,
+            ChatContext,
+            InterpretContext,
+            ParseContext,
+        )
+
+        # Convert Instruct to dict if needed
+        instruct_dict = (
+            instruct.to_dict()
+            if isinstance(instruct, Instruct)
+            else dict(instruct)
+        )
+
+        # Build InterpretContext if interpretation requested
+        intp_ctx = None
+        if interpret:
+            intp_ctx = InterpretContext(
+                domain=interpret_domain or "general",
+                style=interpret_style or "concise",
+                sample_writing=interpret_sample or "",
+                imodel=interpret_model or analysis_model or self.chat_model,
+                imodel_kw=interpret_kwargs or {},
+            )
+
+        # Build ChatContext
+        chat_ctx = ChatContext(
+            guidance=instruct_dict.get("guidance"),
+            context=instruct_dict.get("context"),
+            sender=self.user or "user",
+            recipient=self.id,
+            response_format=None,
+            progression=None,
+            tool_schemas=tool_schemas or [],
+            images=[],
+            image_detail="auto",
+            plain_content="",
+            include_token_usage_to_model=include_token_usage_to_model,
+            imodel=analysis_model or self.chat_model,
+            imodel_kw=kwargs,
+        )
+
+        # Build ActionContext
+        action_ctx = None
+        if tools is not None or tool_schemas is not None:
+            from lionagi.operations.act.act import _get_default_call_params
+
+            action_ctx = ActionContext(
+                action_call_params=_get_default_call_params(),
+                tools=tools or True,
+                strategy="concurrent",
+                suppress_errors=True,
+                verbose_action=False,
+            )
+
+        # Build ParseContext
+        from lionagi.operations.parse.parse import get_default_call
+
+        parse_ctx = ParseContext(
+            response_format=ReActAnalysis,
+            fuzzy_match_params=FuzzyMatchKeysParams(),
+            handle_validation="return_value",
+            alcall_params=get_default_call(),
+            imodel=analysis_model or self.chat_model,
+            imodel_kw={},
+        )
+
+        # Response context for final answer
+        resp_ctx = response_kwargs or {}
+        if response_format:
+            resp_ctx["response_format"] = response_format
 
         async for result in ReActStream(
             self,
-            instruct,
-            interpret=interpret,
-            interpret_domain=interpret_domain,
-            interpret_style=interpret_style,
-            interpret_sample=interpret_sample,
-            interpret_model=interpret_model,
-            interpret_kwargs=interpret_kwargs,
-            tools=tools,
-            tool_schemas=tool_schemas,
-            response_format=response_format,
+            instruction=instruct_dict.get("instruction", str(instruct)),
+            chat_ctx=chat_ctx,
+            action_ctx=action_ctx,
+            parse_ctx=parse_ctx,
+            intp_ctx=intp_ctx,
+            resp_ctx=resp_ctx,
+            reasoning_effort=reasoning_effort,
+            reason=True,
+            field_models=None,
+            handle_validation="return_value",
+            invoke_actions=True,
+            clear_messages=False,
             intermediate_response_options=intermediate_response_options,
             intermediate_listable=intermediate_listable,
-            reasoning_effort=reasoning_effort,
-            extension_allowed=extension_allowed,
+            intermediate_nullable=False,
             max_extensions=max_extensions,
-            response_kwargs=response_kwargs,
-            analysis_model=analysis_model,
-            verbose_analysis=True,
+            extension_allowed=extension_allowed,
+            verbose_analysis=verbose,
             display_as=display_as,
             verbose_length=verbose_length,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
+            continue_after_failed_response=False,
         ):
-            analysis, str_ = result
             if verbose:
+                analysis, str_ = result
                 from lionagi.libs.schema.as_readable import as_readable
 
                 str_ += "\n---------\n"
                 as_readable(str_, md=True, display_str=True)
-            yield analysis
+                yield analysis
+            else:
+                yield result
 
 
 # File: lionagi/session/branch.py
