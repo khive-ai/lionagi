@@ -1,253 +1,86 @@
 # Your First Flow
 
-Let's build something useful: multiple AI agents working together to analyze a
-problem from different angles.
+This quickstart shows LionAGI's core pattern: **multiple specialized branches working together**.
 
-## Basic Multi-Agent Pattern
+We'll build a self-critiquing joke generator - one branch writes jokes, another critiques them, then they iterate to improve.
 
-```python
-import asyncio
-from lionagi import Branch, iModel
-
-async def analyze_idea():
-    # Create specialized agents
-    critic = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You are a critical thinker. Find potential problems and weaknesses."
-    )
-    
-    supporter = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You are optimistic and supportive. Find the potential and opportunities."
-    )
-    
-    analyst = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You are analytical and data-driven. Focus on facts and feasibility."
-    )
-    
-    idea = "Starting a subscription box service for AI developers"
-    
-    # Get three different perspectives
-    critical_view = await critic.communicate(f"Evaluate this idea: {idea}")
-    positive_view = await supporter.communicate(f"What's exciting about: {idea}")
-    analytical_view = await analyst.communicate(f"Analyze the market for: {idea}")
-    
-    print("CRITIC:", critical_view)
-    print("\nSUPPORTER:", positive_view)
-    print("\nANALYST:", analytical_view)
-
-asyncio.run(analyze_idea())
-```
-
-## Parallel Execution
-
-The above runs sequentially. Let's make it faster with parallel execution:
-
-```python
-import asyncio
-from lionagi import Branch, iModel
-
-async def parallel_analysis():
-    # Same agents
-    critic = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You are a critical thinker. Find problems."
-    )
-    
-    supporter = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You are optimistic. Find opportunities."
-    )
-    
-    analyst = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You are analytical. Focus on data."
-    )
-    
-    idea = "Starting a subscription box service for AI developers"
-    
-    # Run all three at the same time
-    results = await asyncio.gather(
-        critic.communicate(f"Evaluate: {idea}"),
-        supporter.communicate(f"Opportunities in: {idea}"),
-        analyst.communicate(f"Market analysis: {idea}")
-    )
-    
-    critical_view, positive_view, analytical_view = results
-    
-    # Now synthesize
-    synthesizer = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You synthesize multiple viewpoints into balanced recommendations."
-    )
-    
-    synthesis = await synthesizer.communicate(
-        f"Synthesize these perspectives:\n\n"
-        f"Critical: {critical_view}\n\n"
-        f"Positive: {positive_view}\n\n"
-        f"Analytical: {analytical_view}"
-    )
-    
-    print("FINAL SYNTHESIS:", synthesis)
-
-asyncio.run(parallel_analysis())
-```
-
-## Using Sessions for Coordination
-
-For more complex workflows, use Session and Builder:
-
-```python
-from lionagi import Session, Branch, Builder, iModel
-import asyncio
-
-async def coordinated_brainstorm():
-    session = Session()
-    builder = Builder("brainstorm")
-    
-    # Create a brainstorming team
-    creative = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You generate creative, unconventional ideas."
-    )
-    
-    practical = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You focus on practical, implementable solutions."
-    )
-    
-    devil = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="You play devil's advocate, challenging assumptions."
-    )
-    
-    problem = "How to make technical documentation more engaging"
-    
-    # Define the workflow
-    creative_ideas = builder.add_operation(
-        "communicate",
-        branch=creative,
-        instruction=f"Generate 3 creative solutions for: {problem}"
-    )
-    
-    practical_ideas = builder.add_operation(
-        "communicate",
-        branch=practical,
-        instruction=f"Generate 3 practical solutions for: {problem}"
-    )
-    
-    # Devil's advocate reviews both
-    challenge = builder.add_operation(
-        "communicate",
-        branch=devil,
-        depends_on=[creative_ideas, practical_ideas],
-        instruction="Challenge and improve the proposed solutions"
-    )
-    
-    # Execute the workflow
-    result = await session.flow(builder.get_graph())
-    
-    print("Creative Ideas:", result["operation_results"][creative_ideas])
-    print("\nPractical Ideas:", result["operation_results"][practical_ideas])
-    print("\nDevil's Advocate:", result["operation_results"][challenge])
-
-asyncio.run(coordinated_brainstorm())
-```
-
-## Conversation Memory
-
-Branches maintain conversation history, enabling follow-up questions:
+## Complete Example
 
 ```python
 from lionagi import Branch, iModel
-import asyncio
 
-async def iterative_refinement():
+chat_model = iModel(provider="openai", model="gpt-4.1-mini")
+
+async def generate_joke(joke_request):
+    # Create two specialized branches
     comedian = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=chat_model,
         system="You are a comedian who makes technical concepts funny."
     )
-    
+
     editor = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=chat_model,
         system="You are an editor who improves clarity and punch."
     )
-    
-    # First draft
+
+    # Flow: Generate → Critique → Revise → Verify
     joke = await comedian.communicate(
-        "Write a joke about Python's Global Interpreter Lock"
+        "Write a short joke",
+        context={"user_input": joke_request}
     )
-    print("First draft:", joke)
-    
-    # Editor feedback
+
     feedback = await editor.communicate(
-        f"How can we improve this joke: {joke}"
+        "Give humorous critical feedback to improve this joke by addressing clarity and punch.",
+        context={"joke": joke}
     )
-    print("Editor feedback:", feedback)
-    
-    # Comedian revises (has memory of first joke)
+
     revision = await comedian.communicate(
-        f"Revise the joke based on this feedback: {feedback}"
+        "Revise the joke based on this feedback.",
+        context={"feedback": feedback}
     )
-    print("Revised joke:", revision)
-    
-    # Editor can also remember the context
+
     final_check = await editor.communicate(
-        "Is this version better than the original?"
+        "Is this version better than the original? If yes, reply the following token (including the square brackets) '[YES]' only, otherwise elaborate on why not without including the token.",
+        context={"revised_joke": revision}
     )
-    print("Final check:", final_check)
 
-asyncio.run(iterative_refinement())
+    # Return improved version if approved
+    if "[yes]" in final_check.lower():
+        return revision
+    return joke  # Fallback to original if not improved
+
+# Run it
+if __name__ == "__main__":
+    import anyio
+    result = anyio.run(generate_joke, "machine learning")
+    print(result)
 ```
 
-## Common Patterns
+## What Just Happened
 
-### Research Team
+**Branch**: Independent conversation context with its own system prompt and memory
+- `comedian` = creative joke writing
+- `editor` = critical feedback
 
-```python
-researcher = Branch(system="You find relevant information")
-fact_checker = Branch(system="You verify accuracy")
-summarizer = Branch(system="You create concise summaries")
+**Flow**: Sequential operations across branches
+1. Comedian generates initial joke
+2. Editor provides feedback
+3. Comedian revises based on feedback
+4. Editor validates improvement
+
+**Context**: Each `communicate()` call can include context from previous steps
+
+## Try It
+
+Save the code above and run:
+```bash
+uv run your_script.py
 ```
 
-### Creative Team
-
-```python
-writer = Branch(system="You write engaging content")
-editor = Branch(system="You improve clarity and flow")
-reviewer = Branch(system="You ensure quality standards")
-```
-
-### Analysis Team
-
-```python
-data_analyst = Branch(system="You analyze quantitative data")
-strategist = Branch(system="You identify strategic implications")
-risk_assessor = Branch(system="You identify potential risks")
-```
-
-## Tips for Effective Branches
-
-1. **Clear Roles**: Give each branch a specific, well-defined role
-2. **Complementary Skills**: Create branches that complement each other
-3. **Iterative Refinement**: Use conversation memory for multi-round improvement
-4. **Parallel When Possible**: Use `asyncio.gather()` for independent tasks
-5. **Sequential When Needed**: Use dependencies for tasks that build on each
-   other
+Expected output: A refined joke about machine learning, improved through iteration.
 
 ## Next Steps
 
-- Explore [patterns](../patterns/) for proven multi-agent workflows
-- Check the [cookbook](../cookbook/) for complete examples
-- Learn about [Sessions and Branches](../core-concepts/sessions-and-branches.md)
-  in depth
-
-## Try It Yourself
-
-Start with the basic multi-agent pattern above and experiment:
-
-- Change the system prompts to create different expert types
-- Add more branches for additional perspectives
-- Try different coordination patterns
-- Build something useful for your actual work
+- **Structured Output**: [Cheat Sheet](cheat-sheet.md#structured-output) - Get Pydantic models instead of strings
+- **Tools**: [Cheat Sheet](cheat-sheet.md#tools) - Add web search, code execution, custom functions
+- **Tutorials**: [L1 Tutorial](../tutorials/L1-your-first-agent.md) - Deep dive into Branch fundamentals

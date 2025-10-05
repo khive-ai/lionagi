@@ -1,61 +1,85 @@
 # Installation
 
-!!! tip "Recommended: Using uv"
-    LionAGI works best with [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management:
-    
-    ```bash
-    uv add lionagi
-    ```
+## Install LionAGI
 
-!!! info "Alternative: pip"
-    You can also install with pip, but uv is faster:
-    
-    ```bash
-    pip install lionagi
-    ```
+**Recommended**: Use `uv` for faster dependency resolution:
+```bash
+uv add lionagi
+```
 
-## Set Your API Key
+**Alternative**: Standard pip installation:
+```bash
+pip install lionagi
+```
 
-!!! warning "API Key Required"
-    LionAGI needs an LLM provider API key to work. Choose one:
+## Configure API Keys
 
-=== "OpenAI (Recommended)"
-    ```bash
-    export OPENAI_API_KEY=your-key-here
-    ```
+Create a `.env` file in your project root:
 
-=== "Anthropic"
-    ```bash
-    export ANTHROPIC_API_KEY=your-key-here  
-    ```
+```bash
+# At minimum, add one provider
+OPENAI_API_KEY=your_key_here
 
-=== "Local (Ollama)"
-    No API key needed - just install [Ollama](https://ollama.ai/)
+# Optional: Additional providers
+ANTHROPIC_API_KEY=your_key_here
+OPENROUTER_API_KEY=your_key_here
+NVIDIA_NIM_API_KEY=your_key_here
+GROQ_API_KEY=your_key_here
+PERPLEXITY_API_KEY=your_key_here
+EXA_API_KEY=your_key_here
+```
 
-## Test Installation
+LionAGI automatically loads from `.env` - no manual configuration needed.
 
-!!! success "Verify Everything Works"
-    ```python
-    from lionagi import Branch, iModel
-    import asyncio
-    
-    async def test():
-        agent = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-        response = await agent.communicate("Hello")
-        print(f"LionAGI says: {response}")
-    
-    asyncio.run(test())
-    ```
+## Verify Installation
 
-## Provider Options
+Run this test to confirm everything works:
 
 ```python
-# OpenAI
-iModel(provider="openai", model="gpt-4o-mini")
+from lionagi import Branch, iModel
 
-# Anthropic  
-iModel(provider="anthropic", model="claude-3-5-sonnet-20241022")
+async def test():
+    gpt4 = iModel(provider="openai", model="gpt-4o-mini")
+    branch = Branch(chat_model=gpt4)
+    reply = await branch.chat("Hello from LionAGI!")
+    print(f"LionAGI says: {reply}")
 
-# Local (Ollama)
-iModel(provider="ollama", model="llama3")
+if __name__ == "__main__":
+    import anyio
+    anyio.run(test)
 ```
+
+Expected output: A conversational response from the model.
+
+## Supported Providers
+
+LionAGI comes pre-configured for these providers:
+
+- **`openai`** - GPT-5, GPT-4.1, o4-mini
+- **`anthropic`** - Claude 4.5 Sonnet, Claude 4.1 Opus
+- **`claude_code`** - Claude Code SDK integration
+- **`ollama`** - Local model hosting
+- **`openrouter`** - Access 200+ models via single API
+- **`nvidia_nim`** - NVIDIA inference microservices
+- **`groq`** - Fast inference on LPU hardware
+- **`perplexity`** - Search-augmented responses
+
+### Custom Providers
+
+**OpenAI-compatible endpoints**:
+```python
+custom = iModel(
+    provider="openai",
+    model="custom-model",
+    api_key="your_key",
+    base_url="https://custom-endpoint.com/v1"
+)
+```
+
+**Fully custom providers**: See [Custom Tools & Providers](../integrations/custom-tools/index.md) for advanced setup.
+
+## Next Steps
+
+- **Quickstart**: [Your First Flow](your-first-flow.md) - Get started in 2 minutes
+- **Cheat Sheet**: [Quick Reference](cheat-sheet.md) - Common patterns at a glance
+- **Tutorials**: [Learn](../tutorials/index.md) - L1→L5 progressive learning path
