@@ -15,6 +15,8 @@ from ..types import ActionContext
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
+_DEFAULT_ALCALL_PARAMS = None
+
 
 async def _act(
     branch: "Branch",
@@ -22,7 +24,6 @@ async def _act(
     suppress_errors: bool = False,
     verbose_action: bool = False,
 ) -> ActionResponseModel | None:
-    """Execute a single action request."""
     _request = {}
 
     if isinstance(action_request, BaseModel):
@@ -90,105 +91,37 @@ async def _act(
     )
 
 
-class ActionExecutor:
-    """Handles action execution with concurrent or sequential strategies."""
-
-    DEFAULT_ALCALL_PARAMS = AlcallParams(output_dropna=True)
-
-    @classmethod
-    async def execute_concurrent(
-        cls,
-        branch: "Branch",
-        action_request: list | ActionRequest | BaseModel | dict,
-        call_params: AlcallParams,
-        suppress_errors: bool = True,
-        verbose_action: bool = False,
-    ) -> list:
-        """Execute actions concurrently using AlcallParams."""
-
-        async def _wrapper(req):
-            return await _act(branch, req, suppress_errors, verbose_action)
-
-        # AlcallParams expects a list as first argument
-        action_request_list = (
-            action_request
-            if isinstance(action_request, list)
-            else [action_request]
-        )
-
-        return await call_params(action_request_list, _wrapper)
-
-    @classmethod
-    async def execute_sequential(
-        cls,
-        branch: "Branch",
-        action_request: list | ActionRequest | BaseModel | dict,
-        suppress_errors: bool = True,
-        verbose_action: bool = False,
-    ) -> list:
-        """Execute actions sequentially."""
-        action_request = (
-            action_request
-            if isinstance(action_request, list)
-            else [action_request]
-        )
-        results = []
-        for req in action_request:
-            result = await _act(branch, req, suppress_errors, verbose_action)
-            results.append(result)
-        return results
-
-
 async def act(
     branch: "Branch",
     action_request: list | ActionRequest | BaseModel | dict,
-    # Modern API: pass ActionContext directly
-    action_ctx: ActionContext = None,
-    # Legacy API: individual parameters (backward compatible)
+    *,
     strategy: Literal["concurrent", "sequential"] = "concurrent",
     verbose_action: bool = False,
     suppress_errors: bool = True,
     call_params: AlcallParams = None,
 ) -> list[ActionResponse]:
-    """
-    Execute action requests using the branch's action manager.
+    """Execute action requests using the branch's action manager."""
+    action_ctx = ActionContext(
+        action_call_params=call_params or _get_default_call_params(),
+        tools=None,  # Not used in this context
+        strategy=strategy,
+        suppress_errors=suppress_errors,
+        verbose_action=verbose_action,
+    )
 
-    Two usage patterns:
+    return await act_v1(branch, action_request, action_ctx)
 
-    1. Modern (recommended):
-        action_ctx = ActionContext(...)
-        result = await act(branch, requests, action_ctx=action_ctx)
 
-    2. Legacy (backward compatible):
-        result = await act(branch, requests, strategy="concurrent", ...)
+async def act_v1(
+    branch: "Branch",
+    action_request: list | ActionRequest | BaseModel | dict,
+    action_ctx: ActionContext,
+) -> list[ActionResponse]:
+    """Execute action requests with ActionContext."""
 
-    Args:
-        branch: Branch instance for execution
-        action_request: Action request(s) to execute
-        action_ctx: ActionContext object (modern API)
-        strategy: Execution strategy - "concurrent" or "sequential" (legacy)
-        verbose_action: Print execution details (legacy)
-        suppress_errors: Continue on errors (legacy)
-        call_params: AlcallParams for concurrent execution (legacy)
-
-    Returns:
-        List of action response models
-    """
-    # Build ActionContext from whichever input was provided
-    if action_ctx is None:
-        action_ctx = ActionContext(
-            action_call_params=call_params
-            or ActionExecutor.DEFAULT_ALCALL_PARAMS,
-            tools=None,  # Not used in this context
-            strategy=strategy,
-            suppress_errors=suppress_errors,
-            verbose_action=verbose_action,
-        )
-
-    # Execute based on strategy
     match action_ctx.strategy:
         case "concurrent":
-            return await ActionExecutor.execute_concurrent(
+            return await _concurrent_act(
                 branch,
                 action_request,
                 action_ctx.action_call_params,
@@ -196,7 +129,7 @@ async def act(
                 verbose_action=action_ctx.verbose_action,
             )
         case "sequential":
-            return await ActionExecutor.execute_sequential(
+            return await _sequential_act(
                 branch,
                 action_request,
                 suppress_errors=action_ctx.suppress_errors,
@@ -206,3 +139,52 @@ async def act(
             raise ValueError(
                 "Invalid strategy. Choose 'concurrent' or 'sequential'."
             )
+
+
+async def _concurrent_act(
+    branch: "Branch",
+    action_request: list | ActionRequest | BaseModel | dict,
+    call_params: AlcallParams,
+    suppress_errors: bool = True,
+    verbose_action: bool = False,
+) -> list:
+    """Execute actions concurrently using AlcallParams."""
+
+    async def _wrapper(req):
+        return await _act(branch, req, suppress_errors, verbose_action)
+
+    # AlcallParams expects a list as first argument
+    action_request_list = (
+        action_request
+        if isinstance(action_request, list)
+        else [action_request]
+    )
+
+    return await call_params(action_request_list, _wrapper)
+
+
+async def _sequential_act(
+    branch: "Branch",
+    action_request: list | ActionRequest | BaseModel | dict,
+    suppress_errors: bool = True,
+    verbose_action: bool = False,
+) -> list:
+    """Execute actions sequentially."""
+    action_request = (
+        action_request
+        if isinstance(action_request, list)
+        else [action_request]
+    )
+    results = []
+    for req in action_request:
+        result = await _act(branch, req, suppress_errors, verbose_action)
+        results.append(result)
+    return results
+
+
+def _get_default_call_params() -> AlcallParams:
+    """Get or create default AlcallParams."""
+    global _DEFAULT_ALCALL_PARAMS
+    if _DEFAULT_ALCALL_PARAMS is None:
+        _DEFAULT_ALCALL_PARAMS = AlcallParams(output_dropna=True)
+    return _DEFAULT_ALCALL_PARAMS

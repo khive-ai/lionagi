@@ -83,17 +83,3 @@ async def test_communicate_with_model_validation():
     # We'll assume your code sets parsed.data = "mocked_response_string"
     assert parsed.data == "mocked_response_string"
     assert len(branch.messages) == 2
-
-
-@pytest.mark.asyncio
-async def test_communicate_with_request_fields():
-    """request_fields triggers structured parsing via parse_v1."""
-    branch = make_mocked_branch_for_communicate()
-
-    result = await branch.communicate(
-        instruction="Provide dict",
-        request_fields={"data": str},
-    )
-
-    assert isinstance(result, dict)
-    assert result["data"] == "mocked_response_string"

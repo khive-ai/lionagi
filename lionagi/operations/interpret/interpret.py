@@ -14,51 +14,35 @@ if TYPE_CHECKING:
 async def interpret(
     branch: "Branch",
     text: str,
-    # Modern API: pass InterpretContext directly
-    intp_ctx: InterpretContext = None,
-    # Legacy API: individual parameters (backward compatible)
-    domain: str = None,
-    style: str = None,
-    sample_writing: str = None,
-    interpret_model: iModel = None,
+    domain: str | None = None,
+    style: str | None = None,
+    sample_writing: str | None = None,
+    interpret_model: iModel | None = None,
     **kwargs,
 ) -> str:
-    """
-    Interpret and refine user input into clearer, more structured prompts.
+    """Interpret and refine user input into clearer prompts."""
 
-    Two usage patterns:
+    # Build InterpretContext
+    intp_ctx = InterpretContext(
+        domain=domain or "general",
+        style=style or "concise",
+        sample_writing=sample_writing or "",
+        imodel=interpret_model or branch.chat_model,
+        imodel_kw=kwargs,
+    )
 
-    1. Modern (recommended):
-        ctx = InterpretContext(domain="technical", style="formal", ...)
-        result = await interpret(branch, text, intp_ctx=ctx)
+    return await interpret_v1(branch, text, intp_ctx)
 
-    2. Legacy (backward compatible):
-        result = await interpret(branch, text, domain="technical", style="formal", ...)
 
-    Args:
-        branch: Branch instance for execution
-        text: User's raw instruction or question to interpret
-        intp_ctx: InterpretContext object (modern API)
-        domain: Domain hint for interpretation (legacy)
-        style: Desired style for output (legacy)
-        sample_writing: Sample writing style (legacy)
-        interpret_model: Model to use for interpretation (legacy)
-        **kwargs: Additional model parameters (legacy)
+async def interpret_v1(
+    branch: "Branch",
+    text: str,
+    intp_ctx: InterpretContext,
+) -> str:
+    """Execute interpretation with context - clean implementation."""
 
-    Returns:
-        Re-written, clarified prompt as string
-    """
-    # Build InterpretContext from whichever input was provided
-    if intp_ctx is None:
-        intp_ctx = InterpretContext(
-            domain=domain or "general",
-            style=style or "concise",
-            sample_writing=sample_writing or "",
-            imodel=interpret_model or branch.chat_model,
-            imodel_kw=kwargs,
-        )
+    from ..chat.chat import chat_v1
 
-    # Build instruction and guidance
     instruction = (
         "You are given a user's raw instruction or question. Your task is to rewrite it into a clearer, "
         "more structured prompt for an LLM or system, making any implicit or missing details explicit. "
@@ -72,7 +56,7 @@ async def interpret(
     if intp_ctx.sample_writing:
         guidance += f" Sample writing: {intp_ctx.sample_writing}"
 
-    # Build ChatContext for execution
+    # Build ChatContext
     chat_ctx = ChatContext(
         guidance=guidance,
         context=[f"User input: {text}"],
@@ -92,9 +76,7 @@ async def interpret(
         },
     )
 
-    from ..chat.chat import chat
-
-    result = await chat(
+    result = await chat_v1(
         branch,
         instruction=instruction,
         chat_ctx=chat_ctx,

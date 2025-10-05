@@ -1,8 +1,6 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, JsonValue
@@ -14,7 +12,7 @@ from lionagi.protocols.types import (
     Log,
 )
 from lionagi.service.imodel import iModel
-from lionagi.utils import copy
+from lionagi.utils import copy, to_list
 
 from ..types import ChatContext
 
@@ -22,192 +20,34 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
-class MessageHistoryBuilder:
-    """Single-pass builder for chat message history with optimizations."""
-
-    def __init__(
-        self,
-        branch: "Branch",
-        progression: list,
-        new_instruction: Instruction,
-    ):
-        self.branch = branch
-        self.progression = progression
-        self.new_instruction = new_instruction
-        self.history: list = []
-        self.pending_actions: list[ActionResponse] = []
-        self.system_applied = False
-
-    def build(self) -> tuple[list, Instruction]:
-        """Build message history in a single pass."""
-        # Check if system exists - need to validate first message type
-        has_system = (
-            hasattr(self.branch.msgs, "system") and self.branch.msgs.system
-        )
-        first_non_action_msg = None
-
-        # Process each message in progression
-        for msg_id in self.progression:
-            try:
-                msg = self.branch.msgs.messages[msg_id]
-            except KeyError:
-                continue
-
-            if isinstance(msg, ActionResponse):
-                self.pending_actions.append(msg)
-            elif isinstance(msg, Instruction):
-                self._process_instruction(msg)
-            elif isinstance(msg, AssistantResponse):
-                # Validate: if system exists, first non-action message must be Instruction
-                if has_system and first_non_action_msg is None:
-                    raise ValueError(
-                        "First message in progression must be an Instruction or System"
-                    )
-                self._process_response(msg)
-            else:
-                self.history.append(msg)
-
-            # Track first non-action message for validation
-            if first_non_action_msg is None and not isinstance(
-                msg, ActionResponse
-            ):
-                first_non_action_msg = msg
-
-        # Finalize with new instruction
-        final_instruction = self._finalize_instruction()
-        return self.history, final_instruction
-
-    def _process_instruction(self, msg: Instruction) -> None:
-        """Process instruction: copy, strip schemas, merge actions, inject system."""
-        # Always copy instructions (they're mutated)
-        msg_copy = msg.model_copy()
-        msg_copy.tool_schemas = None
-        msg_copy.respond_schema_info = None
-        msg_copy.request_response_format = None
-
-        # Merge pending actions into context
-        if self.pending_actions:
-            msg_copy = self._merge_action_context(msg_copy)
-            self.pending_actions = []
-
-        # Inject system prompt to first instruction
-        if not self.system_applied and hasattr(self.branch.msgs, "system"):
-            system = self.branch.msgs.system
-            if system:
-                system_text = getattr(system, "rendered", str(system))
-                msg_copy.guidance = f"{system_text}{msg_copy.guidance or ''}"
-                self.system_applied = True
-
-        self.history.append(msg_copy)
-
-    def _process_response(self, msg: AssistantResponse) -> None:
-        """Process response: merge consecutive responses (token optimization)."""
-        # Merge consecutive assistant responses
-        if self.history and isinstance(self.history[-1], AssistantResponse):
-            self.history[-1].response = (
-                f"{self.history[-1].response}\n\n{msg.response}"
-            )
-        else:
-            # No merge needed - use reference (no copy)
-            self.history.append(msg)
-
-    def _merge_action_context(self, instruction: Instruction) -> Instruction:
-        """Merge action response contents into instruction context."""
-        # Extract unique action contents
-        action_contents = []
-        for response in self.pending_actions:
-            content = getattr(response, "content", None)
-            if content and content not in action_contents:
-                action_contents.append(content)
-
-        if not action_contents:
-            return instruction
-
-        # Merge into context
-        existing = instruction.context or []
-        if not isinstance(existing, list):
-            existing = [existing]
-
-        for content in action_contents:
-            if content not in existing:
-                existing.append(content)
-
-        instruction.context = existing
-        return instruction
-
-    def _finalize_instruction(self) -> Instruction:
-        """Finalize the new instruction with any pending actions."""
-        if not self.pending_actions:
-            return self.new_instruction
-
-        # Merge remaining actions
-        final = copy(self.new_instruction)
-        return self._merge_action_context(final)
-
-
 async def chat(
     branch: "Branch",
-    instruction: JsonValue | Instruction = None,
-    # Modern API: pass ChatContext directly
-    chat_ctx: ChatContext = None,
-    # Legacy API: individual parameters (backward compatible)
-    guidance: str = None,
+    instruction=None,
+    guidance=None,
     context=None,
-    sender: str = None,
-    recipient: str = None,
+    sender=None,
+    recipient=None,
+    request_fields=None,
     response_format: type[BaseModel] = None,
-    progression: list = None,
+    progression=None,
     imodel: iModel = None,
-    tool_schemas: list = None,
+    tool_schemas=None,
     images: list = None,
     image_detail: Literal["low", "high", "auto"] = None,
     plain_content: str = None,
     return_ins_res_message: bool = False,
     include_token_usage_to_model: bool = False,
     **kwargs,
-) -> tuple[Instruction, AssistantResponse] | str:
-    """
-    Execute a chat operation with the branch.
-
-    Two usage patterns:
-
-    1. Modern (recommended):
-        ctx = ChatContext(guidance="...", context={...}, ...)
-        result = await chat(branch, instruction, chat_ctx=ctx)
-
-    2. Legacy (backward compatible):
-        result = await chat(branch, instruction, guidance="...", context={...}, ...)
-
-    Args:
-        branch: Branch instance for execution
-        instruction: Instruction content
-        chat_ctx: ChatContext object (modern API)
-        guidance: Additional guidance text (legacy)
-        context: Context data (legacy)
-        sender: Message sender (legacy)
-        recipient: Message recipient (legacy)
-        response_format: Expected response format (legacy)
-        progression: Message progression sequence (legacy)
-        imodel: Model to use (legacy)
-        tool_schemas: Tool schemas for function calling (legacy)
-        images: Image attachments (legacy)
-        image_detail: Image detail level (legacy)
-        plain_content: Plain text content (legacy)
-        return_ins_res_message: Return full instruction/response objects
-        include_token_usage_to_model: Include token usage in model (legacy)
-        **kwargs: Additional model parameters (legacy)
-
-    Returns:
-        AssistantResponse.response string or (Instruction, AssistantResponse) tuple
-    """
-    # Build ChatContext from whichever input was provided
-    if chat_ctx is None:
-        chat_ctx = ChatContext(
+) -> tuple[Instruction, AssistantResponse]:
+    return await chat_v1(
+        branch,
+        instruction=instruction,
+        chat_ctx=ChatContext(
             guidance=guidance,
             context=context,
             sender=sender or branch.user or "user",
             recipient=recipient or branch.id,
-            response_format=response_format,
+            response_format=response_format or request_fields,
             progression=progression,
             tool_schemas=tool_schemas or [],
             images=images or [],
@@ -216,9 +56,17 @@ async def chat(
             include_token_usage_to_model=include_token_usage_to_model,
             imodel=imodel or branch.chat_model,
             imodel_kw=kwargs,
-        )
+        ),
+        return_ins_res_message=return_ins_res_message,
+    )
 
-    # Build instruction params
+
+async def chat_v1(
+    branch: "Branch",
+    instruction: JsonValue | Instruction,
+    chat_ctx: ChatContext,
+    return_ins_res_message: bool = False,
+) -> tuple[Instruction, AssistantResponse]:
     params = chat_ctx.to_dict(
         exclude={
             "imodel",
@@ -231,40 +79,108 @@ async def chat(
     params["recipient"] = chat_ctx.recipient or branch.id
     params["instruction"] = instruction
 
-    # Create prepared instruction
-    prepared_instruction = branch.msgs.create_instruction(**params)
+    ins = branch.msgs.create_instruction(**params)
 
-    # Build message history (single pass)
-    progression_seq = chat_ctx.progression or branch.msgs.progression
-    builder = MessageHistoryBuilder(
-        branch, progression_seq, prepared_instruction
-    )
-    messages, final_instruction = builder.build()
+    _use_ins, _use_msgs, _act_res = None, [], []
+    progression = chat_ctx.progression or branch.msgs.progression
 
-    # Prepare model invocation
+    for msg in (branch.msgs.messages[j] for j in progression):
+        if isinstance(msg, ActionResponse):
+            _act_res.append(msg)
+
+        if isinstance(msg, AssistantResponse):
+            _use_msgs.append(msg.model_copy())
+
+        if isinstance(msg, Instruction):
+            j = msg.model_copy()
+            j.tool_schemas = None
+            j.respond_schema_info = None
+            j.request_response_format = None
+
+            if _act_res:
+                d_ = [
+                    k.content
+                    for k in to_list(_act_res, flatten=True, unique=True)
+                ]
+                j.context.extend([z for z in d_ if z not in j.context])
+                _use_msgs.append(j)
+                _act_res = []
+            else:
+                _use_msgs.append(j)
+
+    if _act_res:
+        j = ins.model_copy()
+        d_ = [k.content for k in to_list(_act_res, flatten=True, unique=True)]
+        j.context.extend([z for z in d_ if z not in j.context])
+        _use_ins = j
+
+    messages = _use_msgs
+    if _use_msgs and len(_use_msgs) > 1:
+        _msgs = [_use_msgs[0]]
+
+        for i in _use_msgs[1:]:
+            if isinstance(i, AssistantResponse):
+                if isinstance(_msgs[-1], AssistantResponse):
+                    _msgs[-1].response = (
+                        f"{_msgs[-1].response}\n\n{i.response}"
+                    )
+                else:
+                    _msgs.append(i)
+            else:
+                if isinstance(_msgs[-1], AssistantResponse):
+                    _msgs.append(i)
+        messages = _msgs
+
+    # All endpoints now assume sequential exchange (system message embedded in first user message)
+    if branch.msgs.system:
+        messages = [msg for msg in messages if msg.role != "system"]
+        first_instruction = None
+
+        if len(messages) == 0:
+            first_instruction = copy(ins)
+            first_instruction.guidance = branch.msgs.system.rendered + (
+                first_instruction.guidance or ""
+            )
+            messages.append(first_instruction)
+        elif len(messages) >= 1:
+            first_instruction = messages[0]
+            if not isinstance(first_instruction, Instruction):
+                raise ValueError(
+                    "First message in progression must be an Instruction or System"
+                )
+            first_instruction = copy(first_instruction)
+            first_instruction.guidance = branch.msgs.system.rendered + (
+                first_instruction.guidance or ""
+            )
+            messages[0] = first_instruction
+            messages.append(_use_ins or ins)
+
+    else:
+        messages.append(_use_ins or ins)
+
     kw = (chat_ctx.imodel_kw or {}).copy()
-    kw["messages"] = [msg.chat_msg for msg in messages]
+    kw["messages"] = [i.chat_msg for i in messages]
 
-    model = chat_ctx.imodel or branch.chat_model
-    invoke_method = model.stream if kw.get("stream") else model.invoke
+    imodel = chat_ctx.imodel or branch.chat_model
+    meth = imodel.stream if "stream" in kw and kw["stream"] else imodel.invoke
 
-    if invoke_method is model.invoke:
+    if meth is imodel.invoke:
         kw["include_token_usage_to_model"] = (
             chat_ctx.include_token_usage_to_model
         )
+    api_call = await meth(**kw)
 
-    # Execute model call
-    api_call = await invoke_method(**kw)
     branch._log_manager.log(Log.create(api_call))
 
-    # Build response
-    response = AssistantResponse.create(
+    if return_ins_res_message:
+        # Wrap result in `AssistantResponse` and return
+        return ins, AssistantResponse.create(
+            assistant_response=api_call.response,
+            sender=branch.id,
+            recipient=branch.user,
+        )
+    return AssistantResponse.create(
         assistant_response=api_call.response,
         sender=branch.id,
         recipient=branch.user,
-    )
-
-    if return_ins_res_message:
-        return final_instruction, response
-
-    return response.response
+    ).response

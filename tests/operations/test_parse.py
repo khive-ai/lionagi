@@ -8,13 +8,12 @@ from pydantic import BaseModel
 
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.operations.parse.parse import (
-    ParseExecutor,
-    ParseValidator,
+    _validate_dict_or_model,
+    get_default_call,
     parse,
+    parse_v1,
 )
 from lionagi.operations.types import ParseContext
-from lionagi.protocols.messages.assistant_response import AssistantResponse
-from lionagi.protocols.messages.instruction import Instruction
 
 
 # Test models (not pytest test classes - don't start with "Test")
@@ -119,18 +118,12 @@ class TestBasicParsing:
         branch = make_mocked_branch_for_parse()
 
         # Mock chat to return unparseable content
-        async def _fake_chat_unparseable(branch_arg, *_args, **_kwargs):
-            return (
-                Instruction.create(instruction="dummy", sender="user"),
-                AssistantResponse.create(
-                    assistant_response="unparseable content",
-                    sender=branch_arg.id,
-                    recipient=branch_arg.user,
-                ),
-            )
+        async def _fake_chat_unparseable(*args, **kwargs):
+            return "unparseable content"
 
-        with patch(
-            "lionagi.operations.parse.parse.chat",
+        with patch.object(
+            branch.__class__,
+            "chat",
             new=AsyncMock(side_effect=_fake_chat_unparseable),
         ):
             text = "unparseable content"
@@ -152,18 +145,12 @@ class TestBasicParsing:
         branch = make_mocked_branch_for_parse()
 
         # Mock chat to return unparseable content
-        async def _fake_chat_unparseable(branch_arg, *_args, **_kwargs):
-            return (
-                Instruction.create(instruction="dummy", sender="user"),
-                AssistantResponse.create(
-                    assistant_response="unparseable",
-                    sender=branch_arg.id,
-                    recipient=branch_arg.user,
-                ),
-            )
+        async def _fake_chat_unparseable(*args, **kwargs):
+            return "unparseable"
 
-        with patch(
-            "lionagi.operations.parse.parse.chat",
+        with patch.object(
+            branch.__class__,
+            "chat",
             new=AsyncMock(side_effect=_fake_chat_unparseable),
         ):
             text = "unparseable"
@@ -186,18 +173,12 @@ class TestBasicParsing:
         branch = make_mocked_branch_for_parse()
 
         # Mock chat to return unparseable content
-        async def _fake_chat_unparseable(branch_arg, *_args, **_kwargs):
-            return (
-                Instruction.create(instruction="dummy", sender="user"),
-                AssistantResponse.create(
-                    assistant_response="original input text",
-                    sender=branch_arg.id,
-                    recipient=branch_arg.user,
-                ),
-            )
+        async def _fake_chat_unparseable(*args, **kwargs):
+            return "original input text"
 
-        with patch(
-            "lionagi.operations.parse.parse.chat",
+        with patch.object(
+            branch.__class__,
+            "chat",
             new=AsyncMock(side_effect=_fake_chat_unparseable),
         ):
             text = "original input text"
@@ -222,17 +203,21 @@ class TestAdvancedFeatures:
     """P1: Advanced features and parameters."""
 
     @pytest.mark.asyncio
-    async def test_parse_with_no_response_format_returns_text(
+    async def test_suppress_conversion_errors_deprecation_warning(
         self, make_mocked_branch_for_parse
     ):
-        """If no target format is provided, the raw text is returned."""
+        """Test deprecation warning for suppress_conversion_errors."""
         branch = make_mocked_branch_for_parse()
 
-        text = "raw content"
-
-        result = await parse(branch, text, response_format=None)
-
-        assert result == text
+        with pytest.warns(
+            DeprecationWarning, match="suppress_conversion_errors"
+        ):
+            await parse(
+                branch,
+                '{"name": "Test", "age": 25}',
+                request_type=SampleModel,
+                suppress_conversion_errors=True,
+            )
 
     @pytest.mark.asyncio
     async def test_parse_return_res_message_success(
@@ -276,63 +261,8 @@ class TestAdvancedFeatures:
         assert res_msg.metadata.get("original_text") == text
 
     @pytest.mark.asyncio
-    async def test_parse_honors_custom_prompt_fields(
-        self, make_mocked_branch_for_parse
-    ):
-        """Custom prompt values should be forwarded to branch.chat."""
-        branch = make_mocked_branch_for_parse()
-
-        captured: dict = {}
-
-        async def _fake_chat(
-            branch_arg, instruction, chat_ctx, return_ins_res_message
-        ):
-            assert branch_arg is branch
-            captured.update(
-                instruction=instruction,
-                guidance=chat_ctx.guidance,
-                context=chat_ctx.context,
-            )
-            return (
-                Instruction.create(instruction="dummy", sender="user"),
-                AssistantResponse.create(
-                    assistant_response='{"key": "value"}',
-                    sender=branch_arg.id,
-                    recipient=branch_arg.user,
-                ),
-            )
-
-        parse_ctx = ParseContext(
-            response_format={"key": str},
-            fuzzy_match_params=FuzzyMatchKeysParams(),
-            handle_validation="return_value",
-            alcall_params={"retry_attempts": 1},
-            imodel=branch.chat_model,
-            imodel_kw={},
-            format_instruction="custom instruction",
-            format_guidance="custom guidance",
-            format_context=[{"custom": "ctx"}],
-        )
-
-        with patch(
-            "lionagi.operations.parse.parse.chat",
-            new=AsyncMock(side_effect=_fake_chat),
-        ):
-            result = await parse(
-                branch,
-                "not json",
-                parse_ctx=parse_ctx,
-                return_res_message=False,
-            )
-
-        assert result["key"] == "value"
-        assert captured["instruction"] == "custom instruction"
-        assert captured["guidance"] == "custom guidance"
-        assert captured["context"] == [{"custom": "ctx"}]
-
-    @pytest.mark.asyncio
     async def test_validate_dict_or_model_fuzzy_params_as_dict(self):
-        """Test ParseValidator.validate_dict_or_model handles fuzzy_match_params as dict."""
+        """Test _validate_dict_or_model handles fuzzy_match_params as dict."""
         text = '{"usr_name": "Charlie"}'
         response_format = {"name": str}
         fuzzy_params_dict = {
@@ -341,7 +271,7 @@ class TestAdvancedFeatures:
             "handle_unmatched": "ignore",
         }
 
-        result = ParseValidator.validate_dict_or_model(
+        result = _validate_dict_or_model(
             text, response_format, fuzzy_params_dict
         )
 
@@ -353,10 +283,10 @@ class TestAdvancedFeatures:
         )
 
     @pytest.mark.asyncio
-    async def test_parse_alcall_params_as_dict(
+    async def test_parse_v1_alcall_params_as_dict(
         self, make_mocked_branch_for_parse
     ):
-        """Test parse converts alcall_params dict to AlcallParams."""
+        """Test parse_v1 converts alcall_params dict to AlcallParams."""
         branch = make_mocked_branch_for_parse()
 
         parse_ctx = ParseContext(
@@ -368,20 +298,27 @@ class TestAdvancedFeatures:
             imodel_kw={},
         )
 
-        result = await parse(branch, '{"key": "val"}', parse_ctx=parse_ctx)
+        result = await parse_v1(branch, '{"key": "val"}', parse_ctx)
 
         assert result["key"] == "val"
 
-    def test_default_alcall_params(self):
-        """Test ParseExecutor.DEFAULT_ALCALL_PARAMS has correct defaults."""
-        default_params = ParseExecutor.DEFAULT_ALCALL_PARAMS
+    def test_get_default_call_singleton(self):
+        """Test get_default_call returns same instance."""
+        import lionagi.operations.parse.parse as parse_module
 
-        assert default_params is not None
-        assert default_params.retry_attempts == 3
-        assert default_params.retry_backoff == 1.85
-        assert default_params.max_concurrent == 1
-        assert default_params.retry_initial_delay == 1
-        assert default_params.throttle_period == 1
+        # Reset global
+        parse_module._DEFAULT_ALCALL_PARAMS = None
+
+        # First call creates instance
+        call1 = get_default_call()
+        assert call1 is not None
+        assert call1.retry_attempts == 3
+        assert call1.retry_backoff == 1.85
+        assert call1.max_concurrent == 1
+
+        # Second call returns same instance
+        call2 = get_default_call()
+        assert call1 is call2  # Same object
 
 
 # ============================================================================
