@@ -164,8 +164,7 @@ plugins:
             filters: ["!^_"]
             annotations_path: brief
             line_length: 80
-  - tags:
-      tags_file: tags.md
+  - tags
   # - social:
   #     cards_layout_options:
   #       background_color: "#1e1e1e"
@@ -176,7 +175,6 @@ nav:
   - Home:
       - index.md
       - Installation: quickstart/installation.md
-      - Orchestration First: quickstart/orchestration-first.md
       - Quick Start: quickstart/your-first-flow.md
   
   - Learn:
@@ -250,10 +248,12 @@ nav:
       - LangGraph Migration: comparisons/langgraph.md
   
   - Reference:
+      - API Reference: reference/api/index.md
       - Changelog: reference/changelog.md
       - Troubleshooting: reference/troubleshooting.md
-  
+
   - Community:
+      - community/index.md
       - Contributing: contributing.md
       - Code of Conduct: code-of-conduct.md
       - Documentation Standards: DOCUMENTATION_STANDARDS.md
@@ -301,6 +301,8 @@ extra_css:
   - https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap
 
 extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+  - javascripts/mermaid-config.js
   - javascripts/mathjax.js
   - https://polyfill.io/v3/polyfill.min.js?features=es6
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
