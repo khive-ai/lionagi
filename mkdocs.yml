@@ -178,23 +178,22 @@ nav:
       - Quick Start: quickstart/your-first-flow.md
   
   - Learn:
-      - Philosophy:
-          - The Evolution: core-concepts/lionagi-philosophy.md
-          - Why LionAGI: thinking-in-lionagi/why-lionagi.md
-          - thinking-in-lionagi/index.md
-      
       - Core Concepts:
           - core-concepts/index.md
           - Operations: core-concepts/operations.md
           - Sessions & Branches: core-concepts/sessions-and-branches.md
           - Messages & Memory: core-concepts/messages-and-memory.md
           - Models & Providers: core-concepts/models-and-providers.md
-      
-      - Design Patterns:
-          - Branches as Agents: thinking-in-lionagi/branches-as-agents.md
-          - Graphs Over Chains: thinking-in-lionagi/graphs-over-chains.md
-          - Builder Pattern: thinking-in-lionagi/builder-pattern.md
   
+      - Cookbook:
+          - cookbook/index.md
+          - Claim Extraction: cookbook/claim-extraction.md
+          - HR Automation: cookbook/hr-automation.md
+          - Code Review: cookbook/code-review-crew.md
+          - Data Persistence: cookbook/data-persistence.md
+          - Brainstorming: cookbook/brainstorming.md
+          - Research Synthesis: cookbook/research-synthesis.md
+
   - Patterns:
       - patterns/index.md
       - Fan-Out/In: patterns/fan-out-in.md
@@ -202,15 +201,6 @@ nav:
       - ReAct with RAG: patterns/react-with-rag.md
       - Sequential Analysis: patterns/sequential-analysis.md
       - Tournament Validation: patterns/tournament-validation.md
-  
-  - Cookbook:
-      - cookbook/index.md
-      - Claim Extraction: cookbook/claim-extraction.md
-      - HR Automation: cookbook/hr-automation.md
-      - Code Review: cookbook/code-review-crew.md
-      - Data Persistence: cookbook/data-persistence.md
-      - Brainstorming: cookbook/brainstorming.md
-      - Research Synthesis: cookbook/research-synthesis.md
   
   - Build:
       - Advanced:
@@ -230,23 +220,7 @@ nav:
           - MCP Servers: integrations/mcp-servers.md
           - LlamaIndex RAG: integrations/llamaindex-rag.md
           - DSPy Optimization: integrations/dspy-optimization.md
-  
-  - AI Agents:
-      - for-ai-agents/index.md
-      - Orchestration Guide: for-ai-agents/orchestration-guide.md
-      - Pattern Selection: for-ai-agents/pattern-selection.md
-      - Claude Code Usage: for-ai-agents/claude-code-usage.md
-      - Self-Improvement: for-ai-agents/self-improvement.md
-  
-  - Migrate:
-      - migration/index.md
-      - From LangChain: migration/from-langchain.md
-      - From CrewAI: migration/from-crewai.md
-      - From AutoGen: migration/from-autogen.md
-  
-  - Comparisons:
-      - LangGraph Migration: comparisons/langgraph.md
-  
+
   - Reference:
       - API Reference: reference/api/index.md
       - Changelog: reference/changelog.md
@@ -274,7 +248,7 @@ extra:
       link: https://twitter.com/lionagi
       name: Twitter
     - icon: fontawesome/brands/linkedin
-      link: https://linkedin.com/company/lionagi
+      link: https://www.linkedin.com/in/quantoceanli/
       name: LinkedIn
   
   analytics:
