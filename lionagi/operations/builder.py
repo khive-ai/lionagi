@@ -11,13 +11,53 @@ from enum import Enum
 from typing import Any
 
 from lionagi.operations.node import create_operation
-from lionagi.protocols.graph.edge import Edge
+from lionagi.protocols.graph.edge import Edge, EdgeCondition
 from lionagi.protocols.types import ID
 
 __all__ = (
     "OperationGraphBuilder",
     "ExpansionStrategy",
+    "BooleanEdgeCondition",
 )
+
+
+class BooleanEdgeCondition(EdgeCondition):
+    """
+    Concrete EdgeCondition that evaluates based on boolean check result.
+
+    Used for conditional branching where edges should only be traversed
+    if a condition check returns a specific boolean value.
+    """
+
+    expected_value: (
+        bool  # True for "if_true" edges, False for "if_false" edges
+    )
+
+    async def apply(
+        self, context: dict[str, Any] | None = None, **kwargs
+    ) -> bool:
+        """
+        Apply the condition by checking if result matches expected value.
+
+        Args:
+            context: Dict with 'result' key containing the check operation result
+
+        Returns:
+            True if result matches expected_value, False otherwise
+        """
+        if not context or "result" not in context:
+            return self.expected_value  # Default behavior
+
+        result = context["result"]
+
+        # Handle dict results with a condition_result field
+        if isinstance(result, dict):
+            check_value = result.get("condition_result", result.get("result"))
+        else:
+            check_value = result
+
+        # Convert to boolean and compare
+        return bool(check_value) == self.expected_value
 
 
 class ExpansionStrategy(Enum):
@@ -208,13 +248,33 @@ class OperationGraphBuilder:
             self._operations[node.id] = node
             new_node_ids.append(node.id)
 
-            # Link from source
-            edge = Edge(
-                head=source_node_id,
-                tail=node.id,
-                label=["expansion", strategy.value],
-            )
-            self.graph.add_edge(edge)
+            # Create edges based on strategy
+            if strategy == ExpansionStrategy.SEQUENTIAL:
+                # For SEQUENTIAL: chain dependencies (each depends on previous)
+                if i == 0:
+                    # First operation depends on source
+                    edge = Edge(
+                        head=source_node_id,
+                        tail=node.id,
+                        label=["expansion", "sequential"],
+                    )
+                    self.graph.add_edge(edge)
+                else:
+                    # Subsequent operations depend on previous
+                    edge = Edge(
+                        head=new_node_ids[i - 1],
+                        tail=node.id,
+                        label=["expansion", "sequential", "chained"],
+                    )
+                    self.graph.add_edge(edge)
+            else:
+                # For CONCURRENT and other strategies: all depend on source
+                edge = Edge(
+                    head=source_node_id,
+                    tail=node.id,
+                    label=["expansion", strategy.value],
+                )
+                self.graph.add_edge(edge)
 
         # Update current heads based on strategy
         if strategy in [
@@ -365,9 +425,13 @@ class OperationGraphBuilder:
         self._operations[true_node.id] = true_node
         result["true"] = true_node.id
 
-        # Connect with condition label
+        # Connect with condition for true branch
+        true_condition = BooleanEdgeCondition(expected_value=True)
         true_edge = Edge(
-            head=check_node.id, tail=true_node.id, label=["if_true"]
+            head=check_node.id,
+            tail=true_node.id,
+            condition=true_condition,
+            label=["if_true"],
         )
         self.graph.add_edge(true_edge)
 
@@ -380,8 +444,13 @@ class OperationGraphBuilder:
             self._operations[false_node.id] = false_node
             result["false"] = false_node.id
 
+            # Connect with condition for false branch
+            false_condition = BooleanEdgeCondition(expected_value=False)
             false_edge = Edge(
-                head=check_node.id, tail=false_node.id, label=["if_false"]
+                head=check_node.id,
+                tail=false_node.id,
+                condition=false_condition,
+                label=["if_false"],
             )
             self.graph.add_edge(false_edge)
 

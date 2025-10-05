@@ -37,7 +37,15 @@ logger = logging.getLogger(__name__)
 
 async def ReAct(
     branch: "Branch",
-    instruct: Instruct | dict[str, Any],
+    instruct: Instruct | dict[str, Any] = None,
+    # Modern API: pass contexts directly
+    chat_ctx: ChatContext = None,
+    action_ctx: ActionContext | None = None,
+    parse_ctx: ParseContext | None = None,
+    intp_ctx: InterpretContext | None = None,
+    resp_ctx: dict | None = None,
+    # Legacy API: individual parameters (backward compatible)
+    instruction: str = None,
     interpret: bool = False,
     interpret_domain: str | None = None,
     interpret_style: str | None = None,
@@ -60,20 +68,105 @@ async def ReAct(
     verbose_length: int = None,
     include_token_usage_to_model: bool = True,
     continue_after_failed_response: bool = False,
+    # ReAct-specific parameters
+    reason: bool = True,
+    field_models: list[FieldModel] | None = None,
+    handle_validation: HandleValidation = "return_value",
+    invoke_actions: bool = True,
+    clear_messages: bool = False,
+    intermediate_nullable: bool = False,
     **kwargs,
 ):
-    """ReAct reasoning loop with legacy API - wrapper around ReAct_v1."""
+    """
+    ReAct reasoning loop with advanced multi-step reasoning and tool integration.
 
-    # Convert Instruct to dict if needed
-    instruct_dict = (
-        instruct.to_dict()
-        if isinstance(instruct, Instruct)
-        else dict(instruct)
-    )
+    Two usage patterns:
 
-    # Build InterpretContext if interpretation requested
-    intp_ctx = None
-    if interpret:
+    1. Modern (recommended):
+        chat_ctx = ChatContext(...)
+        action_ctx = ActionContext(...)
+        result = await ReAct(branch, instruct, chat_ctx=chat_ctx, action_ctx=action_ctx, ...)
+
+    2. Legacy (backward compatible):
+        result = await ReAct(branch, instruct, tools=[...], max_extensions=5, ...)
+
+    Args:
+        branch: Branch instance for execution
+        instruct: Instruct object or dict with instruction/guidance/context
+        chat_ctx: ChatContext object (modern API)
+        action_ctx: ActionContext object (modern API)
+        parse_ctx: ParseContext object (modern API)
+        intp_ctx: InterpretContext object (modern API)
+        resp_ctx: Response context dict (modern API)
+        instruction: Raw instruction string (legacy, overrides instruct)
+        interpret: Enable instruction interpretation (legacy)
+        interpret_domain: Interpretation domain (legacy)
+        interpret_style: Interpretation style (legacy)
+        interpret_sample: Sample writing style (legacy)
+        interpret_model: Model for interpretation (legacy)
+        interpret_kwargs: Interpretation kwargs (legacy)
+        tools: Tools to use (legacy)
+        tool_schemas: Tool schemas (legacy)
+        response_format: Final response format (legacy)
+        intermediate_response_options: Intermediate response options (legacy)
+        intermediate_listable: Make intermediate responses listable (legacy)
+        reasoning_effort: Reasoning effort level (legacy)
+        extension_allowed: Allow extensions (legacy)
+        max_extensions: Maximum extension rounds (legacy)
+        response_kwargs: Response kwargs (legacy)
+        display_as: Display format (legacy)
+        return_analysis: Return all analyses (legacy)
+        analysis_model: Model for analysis (legacy)
+        verbose_analysis: Verbose output (legacy)
+        verbose_length: Verbose output length (legacy)
+        include_token_usage_to_model: Include token usage (legacy)
+        continue_after_failed_response: Continue on failures (legacy)
+        reason: Enable reasoning (default: True)
+        field_models: Additional field models
+        handle_validation: Validation handling strategy
+        invoke_actions: Invoke action requests
+        clear_messages: Clear message history
+        intermediate_nullable: Make intermediate responses nullable
+        **kwargs: Additional model parameters
+
+    Returns:
+        Final result or list of analyses if return_analysis=True
+    """
+    # Build contexts from whichever input was provided
+    if chat_ctx is None:
+        # Convert Instruct to dict if needed
+        if instruction is not None:
+            # Explicit instruction overrides instruct
+            instruct_dict = {"instruction": instruction}
+        elif isinstance(instruct, Instruct):
+            instruct_dict = instruct.to_dict()
+        elif isinstance(instruct, dict):
+            instruct_dict = dict(instruct)
+        else:
+            instruct_dict = {}
+
+        chat_ctx = ChatContext(
+            guidance=instruct_dict.get("guidance"),
+            context=instruct_dict.get("context"),
+            sender=branch.user or "user",
+            recipient=branch.id,
+            response_format=None,  # Will be set in operate calls
+            progression=None,
+            tool_schemas=tool_schemas or [],
+            images=[],
+            image_detail="auto",
+            plain_content="",
+            include_token_usage_to_model=include_token_usage_to_model,
+            imodel=analysis_model or branch.chat_model,
+            imodel_kw=kwargs,
+        )
+
+        # Extract instruction for execution
+        instruction = instruct_dict.get(
+            "instruction", str(instruct) if instruct else ""
+        )
+
+    if intp_ctx is None and interpret:
         intp_ctx = InterpretContext(
             domain=interpret_domain or "general",
             style=interpret_style or "concise",
@@ -82,112 +175,40 @@ async def ReAct(
             imodel_kw=interpret_kwargs or {},
         )
 
-    # Build ChatContext
-    chat_ctx = ChatContext(
-        guidance=instruct_dict.get("guidance"),
-        context=instruct_dict.get("context"),
-        sender=branch.user or "user",
-        recipient=branch.id,
-        response_format=None,  # Will be set in operate calls
-        progression=None,
-        tool_schemas=tool_schemas or [],
-        images=[],
-        image_detail="auto",
-        plain_content="",
-        include_token_usage_to_model=include_token_usage_to_model,
-        imodel=analysis_model or branch.chat_model,
-        imodel_kw=kwargs,
-    )
-
-    # Build ActionContext
-    action_ctx = None
-    if tools is not None or tool_schemas is not None:
-        from ..act.act import _get_default_call_params
+    if action_ctx is None and (tools is not None or tool_schemas is not None):
+        from ..act.act import ActionExecutor
 
         action_ctx = ActionContext(
-            action_call_params=_get_default_call_params(),
+            action_call_params=ActionExecutor.DEFAULT_ALCALL_PARAMS,
             tools=tools or True,
             strategy="concurrent",
             suppress_errors=True,
             verbose_action=False,
         )
 
-    # Build ParseContext
-    from ..parse.parse import get_default_call
+    if parse_ctx is None:
+        from ..parse.parse import ParseExecutor
 
-    parse_ctx = ParseContext(
-        response_format=ReActAnalysis,  # Initial format
-        fuzzy_match_params=FuzzyMatchKeysParams(),
-        handle_validation="return_value",
-        alcall_params=get_default_call(),
-        imodel=analysis_model or branch.chat_model,
-        imodel_kw={},
-    )
+        parse_ctx = ParseContext(
+            response_format=ReActAnalysis,  # Initial format
+            fuzzy_match_params=FuzzyMatchKeysParams(),
+            handle_validation="return_value",
+            alcall_params=ParseExecutor.DEFAULT_ALCALL_PARAMS,
+            imodel=analysis_model or branch.chat_model,
+            imodel_kw={},
+        )
 
-    # Response context for final answer
-    resp_ctx = response_kwargs or {}
-    if response_format:
-        resp_ctx["response_format"] = response_format
+    if resp_ctx is None:
+        resp_ctx = response_kwargs or {}
+        if response_format:
+            resp_ctx["response_format"] = response_format
 
-    return await ReAct_v1(
-        branch,
-        instruction=instruct_dict.get("instruction", str(instruct)),
-        chat_ctx=chat_ctx,
-        action_ctx=action_ctx,
-        parse_ctx=parse_ctx,
-        intp_ctx=intp_ctx,
-        resp_ctx=resp_ctx,
-        reasoning_effort=reasoning_effort,
-        reason=True,  # ReAct always uses reasoning
-        field_models=None,
-        handle_validation="return_value",
-        invoke_actions=True,  # ReAct always invokes actions
-        clear_messages=False,
-        intermediate_response_options=intermediate_response_options,
-        intermediate_listable=intermediate_listable,
-        intermediate_nullable=False,
-        max_extensions=max_extensions,
-        extension_allowed=extension_allowed,
-        verbose_analysis=verbose_analysis,
-        display_as=display_as,
-        verbose_length=verbose_length,
-        continue_after_failed_response=continue_after_failed_response,
-        return_analysis=return_analysis,
-    )
+    # Use provided instruction or extract from chat_ctx
+    if instruction is None:
+        # Instruction should come from earlier processing or be in kwargs
+        instruction = kwargs.get("instruction", "")
 
-
-async def ReAct_v1(
-    branch: "Branch",
-    instruction: str,
-    chat_ctx: ChatContext,
-    action_ctx: ActionContext | None = None,
-    parse_ctx: ParseContext | None = None,
-    intp_ctx: InterpretContext | None = None,
-    resp_ctx: dict | None = None,
-    reasoning_effort: Literal["low", "medium", "high"] | None = None,
-    reason: bool = False,
-    field_models: list[FieldModel] | None = None,
-    handle_validation: HandleValidation = "raise",
-    invoke_actions: bool = True,
-    clear_messages=False,
-    intermediate_response_options: B | list[B] = None,
-    intermediate_listable: bool = False,
-    intermediate_nullable: bool = False,
-    max_extensions: int | None = 0,
-    extension_allowed: bool = True,
-    verbose_analysis: bool = False,
-    display_as: Literal["yaml", "json"] = "yaml",
-    verbose_length: int = None,
-    continue_after_failed_response: bool = False,
-    return_analysis: bool = False,
-):
-    """
-    Context-based ReAct implementation - collects all outputs from ReActStream.
-
-    Args:
-        return_analysis: If True, returns list of all intermediate analyses.
-                        If False, returns only the final result.
-    """
+    # Execute ReAct stream
     outs = []
 
     if verbose_analysis:
@@ -261,9 +282,9 @@ async def handle_instruction_interpretation(
     if not intp_ctx:
         return instruction
 
-    from ..interpret.interpret import interpret_v1
+    from ..interpret.interpret import interpret
 
-    return await interpret_v1(branch, instruction, intp_ctx)
+    return await interpret(branch, instruction, intp_ctx=intp_ctx)
 
 
 def handle_field_models(

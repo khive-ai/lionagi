@@ -55,6 +55,9 @@ class ParseContext(DataClass):
     alcall_params: AlcallParams | dict = None
     imodel: iModel = None
     imodel_kw: dict = None
+    format_instruction: str | None = None
+    format_guidance: str | None = None
+    format_context: list | None = None
 
 
 @dataclass(slots=True)
