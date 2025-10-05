@@ -45,10 +45,6 @@
          <lastmod>2025-10-05</lastmod>
     </url>
     <url>
-         <loc>https://lionagi.ai/comparisons/langgraph/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
          <loc>https://lionagi.ai/cookbook/</loc>
          <lastmod>2025-10-05</lastmod>
     </url>
@@ -161,26 +157,6 @@
          <lastmod>2025-10-05</lastmod>
     </url>
     <url>
-         <loc>https://lionagi.ai/marketing/language-interoperability-manifesto/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/migration/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/migration/from-autogen/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/migration/from-crewai/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/migration/from-langchain/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
          <loc>https://lionagi.ai/patterns/</loc>
          <lastmod>2025-10-05</lastmod>
     </url>
@@ -222,26 +198,6 @@
     </url>
     <url>
          <loc>https://lionagi.ai/reference/api/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/thinking-in-lionagi/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/thinking-in-lionagi/branches-as-agents/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/thinking-in-lionagi/builder-pattern/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/thinking-in-lionagi/graphs-over-chains/</loc>
-         <lastmod>2025-10-05</lastmod>
-    </url>
-    <url>
-         <loc>https://lionagi.ai/thinking-in-lionagi/why-lionagi/</loc>
          <lastmod>2025-10-05</lastmod>
     </url>
 </urlset>
