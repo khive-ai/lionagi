@@ -87,6 +87,16 @@ async def select_v1(
     """
     # Parse choices into keys and representations
     selections, contents = parse_to_representation(choices)
+    if not selections:
+        raise ValueError("No choices available for selection")
+
+    if max_num_selections < 1:
+        raise ValueError("max_num_selections must be at least 1")
+
+    max_allowed = len(selections)
+    if max_num_selections > max_allowed:
+        max_num_selections = max_allowed
+
     prompt = SelectionModel.PROMPT.format(
         max_num_selections=max_num_selections, choices=selections
     )
@@ -108,7 +118,7 @@ async def select_v1(
     # Add choice representations to context
     context = instruct_dict.get("context", None) or []
     context = [context] if not isinstance(context, list) else context
-    context.extend([{k: v} for k, v in zip(selections, contents)])
+    context.extend({key: value} for key, value in zip(selections, contents))
     instruct_dict["context"] = context
 
     # Call branch.operate with SelectionModel as response format

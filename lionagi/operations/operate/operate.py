@@ -58,6 +58,48 @@ async def operate(
     clear_messages: bool = False,
     **kwargs,
 ) -> list | BaseModel | None | dict | str:
+    """
+    Execute a structured operation with optional reasoning, actions, and parsing.
+
+    Args:
+        branch: Branch instance for execution
+        instruct: Instruct object (alternative to individual params)
+        instruction: Instruction content
+        guidance: Additional guidance text
+        context: Context data
+        sender: Message sender
+        recipient: Message recipient
+        progression: Message progression sequence
+        imodel: DEPRECATED - use chat_model
+        chat_model: Model to use for chat
+        invoke_actions: Whether to invoke action requests
+        tool_schemas: Tool schemas to include
+        images: Image attachments
+        image_detail: Image detail level
+        parse_model: Model to use for parsing
+        skip_validation: Skip parsing validation
+        tools: Tools reference
+        operative: DEPRECATED - use response_format
+        response_format: Expected response format
+        actions: Enable action requests
+        reason: Enable reasoning
+        call_params: AlcallParams for action execution
+        action_strategy: Action execution strategy
+        verbose_action: Print action execution details
+        field_models: Additional field models
+        exclude_fields: Fields to exclude from operative
+        request_params: Model parameters
+        request_param_kwargs: Additional model parameter kwargs
+        handle_validation: How to handle validation failures
+        operative_model: DEPRECATED - use response_format
+        request_model: DEPRECATED - use response_format
+        include_token_usage_to_model: Include token usage
+        clear_messages: Clear message history before execution
+        **kwargs: Additional model parameters
+
+    Returns:
+        Parsed result or raw response
+    """
     # Handle deprecated parameters
     if operative_model:
         warnings.warn(
@@ -140,23 +182,24 @@ async def operate(
 
     parse_ctx = None
     if final_response_format and not skip_validation:
-        from ..parse.parse import get_default_call
+        from ..parse.parse import ParseExecutor
 
         parse_ctx = ParseContext(
             response_format=final_response_format,
             fuzzy_match_params=FuzzyMatchKeysParams(),
             handle_validation="return_value",
-            alcall_params=get_default_call(),
+            alcall_params=ParseExecutor.DEFAULT_ALCALL_PARAMS,
             imodel=parse_model,
             imodel_kw={},
         )
 
     action_ctx = None
     if invoke_actions and (instruct.actions or actions):
-        from ..act.act import _get_default_call_params
+        from ..act.act import ActionExecutor
 
         action_ctx = ActionContext(
-            action_call_params=call_params or _get_default_call_params(),
+            action_call_params=call_params
+            or ActionExecutor.DEFAULT_ALCALL_PARAMS,
             tools=tools,
             strategy=action_strategy
             or instruct.action_strategy
@@ -165,36 +208,13 @@ async def operate(
             verbose_action=verbose_action,
         )
 
-    return await operate_v1(
-        branch,
-        instruction=instruct.instruction,
-        chat_ctx=chat_ctx,
-        parse_ctx=parse_ctx,
-        action_ctx=action_ctx,
-        handle_validation=handle_validation,
-        invoke_actions=invoke_actions,
-        skip_validation=skip_validation,
-        clear_messages=clear_messages,
-    )
-
-
-async def operate_v1(
-    branch: "Branch",
-    instruction: JsonValue | Instruction,
-    chat_ctx: ChatContext,
-    action_ctx: ActionContext | None = None,
-    parse_ctx: ParseContext | None = None,
-    handle_validation: HandleValidation = "return_value",
-    invoke_actions: bool = True,
-    skip_validation: bool = False,
-    clear_messages: bool = False,
-    reason: bool = False,
-    field_models: list[FieldModel] | None = None,
-) -> BaseModel | dict | str | None:
-
-    # 1. communicate chat context building to avoid changing parameters
-    # Use shallow copy to avoid issues with unpicklable objects in iModel
+    # Add tool schemas to chat context if actions are enabled
     _cctx = copy(chat_ctx, deep=False)
+    if action_ctx:
+        tools_ref = action_ctx.tools or True
+        _cctx.tool_schemas = branch.acts.get_tool_schema(tools=tools_ref)
+
+    # Use parse context with handle_validation set to "return_value"
     _pctx = (
         copy(parse_ctx, deep=False)
         if parse_ctx
@@ -205,55 +225,28 @@ async def operate_v1(
     )
     _pctx.handle_validation = "return_value"
 
-    if tools := (action_ctx.tools or True) if action_ctx else None:
-        _cctx.tool_schemas = branch.acts.get_tool_schema(tools=tools)
+    # Execute communication
+    from ..communicate.communicate import communicate
 
+    result = await communicate(
+        branch,
+        instruct.instruction,
+        chat_ctx=_cctx,
+        parse_ctx=_pctx,
+        clear_messages=clear_messages,
+        skip_validation=skip_validation,
+    )
+
+    if skip_validation:
+        return result
+
+    # Handle validation errors based on handle_validation setting
     t = (
         chat_ctx.response_format
         if isinstance(chat_ctx.response_format, type)
         else dict
     )
 
-    def normalize_field_model(fms):
-        if not fms:
-            return []
-        if not isinstance(fms, list):
-            return [fms]
-        return fms
-
-    fms = normalize_field_model(field_models)
-    operative = None
-
-    if isinstance(t, type):
-        from lionagi.protocols.operatives.step import Step
-
-        operative = Step.request_operative(
-            reason=reason,
-            actions=bool(action_ctx is not None),
-            base_type=chat_ctx.response_format,
-            field_models=fms,
-        )
-        _cctx.response_format = operative.request_type
-    elif field_models:
-        dict_ = {}
-        for fm in fms:
-            if fm.name:
-                dict_[fm.name] = str(fm.annotated())
-        _cctx.response_format = dict_
-
-    from ..communicate.communicate import communicate_v1
-
-    result = await communicate_v1(
-        branch,
-        instruction,
-        _cctx,
-        _pctx,
-        clear_messages,
-        skip_validation=skip_validation,
-        request_fields=None,
-    )
-    if skip_validation:
-        return result
     if isinstance(t, type) and not isinstance(result, t):
         match handle_validation:
             case "return_value":
@@ -264,9 +257,11 @@ async def operate_v1(
                 raise ValueError(
                     "Failed to parse the LLM response into the requested format."
                 )
+
     if not invoke_actions:
         return result
 
+    # Extract action requests from result
     requests = (
         getattr(result, "action_requests", None)
         if isinstance(t, type)
@@ -275,23 +270,23 @@ async def operate_v1(
 
     action_response_models = None
     if action_ctx and requests is not None:
-        from ..act.act import act_v1
+        from ..act.act import act
 
-        action_response_models = await act_v1(
+        action_response_models = await act(
             branch,
             requests,
-            action_ctx,
+            action_ctx=action_ctx,
         )
 
     if not action_response_models:
         return result
 
+    # Merge action responses into result
     if t == dict:
         result.update({"action_responses": action_response_models})
         return result
 
-    from lionagi.protocols.operatives.step import Step
-
+    # For BaseModel results, use Step to merge action responses
     operative.response_model = result
     operative = Step.respond_operative(
         operative=operative,
