@@ -1,53 +1,77 @@
-# Quick Start
+# Installation
 
-Get up and running with LionAGI in minutes. This guide shows you the essential concepts and gets you building multi-agent workflows immediately.
+## Install LionAGI
 
-## What You'll Learn
-
-In this quickstart, you'll discover how to:
-
-- Create specialized AI agents with distinct roles and capabilities
-- Coordinate multiple agents working in parallel
-- Build workflows that leverage different AI perspectives
-
-## Getting Started
-
-1. **[Installation](installation.md)** - Install and configure LionAGI
-2. **[Your First Flow](your-first-flow.md)** - Build your first multi-agent
-   workflow
-3. **[Claude Code Integration](claude-code-integration.md)** - Use with
-   Anthropic's Claude Code
-
-## Core Concept: Multiple Perspectives
-
-The power of LionAGI lies in orchestrating multiple AI agents with different perspectives. Instead of relying on a single AI response, you can gather diverse viewpoints and synthesize them into more comprehensive insights.
-
-```python
-import asyncio
-from lionagi import Branch, iModel
-
-# Create agents with distinct roles
-analyst = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-critic = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-
-# Run them together in parallel
-async def analyze(topic):
-    analysis, critique = await asyncio.gather(
-        analyst.chat(f"Analyze: {topic}"),
-        critic.chat(f"Find issues with: {topic}")
-    )
-    return {"analysis": analysis, "critique": critique}
-
-result = asyncio.run(analyze("AI safety"))
+**Recommended**: Use `uv` for faster dependency resolution:
+```bash
+uv add lionagi
 ```
 
-This example demonstrates the core LionAGI pattern: create specialized agents, run them in parallel using `asyncio.gather()`, and combine their outputs. The analyst provides comprehensive analysis while the critic identifies potential problems - giving you both perspectives simultaneously.
+**Alternative**: Standard pip installation:
+```bash
+pip install lionagi
+```
 
-## Why This Approach Works
+## Configure API Keys
 
-- **Parallel Processing**: Both agents work simultaneously, reducing total execution time
-- **Specialized Perspectives**: Each agent focuses on their specific role and expertise  
-- **Comprehensive Coverage**: Multiple viewpoints provide more thorough analysis than any single agent
-- **Minimal Complexity**: Clean, readable code that's easy to understand and modify
+Create a `.env` file in your project root:
 
-This foundation scales from simple two-agent patterns to complex multi-agent orchestration workflows with dozens of specialized agents working together.
+```bash
+# At minimum, add one provider
+OPENAI_API_KEY=your_key_here
+
+# Optional: Additional providers
+ANTHROPIC_API_KEY=your_key_here
+OPENROUTER_API_KEY=your_key_here
+NVIDIA_NIM_API_KEY=your_key_here
+GROQ_API_KEY=your_key_here
+PERPLEXITY_API_KEY=your_key_here
+EXA_API_KEY=your_key_here
+```
+
+LionAGI automatically loads from `.env` - no manual configuration needed.
+
+## Verify Installation
+
+Run this test to confirm everything works:
+
+```python
+from lionagi import Branch, iModel
+
+async def test():
+    gpt4 = iModel(provider="openai", model="gpt-4o-mini")
+    branch = Branch(chat_model=gpt4)
+    reply = await branch.chat("Hello from LionAGI!")
+    print(f"LionAGI says: {reply}")
+
+if __name__ == "__main__":
+    import anyio
+    anyio.run(test)
+```
+
+Expected output: A conversational response from the model.
+
+## Supported Providers
+
+LionAGI comes pre-configured for these providers:
+
+- **`openai`** - GPT-5, GPT-4.1, o4-mini
+- **`anthropic`** - Claude 4.5 Sonnet, Claude 4.1 Opus
+- **`claude_code`** - Claude Code SDK integration
+- **`ollama`** - Local model hosting
+- **`openrouter`** - Access 200+ models via single API
+- **`nvidia_nim`** - NVIDIA inference microservices
+- **`groq`** - Fast inference on LPU hardware
+- **`perplexity`** - Search-augmented responses
+
+### Custom Providers
+
+**OpenAI-compatible endpoints**:
+```python
+custom = iModel(
+    provider="openai_compatible",
+    model="custom-model",
+    api_key="your_key",
+    base_url="https://custom-endpoint.com/v1"
+)
+```

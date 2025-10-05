@@ -78,9 +78,3 @@ uv run your_script.py
 ```
 
 Expected output: A refined joke about machine learning, improved through iteration.
-
-## Next Steps
-
-- **Structured Output**: [Cheat Sheet](cheat-sheet.md#structured-output) - Get Pydantic models instead of strings
-- **Tools**: [Cheat Sheet](cheat-sheet.md#tools) - Add web search, code execution, custom functions
-- **Tutorials**: [L1 Tutorial](../tutorials/L1-your-first-agent.md) - Deep dive into Branch fundamentals
