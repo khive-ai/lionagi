@@ -809,25 +809,26 @@ class Branch(Element, Communicatable, Relational):
             tuple[Instruction, AssistantResponse]:
                 The `Instruction` object and the final `AssistantResponse`.
         """
-        from lionagi.operations.chat.chat import chat
+        from lionagi.operations.chat.chat import ChatContext, chat
 
         return await chat(
             self,
             instruction=instruction,
-            guidance=guidance,
-            context=context,
-            sender=sender,
-            recipient=recipient,
-            request_fields=request_fields,
-            response_format=response_format,
-            progression=progression,
-            imodel=imodel or kwargs.pop("chat_model", None) or self.chat_model,
-            tool_schemas=tool_schemas,
-            images=images,
-            image_detail=image_detail,
-            plain_content=plain_content,
+            chat_ctx=ChatContext(
+                guidance=guidance,
+                context=context,
+                sender=sender or self.user or "user",
+                recipient=recipient or self.id,
+                response_format=response_format or request_fields,
+                progression=progression,
+                tool_schemas=tool_schemas or [],
+                images=images or [],
+                image_detail=image_detail or "auto",
+                plain_content=plain_content or "",
+                imodel=imodel or self.chat_model,
+                imodel_kw=kwargs,
+            ),
             return_ins_res_message=return_ins_res_message,
-            **kwargs,
         )
 
     async def parse(
@@ -889,25 +890,12 @@ class Branch(Element, Communicatable, Relational):
             BaseModel | dict | str | None:
                 Parsed model instance, or a fallback based on `handle_validation`.
         """
-        from lionagi.operations.parse.parse import parse
+        from lionagi.operations.parse.parse import parse, prepare_parse_kws
 
-        return await parse(
-            self,
-            text=text,
-            handle_validation=handle_validation,
-            max_retries=max_retries,
-            request_type=request_type,
-            operative=operative,
-            similarity_algo=similarity_algo,
-            similarity_threshold=similarity_threshold,
-            fuzzy_match=fuzzy_match,
-            handle_unmatched=handle_unmatched,
-            fill_value=fill_value,
-            fill_mapping=fill_mapping,
-            strict=strict,
-            suppress_conversion_errors=suppress_conversion_errors,
-            response_format=response_format,
-        )
+        _kws = {
+            k: v for k, v in locals().items() if k != "self" and v is not None
+        }
+        return await parse(self, **prepare_parse_kws(self, **_kws))
 
     async def operate(
         self,
@@ -1132,29 +1120,19 @@ class Branch(Element, Communicatable, Relational):
                 - A dict of the requested fields,
                 - or `None` if parsing fails and `handle_validation='return_none'`.
         """
-        from lionagi.operations.communicate.communicate import communicate
-
-        return await communicate(
-            self,
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
-            plain_content=plain_content,
-            sender=sender,
-            recipient=recipient,
-            progression=progression,
-            response_format=response_format,
-            request_fields=request_fields,
-            chat_model=chat_model,
-            parse_model=parse_model,
-            skip_validation=skip_validation,
-            images=images,
-            image_detail=image_detail,
-            num_parse_retries=num_parse_retries,
-            clear_messages=clear_messages,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
+        from lionagi.operations.communicate.communicate import (
+            communicate,
+            prepare_communicate_kw,
         )
+
+        _kws = {
+            k: v
+            for k, v in locals().items()
+            if k not in ["self", "kwargs"] and v is not None
+        }
+        _kws.update(kwargs)
+
+        return await communicate(self, **prepare_communicate_kw(self, **_kws))
 
     async def _act(
         self,

@@ -241,9 +241,9 @@ async def operate_v1(
                 dict_[fm.name] = str(fm.annotated())
         _cctx.response_format = dict_
 
-    from ..communicate.communicate import communicate_v1
+    from ..communicate.communicate import communicate
 
-    result = await communicate_v1(
+    result = await communicate(
         branch,
         instruction,
         _cctx,

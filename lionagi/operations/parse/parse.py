@@ -11,10 +11,9 @@ from lionagi.ln import (
     extract_json,
     fuzzy_validate_mapping,
     get_cancelled_exc_class,
-    json_dumps,
     to_list,
 )
-from lionagi.ln.fuzzy import FuzzyMatchKeysParams, fuzzy_validate_pydantic
+from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.protocols.types import AssistantResponse
 from lionagi.session.branch import AlcallParams
 
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
 _CALL = None  # type: ignore
 
 
-async def parse(
+def prepare_parse_kws(
     branch: "Branch",
     text: str,
     handle_validation: HandleValidation = "return_value",
@@ -76,10 +75,9 @@ async def parse(
         fuzzy_match=fuzzy_match,
     )
 
-    return await parse_v1(
-        branch,
-        text,
-        parse_ctx=ParseContext(
+    return {
+        "text": text,
+        "parse_ctx": ParseContext(
             response_format=response_format or request_fields,
             fuzzy_match_params=fuzzy_params,
             handle_validation=handle_validation,
@@ -89,11 +87,11 @@ async def parse(
             imodel=branch.parse_model,
             imodel_kw=kw,
         ),
-        return_res_message=return_res_message,
-    )
+        "return_res_message": return_res_message,
+    }
 
 
-async def parse_v1(
+async def parse(
     branch: "Branch",
     text: str,
     parse_ctx: ParseContext,
