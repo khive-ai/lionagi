@@ -1,207 +1,178 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
-from lionagi.utils import copy
-
-from .base import MessageRole, SenderRecipient
-from .message import MessageRole, RoledMessage, Template, jinja_env
+from .base import SenderRecipient
+from .message import MessageContent, MessageRole, RoledMessage
 
 
-def prepare_assistant_response(
-    assistant_response: BaseModel | list[BaseModel] | dict | str | Any, /
-) -> dict:
-    assistant_response = (
-        [assistant_response]
-        if not isinstance(assistant_response, list)
-        else assistant_response
-    )
+def parse_assistant_response(
+    response: BaseModel | list[BaseModel] | dict | str | Any,
+) -> tuple[str, dict | list[dict]]:
+    """Parse various AI model response formats into text and raw data.
+
+    Supports:
+    - Anthropic format (content field)
+    - OpenAI chat completions (choices field)
+    - OpenAI responses API (output field)
+    - Claude Code (result field)
+    - Raw strings
+
+    Returns:
+        tuple: (extracted_text, raw_model_response)
+    """
+    responses = [response] if not isinstance(response, list) else response
 
     text_contents = []
     model_responses = []
 
-    for i in assistant_response:
-        if isinstance(i, BaseModel):
-            i = i.model_dump(exclude_none=True, exclude_unset=True)
+    for item in responses:
+        if isinstance(item, BaseModel):
+            item = item.model_dump(exclude_none=True, exclude_unset=True)
 
-        model_responses.append(i)
+        model_responses.append(item)
 
-        if isinstance(i, dict):
-            # anthropic standard
-            if "content" in i:
-                content = i["content"]
+        if isinstance(item, dict):
+            # Anthropic standard
+            if "content" in item:
+                content = item["content"]
                 content = (
                     [content] if not isinstance(content, list) else content
                 )
-                for j in content:
-                    if isinstance(j, dict):
-                        if j.get("type") == "text":
-                            text_contents.append(j["text"])
-                    elif isinstance(j, str):
-                        text_contents.append(j)
+                for c in content:
+                    if isinstance(c, dict) and c.get("type") == "text":
+                        text_contents.append(c["text"])
+                    elif isinstance(c, str):
+                        text_contents.append(c)
 
-            # openai chat completions standard
-            elif "choices" in i:
-                choices = i["choices"]
+            # OpenAI chat completions standard
+            elif "choices" in item:
+                choices = item["choices"]
                 choices = (
                     [choices] if not isinstance(choices, list) else choices
                 )
-                for j in choices:
-                    if "message" in j:
-                        text_contents.append(j["message"]["content"] or "")
-                    elif "delta" in j:
-                        text_contents.append(j["delta"]["content"] or "")
+                for choice in choices:
+                    if "message" in choice:
+                        text_contents.append(
+                            choice["message"].get("content") or ""
+                        )
+                    elif "delta" in choice:
+                        text_contents.append(
+                            choice["delta"].get("content") or ""
+                        )
 
-            # openai responses API standard
-            elif "output" in i:
-                output = i["output"]
+            # OpenAI responses API standard
+            elif "output" in item:
+                output = item["output"]
                 output = [output] if not isinstance(output, list) else output
-                for item in output:
-                    if isinstance(item, dict):
-                        if item.get("type") == "message":
-                            # Extract content from message
-                            content = item.get("content", [])
-                            if isinstance(content, list):
-                                for c in content:
-                                    if (
-                                        isinstance(c, dict)
-                                        and c.get("type") == "output_text"
-                                    ):
-                                        text_contents.append(c.get("text", ""))
-                                    elif isinstance(c, str):
-                                        text_contents.append(c)
+                for out in output:
+                    if isinstance(out, dict) and out.get("type") == "message":
+                        content = out.get("content", [])
+                        if isinstance(content, list):
+                            for c in content:
+                                if (
+                                    isinstance(c, dict)
+                                    and c.get("type") == "output_text"
+                                ):
+                                    text_contents.append(c.get("text", ""))
+                                elif isinstance(c, str):
+                                    text_contents.append(c)
 
-            # claude code standard
-            elif "result" in i:
-                text_contents.append(i["result"])
+            # Claude Code standard
+            elif "result" in item:
+                text_contents.append(item["result"])
 
-        elif isinstance(i, str):
-            text_contents.append(i)
+        elif isinstance(item, str):
+            text_contents.append(item)
 
-    text_contents = "".join(text_contents)
-    model_responses = (
+    text = "".join(text_contents)
+    model_response = (
         model_responses[0] if len(model_responses) == 1 else model_responses
     )
-    return {
-        "assistant_response": text_contents,
-        "model_response": model_responses,
-    }
+
+    return text, model_response
+
+
+@dataclass(slots=True)
+class AssistantResponseContent(MessageContent):
+    """Content for assistant responses.
+
+    Fields:
+        assistant_response: Extracted text from the model
+    """
+
+    assistant_response: str = ""
+
+    @property
+    def rendered(self) -> str:
+        """Render assistant response as plain text."""
+        return self.assistant_response
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AssistantResponseContent":
+        """Construct AssistantResponseContent from dictionary."""
+        assistant_response = data.get("assistant_response", "")
+        return cls(assistant_response=assistant_response)
 
 
 class AssistantResponse(RoledMessage):
-    """
-    A message representing the AI assistant's reply, typically
-    from a model or LLM call. If the raw model output is available,
-    it's placed in `metadata["model_response"]`.
+    """Message representing an AI assistant's reply.
+
+    The raw model output is stored in metadata["model_response"].
     """
 
-    template: Template | str | None = jinja_env.get_template(
-        "assistant_response.jinja2"
-    )
+    role: MessageRole = MessageRole.ASSISTANT
+    content: AssistantResponseContent
+    recipient: SenderRecipient | None = MessageRole.USER
+
+    @field_validator("content", mode="before")
+    def _validate_content(cls, v):
+        if v is None:
+            return AssistantResponseContent()
+        if isinstance(v, dict):
+            return AssistantResponseContent.from_dict(v)
+        if isinstance(v, AssistantResponseContent):
+            return v
+        raise TypeError(
+            "content must be dict or AssistantResponseContent instance"
+        )
 
     @property
     def response(self) -> str:
-        """Get or set the text portion of the assistant's response."""
-        return copy(self.content["assistant_response"])
-
-    @response.setter
-    def response(self, value: str) -> None:
-        self.content["assistant_response"] = value
+        """Access the text response from the assistant."""
+        return self.content.assistant_response
 
     @property
     def model_response(self) -> dict | list[dict]:
-        """
-        Access the underlying model's raw data, if available.
-
-        Returns:
-            dict or list[dict]: The stored model output data.
-        """
-        return copy(self.metadata.get("model_response", {}))
+        """Access the underlying model's raw data from metadata."""
+        return self.metadata.get("model_response", {})
 
     @classmethod
-    def create(
+    def from_response(
         cls,
-        assistant_response: BaseModel | list[BaseModel] | dict | str | Any,
+        response: BaseModel | list[BaseModel] | dict | str | Any,
         sender: SenderRecipient | None = None,
         recipient: SenderRecipient | None = None,
-        template: Template | str | None = None,
-        **kwargs,
     ) -> "AssistantResponse":
-        """
-        Build an AssistantResponse from arbitrary assistant data.
+        """Create AssistantResponse from raw model output.
 
         Args:
-            assistant_response:
-                A pydantic model, list, dict, or string representing
-                an LLM or system response.
-            sender (SenderRecipient | None):
-                The ID or role denoting who sends this response.
-            recipient (SenderRecipient | None):
-                The ID or role to receive it.
-            template (Template | str | None):
-                Optional custom template.
-            **kwargs:
-                Additional content key-value pairs.
+            response: Raw model output in any supported format
+            sender: Message sender
+            recipient: Message recipient
 
         Returns:
-            AssistantResponse: The constructed instance.
+            AssistantResponse with parsed content and metadata
         """
-        content = prepare_assistant_response(assistant_response)
-        model_response = content.pop("model_response", {})
-        content.update(kwargs)
-        params = {
-            "content": content,
-            "role": MessageRole.ASSISTANT,
-            "recipient": recipient or MessageRole.USER,
-        }
-        if sender:
-            params["sender"] = sender
-        if template:
-            params["template"] = template
-        if model_response:
-            params["metadata"] = {"model_response": model_response}
-        return cls(**params)
+        text, model_response = parse_assistant_response(response)
 
-    def update(
-        self,
-        assistant_response: (
-            BaseModel | list[BaseModel] | dict | str | Any
-        ) = None,
-        sender: SenderRecipient | None = None,
-        recipient: SenderRecipient | None = None,
-        template: Template | str | None = None,
-        **kwargs,
-    ):
-        """
-        Update this AssistantResponse with new data or fields.
-
-        Args:
-            assistant_response:
-                Additional or replaced assistant model output.
-            sender (SenderRecipient | None):
-                Updated sender.
-            recipient (SenderRecipient | None):
-                Updated recipient.
-            template (Template | str | None):
-                Optional new template.
-            **kwargs:
-                Additional content updates for `self.content`.
-        """
-        if assistant_response:
-            content = prepare_assistant_response(assistant_response)
-            self.content.update(content)
-        super().update(
-            sender=sender, recipient=recipient, template=template, **kwargs
+        return cls(
+            content=AssistantResponseContent(assistant_response=text),
+            sender=sender,
+            recipient=recipient or MessageRole.USER,
+            metadata={"model_response": model_response},
         )
-
-    def as_context(self) -> dict:
-        return f"""
-            Response: {self.response or "Not available"}
-            Summary: {self.model_response.get("summary") or "Not available"}
-        """.strip()
-
-
-# File: lionagi/protocols/messages/assistant_response.py

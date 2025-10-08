@@ -25,7 +25,6 @@ from .mail.manager import MailManager
 from .messages.base import (
     MESSAGE_FIELDS,
     MessageField,
-    MessageFlag,
     MessageRole,
     validate_sender_recipient,
 )
@@ -82,7 +81,6 @@ __all__ = (
     "PackageCategory",
     "MESSAGE_FIELDS",
     "MessageField",
-    "MessageFlag",
     "MessageRole",
     "validate_sender_recipient",
     "ActionRequest",
