@@ -18,12 +18,11 @@ from pathlib import Path
 from textwrap import shorten
 from typing import Any, Literal
 
-from json_repair import repair_json
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lionagi import ln
 from lionagi.libs.schema.as_readable import as_readable
-from lionagi.utils import is_coro_func, is_import_installed
+from lionagi.utils import is_coro_func
 
 HAS_CLAUDE_CODE_CLI = False
 CLAUDE_CLI = None
@@ -415,6 +414,8 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
     • Robust against braces inside strings (uses json.JSONDecoder.raw_decode)
     • Falls back to `json_repair.repair_json` when necessary.
     """
+    from json_repair import repair_json
+
     workspace = request.cwd()
     workspace.mkdir(parents=True, exist_ok=True)
 
