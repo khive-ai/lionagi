@@ -48,18 +48,6 @@ class RoledMessage(Node, Sendable):
 
     template: str | Template | None = None
 
-    sender: SenderRecipient | None = Field(
-        default=MessageRole.UNSET,
-        title="Sender",
-        description="The ID of the sender node or a role.",
-    )
-
-    recipient: SenderRecipient | None = Field(
-        default=MessageRole.UNSET,
-        title="Recipient",
-        description="The ID of the recipient node or a role.",
-    )
-
     @field_serializer("sender", "recipient")
     def _serialize_sender_recipient(self, value: SenderRecipient) -> str:
         if isinstance(value, MessageRole | MessageFlag):

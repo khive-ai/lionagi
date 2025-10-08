@@ -11,18 +11,16 @@ from lionagi.ln import (
     extract_json,
     fuzzy_validate_mapping,
     get_cancelled_exc_class,
-    json_dumps,
     to_list,
 )
-from lionagi.ln.fuzzy import FuzzyMatchKeysParams, fuzzy_validate_pydantic
-from lionagi.protocols.types import AssistantResponse
+from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.session.branch import AlcallParams
 
 from ..types import HandleValidation, ParseContext
 
 if TYPE_CHECKING:
+    from lionagi.protocols.types import AssistantResponse
     from lionagi.session.branch import Branch
-
 
 _CALL = None  # type: ignore
 
@@ -93,24 +91,37 @@ async def parse(
     )
 
 
-async def parse_v1(
-    branch: "Branch",
-    text: str,
+async def _parse(
+    branch,
+    text,
     parse_ctx: ParseContext,
     return_res_message: bool = False,
-) -> Any | tuple[Any, AssistantResponse | None]:
+):
 
-    # Try direct validation first
+    # ---------------------------------------------- 1. try direct validation
     with contextlib.suppress(Exception):
         result = _validate_dict_or_model(
             text, parse_ctx.response_format, parse_ctx.fuzzy_match_params
         )
         return result if not return_res_message else (result, None)
 
+    # ------------------------------------------------ 2. try with LLM reparse
+
+    # ------------------------------------------------ 2.1 build parse context
+    pctx = parse_ctx
+    if not pctx.instruction:
+        from .utils import _PARSE_PROMPT
+
+        pctx.instruction = _PARSE_PROMPT
+
+    if not isinstance(pctx.context, list):
+        pctx.context = [pctx.context] if pctx.context else []
+        pctx.context.append({"text_to_format": text})
+
     async def _inner_parse(i):
         _, res = await branch.chat(
-            instruction="reformat text into specified model or structure",
-            guidance="follow the required response format, using the model schema as a guide",
+            instruction="",
+            guidance="",
             context=[{"text_to_format": text}],
             request_fields=(
                 parse_ctx.response_format

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import decimal
 import re
@@ -145,19 +146,18 @@ def get_orjson_default(
                         func = f
                         break
             else:
-                # Duck-typed support for common data holders
-                md = getattr(obj, "model_dump", None)
-                if callable(md):
-                    try:
-                        return md()
-                    except Exception:
-                        pass
-                dd = getattr(obj, "dict", None)
-                if callable(dd):
-                    try:
-                        return dd()
-                    except Exception:
-                        pass
+
+                def _try_meth(_str):
+                    md = getattr(obj, _str, None)
+                    with contextlib.suppress(Exception):
+                        if callable(md):
+                            return md()
+                    return None
+
+                backup_meths = ["to_dict", "model_dump", "dict"]
+                for m in backup_meths:
+                    if (md := _try_meth(m)) is not None:
+                        return md
                 if safe_fallback:
                     if isinstance(obj, Exception):
                         return _safe_exception_payload(obj)

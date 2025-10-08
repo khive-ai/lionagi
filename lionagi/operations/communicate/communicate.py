@@ -4,14 +4,14 @@
 import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 from lionagi.ln.types import Undefined
 from lionagi.protocols.types import AssistantResponse, Instruction
 
-from ..types import ChatContext, ParseContext
+from ..types import ChatContext, Context, ParseContext
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -62,7 +62,9 @@ async def communicate(
             "for the same parameter."
         )
 
-    response_format = response_format or operative_model or request_model
+    response_format = (
+        response_format or operative_model or request_model or request_fields
+    )
     imodel = imodel or chat_model or branch.chat_model
     parse_model = parse_model or branch.parse_model
 
@@ -124,6 +126,52 @@ async def communicate(
     )
 
 
+# accepts to chat, and parse contexts
+async def communicate(
+    branch,
+    instruction,
+    ctx: Context,
+    *,
+    response_format: dict | type[BaseModel] = None,
+    skip_validation: bool = False,
+    clear_messages: bool = False,
+):
+    if clear_messages:
+        branch.msgs.clear_messages()
+
+    from ..chat.chat import chat_v1
+
+    ins, res = await chat_v1(
+        branch, instruction, chat_ctx, return_ins_res_message=True
+    )
+
+    branch.msgs.add_message(instruction=ins)
+    branch.msgs.add_message(assistant_response=res)
+
+    if skip_validation:
+        return res.response
+
+    ...
+
+
+async def communicate(
+    branch: "Branch",
+    instruction: JsonValue | Instruction,
+    chat_ctx: ChatContext,
+    parse_ctx: ParseContext = None,
+    *,
+    response_format: dict | type[BaseModel] = None,
+    skip_validation: bool = False,
+    clear_messages: bool = False,
+):
+
+    _cctx, _pctx = None, None
+    if response_format is not None:
+        _cctx = cha
+
+    ...
+
+
 async def communicate_v1(
     branch: "Branch",
     instruction: JsonValue | Instruction,
@@ -131,7 +179,6 @@ async def communicate_v1(
     parse_ctx: ParseContext | None = None,
     clear_messages: bool = False,
     skip_validation: bool = False,
-    request_fields: dict | None = None,
 ) -> Any:
     if clear_messages:
         branch.msgs.clear_messages()
@@ -149,16 +196,21 @@ async def communicate_v1(
         return res.response
 
     # Handle response_format with parse
-    if parse_ctx and chat_ctx.response_format:
+    if parse_ctx or chat_ctx.response_format:
+
+        _pctx = parse_ctx or ParseContext()
+        _pctx = _pctx.with_updates(
+            response_format=_pctx.response_format or chat_ctx.response_format
+        )
+
         from ..parse.parse import parse_v1
 
         try:
             out, res2 = await parse_v1(
-                branch, res.response, parse_ctx, return_res_message=True
+                branch, res.response, _pctx, return_res_message=True
             )
             if res2 and isinstance(res2, AssistantResponse):
                 res.metadata["original_model_response"] = res.model_response
-                # model_response is read-only property - update metadata instead
                 res.metadata["model_response"] = res2.model_response
             return out
         except ValueError as e:
@@ -166,15 +218,5 @@ async def communicate_v1(
             raise ValueError(
                 f"Failed to parse model response into {chat_ctx.response_format}: {e}"
             ) from e
-
-    # Handle request_fields with fuzzy validation
-    if request_fields is not None:
-        _d = fuzzy_validate_mapping(
-            res.response,
-            request_fields,
-            handle_unmatched="force",
-            fill_value=Undefined,
-        )
-        return {k: v for k, v in _d.items() if v != Undefined}
 
     return res.response

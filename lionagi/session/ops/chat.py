@@ -1,9 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import TYPE_CHECKING, Literal
-
-from pydantic import BaseModel, JsonValue
+from typing import TYPE_CHECKING
 
 from lionagi.protocols.types import (
     ActionResponse,
@@ -11,7 +9,6 @@ from lionagi.protocols.types import (
     Instruction,
     Log,
 )
-from lionagi.service.imodel import iModel
 from lionagi.utils import copy, to_list
 
 from ..types import ChatContext
@@ -20,50 +17,8 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
-async def chat(
+async def _chat(
     branch: "Branch",
-    instruction=None,
-    guidance=None,
-    context=None,
-    sender=None,
-    recipient=None,
-    request_fields=None,
-    response_format: type[BaseModel] = None,
-    progression=None,
-    imodel: iModel = None,
-    tool_schemas=None,
-    images: list = None,
-    image_detail: Literal["low", "high", "auto"] = None,
-    plain_content: str = None,
-    return_ins_res_message: bool = False,
-    include_token_usage_to_model: bool = False,
-    **kwargs,
-) -> tuple[Instruction, AssistantResponse]:
-    return await chat_v1(
-        branch,
-        instruction=instruction,
-        chat_ctx=ChatContext(
-            guidance=guidance,
-            context=context,
-            sender=sender or branch.user or "user",
-            recipient=recipient or branch.id,
-            response_format=response_format or request_fields,
-            progression=progression,
-            tool_schemas=tool_schemas or [],
-            images=images or [],
-            image_detail=image_detail or "auto",
-            plain_content=plain_content or "",
-            include_token_usage_to_model=include_token_usage_to_model,
-            imodel=imodel or branch.chat_model,
-            imodel_kw=kwargs,
-        ),
-        return_ins_res_message=return_ins_res_message,
-    )
-
-
-async def chat_v1(
-    branch: "Branch",
-    instruction: JsonValue | Instruction,
     chat_ctx: ChatContext,
     return_ins_res_message: bool = False,
 ) -> tuple[Instruction, AssistantResponse]:
@@ -77,7 +32,6 @@ async def chat_v1(
     )
     params["sender"] = chat_ctx.sender or branch.user or "user"
     params["recipient"] = chat_ctx.recipient or branch.id
-    params["instruction"] = instruction
 
     ins = branch.msgs.create_instruction(**params)
 

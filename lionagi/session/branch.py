@@ -12,6 +12,7 @@ from lionagi.ln.types import Unset
 from lionagi.models.field_model import FieldModel
 from lionagi.operations.flow import AlcallParams
 from lionagi.operations.manager import OperationManager
+from lionagi.operations.types import ChatContext
 from lionagi.protocols.action.manager import ActionManager
 from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
 from lionagi.protocols.types import (
@@ -751,8 +752,7 @@ class Branch(Element, Communicatable, Relational):
         context: JsonValue = None,
         sender: ID.Ref = None,
         recipient: ID.Ref = None,
-        request_fields: list[str] | dict[str, JsonValue] = None,
-        response_format: type[BaseModel] | BaseModel = None,
+        response_format: type[BaseModel] | BaseModel | dict = None,
         progression: Progression | list[ID[RoledMessage].ID] = None,
         imodel: iModel = None,
         tool_schemas: list[dict] = None,
@@ -760,6 +760,7 @@ class Branch(Element, Communicatable, Relational):
         image_detail: Literal["low", "high", "auto"] = None,
         plain_content: str = None,
         return_ins_res_message: bool = False,
+        chat_ctx: ChatContext = None,
         **kwargs,
     ) -> tuple[Instruction, AssistantResponse]:
         """
@@ -783,10 +784,8 @@ class Branch(Element, Communicatable, Relational):
                 The user or entity sending this message (defaults to `Branch.user`).
             recipient (Any):
                 The recipient of this message (defaults to `self.id`).
-            request_fields (Any):
-                Partial field-level validation reference (rarely used).
-            response_format (type[BaseModel], optional):
-                A Pydantic model type for structured model responses.
+            response_format (type[BaseModel] | dict, optional):
+                A Pydantic model type or dict of requests fields for structured responses.
             progression (Any):
                 Custom ordering of messages in the conversation.
             imodel (iModel, optional):
@@ -809,26 +808,25 @@ class Branch(Element, Communicatable, Relational):
             tuple[Instruction, AssistantResponse]:
                 The `Instruction` object and the final `AssistantResponse`.
         """
-        from lionagi.operations.chat.chat import chat
+        from lionagi.operations.chat.chat import _chat
 
-        return await chat(
-            self,
+        chat_ctx = chat_ctx or ChatContext(
             instruction=instruction,
             guidance=guidance,
             context=context,
-            sender=sender,
-            recipient=recipient,
-            request_fields=request_fields,
-            response_format=response_format,
+            sender=sender or self.user or "user",
+            recipient=recipient or self.id,
+            response_format=response_format or request_fields,
             progression=progression,
-            imodel=imodel or kwargs.pop("chat_model", None) or self.chat_model,
             tool_schemas=tool_schemas,
             images=images,
             image_detail=image_detail,
             plain_content=plain_content,
-            return_ins_res_message=return_ins_res_message,
-            **kwargs,
+            include_token_usage_to_model=include_token_usage_to_model,
+            imodel=imodel or self.chat_model,
+            imodel_kw=kwargs,
         )
+        return await _chat(self, chat_ctx, return_ins_res_message)
 
     async def parse(
         self,

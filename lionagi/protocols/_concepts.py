@@ -82,6 +82,10 @@ class Ordering(ABC, Generic[E]):
     """Base for element orderings."""
 
     @abstractmethod
+    def __list__(self) -> list[E]:
+        pass
+
+    @abstractmethod
     def include(self, item, /):
         pass
 
