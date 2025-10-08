@@ -892,10 +892,12 @@ class Branch(Element, Communicatable, Relational):
         """
         from lionagi.operations.parse.parse import parse, prepare_parse_kws
 
-        _kws = {
-            k: v for k, v in locals().items() if k != "self" and v is not None
+        _pms = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "_pms") and v is not None
         }
-        return await parse(self, **prepare_parse_kws(self, **_kws))
+        return await parse(self, **prepare_parse_kws(self, **_pms))
 
     async def operate(
         self,
@@ -1120,19 +1122,19 @@ class Branch(Element, Communicatable, Relational):
                 - A dict of the requested fields,
                 - or `None` if parsing fails and `handle_validation='return_none'`.
         """
+        _pms = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "_pms", "kwargs") and v is not None
+        }
+        _pms.update(kwargs)
+
         from lionagi.operations.communicate.communicate import (
             communicate,
             prepare_communicate_kw,
         )
 
-        _kws = {
-            k: v
-            for k, v in locals().items()
-            if k not in ["self", "kwargs"] and v is not None
-        }
-        _kws.update(kwargs)
-
-        return await communicate(self, **prepare_communicate_kw(self, **_kws))
+        return await communicate(self, **prepare_communicate_kw(self, **_pms))
 
     async def _act(
         self,
