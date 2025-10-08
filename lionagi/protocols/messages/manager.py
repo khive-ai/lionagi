@@ -124,11 +124,13 @@ class MessageManager(Manager):
                 else:
                     ctx_list = [ctx_value]
                 if handle_ctx == "extend":
-                    merged = list(instruction.content.context)
+                    merged = list(instruction.content.prompt_context)
                     merged.extend(ctx_list)
                     params["context"] = merged
                 else:
                     params["context"] = list(ctx_list)
+                # Always replace in from_dict since we've already done the merge logic
+                params["handle_context"] = "replace"
             instruction.update(**params)
             return instruction
         else:
@@ -523,7 +525,9 @@ class MessageManager(Manager):
         """
         for i in reversed(list(self.messages.progression)):
             if isinstance(self.messages[i], ActionResponse):
-                instruction.content.context.append(self.messages[i].content)
+                instruction.content.prompt_context.append(
+                    self.messages[i].content
+                )
             else:
                 break
 

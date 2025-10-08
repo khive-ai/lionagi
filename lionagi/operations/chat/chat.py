@@ -62,8 +62,8 @@ async def chat(
                     k.content
                     for k in to_list(_act_res, flatten=True, unique=True)
                 ]
-                j.content.context.extend(
-                    [z for z in d_ if z not in j.content.context]
+                j.content.prompt_context.extend(
+                    [z for z in d_ if z not in j.content.prompt_context]
                 )
                 _use_msgs.append(j)
                 _act_res = []
@@ -73,7 +73,9 @@ async def chat(
     if _act_res:
         j = ins.model_copy(update={"content": ins.content.with_updates()})
         d_ = [k.content for k in to_list(_act_res, flatten=True, unique=True)]
-        j.content.context.extend([z for z in d_ if z not in j.content.context])
+        j.content.prompt_context.extend(
+            [z for z in d_ if z not in j.content.prompt_context]
+        )
         _use_ins = j
 
     messages = _use_msgs
