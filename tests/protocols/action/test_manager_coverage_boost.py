@@ -137,8 +137,8 @@ class TestActionManagerMatchToolEdgeCases:
         """Test match_tool with unregistered function name."""
         manager = ActionManager()
 
-        request = ActionRequest.create(
-            function="nonexistent_func", arguments={}
+        request = ActionRequest(
+            content={"function": "nonexistent_func", "arguments": {}}
         )
 
         with pytest.raises(

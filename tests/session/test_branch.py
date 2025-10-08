@@ -226,8 +226,8 @@ async def test_invoke_action_no_tools(branch_with_mock_imodel: Branch):
     If we pass an ActionRequest referencing an unregistered tool,
     we expect None + a Log error about 'not registered'.
     """
-    req = ActionRequest.create(
-        function="unregistered_tool", arguments={"x": 1}
+    req = ActionRequest(
+        content={"function": "unregistered_tool", "arguments": {"x": 1}}
     )
     resp = await branch_with_mock_imodel.act(req)
     assert resp == []
@@ -250,8 +250,8 @@ async def test_invoke_action_ok(branch_with_mock_imodel: Branch):
     # register the tool
     branch_with_mock_imodel.acts.register_tool(echo_tool)
 
-    req = ActionRequest.create(
-        function="echo_tool", arguments={"text": "hello"}
+    req = ActionRequest(
+        content={"function": "echo_tool", "arguments": {"text": "hello"}}
     )
     resp = await branch_with_mock_imodel.act(req)
     # Should get ActionResponseModel with output = "ECHO: hello"
@@ -272,7 +272,7 @@ async def test_invoke_action_suppress_errors(branch_with_mock_imodel: Branch):
         raise RuntimeError("Tool error")
 
     branch_with_mock_imodel.acts.register_tool(fail_tool)
-    req = ActionRequest.create(function="fail_tool", arguments={})
+    req = ActionRequest(content={"function": "fail_tool", "arguments": {}})
 
     result = await branch_with_mock_imodel.act(req, suppress_errors=True)
     assert result == [
@@ -289,10 +289,9 @@ def test_clone_with_id_sender(branch_with_mock_imodel: Branch):
     All messages in the clone have new 'sender' and the clone's id as 'recipient'.
     """
 
-    # add a roled message
-    msg = RoledMessage(
-        role=MessageRole.USER,
-        content={"text": "Hello original"},
+    # add an instruction message
+    msg = Instruction(
+        content={"instruction": "Hello original"},
         sender=branch_with_mock_imodel.user,
         recipient=branch_with_mock_imodel.id,
     )
@@ -312,9 +311,8 @@ async def test_aclone(branch_with_mock_imodel: Branch):
     aclone(...) => same as clone, but async context lock on messages.
     """
 
-    msg = RoledMessage(
-        role=MessageRole.USER,
-        content={"text": "Async test"},
+    msg = Instruction(
+        content={"instruction": "Async test"},
         sender=branch_with_mock_imodel.user,
         recipient=branch_with_mock_imodel.id,
     )
@@ -333,8 +331,7 @@ def test_send_and_receive_sync(branch_with_mock_imodel: Branch):
     target_branch = Branch(user="target", name="ReceiverBranch")
 
     msg = Instruction(
-        role=MessageRole.USER,
-        content={"text": "Message from outside"},
+        content={"instruction": "Message from outside"},
         sender=branch_with_mock_imodel.user,
         recipient=branch_with_mock_imodel.id,
     )
@@ -357,7 +354,7 @@ def test_send_and_receive_sync(branch_with_mock_imodel: Branch):
     target_branch.receive(sender=branch_with_mock_imodel, message=True)
     assert len(target_branch.messages) == 1
     rm = target_branch.messages[0]
-    assert rm.content["text"] == "Message from outside"
+    assert rm.content.instruction == "Message from outside"
     assert rm.sender == branch_with_mock_imodel.id
 
 
@@ -365,9 +362,8 @@ def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
     """
     Round-trip with to_dict, from_dict => confirm logs, messages, models are restored.
     """
-    msg = RoledMessage(
-        role=MessageRole.USER,
-        content={"text": "hello user"},
+    msg = Instruction(
+        content={"instruction": "hello user"},
         sender=branch_with_mock_imodel.user,
         recipient=branch_with_mock_imodel.id,
     )
@@ -382,7 +378,7 @@ def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
     new_branch = Branch.from_dict(d)
     assert len(new_branch.messages) == 1
     nm = new_branch.messages[0]
-    assert nm.content["text"] == "hello user"
+    assert nm.content.instruction == "hello user"
 
 
 @pytest.mark.asyncio
