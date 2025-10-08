@@ -143,6 +143,83 @@ def test_create_instruction_update_existing():
     assert instruction.sender == MessageRole.USER
 
 
+def test_create_instruction_default_context_extend(message_manager):
+    """Updating instruction without handle flag should extend context."""
+    instruction = message_manager.create_instruction(
+        instruction="First",
+        context=["base"],
+    )
+
+    message_manager.create_instruction(
+        instruction=instruction,
+        context=["new"],
+    )
+
+    assert instruction.content.context == ["base", "new"]
+
+
+def test_create_instruction_context_replace(message_manager):
+    """handle_context='replace' should overwrite existing context."""
+    instruction = message_manager.create_instruction(
+        instruction="First",
+        context=["base"],
+    )
+
+    message_manager.create_instruction(
+        instruction=instruction,
+        context=["new"],
+        handle_context="replace",
+    )
+
+    assert instruction.content.context == ["new"]
+
+
+def test_create_instruction_response_format_instance(message_manager):
+    """BaseModel instances for response_format should be accepted."""
+
+    class InstanceModel(BaseModel):
+        value: int
+
+    instruction = message_manager.create_instruction(
+        instruction="Test",
+        response_format=InstanceModel(value=3),
+    )
+
+    assert instruction.content.response_schema["title"] == "InstanceModel"
+    assert instruction.content.response_format == {"value": 3}
+
+
+def test_add_message_instruction_context_extend(message_manager):
+    """add_message defaults to extending context when updating."""
+    initial = message_manager.add_message(
+        instruction="Original",
+        context=["base"],
+    )
+
+    message_manager.add_message(
+        instruction=initial,
+        context=["new"],
+    )
+
+    assert initial.content.context == ["base", "new"]
+
+
+def test_add_message_instruction_context_replace(message_manager):
+    """add_message can replace context when handle_context='replace'."""
+    initial = message_manager.add_message(
+        instruction="Original",
+        context=["base"],
+    )
+
+    message_manager.add_message(
+        instruction=initial,
+        context=["new"],
+        handle_context="replace",
+    )
+
+    assert initial.content.context == ["new"]
+
+
 def test_create_system_basic():
     """Test creating basic system message"""
     system = System(

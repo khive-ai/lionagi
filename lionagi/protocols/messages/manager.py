@@ -87,6 +87,7 @@ class MessageManager(Manager):
         *,
         instruction: JsonValue = None,
         context: JsonValue = None,
+        handle_context: Literal["extend", "replace"] = "extend",
         guidance: JsonValue = None,
         images: list = None,
         request_fields: JsonValue = None,
@@ -104,28 +105,46 @@ class MessageManager(Manager):
         If `instruction` is an existing Instruction, it is updated in place.
         Otherwise, a new instance is created.
         """
-        params = {
+        raw_params = {
             k: v
             for k, v in locals().items()
             if k != "instruction" and v is not None
         }
 
+        handle_ctx = raw_params.get("handle_context", "extend")
+
         if isinstance(instruction, Instruction):
+            params = {
+                k: v for k, v in raw_params.items() if k != "handle_context"
+            }
+            ctx_value = params.pop("context", None)
+            if ctx_value is not None:
+                if isinstance(ctx_value, list):
+                    ctx_list = list(ctx_value)
+                else:
+                    ctx_list = [ctx_value]
+                if handle_ctx == "extend":
+                    merged = list(instruction.content.context)
+                    merged.extend(ctx_list)
+                    params["context"] = merged
+                else:
+                    params["context"] = list(ctx_list)
             instruction.update(**params)
             return instruction
         else:
             # Build content dict for Instruction
             content_dict = {
                 k: v
-                for k, v in params.items()
+                for k, v in raw_params.items()
                 if k not in ["sender", "recipient"]
             }
+            content_dict["handle_context"] = handle_ctx
             if instruction is not None:
                 content_dict["instruction"] = instruction
             return Instruction(
                 content=content_dict,
-                sender=params.get("sender"),
-                recipient=params.get("recipient"),
+                sender=raw_params.get("sender"),
+                recipient=raw_params.get("recipient"),
             )
 
     @staticmethod
@@ -303,6 +322,7 @@ class MessageManager(Manager):
         # instruction
         instruction: JsonValue = None,
         context: JsonValue = None,
+        handle_context: Literal["extend", "replace"] = "extend",
         guidance: JsonValue = None,
         request_fields: JsonValue = None,
         plain_content: JsonValue = None,
@@ -380,6 +400,7 @@ class MessageManager(Manager):
             _msg = self.create_instruction(
                 instruction=instruction,
                 context=context,
+                handle_context=handle_context,
                 guidance=guidance,
                 images=images,
                 request_fields=request_fields,

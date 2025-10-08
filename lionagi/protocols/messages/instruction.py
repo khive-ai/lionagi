@@ -56,61 +56,100 @@ class InstructionContent(MessageContent):
             if k in data and data[k]:
                 setattr(inst, k, data[k])
 
-        # List fields (extend to preserve defaults)
-        if ctx := data.get("context"):
-            inst.context.extend(ctx if isinstance(ctx, list) else [ctx])
+        # Determine how to apply context updates
+        handle_context = data.get("handle_context", "extend")
+        if handle_context not in {"extend", "replace"}:
+            raise ValueError(
+                "handle_context must be either 'extend' or 'replace'"
+            )
+
+        if "context" in data:
+            ctx = data.get("context")
+            if ctx is None:
+                ctx_list: list[Any] = []
+            elif isinstance(ctx, list):
+                ctx_list = list(ctx)
+            else:
+                ctx_list = [ctx]
+            if handle_context == "replace":
+                inst.context = list(ctx_list)
+            else:
+                inst.context.extend(ctx_list)
 
         if ts := data.get("tool_schemas"):
             inst.tool_schemas.extend(ts if isinstance(ts, list) else [ts])
 
-        if imgs := data.get("images"):
-            inst.images.extend(imgs if isinstance(imgs, list) else [imgs])
-            inst.image_detail = data.get("image_detail") or "auto"
+        if "images" in data:
+            imgs = data.get("images") or []
+            imgs_list = imgs if isinstance(imgs, list) else [imgs]
+            inst.images.extend(imgs_list)
+            inst.image_detail = (
+                data.get("image_detail") or inst.image_detail or "auto"
+            )
 
         # Response schema and format
         # request_model is an alias for response_schema
-        schema = data.get("response_schema") or data.get("request_model")
-        rf = data.get("response_format")
+        schema_source = data.get("response_schema") or data.get(
+            "request_model"
+        )
+        response_format_input = data.get("response_format")
 
-        # Handle response_format if it's a BaseModel - treat as schema
-        if rf is not None and not isinstance(rf, dict):
-            if (
-                isinstance(rf, BaseModel)
-                or inspect.isclass(rf)
-                and issubclass(rf, BaseModel)
+        schema_instance: BaseModel | None = None
+        schema_cls: type[BaseModel] | None = None
+        response_format_value: dict[str, Any] | None = None
+
+        if response_format_input is not None and not isinstance(
+            response_format_input, dict
+        ):
+            if isinstance(response_format_input, BaseModel):
+                schema_instance = response_format_input
+                schema_cls = type(response_format_input)
+                if schema_source is None:
+                    schema_source = schema_cls
+            elif inspect.isclass(response_format_input) and issubclass(
+                response_format_input, BaseModel
             ):
-                # If response_format is BaseModel, use it as schema if no schema provided
-                if schema is None:
-                    schema = rf
-                rf = None  # Will be auto-generated from schema
+                schema_cls = response_format_input
+                if schema_source is None:
+                    schema_source = schema_cls
             else:
                 raise TypeError(
                     "response_format must be dict, BaseModel instance, or BaseModel class"
                 )
+        elif isinstance(response_format_input, dict):
+            response_format_value = response_format_input
 
-        if schema is not None:
-            if (
-                isinstance(schema, BaseModel)
-                or inspect.isclass(schema)
-                and issubclass(schema, BaseModel)
+        if schema_source is not None:
+            if isinstance(schema_source, BaseModel):
+                schema_instance = schema_instance or schema_source
+                schema_cls = type(schema_source)
+                inst.response_schema = schema_source.model_json_schema()
+            elif inspect.isclass(schema_source) and issubclass(
+                schema_source, BaseModel
             ):
-                inst.response_schema = schema.model_json_schema()
-            elif isinstance(schema, dict):
-                inst.response_schema = schema
+                schema_cls = schema_source
+                inst.response_schema = schema_source.model_json_schema()
+            elif isinstance(schema_source, dict):
+                inst.response_schema = schema_source
             else:
                 raise TypeError(
                     "response_schema must be dict, BaseModel instance, or BaseModel class"
                 )
+        elif schema_instance is not None:
+            inst.response_schema = schema_instance.model_json_schema()
 
-        if rf is not None:
-            inst.response_format = rf
-        elif inst.response_schema is not None and (
-            inspect.isclass(schema)
-            and issubclass(schema, BaseModel)
-            or isinstance(schema, BaseModel)
-        ):
-            # Derive example format from Pydantic model
-            inst.response_format = breakdown_pydantic_annotation(schema)
+        if response_format_value is None:
+            if schema_instance is not None:
+                response_format_value = schema_instance.model_dump(
+                    mode="json", exclude_none=True
+                )
+            elif schema_cls is not None:
+                response_format_value = breakdown_pydantic_annotation(
+                    schema_cls
+                )
+
+        if response_format_value is not None:
+            inst.response_format = response_format_value
 
         return inst
 
