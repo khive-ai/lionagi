@@ -101,7 +101,9 @@ def test_contains_check(populated_manager):
 async def test_match_tool_action_request(populated_manager):
     """Test matching tool from ActionRequest."""
     # Test with ActionRequest
-    request = ActionRequest.create(function="helper_func", arguments={"x": 1})
+    request = ActionRequest(
+        content={"function": "helper_func", "arguments": {"x": 1}}
+    )
     result = populated_manager.match_tool(request)
     assert isinstance(result, FunctionCalling)
     assert result.function == "helper_func"
@@ -115,7 +117,9 @@ async def test_match_tool_action_request(populated_manager):
     # Test invalid function name
     with pytest.raises(ValueError):
         populated_manager.match_tool(
-            ActionRequest.create(function="invalid_func", arguments={})
+            ActionRequest(
+                content={"function": "invalid_func", "arguments": {}}
+            )
         )
 
 
@@ -124,8 +128,8 @@ async def test_invoke(populated_manager):
     """Test tool invocation."""
 
     # Test with ActionRequest
-    request = ActionRequest.create(
-        function="helper_func", arguments={"x": 3, "y": "test"}
+    request = ActionRequest(
+        content={"function": "helper_func", "arguments": {"x": 3, "y": "test"}}
     )
     result = await populated_manager.invoke(request)
     assert result.response == "3-test"
@@ -268,8 +272,8 @@ async def test_invoke_with_missing_arguments(populated_manager):
     """
     # another_helper_func(x: int=0) -> int
     # 'x' has a default, so missing 'x' should be okay => x=0
-    request = ActionRequest.create(
-        function="another_helper_func", arguments={}
+    request = ActionRequest(
+        content={"function": "another_helper_func", "arguments": {}}
     )
     result = await populated_manager.invoke(request)
     # The default x=0 -> returns 1
@@ -277,7 +281,9 @@ async def test_invoke_with_missing_arguments(populated_manager):
 
     # helper_func(x: int=0, y: str="default") -> str
     # This also has all defaults, so missing is also okay => "0-default"
-    request = ActionRequest.create(function="helper_func", arguments={})
+    request = ActionRequest(
+        content={"function": "helper_func", "arguments": {}}
+    )
     result = await populated_manager.invoke(request)
     assert result.response == "0-default"
 
@@ -291,7 +297,9 @@ async def test_invoke_failure_scenario(action_manager):
     # Register a function that always fails
     action_manager.register_tool(failing_func)
 
-    request = ActionRequest.create(function="failing_func", arguments={})
+    request = ActionRequest(
+        content={"function": "failing_func", "arguments": {}}
+    )
     result = await action_manager.invoke(request)
 
     assert isinstance(result, FunctionCalling)

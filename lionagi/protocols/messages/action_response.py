@@ -1,155 +1,97 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass, field
 from typing import Any
 
-from typing_extensions import override
+from pydantic import field_validator
 
-from lionagi.protocols.generic.element import IDType
-from lionagi.utils import copy
-
-from .action_request import ActionRequest
-from .base import MessageRole, SenderRecipient
-from .message import RoledMessage, Template, jinja_env
+from .message import MessageContent, MessageRole, RoledMessage
 
 
-def prepare_action_response_content(
-    action_request: ActionRequest,
-    output: Any,
-) -> dict:
+@dataclass(slots=True)
+class ActionResponseContent(MessageContent):
+    """Content for action/function call responses.
+
+    Fields:
+        function: Function name that was invoked
+        arguments: Arguments used in the function call
+        output: Result returned from the function
+        action_request_id: Link to the original request
     """
-    Convert an ActionRequest + function output into response-friendly dictionary.
 
-    Args:
-        action_request (ActionRequest): The original action request.
-        output (Any): The result of the function call.
+    function: str = ""
+    arguments: dict[str, Any] = field(default_factory=dict)
+    output: Any = None
+    action_request_id: str | None = None
 
-    Returns:
-        dict: A dictionary containing `action_request_id` and `action_response`.
-    """
-    return {
-        "action_request_id": str(action_request.id),
-        "action_response": {
-            "function": action_request.function,
-            "arguments": action_request.arguments,
-            "output": output,
-        },
-    }
+    @property
+    def rendered(self) -> str:
+        """Render action response as YAML."""
+        from lionagi.libs.schema.minimal_yaml import minimal_yaml
+
+        doc = {
+            "Function": self.function,
+            "Arguments": self.arguments,
+            "Output": self.output,
+        }
+        return minimal_yaml(doc).strip()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ActionResponseContent":
+        """Construct ActionResponseContent from dictionary."""
+        # Handle nested structure from old format
+        if "action_response" in data:
+            resp = data["action_response"]
+            function = resp.get("function", "")
+            arguments = resp.get("arguments", {})
+            output = resp.get("output")
+        else:
+            function = data.get("function", "")
+            arguments = data.get("arguments", {})
+            output = data.get("output")
+
+        action_request_id = data.get("action_request_id")
+        if action_request_id:
+            action_request_id = str(action_request_id)
+
+        return cls(
+            function=function,
+            arguments=arguments,
+            output=output,
+            action_request_id=action_request_id,
+        )
 
 
 class ActionResponse(RoledMessage):
-    """
-    A message fulfilling an `ActionRequest`. It stores the function name,
-    the arguments used, and the output produced by the function.
-    """
+    """Message containing the result of an action/function execution."""
 
-    template: Template | str | None = jinja_env.get_template(
-        "action_response.jinja2"
-    )
+    role: MessageRole = MessageRole.ACTION
+    content: ActionResponseContent
+
+    @field_validator("content", mode="before")
+    def _validate_content(cls, v):
+        if v is None:
+            return ActionResponseContent()
+        if isinstance(v, dict):
+            return ActionResponseContent.from_dict(v)
+        if isinstance(v, ActionResponseContent):
+            return v
+        raise TypeError(
+            "content must be dict or ActionResponseContent instance"
+        )
 
     @property
     def function(self) -> str:
-        """Name of the function that was executed."""
-        return self.content.get("action_response", {}).get("function", None)
+        """Access the function name."""
+        return self.content.function
 
     @property
     def arguments(self) -> dict[str, Any]:
-        """Arguments used for the executed function."""
-        return self.content.get("action_response", {}).get("arguments", {})
+        """Access the function arguments."""
+        return self.content.arguments
 
     @property
     def output(self) -> Any:
-        """The result or returned data from the function call."""
-        return self.content.get("action_response", {}).get("output", None)
-
-    @property
-    def response(self) -> dict[str, Any]:
-        """
-        A helper to get the entire 'action_response' dictionary.
-
-        Returns:
-            dict[str, Any]: The entire response, including function, arguments, and output.
-        """
-        return copy(self.content.get("action_response", {}))
-
-    @property
-    def action_request_id(self) -> IDType:
-        """The ID of the original action request."""
-        return IDType.validate(self.content.get("action_request_id"))
-
-    @override
-    @classmethod
-    def create(
-        cls,
-        action_request: ActionRequest,
-        output: Any | None = None,
-        response_model=None,
-        sender: SenderRecipient | None = None,
-        recipient: SenderRecipient | None = None,
-    ) -> "ActionResponse":
-        """
-        Build an ActionResponse from a matching `ActionRequest` and output.
-
-        Args:
-            action_request (ActionRequest): The original request being fulfilled.
-            output (Any, optional): The function output or result.
-            response_model (Any, optional):
-                If present and has `.output`, this is used instead of `output`.
-            sender (SenderRecipient, optional):
-                The role or ID of the sender (defaults to the request's recipient).
-            recipient (SenderRecipient, optional):
-                The role or ID of the recipient (defaults to the request's sender).
-
-        Returns:
-            ActionResponse: A new instance referencing the `ActionRequest`.
-        """
-        if response_model:
-            output = response_model.output
-
-        instance = ActionResponse(
-            content=prepare_action_response_content(
-                action_request=response_model or action_request, output=output
-            ),
-            role=MessageRole.ACTION,
-            sender=sender or action_request.recipient,
-            recipient=recipient or action_request.sender,
-        )
-        action_request.action_response_id = instance.id
-        return instance
-
-    def update(
-        self,
-        action_request: ActionRequest = None,
-        output: Any = None,
-        response_model=None,
-        sender: SenderRecipient = None,
-        recipient: SenderRecipient = None,
-        template: Template | str | None = None,
-        **kwargs,
-    ):
-        """
-        Update this response with a new request reference or new output.
-
-        Args:
-            action_request (ActionRequest): The updated request.
-            output (Any): The new function output data.
-            response_model: If present, uses response_model.output.
-            sender (SenderRecipient): New sender ID or role.
-            recipient (SenderRecipient): New recipient ID or role.
-            template (Template | str | None): Optional new template.
-            **kwargs: Additional fields to store in content.
-        """
-        if response_model:
-            output = response_model.output
-
-        if action_request:
-            self.content = prepare_action_response_content(
-                action_request=action_request, output=output or self.output
-            )
-            action_request.action_response_id = self.id
-        super().update(
-            sender=sender, recipient=recipient, template=template, **kwargs
-        )
-
-
-# File: lionagi/protocols/messages/action_response.py
+        """Access the function output."""
+        return self.content.output

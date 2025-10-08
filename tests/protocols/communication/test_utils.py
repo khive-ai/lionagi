@@ -1,17 +1,16 @@
+# Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
 import pytest
 from pydantic import BaseModel
 
 from lionagi.protocols.generic.element import Element
-from lionagi.protocols.messages.base import validate_sender_recipient
-from lionagi.protocols.messages.instruction import (
-    format_image_content,
-    format_image_item,
-    format_text_content,
-    format_text_item,
-    prepare_instruction_content,
-    prepare_request_response_format,
+from lionagi.protocols.messages.base import (
+    MessageRole,
+    validate_sender_recipient,
 )
-from lionagi.protocols.messages.system import format_system_content
+from lionagi.protocols.messages.instruction import InstructionContent
+from lionagi.protocols.messages.system import SystemContent
 
 
 @pytest.fixture
@@ -24,75 +23,80 @@ def sample_element():
     return SampleElement()
 
 
-def test_format_system_content():
-    """Test formatting system content"""
+def test_systemcontent_from_dict_datetime_handling():
+    """Test SystemContent.from_dict datetime handling"""
     message = "Test system message"
 
     # Without datetime
-    content = format_system_content(None, message)
-    assert isinstance(content, dict)
-    assert content["system_message"] == message
-    assert "system_datetime" not in content
+    content = SystemContent.from_dict({"system_message": message})
+    assert content.system_message == message
+    assert content.system_datetime is None
 
-    # With datetime boolean
-    content = format_system_content(True, message)
-    assert "system_datetime" in content
-    assert isinstance(content["system_datetime"], str)
+    # With datetime boolean True
+    content = SystemContent.from_dict({"system_datetime": True})
+    assert content.system_datetime is not None
+    assert isinstance(content.system_datetime, str)
+
+    # With datetime boolean False
+    content = SystemContent.from_dict({"system_datetime": False})
+    assert content.system_datetime is None
 
     # With custom datetime string
     custom_datetime = "2023-01-01"
-    content = format_system_content(custom_datetime, message)
-    assert content["system_datetime"] == custom_datetime
+    content = SystemContent.from_dict({"system_datetime": custom_datetime})
+    assert content.system_datetime == custom_datetime
 
 
-def test_prepare_request_response_format():
-    """Test preparing request response format"""
-    fields = {"name": "string", "age": "integer"}
-    format_str = prepare_request_response_format(fields)
+def test_instructioncontent_format_response_format():
+    """Test InstructionContent._format_response_format static method"""
+    # Test with valid response format
+    response_format = {"name": "string", "age": "integer"}
+    result = InstructionContent._format_response_format(response_format)
 
-    assert "MUST RETURN JSON-PARSEABLE RESPONSE" in format_str
-    assert "```json" in format_str
-    assert str(fields) in format_str
+    assert "Return a **single JSON code block**" in result
+    assert "```json" in result
+    assert "name" in result
+    assert "age" in result
+
+    # Test with None
+    result = InstructionContent._format_response_format(None)
+    assert result is None
+
+    # Test with empty dict
+    result = InstructionContent._format_response_format({})
+    assert result is None
 
 
-def test_format_image_item():
-    """Test formatting image items"""
+def test_instructioncontent_format_image_item():
+    """Test InstructionContent._format_image_item static method"""
+    # Base64 image
     image_id = "test_image_base64"
     detail = "low"
-
-    result = format_image_item(image_id, detail)
+    result = InstructionContent._format_image_item(image_id, detail)
 
     assert result["type"] == "image_url"
     assert "data:image/jpeg;base64" in result["image_url"]["url"]
     assert result["image_url"]["detail"] == detail
 
+    # HTTP URL
+    http_url = "http://example.com/image.jpg"
+    result = InstructionContent._format_image_item(http_url, "high")
+    assert result["image_url"]["url"] == http_url
+    assert result["image_url"]["detail"] == "high"
 
-def test_format_text_item():
-    """Test formatting text items"""
-    # Test with string
-    text = "Test text"
-    result = format_text_item(text)
-    assert text in result
-
-    # Test with dictionary
-    dict_item = {"key": "value"}
-    result = format_text_item(dict_item)
-    assert "key: value" in result
-
-    # Test with list
-    list_items = ["item1", "item2"]
-    result = format_text_item(list_items)
-    assert "item1" in result
-    assert "item2" in result
+    # Data URL
+    data_url = "data:image/png;base64,abc123"
+    result = InstructionContent._format_image_item(data_url, "auto")
+    assert result["image_url"]["url"] == data_url
 
 
-def test_format_image_content():
-    """Test formatting image content"""
+def test_instructioncontent_format_image_content():
+    """Test InstructionContent._format_image_content class method"""
     text = "Test text"
     images = ["image1_base64", "image2_base64"]
     detail = "low"
 
-    result = format_image_content(text, images, detail)
+    result = InstructionContent._format_image_content(text, images, detail)
 
     assert isinstance(result, list)
     assert result[0]["type"] == "text"
@@ -101,55 +105,58 @@ def test_format_image_content():
     assert len(result) == len(images) + 1
 
 
-def test_prepare_instruction_content():
-    """Test preparing instruction content"""
-    # Test basic content
-    result = prepare_instruction_content(
-        guidance="Test guidance",
-        instruction="Test instruction",
-        context={"test": "context"},
-    )
+def test_instructioncontent_from_dict_with_request_model():
+    """Test InstructionContent.from_dict with Pydantic models"""
 
-    assert isinstance(result, dict)
-    assert result["guidance"] == "Test guidance"
-    assert result["instruction"] == "Test instruction"
-    assert {"test": "context"} in result["context"]
-
-    # Test with request model
     class RequestModel(BaseModel):
         name: str
         age: int
 
-    result = prepare_instruction_content(
-        instruction="Test", request_model=RequestModel
-    )
+    # Test with BaseModel class
+    data = {"response_schema": RequestModel, "instruction": "Test"}
+    content = InstructionContent.from_dict(data)
 
-    assert result["request_model"] == RequestModel
-    assert "request_fields" in result
-    assert "name" in result["request_fields"]
-    assert "age" in result["request_fields"]
+    assert content.response_schema is not None
+    assert "properties" in content.response_schema
+    assert "name" in content.response_schema["properties"]
+    assert "age" in content.response_schema["properties"]
 
-    # Test with images
-    result = prepare_instruction_content(
-        instruction="Test", images=["image1"], image_detail="low"
-    )
+    # Test response_format auto-derivation
+    assert content.response_format is not None
 
-    assert result["images"] == ["image1"]
-    assert result["image_detail"] == "low"
+
+def test_instructioncontent_from_dict_with_images():
+    """Test InstructionContent.from_dict with images"""
+    data = {
+        "instruction": "Test",
+        "images": ["image1"],
+        "image_detail": "low",
+    }
+    content = InstructionContent.from_dict(data)
+
+    assert content.images == ["image1"]
+    assert content.image_detail == "low"
 
 
 def test_validate_sender_recipient(sample_element):
     """Test sender/recipient validation"""
-    # Test valid system roles
-    valid_roles = ["system", "user", "assistant", "action", "unset"]
-    for role in valid_roles:
-        assert validate_sender_recipient(role) == role
+    # Test valid MessageRole enum
+    assert validate_sender_recipient(MessageRole.SYSTEM) == MessageRole.SYSTEM
+    assert validate_sender_recipient(MessageRole.USER) == MessageRole.USER
+
+    # Test valid string roles
+    assert validate_sender_recipient("system") == MessageRole.SYSTEM
+    assert validate_sender_recipient("user") == MessageRole.USER
+    assert validate_sender_recipient("assistant") == MessageRole.ASSISTANT
+    assert validate_sender_recipient("action") == MessageRole.ACTION
+    assert validate_sender_recipient("unset") == MessageRole.UNSET
 
     # Test None value
-    assert validate_sender_recipient(None) == "unset"
+    assert validate_sender_recipient(None) == MessageRole.UNSET
 
-    # Test with valid Element instance
-    assert validate_sender_recipient(sample_element) == sample_element.id
+    # Test with valid Element instance (returns ID)
+    result = validate_sender_recipient(sample_element)
+    assert result == sample_element.id
 
     # Test invalid values
     with pytest.raises(ValueError):

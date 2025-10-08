@@ -3,7 +3,6 @@
 
 from typing import Any, Literal
 
-from jinja2 import Template
 from pydantic import BaseModel, JsonValue
 
 from .._concepts import Manager
@@ -88,6 +87,7 @@ class MessageManager(Manager):
         *,
         instruction: JsonValue = None,
         context: JsonValue = None,
+        handle_context: Literal["extend", "replace"] = "extend",
         guidance: JsonValue = None,
         images: list = None,
         request_fields: JsonValue = None,
@@ -105,17 +105,47 @@ class MessageManager(Manager):
         If `instruction` is an existing Instruction, it is updated in place.
         Otherwise, a new instance is created.
         """
-        params = {
+        raw_params = {
             k: v
             for k, v in locals().items()
             if k != "instruction" and v is not None
         }
 
+        handle_ctx = raw_params.get("handle_context", "extend")
+
         if isinstance(instruction, Instruction):
+            params = {
+                k: v for k, v in raw_params.items() if k != "handle_context"
+            }
+            ctx_value = params.pop("context", None)
+            if ctx_value is not None:
+                if isinstance(ctx_value, list):
+                    ctx_list = list(ctx_value)
+                else:
+                    ctx_list = [ctx_value]
+                if handle_ctx == "extend":
+                    merged = list(instruction.content.context)
+                    merged.extend(ctx_list)
+                    params["context"] = merged
+                else:
+                    params["context"] = list(ctx_list)
             instruction.update(**params)
             return instruction
         else:
-            return Instruction.create(instruction=instruction, **params)
+            # Build content dict for Instruction
+            content_dict = {
+                k: v
+                for k, v in raw_params.items()
+                if k not in ["sender", "recipient"]
+            }
+            content_dict["handle_context"] = handle_ctx
+            if instruction is not None:
+                content_dict["instruction"] = instruction
+            return Instruction(
+                content=content_dict,
+                sender=raw_params.get("sender"),
+                recipient=raw_params.get("recipient"),
+            )
 
     @staticmethod
     def create_assistant_response(
@@ -123,8 +153,6 @@ class MessageManager(Manager):
         sender: Any = None,
         recipient: Any = None,
         assistant_response: AssistantResponse | Any = None,
-        template: Template | str = None,
-        template_context: dict[str, Any] = None,
     ) -> AssistantResponse:
         """
         Build or update an `AssistantResponse`. If `assistant_response` is an
@@ -133,17 +161,23 @@ class MessageManager(Manager):
         params = {
             k: v
             for k, v in locals().items()
-            if k not in ["assistant_response", "template_context"]
+            if k != "assistant_response" and v is not None
         }
-        t_ctx = template_context or {}
-        params.update(t_ctx)
 
         if isinstance(assistant_response, AssistantResponse):
             assistant_response.update(**params)
             return assistant_response
 
-        return AssistantResponse.create(
-            assistant_response=assistant_response, **params
+        # Create new AssistantResponse
+        content_dict = (
+            {"assistant_response": assistant_response}
+            if assistant_response
+            else {}
+        )
+        return AssistantResponse(
+            content=content_dict,
+            sender=params.get("sender"),
+            recipient=params.get("recipient"),
         )
 
     @staticmethod
@@ -154,8 +188,6 @@ class MessageManager(Manager):
         function: str = None,
         arguments: dict[str, Any] = None,
         action_request: ActionRequest | None = None,
-        template: Template | str = None,
-        template_context: dict[str, Any] = None,
     ) -> ActionRequest:
         """
         Build or update an ActionRequest.
@@ -166,25 +198,31 @@ class MessageManager(Manager):
             function: Function name for the request.
             arguments: Arguments for the function.
             action_request: Possibly existing ActionRequest to update.
-            template: Optional jinja template.
-            template_context: Extra context for the template.
 
         Returns:
             ActionRequest: The new or updated request object.
         """
         params = {
-            "sender": sender,
-            "recipient": recipient,
-            "function": function,
-            "arguments": arguments,
-            "template": template,
+            k: v
+            for k, v in locals().items()
+            if k != "action_request" and v is not None
         }
-        params.update(template_context or {})
 
         if isinstance(action_request, ActionRequest):
             action_request.update(**params)
             return action_request
-        return ActionRequest.create(**params)
+
+        # Create new ActionRequest
+        content_dict = {}
+        if function:
+            content_dict["function"] = function
+        if arguments:
+            content_dict["arguments"] = arguments
+        return ActionRequest(
+            content=content_dict,
+            sender=params.get("sender"),
+            recipient=params.get("recipient"),
+        )
 
     @staticmethod
     def create_action_response(
@@ -217,17 +255,27 @@ class MessageManager(Manager):
             raise ValueError(
                 "Error: please provide a corresponding action request for an action response."
             )
-        params = {
-            "action_request": action_request,
-            "output": action_output,
-            "sender": sender,
-            "recipient": recipient,
-        }
         if isinstance(action_response, ActionResponse):
-            action_response.update(**params)
+            action_response.update(
+                output=action_output, sender=sender, recipient=recipient
+            )
             return action_response
 
-        return ActionResponse.create(**params)
+        # Create new ActionResponse
+        content_dict = {
+            "function": action_request.content.function,
+            "arguments": action_request.content.arguments,
+            "output": action_output,
+            "action_request_id": str(action_request.id),
+        }
+        response = ActionResponse(
+            content=content_dict, sender=sender, recipient=recipient
+        )
+
+        # Update the request to reference this response
+        action_request.content.action_response_id = str(response.id)
+
+        return response
 
     @staticmethod
     def create_system(
@@ -236,28 +284,33 @@ class MessageManager(Manager):
         system_datetime: bool | str = None,
         sender: Any = None,
         recipient: Any = None,
-        template: Template | str = None,
-        template_context: dict[str, Any] = None,
     ) -> System:
         """
         Create or update a `System` message. If `system` is an instance, update.
         Otherwise, create a new System message.
         """
         params = {
-            "system_datetime": system_datetime,
-            "sender": sender,
-            "recipient": recipient,
-            "template": template,
-            **(template_context or {}),
+            k: v
+            for k, v in locals().items()
+            if k != "system" and v is not None
         }
+
         if isinstance(system, System):
             system.update(**params)
             return system
 
+        # Create new System message
+        content_dict = {}
         if system:
-            params["system_message"] = system
+            content_dict["system_message"] = system
+        if system_datetime is not None:
+            content_dict["system_datetime"] = system_datetime
 
-        return System.create(**params)
+        return System(
+            content=content_dict if content_dict else None,
+            sender=params.get("sender"),
+            recipient=params.get("recipient"),
+        )
 
     def add_message(
         self,
@@ -265,12 +318,11 @@ class MessageManager(Manager):
         # common
         sender: SenderRecipient = None,
         recipient: SenderRecipient = None,
-        template: Template | str = None,
-        template_context: dict[str, Any] = None,
         metadata: dict[str, Any] = None,
         # instruction
         instruction: JsonValue = None,
         context: JsonValue = None,
+        handle_context: Literal["extend", "replace"] = "extend",
         guidance: JsonValue = None,
         request_fields: JsonValue = None,
         plain_content: JsonValue = None,
@@ -314,8 +366,6 @@ class MessageManager(Manager):
                 system_datetime=system_datetime,
                 sender=sender,
                 recipient=recipient,
-                template=template,
-                template_context=template_context,
             )
             self.set_system(_msg)
 
@@ -328,15 +378,15 @@ class MessageManager(Manager):
                 recipient=recipient,
             )
 
-        elif action_request or (action_function and action_arguments):
+        elif action_request or (
+            action_function and action_arguments is not None
+        ):
             _msg = self.create_action_request(
                 sender=sender,
                 recipient=recipient,
                 function=action_function,
                 arguments=action_arguments,
                 action_request=action_request,
-                template=template,
-                template_context=template_context,
             )
 
         elif assistant_response:
@@ -344,14 +394,13 @@ class MessageManager(Manager):
                 sender=sender,
                 recipient=recipient,
                 assistant_response=assistant_response,
-                template=template,
-                template_context=template_context,
             )
 
         else:
             _msg = self.create_instruction(
                 instruction=instruction,
                 context=context,
+                handle_context=handle_context,
                 guidance=guidance,
                 images=images,
                 request_fields=request_fields,
@@ -461,7 +510,9 @@ class MessageManager(Manager):
         Convenience method to strip 'tool_schemas' from the most recent Instruction.
         """
         if self.last_instruction:
-            self.messages[self.last_instruction.id].tool_schemas = None
+            self.messages[
+                self.last_instruction.id
+            ].content.tool_schemas.clear()
 
     def concat_recent_action_responses_to_instruction(
         self, instruction: Instruction
@@ -472,7 +523,7 @@ class MessageManager(Manager):
         """
         for i in reversed(list(self.messages.progression)):
             if isinstance(self.messages[i], ActionResponse):
-                instruction.context.append(self.messages[i].content)
+                instruction.content.context.append(self.messages[i].content)
             else:
                 break
 

@@ -2293,14 +2293,13 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.17.11"
+version = "0.18.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
     { name = "aiohttp" },
     { name = "anyio" },
     { name = "backoff" },
-    { name = "jinja2" },
     { name = "json-repair" },
     { name = "msgspec" },
     { name = "pydantic" },
@@ -2399,7 +2398,6 @@ requires-dist = [
     { name = "datamodel-code-generator", marker = "extra == 'schema'", specifier = ">=0.31.2" },
     { name = "docling", marker = "extra == 'reader'", specifier = ">=2.15.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.10.5" },
-    { name = "jinja2", specifier = ">=3.0.0" },
     { name = "json-repair", specifier = ">=0.40.0" },
     { name = "lionagi", extras = ["graph"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["mcp"], marker = "extra == 'all'" },

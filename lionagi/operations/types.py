@@ -10,7 +10,7 @@ from lionagi.ln._async_call import AlcallParams
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.types import DataClass
 from lionagi.protocols.action.tool import ToolRef
-from lionagi.protocols.types import ID, Instruction, SenderRecipient
+from lionagi.protocols.types import ID, SenderRecipient
 from lionagi.service.imodel import iModel
 
 HandleValidation = Literal["raise", "return_value", "return_none"]

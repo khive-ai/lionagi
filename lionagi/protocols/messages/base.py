@@ -4,14 +4,14 @@
 from enum import Enum
 from typing import Any, TypeAlias
 
-from ..generic.element import ID, IDError, IDType, Observable
+from ..generic.element import ID, Element, IDError, IDType, Observable
 
 __all__ = (
     "MessageRole",
-    "MessageFlag",
     "MessageField",
     "MESSAGE_FIELDS",
     "validate_sender_recipient",
+    "serialize_sender_recipient",
 )
 
 
@@ -25,15 +25,6 @@ class MessageRole(str, Enum):
     ASSISTANT = "assistant"
     UNSET = "unset"
     ACTION = "action"
-
-
-class MessageFlag(str, Enum):
-    """
-    Internal flags for certain message states, e.g., clones or loads.
-    """
-
-    MESSAGE_CLONE = "MESSAGE_CLONE"
-    MESSAGE_LOAD = "MESSAGE_LOAD"
 
 
 SenderRecipient: TypeAlias = IDType | MessageRole | str
@@ -75,7 +66,7 @@ def validate_sender_recipient(value: Any, /) -> SenderRecipient:
     Raises:
         ValueError: If the input cannot be recognized as a role or ID.
     """
-    if isinstance(value, MessageRole | MessageFlag):
+    if isinstance(value, MessageRole):
         return value
 
     if isinstance(value, IDType):
@@ -90,13 +81,30 @@ def validate_sender_recipient(value: Any, /) -> SenderRecipient:
     if value in ["system", "user", "unset", "assistant", "action"]:
         return MessageRole(value)
 
-    if value in ["MESSAGE_CLONE", "MESSAGE_LOAD"]:
-        return MessageFlag(value)
+    # Accept plain strings (user names, identifiers, etc)
+    if isinstance(value, str):
+        # Try to parse as ID first, but allow plain strings as fallback
+        try:
+            return ID.get_id(value)
+        except IDError:
+            return value
 
-    try:
-        return ID.get_id(value)
-    except IDError as e:
-        raise ValueError("Invalid sender or recipient") from e
+    raise ValueError("Invalid sender or recipient")
+
+
+def serialize_sender_recipient(value: Any) -> str | None:
+    if not value:
+        return None
+    # Check instance types first before enum membership
+    if isinstance(value, Element):
+        return str(value.id)
+    if isinstance(value, IDType):
+        return str(value)
+    if isinstance(value, MessageRole):
+        return value.value
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 # File: lionagi/protocols/messages/base.py

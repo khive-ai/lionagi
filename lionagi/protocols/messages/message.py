@@ -1,252 +1,142 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from __future__ import annotations
+from dataclasses import dataclass
+from typing import Any, ClassVar
 
-from pathlib import Path
-from typing import Any
+from pydantic import field_serializer, field_validator
 
-from jinja2 import Environment, FileSystemLoader, Template
-from pydantic import Field, PrivateAttr, field_serializer
-
-from lionagi import ln
+from lionagi.ln.types import DataClass
 
 from .._concepts import Sendable
-from ..generic.element import Element, IDType
-from ..generic.log import Log
 from ..graph.node import Node
 from .base import (
-    MessageFlag,
     MessageRole,
     SenderRecipient,
+    serialize_sender_recipient,
     validate_sender_recipient,
 )
 
-template_path = Path(__file__).parent / "templates"
-jinja_env = Environment(loader=FileSystemLoader(template_path))
 
-__all__ = ("RoledMessage",)
+@dataclass(slots=True)
+class MessageContent(DataClass):
+    """A base class for message content structures."""
+
+    _none_as_sentinel: ClassVar[bool] = True
+
+    @property
+    def rendered(self) -> str:
+        """Render the content as a string."""
+        raise NotImplementedError(
+            "Subclasses must implement rendered property."
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MessageContent":
+        """Create an instance from a dictionary."""
+        raise NotImplementedError(
+            "Subclasses must implement from_dict method."
+        )
 
 
 class RoledMessage(Node, Sendable):
+    """Base class for all messages with a role and structured content.
+
+    Subclasses must provide a concrete MessageContent type.
     """
-    A base class for all messages that have a `role` and carry structured
-    `content`. Subclasses might be `Instruction`, `ActionRequest`, etc.
-    """
 
-    content: dict = Field(
-        default_factory=dict,
-        description="The content of the message.",
-    )
-
-    role: MessageRole | None = Field(
-        None,
-        description="The role of the message in the conversation.",
-    )
-
-    _flag: MessageFlag | None = PrivateAttr(None)
-
-    template: str | Template | None = None
-
-    sender: SenderRecipient | None = Field(
-        default=MessageRole.UNSET,
-        title="Sender",
-        description="The ID of the sender node or a role.",
-    )
-
-    recipient: SenderRecipient | None = Field(
-        default=MessageRole.UNSET,
-        title="Recipient",
-        description="The ID of the recipient node or a role.",
-    )
+    role: MessageRole = MessageRole.UNSET
+    content: MessageContent
+    sender: SenderRecipient | None = MessageRole.UNSET
+    recipient: SenderRecipient | None = MessageRole.UNSET
 
     @field_serializer("sender", "recipient")
     def _serialize_sender_recipient(self, value: SenderRecipient) -> str:
-        if isinstance(value, MessageRole | MessageFlag):
-            return value.value
-        if isinstance(value, str):
-            return value
-        if isinstance(value, Element):
-            return str(value.id)
-        if isinstance(value, IDType):
-            return str(value)
-        return str(value)
+        return serialize_sender_recipient(value)
+
+    @field_validator("sender", "recipient")
+    def _validate_sender_recipient(cls, v):
+        if v is None:
+            return None
+        return validate_sender_recipient(v)
+
+    @property
+    def chat_msg(self) -> dict[str, Any] | None:
+        """A dictionary representation typically used in chat-based contexts."""
+        try:
+            role_str = (
+                self.role.value
+                if isinstance(self.role, MessageRole)
+                else str(self.role)
+            )
+            return {"role": role_str, "content": self.rendered}
+        except Exception:
+            return None
+
+    @property
+    def rendered(self) -> str:
+        """Render the message content as a string.
+
+        Delegates to the content's rendered property.
+        """
+        return self.content.rendered
+
+    @field_validator("role", mode="before")
+    def _validate_role(cls, v):
+        if isinstance(v, str):
+            return MessageRole(v)
+        if isinstance(v, MessageRole):
+            return v
+        return MessageRole.UNSET
+
+    def update(self, sender=None, recipient=None, **kw):
+        """Update message fields.
+
+        Args:
+            sender: New sender role or ID.
+            recipient: New recipient role or ID.
+            **kw: Content updates to apply via from_dict() reconstruction.
+        """
+        if sender:
+            self.sender = validate_sender_recipient(sender)
+        if recipient:
+            self.recipient = validate_sender_recipient(recipient)
+        if kw:
+            _dict = self.content.to_dict()
+            _dict.update(kw)
+            self.content = type(self.content).from_dict(_dict)
+
+    def clone(self) -> "RoledMessage":
+        """Create a clone with a new ID but reference to original.
+
+        Returns:
+            A new message instance with a new ID and deep-copied content,
+            with a reference to the original message in metadata.
+        """
+        # Create a new instance from dict, excluding frozen fields (id, created_at)
+        # This allows new id and created_at to be generated
+        data = self.to_dict()
+        original_id = data.pop("id")
+        data.pop("created_at")  # Let new created_at be generated
+
+        # Create new instance
+        cloned = type(self).from_dict(data)
+
+        # Store reference to original in metadata
+        cloned.metadata["clone_from"] = str(original_id)
+
+        return cloned
 
     @property
     def image_content(self) -> list[dict[str, Any]] | None:
         """
         Extract structured image data from the message content if it is
         represented as a chat message array.
-
-        Returns:
-            list[dict[str,Any]] | None: If no images found, None.
         """
         msg_ = self.chat_msg
         if isinstance(msg_, dict) and isinstance(msg_["content"], list):
             return [i for i in msg_["content"] if i["type"] == "image_url"]
         return None
-
-    @property
-    def chat_msg(self) -> dict[str, Any] | None:
-        """
-        A dictionary representation typically used in chat-based contexts.
-
-        Returns:
-            dict: `{"role": <role>, "content": <rendered content>}`
-        """
-        try:
-            return {"role": str(self.role), "content": self.rendered}
-        except Exception:
-            return None
-
-    @property
-    def rendered(self) -> str:
-        """
-        Attempt to format the message with a Jinja template (if provided).
-        If no template, fallback to JSON.
-
-        Returns:
-            str: The final formatted string.
-        """
-        try:
-            if isinstance(self.template, str):
-                return self.template.format(**self.content)
-            if isinstance(self.template, Template):
-                return self.template.render(**self.content)
-        except Exception:
-            return ln.json_dumps(
-                self.content,
-                pretty=True,
-                sort_keys=True,
-                append_newline=True,
-                deterministic_sets=True,
-                decimal_as_float=True,
-            )
-
-    @classmethod
-    def create(cls, **kwargs):
-        raise NotImplementedError("create() must be implemented in subclass.")
-
-    @classmethod
-    def from_dict(cls, dict_: dict):
-        """
-        Deserialize a dictionary into a RoledMessage or subclass.
-
-        Args:
-            dict_ (dict): The raw data.
-
-        Returns:
-            RoledMessage: A newly constructed instance.
-        """
-        try:
-            self: RoledMessage = super().from_dict(
-                {k: v for k, v in dict_.items() if v}
-            )
-            self._flag = MessageFlag.MESSAGE_LOAD
-            return self
-        except Exception as e:
-            raise ValueError(f"Invalid RoledMessage data: {e}")
-
-    def is_clone(self) -> bool:
-        """
-        Check if this message is flagged as a clone.
-
-        Returns:
-            bool: True if flagged `MESSAGE_CLONE`.
-        """
-        return self._flag == MessageFlag.MESSAGE_CLONE
-
-    def clone(self, keep_role: bool = True) -> RoledMessage:
-        """
-        Create a shallow copy of this message, possibly resetting the role.
-
-        Args:
-            keep_role (bool): If False, set the new message's role to `UNSET`.
-
-        Returns:
-            RoledMessage: The new cloned message.
-        """
-        instance = self.__class__(
-            content=self.content,
-            role=self.role if keep_role else MessageRole.UNSET,
-            metadata={"clone_from": self},
-        )
-        instance._flag = MessageFlag.MESSAGE_CLONE
-        return instance
-
-    def to_log(self) -> Log:
-        """
-        Convert this message into a `Log`, preserving all current fields.
-
-        Returns:
-            Log: An immutable log entry derived from this message.
-        """
-        return Log.create(self)
-
-    @field_serializer("role")
-    def _serialize_role(self, value: MessageRole):
-        if isinstance(value, MessageRole):
-            return value.value
-        return str(value)
-
-    @field_serializer("metadata")
-    def _serialize_metadata(self, value: dict):
-        if "clone_from" in value:
-            origin_obj: RoledMessage = value.pop("clone_from")
-            origin_info = origin_obj.to_dict()
-            value["clone_from_info"] = {
-                "clone_from_info": {
-                    "original_id": origin_info["id"],
-                    "original_created_at": origin_info["created_at"],
-                    "original_sender": origin_info["sender"],
-                    "original_recipient": origin_info["recipient"],
-                    "original_lion_class": origin_info["metadata"][
-                        "lion_class"
-                    ],
-                    "original_role": origin_info["role"],
-                }
-            }
-        return value
-
-    @field_serializer("template")
-    def _serialize_template(self, value: Template | str):
-        # We do not store or transmit the raw Template object.
-        if isinstance(value, Template):
-            return None
-        return value
-
-    def update(self, sender, recipient, template, **kwargs):
-        """
-        Generic update mechanism for customizing the message in place.
-
-        Args:
-            sender (SenderRecipient):
-                New sender or role.
-            recipient (SenderRecipient):
-                New recipient or role.
-            template (Template | str):
-                New jinja Template or format string.
-            **kwargs:
-                Additional content to merge into self.content.
-        """
-        if sender:
-            self.sender = validate_sender_recipient(sender)
-        if recipient:
-            self.recipient = validate_sender_recipient(recipient)
-        if kwargs:
-            self.content.update(kwargs)
-        if template:
-            if not isinstance(template, Template | str):
-                raise ValueError("Template must be a Jinja2 Template or str")
-            self.template = template
-
-    def __str__(self) -> str:
-        content_preview = (
-            f"{str(self.content)[:75]}..."
-            if len(str(self.content)) > 75
-            else str(self.content)
-        )
-        return f"Message(role={self.role}, sender={self.sender}, content='{content_preview}')"
 
 
 # File: lionagi/protocols/messages/message.py

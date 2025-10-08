@@ -22,7 +22,6 @@ from lionagi.protocols.types import (
     Graph,
     IDType,
     MailManager,
-    MessageFlag,
     Node,
     Pile,
     Progression,
@@ -273,17 +272,12 @@ class Session(Node, Communicatable, Relational):
         if any(i not in self.branches for i in branches):
             raise ValueError("Branch does not exist.")
 
-        exclude_flag = []
-        if exclude_clone:
-            exclude_flag.append(MessageFlag.MESSAGE_CLONE)
-        if exclude_load:
-            exclude_flag.append(MessageFlag.MESSAGE_LOAD)
+        # Note: exclude_clone and exclude_load parameters are deprecated
+        # and currently have no effect. They are kept for API compatibility.
 
         messages = lcall(
             branches,
-            lambda x: [
-                i for i in self.branches[x].messages if i not in exclude_flag
-            ],
+            lambda x: list(self.branches[x].messages),
             input_unique=True,
             input_flatten=True,
             input_dropna=True,

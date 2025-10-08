@@ -194,11 +194,11 @@ class Branch(Element, Communicatable, Relational):
                 system = f"Developer Prompt: {str(system)}" if system else ""
                 system = (LION_SYSTEM_MESSAGE + "\n\n" + system).strip()
 
+            # Note: system_template and system_template_context are deprecated
+            # Template rendering has been removed from the message system
             self._message_manager.add_message(
                 system=system,
                 system_datetime=system_datetime,
-                template=system_template,
-                template_context=system_template_context,
                 recipient=self.id,
                 sender=system_sender or self.user or MessageRole.SYSTEM,
             )
@@ -502,7 +502,7 @@ class Branch(Element, Communicatable, Relational):
                     raise ValueError(
                         "Invalid message package: The item must be a `RoledMessage`."
                     )
-                new_message = mail.package.item.clone()
+                new_message = mail.package.item.model_copy(deep=True)
                 new_message.sender = mail.sender
                 new_message.recipient = self.id
                 self.msgs.messages.include(new_message)
