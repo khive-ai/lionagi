@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
-async def communicate(
+def prepare_communicate_kw(
     branch: "Branch",
     instruction=None,
     *,
@@ -113,18 +113,17 @@ async def communicate(
             imodel_kw={},
         )
 
-    return await communicate_v1(
-        branch,
-        instruction=instruction,
-        chat_ctx=chat_ctx,
-        parse_ctx=parse_ctx,
-        clear_messages=clear_messages,
-        skip_validation=skip_validation,
-        request_fields=request_fields,
-    )
+    return {
+        "instruction": instruction or "",
+        "chat_ctx": chat_ctx,
+        "parse_ctx": parse_ctx,
+        "clear_messages": clear_messages,
+        "skip_validation": skip_validation,
+        "request_fields": request_fields,
+    }
 
 
-async def communicate_v1(
+async def communicate(
     branch: "Branch",
     instruction: JsonValue | Instruction,
     chat_ctx: ChatContext,
@@ -136,9 +135,9 @@ async def communicate_v1(
     if clear_messages:
         branch.msgs.clear_messages()
 
-    from ..chat.chat import chat_v1
+    from ..chat.chat import chat
 
-    ins, res = await chat_v1(
+    ins, res = await chat(
         branch, instruction, chat_ctx, return_ins_res_message=True
     )
 
@@ -150,10 +149,10 @@ async def communicate_v1(
 
     # Handle response_format with parse
     if parse_ctx and chat_ctx.response_format:
-        from ..parse.parse import parse_v1
+        from ..parse.parse import parse
 
         try:
-            out, res2 = await parse_v1(
+            out, res2 = await parse(
                 branch, res.response, parse_ctx, return_res_message=True
             )
             if res2 and isinstance(res2, AssistantResponse):

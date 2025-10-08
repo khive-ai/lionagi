@@ -10,8 +10,10 @@ from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.operations.parse.parse import (
     _validate_dict_or_model,
     get_default_call,
-    parse,
-    parse_v1,
+)
+from lionagi.operations.parse.parse import parse as _parse
+from lionagi.operations.parse.parse import (
+    prepare_parse_kws,
 )
 from lionagi.operations.types import ParseContext
 
@@ -36,6 +38,11 @@ class OutputModel(BaseModel):
 # ============================================================================
 
 
+async def parse(branch, **kws):
+    _kws = prepare_parse_kws(branch, **kws)
+    return await _parse(branch, **_kws)
+
+
 class TestBasicParsing:
     """P0: Core parsing functionality."""
 
@@ -49,7 +56,7 @@ class TestBasicParsing:
         text = '{"name": "Alice", "age": 30}'
 
         # Should return validated model without calling branch.chat
-        result = await parse(branch, text, request_type=SampleModel)
+        result = await parse(branch, text=text, request_type=SampleModel)
 
         assert isinstance(result, SampleModel)
         assert result.name == "Alice"
@@ -65,7 +72,7 @@ class TestBasicParsing:
 
         result = await parse(
             branch,
-            text,
+            text=text,
             response_format=response_format,
             fuzzy_match=True,
             similarity_threshold=0.7,
@@ -89,7 +96,7 @@ class TestBasicParsing:
 
         result = await parse(
             branch,
-            text,
+            text=text,
             response_format=response_format,
             fuzzy_match_params=None,
         )
@@ -104,7 +111,7 @@ class TestBasicParsing:
         # Invalid JSON forces LLM call
         text = "This is not valid JSON"
 
-        result = await parse(branch, text, request_type=OutputModel)
+        result = await parse(branch, text=text, request_type=OutputModel)
 
         # Should use mocked LLM response
         assert isinstance(result, OutputModel)
@@ -131,7 +138,7 @@ class TestBasicParsing:
             with pytest.raises(ValueError, match="Failed to parse"):
                 await parse(
                     branch,
-                    text,
+                    text=text,
                     request_type=SampleModel,
                     handle_validation="raise",
                     max_retries=0,  # Force immediate failure
@@ -157,7 +164,7 @@ class TestBasicParsing:
 
             result = await parse(
                 branch,
-                text,
+                text=text,
                 request_type=SampleModel,
                 handle_validation="return_none",
                 max_retries=0,
@@ -185,7 +192,7 @@ class TestBasicParsing:
 
             result = await parse(
                 branch,
-                text,
+                text=text,
                 request_type=SampleModel,
                 handle_validation="return_value",
                 max_retries=0,
@@ -214,7 +221,7 @@ class TestAdvancedFeatures:
         ):
             await parse(
                 branch,
-                '{"name": "Test", "age": 25}',
+                text='{"name": "Test", "age": 25}',
                 request_type=SampleModel,
                 suppress_conversion_errors=True,
             )
@@ -230,7 +237,7 @@ class TestAdvancedFeatures:
 
         result, res_msg = await parse(
             branch,
-            text,
+            text=text,
             response_format={"key": str},
             return_res_message=True,
         )
@@ -250,7 +257,7 @@ class TestAdvancedFeatures:
 
         result, res_msg = await parse(
             branch,
-            text,
+            text=text,
             request_type=OutputModel,
             return_res_message=True,
         )
@@ -283,10 +290,10 @@ class TestAdvancedFeatures:
         )
 
     @pytest.mark.asyncio
-    async def test_parse_v1_alcall_params_as_dict(
+    async def test_parse_alcall_params_as_dict(
         self, make_mocked_branch_for_parse
     ):
-        """Test parse_v1 converts alcall_params dict to AlcallParams."""
+        """Test parse converts alcall_params dict to AlcallParams."""
         branch = make_mocked_branch_for_parse()
 
         parse_ctx = ParseContext(
@@ -298,7 +305,7 @@ class TestAdvancedFeatures:
             imodel_kw={},
         )
 
-        result = await parse_v1(branch, '{"key": "val"}', parse_ctx)
+        result = await _parse(branch, '{"key": "val"}', parse_ctx)
 
         assert result["key"] == "val"
 

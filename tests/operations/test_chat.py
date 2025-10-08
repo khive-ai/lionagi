@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lionagi.operations.chat.chat import chat_v1
+from lionagi.operations.chat.chat import chat
 from lionagi.operations.types import ChatContext
 from lionagi.protocols.messages.assistant_response import AssistantResponse
 from lionagi.protocols.messages.instruction import Instruction
@@ -62,7 +62,7 @@ class TestAssistantResponseConsolidation:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "New question", chat_ctx, return_ins_res_message=False
         )
 
@@ -116,7 +116,7 @@ class TestAssistantResponseConsolidation:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "Q3", chat_ctx, return_ins_res_message=False
         )
 
@@ -153,7 +153,7 @@ class TestSystemMessageHandling:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "Test question", chat_ctx, return_ins_res_message=False
         )
 
@@ -197,7 +197,7 @@ class TestSystemMessageHandling:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "New question", chat_ctx, return_ins_res_message=False
         )
 
@@ -239,7 +239,7 @@ class TestSystemMessageHandling:
             ValueError,
             match="First message in progression must be an Instruction",
         ):
-            await chat_v1(
+            await chat(
                 branch, "Question", chat_ctx, return_ins_res_message=False
             )
 
@@ -305,7 +305,7 @@ class TestActionResponseIntegration:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "New question", chat_ctx, return_ins_res_message=False
         )
 
@@ -362,7 +362,7 @@ class TestActionResponseIntegration:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "Continue", chat_ctx, return_ins_res_message=False
         )
 
@@ -425,7 +425,7 @@ class TestStreamModeHandling:
             imodel_kw={"stream": True},  # Stream mode
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "Test", chat_ctx, return_ins_res_message=False
         )
 
@@ -460,7 +460,7 @@ class TestReturnFormats:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "Test", chat_ctx, return_ins_res_message=True
         )
 
@@ -494,7 +494,7 @@ class TestReturnFormats:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "Test", chat_ctx, return_ins_res_message=False
         )
 
@@ -536,7 +536,7 @@ class TestChatContextParameters:
             imodel_kw={},
         )
 
-        ins, resp = await chat_v1(
+        ins, resp = await chat(
             branch, "Test", chat_ctx, return_ins_res_message=True
         )
 
@@ -565,7 +565,7 @@ class TestChatContextParameters:
             imodel_kw={},
         )
 
-        result = await chat_v1(
+        result = await chat(
             branch, "Describe image", chat_ctx, return_ins_res_message=False
         )
 

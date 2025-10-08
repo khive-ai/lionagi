@@ -15,7 +15,7 @@ class InstructionContent(MessageContent):
     Fields:
         instruction: Main instruction text
         guidance: Optional guidance or disclaimers
-        context: Additional context items (list)
+        prompt_context: Additional context items for the prompt (list)
         plain_content: Raw text fallback (bypasses structured rendering)
         tool_schemas: Tool specifications for the assistant
         response_format: Example JSON payload for expected response
@@ -26,13 +26,55 @@ class InstructionContent(MessageContent):
 
     instruction: str | None = None
     guidance: str | None = None
-    context: list[Any] = field(default_factory=list)
+    prompt_context: list[Any] = field(default_factory=list)
     plain_content: str | None = None
     tool_schemas: list[dict[str, Any]] = field(default_factory=list)
     response_format: dict[str, Any] | None = None
     response_schema: dict[str, Any] | None = None
     images: list[str] = field(default_factory=list)
     image_detail: Literal["low", "high", "auto"] | None = None
+
+    def __init__(
+        self,
+        instruction: str | None = None,
+        guidance: str | None = None,
+        prompt_context: list[Any] | None = None,
+        context: list[Any] | None = None,  # backwards compat
+        plain_content: str | None = None,
+        tool_schemas: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        response_schema: dict[str, Any] | None = None,
+        images: list[str] | None = None,
+        image_detail: Literal["low", "high", "auto"] | None = None,
+    ):
+        # Handle backwards compatibility: context -> prompt_context
+        if context is not None and prompt_context is None:
+            prompt_context = context
+
+        object.__setattr__(self, "instruction", instruction)
+        object.__setattr__(self, "guidance", guidance)
+        object.__setattr__(
+            self,
+            "prompt_context",
+            prompt_context if prompt_context is not None else [],
+        )
+        object.__setattr__(self, "plain_content", plain_content)
+        object.__setattr__(
+            self,
+            "tool_schemas",
+            tool_schemas if tool_schemas is not None else [],
+        )
+        object.__setattr__(self, "response_format", response_format)
+        object.__setattr__(self, "response_schema", response_schema)
+        object.__setattr__(
+            self, "images", images if images is not None else []
+        )
+        object.__setattr__(self, "image_detail", image_detail)
+
+    @property
+    def context(self) -> list[Any]:
+        """Backwards compatibility accessor for prompt_context."""
+        return self.prompt_context
 
     @property
     def rendered(self) -> str | list[dict[str, Any]]:
@@ -63,8 +105,11 @@ class InstructionContent(MessageContent):
                 "handle_context must be either 'extend' or 'replace'"
             )
 
-        if "context" in data:
-            ctx = data.get("context")
+        # Handle both "prompt_context" (new) and "context" (backwards compat)
+        # Prioritize "context" if present (for backwards compat and update paths)
+        ctx_key = "context" if "context" in data else "prompt_context"
+        if ctx_key in data:
+            ctx = data.get(ctx_key)
             if ctx is None:
                 ctx_list: list[Any] = []
             elif isinstance(ctx, list):
@@ -72,9 +117,9 @@ class InstructionContent(MessageContent):
             else:
                 ctx_list = [ctx]
             if handle_context == "replace":
-                inst.context = list(ctx_list)
+                inst.prompt_context = list(ctx_list)
             else:
-                inst.context.extend(ctx_list)
+                inst.prompt_context.extend(ctx_list)
 
         if ts := data.get("tool_schemas"):
             inst.tool_schemas.extend(ts if isinstance(ts, list) else [ts])
@@ -162,7 +207,7 @@ class InstructionContent(MessageContent):
         doc: dict[str, Any] = {
             "Guidance": self.guidance,
             "Instruction": self.instruction,
-            "Context": self.context,
+            "Context": self.prompt_context,
             "Tools": self.tool_schemas,
             "ResponseSchema": self.response_schema,
         }

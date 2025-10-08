@@ -41,7 +41,7 @@ async def interpret_v1(
 ) -> str:
     """Execute interpretation with context - clean implementation."""
 
-    from ..chat.chat import chat_v1
+    from ..chat.chat import chat
 
     instruction = (
         "You are given a user's raw instruction or question. Your task is to rewrite it into a clearer, "
@@ -76,7 +76,7 @@ async def interpret_v1(
         },
     )
 
-    result = await chat_v1(
+    result = await chat(
         branch,
         instruction=instruction,
         chat_ctx=chat_ctx,

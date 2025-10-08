@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, JsonValue
+from pydantic import JsonValue
 
 from lionagi.protocols.types import (
     ActionResponse,
@@ -11,7 +11,6 @@ from lionagi.protocols.types import (
     Instruction,
     Log,
 )
-from lionagi.service.imodel import iModel
 from lionagi.utils import copy, to_list
 
 from ..types import ChatContext
@@ -21,47 +20,6 @@ if TYPE_CHECKING:
 
 
 async def chat(
-    branch: "Branch",
-    instruction=None,
-    guidance=None,
-    context=None,
-    sender=None,
-    recipient=None,
-    request_fields=None,
-    response_format: type[BaseModel] = None,
-    progression=None,
-    imodel: iModel = None,
-    tool_schemas=None,
-    images: list = None,
-    image_detail: Literal["low", "high", "auto"] = None,
-    plain_content: str = None,
-    return_ins_res_message: bool = False,
-    include_token_usage_to_model: bool = False,
-    **kwargs,
-) -> tuple[Instruction, AssistantResponse]:
-    return await chat_v1(
-        branch,
-        instruction=instruction,
-        chat_ctx=ChatContext(
-            guidance=guidance,
-            context=context,
-            sender=sender or branch.user or "user",
-            recipient=recipient or branch.id,
-            response_format=response_format or request_fields,
-            progression=progression,
-            tool_schemas=tool_schemas or [],
-            images=images or [],
-            image_detail=image_detail or "auto",
-            plain_content=plain_content or "",
-            include_token_usage_to_model=include_token_usage_to_model,
-            imodel=imodel or branch.chat_model,
-            imodel_kw=kwargs,
-        ),
-        return_ins_res_message=return_ins_res_message,
-    )
-
-
-async def chat_v1(
     branch: "Branch",
     instruction: JsonValue | Instruction,
     chat_ctx: ChatContext,
@@ -89,10 +47,12 @@ async def chat_v1(
             _act_res.append(msg)
 
         if isinstance(msg, AssistantResponse):
-            _use_msgs.append(msg.model_copy())
+            _use_msgs.append(
+                msg.model_copy(update={"content": msg.content.with_updates()})
+            )
 
         if isinstance(msg, Instruction):
-            j = msg.model_copy()
+            j = msg.model_copy(update={"content": msg.content.with_updates()})
             j.content.tool_schemas.clear()
             j.content.response_schema = None
             j.content.response_format = None
@@ -102,8 +62,8 @@ async def chat_v1(
                     k.content
                     for k in to_list(_act_res, flatten=True, unique=True)
                 ]
-                j.content.context.extend(
-                    [z for z in d_ if z not in j.content.context]
+                j.content.prompt_context.extend(
+                    [z for z in d_ if z not in j.content.prompt_context]
                 )
                 _use_msgs.append(j)
                 _act_res = []
@@ -111,9 +71,11 @@ async def chat_v1(
                 _use_msgs.append(j)
 
     if _act_res:
-        j = ins.model_copy()
+        j = ins.model_copy(update={"content": ins.content.with_updates()})
         d_ = [k.content for k in to_list(_act_res, flatten=True, unique=True)]
-        j.content.context.extend([z for z in d_ if z not in j.content.context])
+        j.content.prompt_context.extend(
+            [z for z in d_ if z not in j.content.prompt_context]
+        )
         _use_ins = j
 
     messages = _use_msgs
