@@ -93,16 +93,18 @@ async def chat_v1(
 
         if isinstance(msg, Instruction):
             j = msg.model_copy()
-            j.tool_schemas = None
-            j.respond_schema_info = None
-            j.request_response_format = None
+            j.content.tool_schemas.clear()
+            j.content.response_schema = None
+            j.content.response_format = None
 
             if _act_res:
                 d_ = [
                     k.content
                     for k in to_list(_act_res, flatten=True, unique=True)
                 ]
-                j.context.extend([z for z in d_ if z not in j.context])
+                j.content.context.extend(
+                    [z for z in d_ if z not in j.content.context]
+                )
                 _use_msgs.append(j)
                 _act_res = []
             else:
@@ -111,7 +113,7 @@ async def chat_v1(
     if _act_res:
         j = ins.model_copy()
         d_ = [k.content for k in to_list(_act_res, flatten=True, unique=True)]
-        j.context.extend([z for z in d_ if z not in j.context])
+        j.content.context.extend([z for z in d_ if z not in j.content.context])
         _use_ins = j
 
     messages = _use_msgs
@@ -121,8 +123,8 @@ async def chat_v1(
         for i in _use_msgs[1:]:
             if isinstance(i, AssistantResponse):
                 if isinstance(_msgs[-1], AssistantResponse):
-                    _msgs[-1].response = (
-                        f"{_msgs[-1].response}\n\n{i.response}"
+                    _msgs[-1].content.assistant_response = (
+                        f"{_msgs[-1].content.assistant_response}\n\n{i.content.assistant_response}"
                     )
                 else:
                     _msgs.append(i)
@@ -138,8 +140,9 @@ async def chat_v1(
 
         if len(messages) == 0:
             first_instruction = copy(ins)
-            first_instruction.guidance = branch.msgs.system.rendered + (
-                first_instruction.guidance or ""
+            first_instruction.content.guidance = (
+                branch.msgs.system.rendered
+                + (first_instruction.content.guidance or "")
             )
             messages.append(first_instruction)
         elif len(messages) >= 1:
@@ -149,8 +152,9 @@ async def chat_v1(
                     "First message in progression must be an Instruction or System"
                 )
             first_instruction = copy(first_instruction)
-            first_instruction.guidance = branch.msgs.system.rendered + (
-                first_instruction.guidance or ""
+            first_instruction.content.guidance = (
+                branch.msgs.system.rendered
+                + (first_instruction.content.guidance or "")
             )
             messages[0] = first_instruction
             messages.append(_use_ins or ins)
@@ -174,13 +178,13 @@ async def chat_v1(
 
     if return_ins_res_message:
         # Wrap result in `AssistantResponse` and return
-        return ins, AssistantResponse.create(
-            assistant_response=api_call.response,
+        return ins, AssistantResponse.from_response(
+            api_call.response,
             sender=branch.id,
             recipient=branch.user,
         )
-    return AssistantResponse.create(
-        assistant_response=api_call.response,
+    return AssistantResponse.from_response(
+        api_call.response,
         sender=branch.id,
         recipient=branch.user,
     ).response

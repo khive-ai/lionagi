@@ -27,7 +27,15 @@ async def _act(
     _request = {}
 
     if isinstance(action_request, BaseModel):
-        if hasattr(action_request, "function") and hasattr(
+        # Check if it's an ActionRequest with content
+        if hasattr(action_request, "content"):
+            if hasattr(action_request.content, "function") and hasattr(
+                action_request.content, "arguments"
+            ):
+                _request["function"] = action_request.content.function
+                _request["arguments"] = action_request.content.arguments
+        # Fallback for direct attributes (backward compatibility)
+        elif hasattr(action_request, "function") and hasattr(
             action_request, "arguments"
         ):
             _request["function"] = action_request.function
@@ -69,10 +77,10 @@ async def _act(
     branch._log_manager.log(Log.create(func_call))
 
     if not isinstance(action_request, ActionRequest):
-        action_request = ActionRequest.create(
+        action_request = ActionRequest(
+            content=_request,
             sender=branch.id,
             recipient=func_call.func_tool.id,
-            **_request,
         )
 
     # Add the action request/response to the message manager, if not present
