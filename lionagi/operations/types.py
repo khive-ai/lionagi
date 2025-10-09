@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, JsonValue
 
 from lionagi.ln._async_call import AlcallParams
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
-from lionagi.ln.types import DataClass
+from lionagi.ln.types import Params
 from lionagi.protocols.action.tool import ToolRef
 from lionagi.protocols.types import ID, SenderRecipient
 from lionagi.service.imodel import iModel
@@ -16,9 +17,45 @@ from lionagi.service.imodel import iModel
 HandleValidation = Literal["raise", "return_value", "return_none"]
 
 
-@dataclass(slots=True)
-class ChatContext(DataClass):
-    """Context for an instruction in a chat."""
+class ContextPolicy(str, Enum):
+    """Policy for merging prompt context across morphism invocations.
+
+    Attributes:
+        REPLACE: New context completely replaces existing context
+        EXTEND: New context is appended to existing context
+        DEDUP: New context is appended but duplicates are removed
+    """
+
+    REPLACE = "replace"
+    EXTEND = "extend"
+    DEDUP = "dedup"
+
+
+@dataclass(slots=True, frozen=True, init=False)
+class MorphParam(Params):
+    """Base class for morphism parameters (invariants).
+
+    MorphParams represent the invariant properties that define a morphism
+    in LionAGI's categorical framework. They are frozen (immutable) and
+    hashable, enabling reproducible operations and efficient caching.
+
+    Morphisms are the fundamental abstraction in LionAGI - they represent
+    transformations between message states with well-defined parameters.
+    """
+
+    _none_as_sentinel: ClassVar[bool] = True
+
+
+@dataclass(slots=True, frozen=True, init=False)
+class ChatParam(MorphParam):
+    """Parameters for chat/communicate morphism.
+
+    Defines the invariant properties of a chat operation, including
+    guidance, context, response format, and LLM-visible content.
+
+    Note: 'context' field contains prompt context (LLM-visible facts).
+    This gets mapped to InstructionContent.prompt_context during message creation.
+    """
 
     _none_as_sentinel: ClassVar[bool] = True
     guidance: JsonValue = None
@@ -36,8 +73,14 @@ class ChatContext(DataClass):
     imodel_kw: dict = None
 
 
-@dataclass(slots=True)
-class InterpretContext(DataClass):
+@dataclass(slots=True, frozen=True, init=False)
+class InterpretParam(MorphParam):
+    """Parameters for interpret morphism.
+
+    Defines interpretation style, domain, and sample writing for
+    transforming content according to specified guidelines.
+    """
+
     _none_as_sentinel: ClassVar[bool] = True
     domain: str = None
     style: str = None
@@ -46,8 +89,14 @@ class InterpretContext(DataClass):
     imodel_kw: dict = None
 
 
-@dataclass(slots=True)
-class ParseContext(DataClass):
+@dataclass(slots=True, frozen=True, init=False)
+class ParseParam(MorphParam):
+    """Parameters for parse morphism.
+
+    Defines parsing behavior including response format validation,
+    fuzzy matching, and error handling strategies.
+    """
+
     _none_as_sentinel: ClassVar[bool] = True
     response_format: type[BaseModel] | dict = None
     fuzzy_match_params: FuzzyMatchKeysParams | dict = None
@@ -57,8 +106,14 @@ class ParseContext(DataClass):
     imodel_kw: dict = None
 
 
-@dataclass(slots=True)
-class ActionContext(DataClass):
+@dataclass(slots=True, frozen=True, init=False)
+class ActionParam(MorphParam):
+    """Parameters for action/tool execution morphism.
+
+    Defines tool execution strategy, error handling, and verbosity
+    for action-based operations.
+    """
+
     _none_as_sentinel: ClassVar[bool] = True
     action_call_params: AlcallParams = None
     tools: ToolRef = None

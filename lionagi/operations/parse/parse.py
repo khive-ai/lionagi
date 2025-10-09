@@ -17,7 +17,7 @@ from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.protocols.types import AssistantResponse
 from lionagi.session.branch import AlcallParams
 
-from ..types import HandleValidation, ParseContext
+from ..types import HandleValidation, ParseParam
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -77,7 +77,7 @@ def prepare_parse_kws(
 
     return {
         "text": text,
-        "parse_ctx": ParseContext(
+        "parse_param": ParseParam(
             response_format=response_format or request_fields,
             fuzzy_match_params=fuzzy_params,
             handle_validation=handle_validation,
@@ -94,14 +94,14 @@ def prepare_parse_kws(
 async def parse(
     branch: "Branch",
     text: str,
-    parse_ctx: ParseContext,
+    parse_param: ParseParam,
     return_res_message: bool = False,
 ) -> Any | tuple[Any, AssistantResponse | None]:
 
     # Try direct validation first
     with contextlib.suppress(Exception):
         result = _validate_dict_or_model(
-            text, parse_ctx.response_format, parse_ctx.fuzzy_match_params
+            text, parse_param.response_format, parse_param.fuzzy_match_params
         )
         return result if not return_res_message else (result, None)
 
@@ -111,16 +111,16 @@ async def parse(
             guidance="follow the required response format, using the model schema as a guide",
             context=[{"text_to_format": text}],
             request_fields=(
-                parse_ctx.response_format
-                if isinstance(parse_ctx.response_format, dict)
+                parse_param.response_format
+                if isinstance(parse_param.response_format, dict)
                 else None
             ),
             response_format=(
-                parse_ctx.response_format
-                if isinstance(parse_ctx.response_format, BaseModel)
+                parse_param.response_format
+                if isinstance(parse_param.response_format, BaseModel)
                 else None
             ),
-            imodel=parse_ctx.imodel or branch.parse_model,
+            imodel=parse_param.imodel or branch.parse_model,
             sender=branch.user,
             recipient=branch.id,
             return_ins_res_message=True,
@@ -132,22 +132,22 @@ async def parse(
         return (
             _validate_dict_or_model(
                 res.response,
-                parse_ctx.response_format,
-                parse_ctx.fuzzy_match_params,
+                parse_param.response_format,
+                parse_param.fuzzy_match_params,
             ),
             res,
         )
 
-    _call = parse_ctx.alcall_params or get_default_call()
-    if isinstance(parse_ctx.alcall_params, dict):
-        _call = AlcallParams(**parse_ctx.alcall_params)
+    _call = parse_param.alcall_params or get_default_call()
+    if isinstance(parse_param.alcall_params, dict):
+        _call = AlcallParams(**parse_param.alcall_params)
 
     try:
         result = await _call([0], _inner_parse)
     except get_cancelled_exc_class():
         raise
     except Exception as e:
-        match parse_ctx.handle_validation:
+        match parse_param.handle_validation:
             case "raise":
                 raise ValueError(f"Failed to parse response: {e}") from e
             case "return_none":

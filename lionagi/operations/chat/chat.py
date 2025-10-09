@@ -13,7 +13,7 @@ from lionagi.protocols.types import (
 )
 from lionagi.utils import copy, to_list
 
-from ..types import ChatContext
+from ..types import ChatParam
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -22,10 +22,10 @@ if TYPE_CHECKING:
 async def chat(
     branch: "Branch",
     instruction: JsonValue | Instruction,
-    chat_ctx: ChatContext,
+    chat_param: ChatParam,
     return_ins_res_message: bool = False,
 ) -> tuple[Instruction, AssistantResponse]:
-    params = chat_ctx.to_dict(
+    params = chat_param.to_dict(
         exclude={
             "imodel",
             "imodel_kw",
@@ -33,14 +33,14 @@ async def chat(
             "progression",
         }
     )
-    params["sender"] = chat_ctx.sender or branch.user or "user"
-    params["recipient"] = chat_ctx.recipient or branch.id
+    params["sender"] = chat_param.sender or branch.user or "user"
+    params["recipient"] = chat_param.recipient or branch.id
     params["instruction"] = instruction
 
     ins = branch.msgs.create_instruction(**params)
 
     _use_ins, _use_msgs, _act_res = None, [], []
-    progression = chat_ctx.progression or branch.msgs.progression
+    progression = chat_param.progression or branch.msgs.progression
 
     for msg in (branch.msgs.messages[j] for j in progression):
         if isinstance(msg, ActionResponse):
@@ -150,7 +150,7 @@ async def chat(
         if msg_to_append is not None:
             messages.append(msg_to_append)
 
-    kw = (chat_ctx.imodel_kw or {}).copy()
+    kw = (chat_param.imodel_kw or {}).copy()
 
     # Filter out messages with None chat_msg
     chat_msgs = []
@@ -162,16 +162,20 @@ async def chat(
 
     kw["messages"] = chat_msgs
 
-    imodel = chat_ctx.imodel or branch.chat_model
+    imodel = chat_param.imodel or branch.chat_model
     meth = imodel.stream if "stream" in kw and kw["stream"] else imodel.invoke
 
     if meth is imodel.invoke:
-        kw["include_token_usage_to_model"] = (
-            chat_ctx.include_token_usage_to_model
-        )
+        # Only set if it's not the Unset sentinel value
+        if not chat_param._is_sentinel(
+            chat_param.include_token_usage_to_model
+        ):
+            kw["include_token_usage_to_model"] = (
+                chat_param.include_token_usage_to_model
+            )
     api_call = await meth(**kw)
 
-    branch._log_manager.log(Log.create(api_call))
+    branch._log_manager.log(api_call)
 
     if return_ins_res_message:
         # Wrap result in `AssistantResponse` and return

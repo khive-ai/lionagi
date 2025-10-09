@@ -9,15 +9,14 @@ from pydantic import BaseModel, JsonValue
 from lionagi.fields.instruct import Instruct
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.models import FieldModel, ModelParams
-from lionagi.protocols.operatives.step import Operative
 from lionagi.protocols.types import Instruction, Progression, SenderRecipient
-from lionagi.service.imodel import iModel
 from lionagi.session.branch import AlcallParams
-from lionagi.utils import copy
 
-from ..types import ActionContext, ChatContext, HandleValidation, ParseContext
+from ..types import ActionParam, ChatParam, HandleValidation, ParseParam
 
 if TYPE_CHECKING:
+    from lionagi.protocols.operatives.step import Operative
+    from lionagi.service.imodel import iModel
     from lionagi.session.branch import Branch, ToolRef
 
 
@@ -31,13 +30,13 @@ async def operate(
     sender: SenderRecipient = None,
     recipient: SenderRecipient = None,
     progression: Progression = None,
-    imodel: iModel = None,  # deprecated, alias of chat_model
-    chat_model: iModel = None,
+    imodel: "iModel" = None,  # deprecated, alias of chat_model
+    chat_model: "iModel" = None,
     invoke_actions: bool = True,
     tool_schemas: list[dict] = None,
     images: list = None,
     image_detail: Literal["low", "high", "auto"] = None,
-    parse_model: iModel = None,
+    parse_model: "iModel" = None,
     skip_validation: bool = False,
     tools: "ToolRef" = None,
     operative: "Operative" = None,
@@ -122,7 +121,7 @@ async def operate(
     final_response_format = operative.request_type
 
     # Build contexts
-    chat_ctx = ChatContext(
+    chat_param = ChatParam(
         guidance=instruct.guidance,
         context=instruct.context,
         sender=sender or branch.user or "user",
@@ -138,11 +137,11 @@ async def operate(
         imodel_kw=kwargs,
     )
 
-    parse_ctx = None
+    parse_param = None
     if final_response_format and not skip_validation:
         from ..parse.parse import get_default_call
 
-        parse_ctx = ParseContext(
+        parse_param = ParseParam(
             response_format=final_response_format,
             fuzzy_match_params=FuzzyMatchKeysParams(),
             handle_validation="return_value",
@@ -151,11 +150,11 @@ async def operate(
             imodel_kw={},
         )
 
-    action_ctx = None
+    action_param = None
     if invoke_actions and (instruct.actions or actions):
         from ..act.act import _get_default_call_params
 
-        action_ctx = ActionContext(
+        action_param = ActionParam(
             action_call_params=call_params or _get_default_call_params(),
             tools=tools,
             strategy=action_strategy
@@ -168,9 +167,9 @@ async def operate(
     return await operate_v1(
         branch,
         instruction=instruct.instruction,
-        chat_ctx=chat_ctx,
-        parse_ctx=parse_ctx,
-        action_ctx=action_ctx,
+        chat_param=chat_param,
+        parse_param=parse_param,
+        action_param=action_param,
         handle_validation=handle_validation,
         invoke_actions=invoke_actions,
         skip_validation=skip_validation,
@@ -181,9 +180,9 @@ async def operate(
 async def operate_v1(
     branch: "Branch",
     instruction: JsonValue | Instruction,
-    chat_ctx: ChatContext,
-    action_ctx: ActionContext | None = None,
-    parse_ctx: ParseContext | None = None,
+    chat_param: ChatParam,
+    action_param: ActionParam | None = None,
+    parse_param: ParseParam | None = None,
     handle_validation: HandleValidation = "return_value",
     invoke_actions: bool = True,
     skip_validation: bool = False,
@@ -193,30 +192,32 @@ async def operate_v1(
 ) -> BaseModel | dict | str | None:
 
     # 1. communicate chat context building to avoid changing parameters
-    # Use shallow copy to avoid issues with unpicklable objects in iModel
-    _cctx = copy(chat_ctx, deep=False)
+    # Start with base chat param
+    _cctx = chat_param
     _pctx = (
-        copy(parse_ctx, deep=False)
-        if parse_ctx
-        else ParseContext(
-            response_format=chat_ctx.response_format,
+        parse_param.with_updates(handle_validation="return_value")
+        if parse_param
+        else ParseParam(
+            response_format=chat_param.response_format,
             imodel=branch.parse_model,
+            handle_validation="return_value",
         )
     )
-    _pctx.handle_validation = "return_value"
 
-    if tools := (action_ctx.tools or True) if action_ctx else None:
-        _cctx.tool_schemas = branch.acts.get_tool_schema(tools=tools)
+    # Update tool schemas if needed
+    if tools := (action_param.tools or True) if action_param else None:
+        tool_schemas = branch.acts.get_tool_schema(tools=tools)
+        _cctx = _cctx.with_updates(tool_schemas=tool_schemas)
 
     # Extract model class from response_format (can be class, instance, or dict)
     model_class = None
-    if chat_ctx.response_format is not None:
-        if isinstance(chat_ctx.response_format, type) and issubclass(
-            chat_ctx.response_format, BaseModel
+    if chat_param.response_format is not None:
+        if isinstance(chat_param.response_format, type) and issubclass(
+            chat_param.response_format, BaseModel
         ):
-            model_class = chat_ctx.response_format
-        elif isinstance(chat_ctx.response_format, BaseModel):
-            model_class = type(chat_ctx.response_format)
+            model_class = chat_param.response_format
+        elif isinstance(chat_param.response_format, BaseModel):
+            model_class = type(chat_param.response_format)
 
     def normalize_field_model(fms):
         if not fms:
@@ -233,21 +234,21 @@ async def operate_v1(
 
         operative = Step.request_operative(
             reason=reason,
-            actions=bool(action_ctx is not None),
+            actions=bool(action_param is not None),
             base_type=model_class,
             field_models=fms,
         )
-        _cctx.response_format = operative.request_type
-        _pctx.response_format = (
-            operative.request_type
-        )  # Update parse context too
+        # Update contexts with new response format
+        _cctx = _cctx.with_updates(response_format=operative.request_type)
+        _pctx = _pctx.with_updates(response_format=operative.request_type)
     elif field_models:
         dict_ = {}
         for fm in fms:
             if fm.name:
                 dict_[fm.name] = str(fm.annotated())
-        _cctx.response_format = dict_
-        _pctx.response_format = dict_  # Update parse context too
+        # Update contexts with dict format
+        _cctx = _cctx.with_updates(response_format=dict_)
+        _pctx = _pctx.with_updates(response_format=dict_)
 
     from ..communicate.communicate import communicate
 
@@ -282,13 +283,13 @@ async def operate_v1(
     )
 
     action_response_models = None
-    if action_ctx and requests is not None:
+    if action_param and requests is not None:
         from ..act.act import act_v1
 
         action_response_models = await act_v1(
             branch,
             requests,
-            action_ctx,
+            action_param,
         )
 
     if not action_response_models:

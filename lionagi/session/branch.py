@@ -632,7 +632,7 @@ class Branch(Element, Communicatable, Relational):
         async def _connect(**kwargs):
             """connect to an api endpoint"""
             api_call = await imodel.invoke(**kwargs)
-            self._log_manager.log(Log.create(api_call))
+            self._log_manager.log(api_call)
             return api_call.response
 
         _connect.__name__ = name or imodel.endpoint.name
@@ -760,6 +760,7 @@ class Branch(Element, Communicatable, Relational):
         image_detail: Literal["low", "high", "auto"] = None,
         plain_content: str = None,
         return_ins_res_message: bool = False,
+        include_token_usage_to_model: bool = False,
         **kwargs,
     ) -> tuple[Instruction, AssistantResponse]:
         """
@@ -809,12 +810,12 @@ class Branch(Element, Communicatable, Relational):
             tuple[Instruction, AssistantResponse]:
                 The `Instruction` object and the final `AssistantResponse`.
         """
-        from lionagi.operations.chat.chat import ChatContext, chat
+        from lionagi.operations.chat.chat import ChatParam, chat
 
         return await chat(
             self,
             instruction=instruction,
-            chat_ctx=ChatContext(
+            chat_param=ChatParam(
                 guidance=guidance,
                 context=context,
                 sender=sender or self.user or "user",
@@ -825,6 +826,7 @@ class Branch(Element, Communicatable, Relational):
                 images=images or [],
                 image_detail=image_detail or "auto",
                 plain_content=plain_content or "",
+                include_token_usage_to_model=include_token_usage_to_model,
                 imodel=imodel or self.chat_model,
                 imodel_kw=kwargs,
             ),
@@ -1457,10 +1459,10 @@ class Branch(Element, Communicatable, Relational):
         from lionagi.operations.ReAct.ReAct import ReActStream
         from lionagi.operations.ReAct.utils import ReActAnalysis
         from lionagi.operations.types import (
-            ActionContext,
-            ChatContext,
-            InterpretContext,
-            ParseContext,
+            ActionParam,
+            ChatParam,
+            InterpretParam,
+            ParseParam,
         )
 
         # Convert Instruct to dict if needed
@@ -1471,9 +1473,9 @@ class Branch(Element, Communicatable, Relational):
         )
 
         # Build InterpretContext if interpretation requested
-        intp_ctx = None
+        intp_param = None
         if interpret:
-            intp_ctx = InterpretContext(
+            intp_param = InterpretParam(
                 domain=interpret_domain or "general",
                 style=interpret_style or "concise",
                 sample_writing=interpret_sample or "",
@@ -1482,7 +1484,7 @@ class Branch(Element, Communicatable, Relational):
             )
 
         # Build ChatContext
-        chat_ctx = ChatContext(
+        chat_param = ChatParam(
             guidance=instruct_dict.get("guidance"),
             context=instruct_dict.get("context"),
             sender=self.user or "user",
@@ -1499,11 +1501,11 @@ class Branch(Element, Communicatable, Relational):
         )
 
         # Build ActionContext
-        action_ctx = None
+        action_param = None
         if tools is not None or tool_schemas is not None:
             from lionagi.operations.act.act import _get_default_call_params
 
-            action_ctx = ActionContext(
+            action_param = ActionParam(
                 action_call_params=_get_default_call_params(),
                 tools=tools or True,
                 strategy="concurrent",
@@ -1514,7 +1516,7 @@ class Branch(Element, Communicatable, Relational):
         # Build ParseContext
         from lionagi.operations.parse.parse import get_default_call
 
-        parse_ctx = ParseContext(
+        parse_param = ParseParam(
             response_format=ReActAnalysis,
             fuzzy_match_params=FuzzyMatchKeysParams(),
             handle_validation="return_value",
@@ -1531,10 +1533,10 @@ class Branch(Element, Communicatable, Relational):
         async for result in ReActStream(
             self,
             instruction=instruct_dict.get("instruction", str(instruct)),
-            chat_ctx=chat_ctx,
-            action_ctx=action_ctx,
-            parse_ctx=parse_ctx,
-            intp_ctx=intp_ctx,
+            chat_param=chat_param,
+            action_param=action_param,
+            parse_param=parse_param,
+            intp_param=intp_param,
             resp_ctx=resp_ctx,
             reasoning_effort=reasoning_effort,
             reason=True,

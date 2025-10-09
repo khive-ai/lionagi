@@ -9,11 +9,11 @@ from pydantic import JsonValue
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 from lionagi.ln.types import Undefined
-from lionagi.protocols.types import AssistantResponse, Instruction
 
-from ..types import ChatContext, ParseContext
+from ..types import ChatParam, ParseParam
 
 if TYPE_CHECKING:
+    from lionagi.protocols.messages.instruction import Instruction
     from lionagi.session.branch import Branch
 
 
@@ -75,7 +75,7 @@ def prepare_communicate_kw(
         num_parse_retries = 5
 
     # Build contexts
-    chat_ctx = ChatContext(
+    chat_param = ChatParam(
         guidance=guidance,
         context=context,
         sender=sender or branch.user or "user",
@@ -91,14 +91,14 @@ def prepare_communicate_kw(
         imodel_kw=kwargs,
     )
 
-    parse_ctx = None
+    parse_param = None
     if response_format and not skip_validation:
         from ..parse.parse import get_default_call
 
         fuzzy_kw = fuzzy_match_kwargs or {}
         handle_validation = fuzzy_kw.pop("handle_validation", "raise")
 
-        parse_ctx = ParseContext(
+        parse_param = ParseParam(
             response_format=response_format,
             fuzzy_match_params=(
                 FuzzyMatchKeysParams(**fuzzy_kw)
@@ -115,8 +115,8 @@ def prepare_communicate_kw(
 
     return {
         "instruction": instruction or "",
-        "chat_ctx": chat_ctx,
-        "parse_ctx": parse_ctx,
+        "chat_param": chat_param,
+        "parse_param": parse_param,
         "clear_messages": clear_messages,
         "skip_validation": skip_validation,
         "request_fields": request_fields,
@@ -125,9 +125,9 @@ def prepare_communicate_kw(
 
 async def communicate(
     branch: "Branch",
-    instruction: JsonValue | Instruction,
-    chat_ctx: ChatContext,
-    parse_ctx: ParseContext | None = None,
+    instruction: "JsonValue | Instruction",
+    chat_param: ChatParam,
+    parse_param: ParseParam | None = None,
     clear_messages: bool = False,
     skip_validation: bool = False,
     request_fields: dict | None = None,
@@ -138,7 +138,7 @@ async def communicate(
     from ..chat.chat import chat
 
     ins, res = await chat(
-        branch, instruction, chat_ctx, return_ins_res_message=True
+        branch, instruction, chat_param, return_ins_res_message=True
     )
 
     branch.msgs.add_message(instruction=ins)
@@ -148,12 +148,16 @@ async def communicate(
         return res.response
 
     # Handle response_format with parse
-    if parse_ctx and chat_ctx.response_format:
+    if parse_param and chat_param.response_format:
+        from lionagi.protocols.messages.assistant_response import (
+            AssistantResponse,
+        )
+
         from ..parse.parse import parse
 
         try:
             out, res2 = await parse(
-                branch, res.response, parse_ctx, return_res_message=True
+                branch, res.response, parse_param, return_res_message=True
             )
             if res2 and isinstance(res2, AssistantResponse):
                 res.metadata["original_model_response"] = res.model_response
@@ -163,7 +167,7 @@ async def communicate(
         except ValueError as e:
             # Re-raise with more context
             raise ValueError(
-                f"Failed to parse model response into {chat_ctx.response_format}: {e}"
+                f"Failed to parse model response into {chat_param.response_format}: {e}"
             ) from e
 
     # Handle request_fields with fuzzy validation

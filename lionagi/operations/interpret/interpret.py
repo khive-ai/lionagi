@@ -3,11 +3,10 @@
 
 from typing import TYPE_CHECKING
 
-from lionagi.service.imodel import iModel
-
-from ..types import ChatContext, InterpretContext
+from ..types import ChatParam, InterpretParam
 
 if TYPE_CHECKING:
+    from lionagi.service.imodel import iModel
     from lionagi.session.branch import Branch
 
 
@@ -17,13 +16,13 @@ async def interpret(
     domain: str | None = None,
     style: str | None = None,
     sample_writing: str | None = None,
-    interpret_model: iModel | None = None,
+    interpret_model: "iModel | None" = None,
     **kwargs,
 ) -> str:
     """Interpret and refine user input into clearer prompts."""
 
-    # Build InterpretContext
-    intp_ctx = InterpretContext(
+    # Build InterpretParam
+    intp_param = InterpretParam(
         domain=domain or "general",
         style=style or "concise",
         sample_writing=sample_writing or "",
@@ -31,13 +30,13 @@ async def interpret(
         imodel_kw=kwargs,
     )
 
-    return await interpret_v1(branch, text, intp_ctx)
+    return await interpret_v1(branch, text, intp_param)
 
 
 async def interpret_v1(
     branch: "Branch",
     text: str,
-    intp_ctx: InterpretContext,
+    intp_param: InterpretParam,
 ) -> str:
     """Execute interpretation with context - clean implementation."""
 
@@ -51,13 +50,13 @@ async def interpret_v1(
     )
 
     guidance = (
-        f"Domain hint: {intp_ctx.domain}. Desired style: {intp_ctx.style}."
+        f"Domain hint: {intp_param.domain}. Desired style: {intp_param.style}."
     )
-    if intp_ctx.sample_writing:
-        guidance += f" Sample writing: {intp_ctx.sample_writing}"
+    if intp_param.sample_writing:
+        guidance += f" Sample writing: {intp_param.sample_writing}"
 
-    # Build ChatContext
-    chat_ctx = ChatContext(
+    # Build ChatParam
+    chat_param = ChatParam(
         guidance=guidance,
         context=[f"User input: {text}"],
         sender=branch.user or "user",
@@ -69,17 +68,17 @@ async def interpret_v1(
         image_detail="auto",
         plain_content="",
         include_token_usage_to_model=False,
-        imodel=intp_ctx.imodel,
+        imodel=intp_param.imodel,
         imodel_kw={
-            **intp_ctx.imodel_kw,
-            "temperature": intp_ctx.imodel_kw.get("temperature", 0.1),
+            **intp_param.imodel_kw,
+            "temperature": intp_param.imodel_kw.get("temperature", 0.1),
         },
     )
 
     result = await chat(
         branch,
         instruction=instruction,
-        chat_ctx=chat_ctx,
+        chat_param=chat_param,
         return_ins_res_message=False,
     )
 

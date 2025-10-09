@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lionagi.operations.chat.chat import chat
-from lionagi.operations.types import ChatContext
+from lionagi.operations.types import ChatParam
 from lionagi.protocols.messages.assistant_response import AssistantResponse
 from lionagi.protocols.messages.instruction import Instruction
 
@@ -46,7 +46,7 @@ class TestAssistantResponseConsolidation:
         progression = [ins1.id, resp1.id, resp2.id]
 
         # Create chat context
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -100,7 +100,7 @@ class TestAssistantResponseConsolidation:
 
         progression = [ins1.id, resp1.id, ins2.id, resp2.id]
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -137,7 +137,7 @@ class TestSystemMessageHandling:
         )
 
         # Empty progression
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance="Be concise",
             context=None,
             sender="user",
@@ -181,7 +181,7 @@ class TestSystemMessageHandling:
 
         progression = [ins1.id, resp1.id]
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -219,7 +219,7 @@ class TestSystemMessageHandling:
         )
         progression = [resp.id]
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -289,7 +289,7 @@ class TestActionResponseIntegration:
 
         progression = [act1.id, act2.id, ins1.id]
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -346,7 +346,7 @@ class TestActionResponseIntegration:
 
         progression = [ins1.id, resp1.id, act1.id]
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -409,7 +409,7 @@ class TestStreamModeHandling:
 
         branch.chat_model.stream = AsyncMock(side_effect=_fake_stream)
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -444,7 +444,7 @@ class TestReturnFormats:
         """Verify tuple return (Instruction, AssistantResponse)."""
         branch = make_mocked_branch_for_chat()
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -478,7 +478,7 @@ class TestReturnFormats:
         """Verify string return (default)."""
         branch = make_mocked_branch_for_chat()
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
@@ -520,7 +520,7 @@ class TestChatContextParameters:
         branch.user = "test_user"
 
         # Test with None sender (should use branch.user)
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender=None,  # Should default to branch.user
@@ -549,7 +549,7 @@ class TestChatContextParameters:
         """Verify images parameter in ChatContext."""
         branch = make_mocked_branch_for_chat()
 
-        chat_ctx = ChatContext(
+        chat_ctx = ChatParam(
             guidance=None,
             context=None,
             sender="user",
