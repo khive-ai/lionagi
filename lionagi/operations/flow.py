@@ -429,14 +429,14 @@ class DependencyAwareExecutor:
                     if hasattr(branch, "_message_manager") and hasattr(
                         primary_branch, "_message_manager"
                     ):
-                        branch._message_manager.pile.clear()
-                        for msg in primary_branch._message_manager.pile:
+                        branch._message_manager.messages.clear()
+                        for msg in primary_branch._message_manager.messages:
                             if hasattr(msg, "clone"):
-                                branch._message_manager.pile.append(
+                                branch._message_manager.messages.append(
                                     msg.clone()
                                 )
                             else:
-                                branch._message_manager.pile.append(msg)
+                                branch._message_manager.messages.append(msg)
 
                     # Clear the pending flag
                     branch.metadata["pending_context_inheritance"] = False
