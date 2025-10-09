@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch, ToolRef
 
 
-async def operate(
+def prepare_operate_kw(
     branch: "Branch",
     *,
     instruct: Instruct = None,
@@ -164,20 +164,19 @@ async def operate(
             verbose_action=verbose_action,
         )
 
-    return await operate_v1(
-        branch,
-        instruction=instruct.instruction,
-        chat_param=chat_param,
-        parse_param=parse_param,
-        action_param=action_param,
-        handle_validation=handle_validation,
-        invoke_actions=invoke_actions,
-        skip_validation=skip_validation,
-        clear_messages=clear_messages,
-    )
+    return {
+        "instruction": instruct.instruction,
+        "chat_param": chat_param,
+        "parse_param": parse_param,
+        "action_param": action_param,
+        "handle_validation": handle_validation,
+        "invoke_actions": invoke_actions,
+        "skip_validation": skip_validation,
+        "clear_messages": clear_messages,
+    }
 
 
-async def operate_v1(
+async def operate(
     branch: "Branch",
     instruction: JsonValue | Instruction,
     chat_param: ChatParam,
@@ -284,9 +283,9 @@ async def operate_v1(
 
     action_response_models = None
     if action_param and requests is not None:
-        from ..act.act import act_v1
+        from ..act.act import act
 
-        action_response_models = await act_v1(
+        action_response_models = await act(
             branch,
             requests,
             action_param,

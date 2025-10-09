@@ -1,13 +1,4 @@
-"""Regression tests for ReAct operation fixes.
-
-These tests ensure the specific bugs we fixed don't reoccur:
-1. ReAct returns answer string by default, not full Analysis object
-2. Response_kwargs are properly forwarded
-3. Action responses are converted to dicts in chat context
-4. Error feedback is provided when tools fail
-"""
-
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
@@ -35,10 +26,10 @@ async def test_react_returns_answer_string_not_analysis_object():
     branch = Branch()
     branch.acts.register_tool(multiply)
 
-    # Mock operate_v1 and act_v1
+    # Mock operate and act
     with (
-        patch("lionagi.operations.operate.operate.operate_v1") as mock_operate,
-        patch("lionagi.operations.act.act.act_v1") as mock_act,
+        patch("lionagi.operations.operate.operate.operate") as mock_operate,
+        patch("lionagi.operations.act.act.act") as mock_act,
     ):
         # Import Analysis class for final answer
         from lionagi.operations.ReAct.utils import Analysis, PlannedAction
@@ -59,7 +50,7 @@ async def test_react_returns_answer_string_not_analysis_object():
 
         mock_operate.side_effect = [first_analysis, final_analysis]
 
-        # Mock act_v1 to return the multiply result
+        # Mock act to return the multiply result
         mock_act.return_value = [
             ActionResponseModel(
                 function="multiply", arguments={"a": 5, "b": 3}, output=15
@@ -86,9 +77,7 @@ async def test_react_honors_custom_response_format():
     """Regression test: ReAct should honor custom response_format parameter."""
     branch = Branch()
 
-    with patch(
-        "lionagi.operations.operate.operate.operate_v1"
-    ) as mock_operate:
+    with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         from lionagi.operations.ReAct.utils import Analysis
 
         # First call returns ReActAnalysis (no more extensions)
@@ -120,12 +109,10 @@ async def test_react_honors_custom_response_format():
 
 @pytest.mark.asyncio
 async def test_react_forwards_response_kwargs():
-    """Regression test: response_kwargs should be forwarded to final operate_v1 call."""
+    """Regression test: response_kwargs should be forwarded to final operate call."""
     branch = Branch()
 
-    with patch(
-        "lionagi.operations.operate.operate.operate_v1"
-    ) as mock_operate:
+    with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         from lionagi.operations.ReAct.utils import Analysis
 
         # First call
@@ -147,7 +134,7 @@ async def test_react_forwards_response_kwargs():
             max_extensions=0,
         )
 
-        # Check the last operate_v1 call includes response_kwargs
+        # Check the last operate call includes response_kwargs
         last_call = mock_operate.call_args_list[-1]
         kwargs = last_call[1]
 

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 
-async def interpret(
+def prepare_interpret_kw(
     branch: "Branch",
     text: str,
     domain: str | None = None,
@@ -29,11 +29,13 @@ async def interpret(
         imodel=interpret_model or branch.chat_model,
         imodel_kw=kwargs,
     )
+    return {
+        "text": text,
+        "intp_param": intp_param,
+    }
 
-    return await interpret_v1(branch, text, intp_param)
 
-
-async def interpret_v1(
+async def interpret(
     branch: "Branch",
     text: str,
     intp_param: InterpretParam,
