@@ -127,11 +127,10 @@ def test_create_instruction_with_all_params():
     assert instruction.sender == "user"
     assert instruction.recipient == "assistant"
     assert instruction.content.image_detail == "high"
-    # response_format as BaseModel gets converted to response_schema + auto-generated format
-    assert instruction.content.response_schema is not None
-    assert isinstance(instruction.content.response_schema, dict)
-    assert instruction.content.response_format is not None
-    assert isinstance(instruction.content.response_format, dict)
+    # response_format as BaseModel: stores class internally, returns original
+    assert instruction.content._model_class == RequestModel
+    assert instruction.content.request_model == RequestModel
+    assert instruction.content.response_format == RequestModel
 
 
 def test_create_instruction_update_existing():
@@ -185,8 +184,11 @@ def test_create_instruction_response_format_instance(message_manager):
         response_format=InstanceModel(value=3),
     )
 
-    assert instruction.content.response_schema["title"] == "InstanceModel"
-    assert instruction.content.response_format == {"value": 3}
+    # response_format stores the instance, internal fields handle the rest
+    assert isinstance(instruction.content.response_format, InstanceModel)
+    assert instruction.content.response_format.value == 3
+    assert instruction.content._model_class == InstanceModel
+    assert instruction.content.request_model == InstanceModel
 
 
 def test_add_message_instruction_context_extend(message_manager):
@@ -843,11 +845,12 @@ def test_message_manager_with_response_format(message_manager):
         recipient="assistant",
     )
 
-    # response_format as BaseModel gets converted to response_schema + auto-generated format
-    assert instruction.content.response_schema is not None
-    assert isinstance(instruction.content.response_schema, dict)
-    assert instruction.content.response_format is not None
-    assert isinstance(instruction.content.response_format, dict)
+    # response_format stores the class
+    assert instruction.content.response_format == RequestModel
+    assert instruction.content.request_model == RequestModel
+    assert instruction.content._model_class == RequestModel
+    assert instruction.content._schema_dict is not None
+    assert isinstance(instruction.content._schema_dict, dict)
 
 
 def test_message_manager_with_request_model(message_manager):

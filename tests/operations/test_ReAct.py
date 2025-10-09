@@ -49,39 +49,44 @@ def make_mocked_branch_for_react():
 @pytest.mark.asyncio
 async def test_react_basic_flow():
     """
-    ReAct(...) => calls operate for analysis, then calls branch.communicate for final answer.
-    We'll patch them at the class level to yield a real ReActAnalysis -> "final_answer_mock".
+    ReAct(...) => calls branch.operate for analysis, then for final answer.
+    We'll patch branch.operate to yield a real ReActAnalysis -> Analysis object.
     """
+    from lionagi.operations.ReAct.utils import Analysis
+
     branch = make_mocked_branch_for_react()
 
     # 1) Create a mock ReActAnalysis object with extension_needed=False so we skip expansions:
     class FakeAnalysis(ReActAnalysis):
         extension_needed: bool = False
-        # optionally override other fields if needed
 
-    # 2) Patch branch.operate to return a `FakeAnalysis` instance
-    #    Patch branch.communicate to return "final_answer_mock"
+    # 2) Create call counter to return different values for different calls
+    call_count = 0
+
+    async def mock_operate(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First call - return ReActAnalysis
+            return FakeAnalysis(
+                analysis="intermediate_reasoning",
+                extension_needed=False,
+                planned_actions=[],
+            )
+        else:
+            # Second call - return final Analysis
+            return Analysis(answer="final_answer_mock")
+
+    # 3) Patch operate_v1
     with patch(
-        "lionagi.session.branch.Branch.operate",
-        new=AsyncMock(
-            return_value=FakeAnalysis(
-                **{
-                    "analysis": "final_answer_mock",
-                    "extension_needed": False,
-                    "planned_actions": [],
-                }
-            )
-        ),
+        "lionagi.operations.operate.operate.operate_v1",
+        new=AsyncMock(side_effect=mock_operate),
     ):
-        with patch(
-            "lionagi.session.branch.Branch.communicate",
-            new=AsyncMock(return_value="final_answer_mock"),
-        ):
-            res = await branch.ReAct(
-                instruct={"instruction": "Solve a puzzle with ReAct strategy"},
-                interpret=False,
-                extension_allowed=False,
-            )
+        res = await branch.ReAct(
+            instruct={"instruction": "Solve a puzzle with ReAct strategy"},
+            interpret=False,
+            extension_allowed=False,
+        )
 
-    # 3) Confirm we got the final answer
-    assert res.analysis == "final_answer_mock"
+    # 4) Confirm we got the final answer as a string
+    assert res == "final_answer_mock"

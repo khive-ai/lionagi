@@ -38,7 +38,8 @@ def test_instruction_content_basic_initialization():
     assert content.plain_content is None
     assert content.tool_schemas == []
     assert content.response_format is None
-    assert content.response_schema is None
+    assert content.response_model_cls is None
+    assert content.schema_dict is None
     assert content.images == []
     assert content.image_detail is None
 
@@ -51,7 +52,6 @@ def test_instruction_content_all_fields():
         context=["context1", {"key": "value"}],
         tool_schemas=[{"name": "tool1", "type": "function"}],
         response_format={"result": "value"},
-        response_schema={"type": "object"},
         images=["image1.jpg"],
         image_detail="high",
     )
@@ -61,7 +61,7 @@ def test_instruction_content_all_fields():
     assert len(content.context) == 2
     assert len(content.tool_schemas) == 1
     assert content.response_format == {"result": "value"}
-    assert content.response_schema == {"type": "object"}
+    assert content.schema_dict == {"result": "value"}
     assert len(content.images) == 1
     assert content.image_detail == "high"
 
@@ -237,54 +237,64 @@ def test_from_dict_images_default_detail():
 
 
 def test_from_dict_with_pydantic_model_instance():
-    """Test from_dict with Pydantic model instance for response_schema"""
-    # Pass the CLASS, not an instance, to from_dict for proper schema generation
-    data = {"instruction": "Test", "response_schema": SampleRequestModel}
+    """Test from_dict with Pydantic model class for response_format"""
+    # Pass the CLASS to from_dict for proper schema generation
+    data = {"instruction": "Test", "response_format": SampleRequestModel}
     content = InstructionContent.from_dict(data)
 
-    assert isinstance(content.response_schema, dict)
-    assert "properties" in content.response_schema
-    assert "name" in content.response_schema["properties"]
+    # response_format stores the model class
+    assert content.response_format == SampleRequestModel
+    assert content.request_model == SampleRequestModel
+    # Internal _model_class should be set
+    assert content._model_class == SampleRequestModel
 
 
 def test_from_dict_with_pydantic_model_class():
-    """Test from_dict with Pydantic model class for response_schema"""
-    data = {"instruction": "Test", "response_schema": SampleRequestModel}
+    """Test from_dict with Pydantic model class for response_format"""
+    data = {"instruction": "Test", "response_format": SampleRequestModel}
     content = InstructionContent.from_dict(data)
 
-    assert isinstance(content.response_schema, dict)
-    assert "properties" in content.response_schema
-    assert "name" in content.response_schema["properties"]
-    assert "age" in content.response_schema["properties"]
+    # response_format stores the class
+    assert content.response_format == SampleRequestModel
+    assert content._model_class == SampleRequestModel
+    assert content.request_model == SampleRequestModel
+    # Internal schema dict should be set
+    assert isinstance(content._schema_dict, dict)
+    assert "name" in content._schema_dict
+    assert "age" in content._schema_dict
 
 
 def test_from_dict_with_nested_pydantic_model():
     """Test from_dict with nested Pydantic model"""
-    data = {"instruction": "Test", "response_schema": NestedRequestModel}
+    data = {"instruction": "Test", "response_format": NestedRequestModel}
     content = InstructionContent.from_dict(data)
 
-    assert isinstance(content.response_schema, dict)
-    assert "properties" in content.response_schema
-    assert "user" in content.response_schema["properties"]
+    # response_format stores the class
+    assert content.response_format == NestedRequestModel
+    assert content.request_model == NestedRequestModel
+    # Internal schema dict should have the nested structure
+    assert isinstance(content._schema_dict, dict)
+    assert "user" in content._schema_dict
 
 
 def test_from_dict_pydantic_model_auto_derives_response_format():
-    """Test from_dict auto-derives response_format from Pydantic model"""
-    data = {"instruction": "Test", "response_schema": SampleRequestModel}
+    """Test from_dict derives schema dict from Pydantic model"""
+    data = {"instruction": "Test", "response_format": SampleRequestModel}
     content = InstructionContent.from_dict(data)
 
-    # Should auto-derive response_format using breakdown_pydantic_annotation
-    assert content.response_format is not None
-    assert isinstance(content.response_format, dict)
+    # Should auto-derive schema dict internally
+    assert content.response_format == SampleRequestModel  # Keeps the original
+    assert content._schema_dict is not None
+    assert isinstance(content._schema_dict, dict)
 
 
 def test_from_dict_with_dict_response_schema():
     """Test from_dict with dict response_schema"""
     schema = {"type": "object", "properties": {"field": {"type": "string"}}}
-    data = {"instruction": "Test", "response_schema": schema}
+    data = {"instruction": "Test", "response_format": schema}
     content = InstructionContent.from_dict(data)
 
-    assert content.response_schema == schema
+    assert content.response_format == schema
 
 
 def test_from_dict_with_explicit_response_format():
@@ -301,7 +311,7 @@ def test_from_dict_response_format_overrides_auto_derive():
     rf = {"custom": "format"}
     data = {
         "instruction": "Test",
-        "response_schema": SampleRequestModel,
+        "response_format": SampleRequestModel,
         "response_format": rf,
     }
     content = InstructionContent.from_dict(data)
@@ -312,22 +322,21 @@ def test_from_dict_response_format_overrides_auto_derive():
 
 
 def test_from_dict_invalid_response_schema_type():
-    """Test from_dict raises TypeError for invalid response_schema type"""
-    data = {"instruction": "Test", "response_schema": "invalid"}
+    """Test from_dict silently ignores invalid response_format type (fuzzy handling)"""
+    data = {"instruction": "Test", "response_format": "invalid"}
 
-    with pytest.raises(TypeError, match="response_schema must be"):
-        InstructionContent.from_dict(data)
+    # Fuzzy handling: invalid types are silently ignored
+    content = InstructionContent.from_dict(data)
+    assert content.response_format is None
 
 
 def test_from_dict_invalid_response_format_type():
-    """Test from_dict raises TypeError for invalid response_format type"""
+    """Test from_dict silently ignores invalid response_format type (fuzzy handling)"""
     data = {"instruction": "Test", "response_format": "invalid"}
 
-    with pytest.raises(
-        TypeError,
-        match="response_format must be dict, BaseModel instance, or BaseModel class",
-    ):
-        InstructionContent.from_dict(data)
+    # Fuzzy handling: invalid types are silently ignored
+    content = InstructionContent.from_dict(data)
+    assert content.response_format is None
 
 
 def test_from_dict_empty_dict():
@@ -448,20 +457,22 @@ def test_instruction_with_tool_schemas():
 
 
 def test_instruction_with_pydantic_response_schema():
-    """Test Instruction with Pydantic model response schema"""
+    """Test Instruction with Pydantic model response format"""
     instruction = Instruction(
         content={
             "instruction": "Return structured data",
-            "response_schema": SampleRequestModel,
+            "response_format": SampleRequestModel,
         },
         sender="user",
         recipient="assistant",
     )
 
-    assert isinstance(instruction.content.response_schema, dict)
-    assert "properties" in instruction.content.response_schema
-    # Should auto-derive response_format
-    assert instruction.content.response_format is not None
+    # response_format stores the class
+    assert instruction.content.response_format == SampleRequestModel
+    assert instruction.content.request_model == SampleRequestModel
+    # Should auto-derive schema dict internally
+    assert instruction.content._schema_dict is not None
+    assert isinstance(instruction.content._schema_dict, dict)
 
 
 def test_instruction_with_explicit_response_format():
@@ -624,13 +635,13 @@ def test_minimal_yaml_response_format_as_json_block():
     assert "```" in rendered
     assert "key" in rendered
     assert "value" in rendered
-    assert "Return a **single JSON code block**" in rendered
+    assert "MUST RETURN JSON-PARSEABLE RESPONSE" in rendered
 
 
 def test_minimal_yaml_response_schema_included():
-    """Test minimal_yaml includes response_schema"""
+    """Test minimal_yaml includes response_format schema"""
     schema = {"type": "object", "properties": {"name": {"type": "string"}}}
-    content = InstructionContent(instruction="Test", response_schema=schema)
+    content = InstructionContent(instruction="Test", response_format=schema)
 
     rendered = content.rendered
     assert (
