@@ -565,20 +565,38 @@ async def ReActStream(
         else None
     )
 
+    # Build operate_v1 kwargs, honoring response_kwargs
+    operate_kwargs = {
+        "branch": branch,
+        "instruction": answer_prompt,
+        "chat_ctx": final_chat_ctx,
+        "action_ctx": None,  # No actions in final answer
+        "parse_ctx": final_parse_ctx,
+        "invoke_actions": False,
+        "clear_messages": False,
+        "reason": False,  # No reasoning wrapper in final answer
+        "field_models": None,
+        # Defaults that can be overridden by resp_ctx
+        "handle_validation": handle_validation,
+        "skip_validation": False,
+    }
+
+    # Honor response_kwargs for final answer generation
+    if resp_ctx:
+        # Extract operate_v1 specific parameters from resp_ctx
+        operate_params = {
+            "skip_validation",
+            "handle_validation",
+            "clear_messages",
+            "reason",
+            "field_models",
+        }
+        for param in operate_params:
+            if param in resp_ctx:
+                operate_kwargs[param] = resp_ctx[param]
+
     try:
-        out = await operate_v1(
-            branch,
-            instruction=answer_prompt,
-            chat_ctx=final_chat_ctx,
-            action_ctx=None,  # No actions in final answer
-            parse_ctx=final_parse_ctx,
-            handle_validation=handle_validation,
-            invoke_actions=False,
-            skip_validation=False,
-            clear_messages=False,
-            reason=False,  # No reasoning wrapper in final answer
-            field_models=None,
-        )
+        out = await operate_v1(**operate_kwargs)
 
         if isinstance(out, dict) and all(i is None for i in out.values()):
             if not continue_after_failed_response:
