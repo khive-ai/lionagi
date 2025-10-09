@@ -54,8 +54,9 @@ async def chat(
         if isinstance(msg, Instruction):
             j = msg.model_copy(update={"content": msg.content.with_updates()})
             j.content.tool_schemas.clear()
-            j.content.response_schema = None
             j.content.response_format = None
+            j.content._schema_dict = None
+            j.content._model_class = None
 
             if _act_res:
                 d_ = [
@@ -119,13 +120,26 @@ async def chat(
                 + (first_instruction.content.guidance or "")
             )
             messages[0] = first_instruction
-            messages.append(_use_ins or ins)
+            msg_to_append = _use_ins or ins
+            if msg_to_append is not None:
+                messages.append(msg_to_append)
 
     else:
-        messages.append(_use_ins or ins)
+        msg_to_append = _use_ins or ins
+        if msg_to_append is not None:
+            messages.append(msg_to_append)
 
     kw = (chat_ctx.imodel_kw or {}).copy()
-    kw["messages"] = [i.chat_msg for i in messages]
+
+    # Filter out messages with None chat_msg
+    chat_msgs = []
+    for msg in messages:
+        if msg is not None and hasattr(msg, "chat_msg"):
+            chat_msg = msg.chat_msg
+            if chat_msg is not None:
+                chat_msgs.append(chat_msg)
+
+    kw["messages"] = chat_msgs
 
     imodel = chat_ctx.imodel or branch.chat_model
     meth = imodel.stream if "stream" in kw and kw["stream"] else imodel.invoke

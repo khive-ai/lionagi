@@ -53,7 +53,7 @@ def test_instructioncontent_format_response_format():
     response_format = {"name": "string", "age": "integer"}
     result = InstructionContent._format_response_format(response_format)
 
-    assert "Return a **single JSON code block**" in result
+    assert "MUST RETURN JSON-PARSEABLE RESPONSE" in result
     assert "```json" in result
     assert "name" in result
     assert "age" in result
@@ -112,17 +112,20 @@ def test_instructioncontent_from_dict_with_request_model():
         name: str
         age: int
 
-    # Test with BaseModel class
-    data = {"response_schema": RequestModel, "instruction": "Test"}
+    # Test with BaseModel class (using response_format now)
+    data = {"response_format": RequestModel, "instruction": "Test"}
     content = InstructionContent.from_dict(data)
 
-    assert content.response_schema is not None
-    assert "properties" in content.response_schema
-    assert "name" in content.response_schema["properties"]
-    assert "age" in content.response_schema["properties"]
+    # response_format stores the class
+    assert content.response_format == RequestModel
+    assert content.request_model == RequestModel
+    assert content._model_class == RequestModel
 
-    # Test response_format auto-derivation
-    assert content.response_format is not None
+    # Test schema dict auto-derivation
+    assert content._schema_dict is not None
+    assert isinstance(content._schema_dict, dict)
+    assert "name" in content._schema_dict
+    assert "age" in content._schema_dict
 
 
 def test_instructioncontent_from_dict_with_images():

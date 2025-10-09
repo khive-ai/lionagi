@@ -224,13 +224,20 @@ async def test_parse_exceeds_retries_returns_value(
 async def test_invoke_action_no_tools(branch_with_mock_imodel: Branch):
     """
     If we pass an ActionRequest referencing an unregistered tool,
-    we expect None + a Log error about 'not registered'.
+    we expect an error ActionResponseModel + a Log error about 'not registered'.
     """
     req = ActionRequest(
         content={"function": "unregistered_tool", "arguments": {"x": 1}}
     )
     resp = await branch_with_mock_imodel.act(req)
-    assert resp == []
+
+    # Now returns error response instead of empty list
+    assert len(resp) == 1
+    assert resp[0].function == "unregistered_tool"
+    assert resp[0].arguments == {"x": 1}
+    assert "error" in resp[0].output
+    assert "not registered" in resp[0].output.get("message", "").lower()
+
     # logs => check the last entry for 'not registered'
     assert len(branch_with_mock_imodel.logs) == 1
     assert "not registered" in (

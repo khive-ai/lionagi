@@ -208,11 +208,15 @@ async def operate_v1(
     if tools := (action_ctx.tools or True) if action_ctx else None:
         _cctx.tool_schemas = branch.acts.get_tool_schema(tools=tools)
 
-    t = (
-        chat_ctx.response_format
-        if isinstance(chat_ctx.response_format, type)
-        else dict
-    )
+    # Extract model class from response_format (can be class, instance, or dict)
+    model_class = None
+    if chat_ctx.response_format is not None:
+        if isinstance(chat_ctx.response_format, type) and issubclass(
+            chat_ctx.response_format, BaseModel
+        ):
+            model_class = chat_ctx.response_format
+        elif isinstance(chat_ctx.response_format, BaseModel):
+            model_class = type(chat_ctx.response_format)
 
     def normalize_field_model(fms):
         if not fms:
@@ -224,22 +228,26 @@ async def operate_v1(
     fms = normalize_field_model(field_models)
     operative = None
 
-    if isinstance(t, type):
+    if model_class:
         from lionagi.protocols.operatives.step import Step
 
         operative = Step.request_operative(
             reason=reason,
             actions=bool(action_ctx is not None),
-            base_type=chat_ctx.response_format,
+            base_type=model_class,
             field_models=fms,
         )
         _cctx.response_format = operative.request_type
+        _pctx.response_format = (
+            operative.request_type
+        )  # Update parse context too
     elif field_models:
         dict_ = {}
         for fm in fms:
             if fm.name:
                 dict_[fm.name] = str(fm.annotated())
         _cctx.response_format = dict_
+        _pctx.response_format = dict_  # Update parse context too
 
     from ..communicate.communicate import communicate
 
@@ -254,7 +262,7 @@ async def operate_v1(
     )
     if skip_validation:
         return result
-    if isinstance(t, type) and not isinstance(result, t):
+    if model_class and not isinstance(result, model_class):
         match handle_validation:
             case "return_value":
                 return result
@@ -269,7 +277,7 @@ async def operate_v1(
 
     requests = (
         getattr(result, "action_requests", None)
-        if isinstance(t, type)
+        if model_class
         else result.get("action_requests", None)
     )
 
@@ -286,7 +294,15 @@ async def operate_v1(
     if not action_response_models:
         return result
 
-    if t == dict:
+    # Filter out None values from action responses
+    action_response_models = [
+        r for r in action_response_models if r is not None
+    ]
+
+    if not action_response_models:  # All were None
+        return result
+
+    if not model_class:  # Dict response
         result.update({"action_responses": action_response_models})
         return result
 
