@@ -77,9 +77,9 @@ async def test_react_basic_flow():
             # Second call - return final Analysis
             return Analysis(answer="final_answer_mock")
 
-    # 3) Patch operate_v1
+    # 3) Patch operate
     with patch(
-        "lionagi.operations.operate.operate.operate_v1",
+        "lionagi.operations.operate.operate.operate",
         new=AsyncMock(side_effect=mock_operate),
     ):
         res = await branch.ReAct(
