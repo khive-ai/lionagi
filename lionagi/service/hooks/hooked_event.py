@@ -47,7 +47,7 @@ class HookedEvent(Event):
                     raise h_ev._exit_cause or RuntimeError(
                         "Pre-invocation hook requested exit without a cause"
                     )
-                await global_hook_logger.alog(Log.create(h_ev))
+                await global_hook_logger.alog(h_ev)
 
             response = await self._invoke()
 
@@ -57,7 +57,7 @@ class HookedEvent(Event):
                     raise h_ev._exit_cause or RuntimeError(
                         "Post-invocation hook requested exit without a cause"
                     )
-                await global_hook_logger.alog(Log.create(h_ev))
+                await global_hook_logger.alog(h_ev)
 
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED

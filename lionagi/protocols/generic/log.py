@@ -143,10 +143,11 @@ class DataLogger:
         if self._config.auto_save_on_exit:
             atexit.register(self.save_at_exit)
 
-    def log(self, log_: Log) -> None:
+    def log(self, log_: Any) -> None:
         """
         Add a log synchronously. If capacity is reached, auto-dump to file.
         """
+        log_ = Log.create(log_) if not isinstance(log_, Log) else log_
         if self._config.capacity and len(self.logs) >= self._config.capacity:
             try:
                 self.dump(clear=self._config.clear_after_dump)
@@ -154,7 +155,7 @@ class DataLogger:
                 logger.error(f"Failed to auto-dump logs: {e}")
         self.logs.include(log_)
 
-    async def alog(self, log_: Log) -> None:
+    async def alog(self, log_: Any) -> None:
         """
         Add a log asynchronously. If capacity is reached, auto-dump to file.
         """
