@@ -15,15 +15,15 @@ from lionagi.libs.validate.common_field_validators import (
     validate_model_to_type,
 )
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
-from lionagi.models import FieldModel, OperableModel
+from lionagi.models.field_model import FieldModel
 from lionagi.service.imodel import iModel
 
 from ..types import (
-    ActionContext,
-    ChatContext,
+    ActionParam,
+    ChatParam,
     HandleValidation,
-    InterpretContext,
-    ParseContext,
+    InterpretParam,
+    ParseParam,
 )
 from .utils import Analysis, ReActAnalysis
 
@@ -74,10 +74,10 @@ async def ReAct(
         else dict(instruct)
     )
 
-    # Build InterpretContext if interpretation requested
-    intp_ctx = None
+    # Build InterpretParam if interpretation requested
+    intp_param = None
     if interpret:
-        intp_ctx = InterpretContext(
+        intp_param = InterpretParam(
             domain=interpret_domain or "general",
             style=interpret_style or "concise",
             sample_writing=interpret_sample or "",
@@ -85,8 +85,8 @@ async def ReAct(
             imodel_kw=interpret_kwargs or {},
         )
 
-    # Build ChatContext
-    chat_ctx = ChatContext(
+    # Build ChatParam
+    chat_param = ChatParam(
         guidance=instruct_dict.get("guidance"),
         context=instruct_dict.get("context"),
         sender=branch.user or "user",
@@ -102,12 +102,12 @@ async def ReAct(
         imodel_kw=kwargs,
     )
 
-    # Build ActionContext
-    action_ctx = None
+    # Build ActionParam
+    action_param = None
     if tools is not None or tool_schemas is not None:
         from ..act.act import _get_default_call_params
 
-        action_ctx = ActionContext(
+        action_param = ActionParam(
             action_call_params=_get_default_call_params(),
             tools=tools or True,
             strategy="concurrent",
@@ -115,10 +115,10 @@ async def ReAct(
             verbose_action=False,
         )
 
-    # Build ParseContext
+    # Build ParseParam
     from ..parse.parse import get_default_call
 
-    parse_ctx = ParseContext(
+    parse_param = ParseParam(
         response_format=ReActAnalysis,  # Initial format
         fuzzy_match_params=FuzzyMatchKeysParams(),
         handle_validation="return_value",
@@ -135,10 +135,10 @@ async def ReAct(
     return await ReAct_v1(
         branch,
         instruction=instruct_dict.get("instruction", str(instruct)),
-        chat_ctx=chat_ctx,
-        action_ctx=action_ctx,
-        parse_ctx=parse_ctx,
-        intp_ctx=intp_ctx,
+        chat_param=chat_param,
+        action_param=action_param,
+        parse_param=parse_param,
+        intp_param=intp_param,
         resp_ctx=resp_ctx,
         reasoning_effort=reasoning_effort,
         reason=True,  # ReAct always uses reasoning
@@ -162,10 +162,10 @@ async def ReAct(
 async def ReAct_v1(
     branch: "Branch",
     instruction: str,
-    chat_ctx: ChatContext,
-    action_ctx: ActionContext | None = None,
-    parse_ctx: ParseContext | None = None,
-    intp_ctx: InterpretContext | None = None,
+    chat_param: ChatParam,
+    action_param: ActionParam | None = None,
+    parse_param: ParseParam | None = None,
+    intp_param: InterpretParam | None = None,
     resp_ctx: dict | None = None,
     reasoning_effort: Literal["low", "medium", "high"] | None = None,
     reason: bool = False,
@@ -197,10 +197,10 @@ async def ReAct_v1(
         async for i in ReActStream(
             branch=branch,
             instruction=instruction,
-            chat_ctx=chat_ctx,
-            action_ctx=action_ctx,
-            parse_ctx=parse_ctx,
-            intp_ctx=intp_ctx,
+            chat_param=chat_param,
+            action_param=action_param,
+            parse_param=parse_param,
+            intp_param=intp_param,
             resp_ctx=resp_ctx,
             reasoning_effort=reasoning_effort,
             reason=reason,
@@ -230,10 +230,10 @@ async def ReAct_v1(
         async for i in ReActStream(
             branch=branch,
             instruction=instruction,
-            chat_ctx=chat_ctx,
-            action_ctx=action_ctx,
-            parse_ctx=parse_ctx,
-            intp_ctx=intp_ctx,
+            chat_param=chat_param,
+            action_param=action_param,
+            parse_param=parse_param,
+            intp_param=intp_param,
             resp_ctx=resp_ctx,
             reasoning_effort=reasoning_effort,
             reason=reason,
@@ -265,16 +265,16 @@ async def ReAct_v1(
 async def handle_instruction_interpretation(
     branch: "Branch",
     instruction: str,
-    chat_ctx: ChatContext,
-    intp_ctx: InterpretContext | None,
+    chat_param: ChatParam,
+    intp_param: InterpretParam | None,
 ):
     """Handle instruction interpretation if requested."""
-    if not intp_ctx:
+    if not intp_param:
         return instruction
 
     from ..interpret.interpret import interpret_v1
 
-    return await interpret_v1(branch, instruction, intp_ctx)
+    return await interpret_v1(branch, instruction, intp_param)
 
 
 def handle_field_models(
@@ -289,6 +289,8 @@ def handle_field_models(
     if intermediate_response_options:
 
         def create_intermediate_response_field_model():
+            from lionagi.models import OperableModel
+
             _iro = intermediate_response_options
             iro = [_iro] if not isinstance(_iro, list) else _iro
             opm = OperableModel()
@@ -326,10 +328,10 @@ def handle_field_models(
 async def ReActStream(
     branch: "Branch",
     instruction: str,
-    chat_ctx: ChatContext,
-    action_ctx: ActionContext | None = None,
-    parse_ctx: ParseContext | None = None,
-    intp_ctx: InterpretContext | None = None,
+    chat_param: ChatParam,
+    action_param: ActionParam | None = None,
+    parse_param: ParseParam | None = None,
+    intp_param: InterpretParam | None = None,
     resp_ctx: dict | None = None,
     reasoning_effort: Literal["low", "medium", "high"] | None = None,
     reason: bool = False,
@@ -371,10 +373,13 @@ async def ReActStream(
 
     # Step 1: Interpret instruction if requested
     ins_str = await handle_instruction_interpretation(
-        branch, instruction=instruction, chat_ctx=chat_ctx, intp_ctx=intp_ctx
+        branch,
+        instruction=instruction,
+        chat_param=chat_param,
+        intp_param=intp_param,
     )
     # Print interpreted instruction if verbose (don't yield it - not an analysis object)
-    if verbose_analysis and intp_ctx:
+    if verbose_analysis and intp_param:
         str_ = "\n### Interpreted instruction:\n"
         str_ += as_readable(
             ins_str,
@@ -395,11 +400,11 @@ async def ReActStream(
     from ..operate.operate import operate_v1
 
     # Build context for initial analysis
-    initial_chat_ctx = chat_ctx.with_updates(response_format=ReActAnalysis)
+    initial_chat_param = chat_param.with_updates(response_format=ReActAnalysis)
 
-    initial_parse_ctx = (
-        parse_ctx.with_updates(response_format=ReActAnalysis)
-        if parse_ctx
+    initial_parse_param = (
+        parse_param.with_updates(response_format=ReActAnalysis)
+        if parse_param
         else None
     )
 
@@ -413,9 +418,9 @@ async def ReActStream(
     analysis = await operate_v1(
         branch,
         instruction=initial_instruction,
-        chat_ctx=initial_chat_ctx,
-        action_ctx=action_ctx,
-        parse_ctx=initial_parse_ctx,
+        chat_param=initial_chat_param,
+        action_param=action_param,
+        parse_param=initial_parse_param,
         handle_validation=handle_validation,
         invoke_actions=invoke_actions,
         skip_validation=False,
@@ -462,23 +467,23 @@ async def ReActStream(
                 "high": "Thorough, try as hard as you can in reasoning.\n",
             }.get(reasoning_effort, "")
 
-            updates["guidance"] = (guide or "") + (chat_ctx.guidance or "")
+            updates["guidance"] = (guide or "") + (chat_param.guidance or "")
             updates["imodel_kw"] = {
-                **(chat_ctx.imodel_kw or {}),
+                **(chat_param.imodel_kw or {}),
                 "reasoning_effort": reasoning_effort,
             }
 
-        _cctx = chat_ctx.with_updates(**updates)
+        _cctx = chat_param.with_updates(**updates)
 
         # Import default call params if needed
         from ..act.act import _get_default_call_params
 
         _actx = (
-            action_ctx.with_updates(
+            action_param.with_updates(
                 strategy=getattr(analysis, "action_strategy", "concurrent")
             )
-            if action_ctx
-            else ActionContext(
+            if action_param
+            else ActionParam(
                 action_call_params=_get_default_call_params(),
                 tools=True,
                 strategy=getattr(analysis, "action_strategy", "concurrent"),
@@ -489,8 +494,8 @@ async def ReActStream(
 
         return {
             "instruction": new_instruction,
-            "chat_ctx": _cctx,
-            "action_ctx": _actx,
+            "chat_param": _cctx,
+            "action_param": _actx,
             "reason": reason,
             "field_models": fms,
         }
@@ -499,20 +504,20 @@ async def ReActStream(
         kwargs = prepare_analysis_kwargs(extensions)
 
         # Build parse context for extension
-        ext_parse_ctx = (
-            parse_ctx.with_updates(
-                response_format=kwargs["chat_ctx"].response_format
+        ext_parse_param = (
+            parse_param.with_updates(
+                response_format=kwargs["chat_param"].response_format
             )
-            if parse_ctx
+            if parse_param
             else None
         )
 
         analysis = await operate_v1(
             branch,
             instruction=kwargs["instruction"],
-            chat_ctx=kwargs["chat_ctx"],
-            action_ctx=kwargs.get("action_ctx"),
-            parse_ctx=ext_parse_ctx,
+            chat_param=kwargs["chat_param"],
+            action_param=kwargs.get("action_param"),
+            parse_param=ext_parse_param,
             handle_validation=handle_validation,
             invoke_actions=invoke_actions,
             skip_validation=False,
@@ -554,14 +559,14 @@ async def ReActStream(
     if resp_ctx:
         # Merge resp_ctx into updates (filter allowed keys)
         for k, v in resp_ctx.items():
-            if k in chat_ctx.allowed() and k != "response_format":
+            if k in chat_param.allowed() and k != "response_format":
                 resp_ctx_updates[k] = v
 
-    final_chat_ctx = chat_ctx.with_updates(**resp_ctx_updates)
+    final_chat_param = chat_param.with_updates(**resp_ctx_updates)
 
-    final_parse_ctx = (
-        parse_ctx.with_updates(response_format=final_response_format)
-        if parse_ctx
+    final_parse_param = (
+        parse_param.with_updates(response_format=final_response_format)
+        if parse_param
         else None
     )
 
@@ -569,9 +574,9 @@ async def ReActStream(
     operate_kwargs = {
         "branch": branch,
         "instruction": answer_prompt,
-        "chat_ctx": final_chat_ctx,
-        "action_ctx": None,  # No actions in final answer
-        "parse_ctx": final_parse_ctx,
+        "chat_param": final_chat_param,
+        "action_param": None,  # No actions in final answer
+        "parse_param": final_parse_param,
         "invoke_actions": False,
         "clear_messages": False,
         "reason": False,  # No reasoning wrapper in final answer

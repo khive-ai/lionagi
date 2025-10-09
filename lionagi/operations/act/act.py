@@ -8,9 +8,9 @@ from pydantic import BaseModel
 
 from lionagi.fields.action import ActionResponseModel
 from lionagi.ln._async_call import AlcallParams
-from lionagi.protocols.types import ActionRequest, ActionResponse, Log
+from lionagi.protocols.types import ActionRequest, ActionResponse
 
-from ..types import ActionContext
+from ..types import ActionParam
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -64,7 +64,7 @@ async def _act(
             "arguments": _request.get("arguments"),
             "branch": str(branch.id),
         }
-        branch._log_manager.log(Log(content=content))
+        branch._log_manager.log(content)
         if verbose_action:
             print(f"Action {_request['function']} failed, error: {str(e)}.")
         if suppress_errors:
@@ -79,7 +79,7 @@ async def _act(
             )
         raise e
 
-    branch._log_manager.log(Log.create(func_call))
+    branch._log_manager.log(func_call)
 
     if not isinstance(action_request, ActionRequest):
         action_request = ActionRequest(
@@ -114,7 +114,7 @@ async def act(
     call_params: AlcallParams = None,
 ) -> list[ActionResponse]:
     """Execute action requests using the branch's action manager."""
-    action_ctx = ActionContext(
+    action_param = ActionParam(
         action_call_params=call_params or _get_default_call_params(),
         tools=None,  # Not used in this context
         strategy=strategy,
@@ -122,31 +122,31 @@ async def act(
         verbose_action=verbose_action,
     )
 
-    return await act_v1(branch, action_request, action_ctx)
+    return await act_v1(branch, action_request, action_param)
 
 
 async def act_v1(
     branch: "Branch",
     action_request: list | ActionRequest | BaseModel | dict,
-    action_ctx: ActionContext,
+    action_param: ActionParam,
 ) -> list[ActionResponse]:
-    """Execute action requests with ActionContext."""
+    """Execute action requests with ActionParam."""
 
-    match action_ctx.strategy:
+    match action_param.strategy:
         case "concurrent":
             return await _concurrent_act(
                 branch,
                 action_request,
-                action_ctx.action_call_params,
-                suppress_errors=action_ctx.suppress_errors,
-                verbose_action=action_ctx.verbose_action,
+                action_param.action_call_params,
+                suppress_errors=action_param.suppress_errors,
+                verbose_action=action_param.verbose_action,
             )
         case "sequential":
             return await _sequential_act(
                 branch,
                 action_request,
-                suppress_errors=action_ctx.suppress_errors,
-                verbose_action=action_ctx.verbose_action,
+                suppress_errors=action_param.suppress_errors,
+                verbose_action=action_param.verbose_action,
             )
         case _:
             raise ValueError(
