@@ -79,8 +79,8 @@ class ReaderRequest(BaseModel):
         ),
     )
 
-    recursive: bool = Field(
-        False,
+    recursive: bool | None = Field(
+        None,
         description=(
             "Whether to recursively list files in subdirectories. Defaults to False."
             "Only used if action='list_dir'."

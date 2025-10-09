@@ -59,10 +59,17 @@ async def chat(
             j.content._model_class = None
 
             if _act_res:
-                d_ = [
-                    k.content
-                    for k in to_list(_act_res, flatten=True, unique=True)
-                ]
+                # Convert ActionResponseContent to dicts for proper rendering
+                d_ = []
+                for k in to_list(_act_res, flatten=True, unique=True):
+                    if hasattr(k.content, 'function'):  # ActionResponseContent
+                        d_.append({
+                            "function": k.content.function,
+                            "arguments": k.content.arguments,
+                            "output": k.content.output
+                        })
+                    else:
+                        d_.append(k.content)
                 j.content.prompt_context.extend(
                     [z for z in d_ if z not in j.content.prompt_context]
                 )
@@ -73,7 +80,17 @@ async def chat(
 
     if _act_res:
         j = ins.model_copy(update={"content": ins.content.with_updates()})
-        d_ = [k.content for k in to_list(_act_res, flatten=True, unique=True)]
+        # Convert ActionResponseContent to dicts for proper rendering
+        d_ = []
+        for k in to_list(_act_res, flatten=True, unique=True):
+            if hasattr(k.content, 'function'):  # ActionResponseContent
+                d_.append({
+                    "function": k.content.function,
+                    "arguments": k.content.arguments,
+                    "output": k.content.output
+                })
+            else:
+                d_.append(k.content)
         j.content.prompt_context.extend(
             [z for z in d_ if z not in j.content.prompt_context]
         )
