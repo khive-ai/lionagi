@@ -1018,16 +1018,16 @@ class Branch(Element, Communicatable, Relational):
                 - If both `operative_model` and `response_format` or `request_model` are given.
                 - If the LLM's response cannot be parsed into the expected format and `handle_validation='raise'`.
         """
-        from lionagi.operations.operate.operate import (
-            operate,
-            prepare_operate_kw,
-        )
-
         _pms = {
             k: v
             for k, v in locals().items()
             if k not in ("self", "_pms") and v is not None
         }
+        from lionagi.operations.operate.operate import (
+            operate,
+            prepare_operate_kw,
+        )
+
         return await operate(self, **prepare_operate_kw(self, **_pms))
 
     async def communicate(
