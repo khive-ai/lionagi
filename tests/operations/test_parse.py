@@ -15,7 +15,7 @@ from lionagi.operations.parse.parse import parse as _parse
 from lionagi.operations.parse.parse import (
     prepare_parse_kws,
 )
-from lionagi.operations.types import ParseContext
+from lionagi.operations.types import ParseParam
 
 
 # Test models (not pytest test classes - don't start with "Test")
@@ -296,7 +296,7 @@ class TestAdvancedFeatures:
         """Test parse converts alcall_params dict to AlcallParams."""
         branch = make_mocked_branch_for_parse()
 
-        parse_ctx = ParseContext(
+        parse_ctx = ParseParam(
             response_format={"key": str},
             fuzzy_match_params=FuzzyMatchKeysParams(),
             handle_validation="return_value",
