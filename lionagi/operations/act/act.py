@@ -68,10 +68,15 @@ async def _act(
         if verbose_action:
             print(f"Action {_request['function']} failed, error: {str(e)}.")
         if suppress_errors:
-            logging.error(
-                f"Error invoking action '{_request['function']}': {e}"
+            error_msg = f"Error invoking action '{_request['function']}': {e}"
+            logging.error(error_msg)
+
+            # Return error as action response so model knows it failed
+            return ActionResponseModel(
+                function=_request.get("function", "unknown"),
+                arguments=_request.get("arguments", {}),
+                output={"error": str(e), "message": error_msg},
             )
-            return None
         raise e
 
     branch._log_manager.log(Log.create(func_call))

@@ -18,10 +18,13 @@ class InstructionContent(MessageContent):
         prompt_context: Additional context items for the prompt (list)
         plain_content: Raw text fallback (bypasses structured rendering)
         tool_schemas: Tool specifications for the assistant
-        response_format: Example JSON payload for expected response
-        response_schema: JSON Schema for response validation
+        response_format: User's desired response format (BaseModel class, instance, or dict)
         images: Image URLs, data URLs, or base64 strings
         image_detail: Detail level for image processing
+
+    Internal fields (not for direct use):
+        _schema_dict: Extracted dict for prompting/schema
+        _model_class: Extracted Pydantic class for validation
     """
 
     instruction: str | None = None
@@ -29,8 +32,15 @@ class InstructionContent(MessageContent):
     prompt_context: list[Any] = field(default_factory=list)
     plain_content: str | None = None
     tool_schemas: list[dict[str, Any]] = field(default_factory=list)
-    response_format: dict[str, Any] | None = None
-    response_schema: dict[str, Any] | None = None
+    response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = (
+        None  # User input
+    )
+    _schema_dict: dict[str, Any] | None = field(
+        default=None, repr=False
+    )  # Internal: dict for prompting
+    _model_class: type[BaseModel] | None = field(
+        default=None, repr=False
+    )  # Internal: class for validation
     images: list[str] = field(default_factory=list)
     image_detail: Literal["low", "high", "auto"] | None = None
 
@@ -42,14 +52,43 @@ class InstructionContent(MessageContent):
         context: list[Any] | None = None,  # backwards compat
         plain_content: str | None = None,
         tool_schemas: list[dict[str, Any]] | None = None,
-        response_format: dict[str, Any] | None = None,
-        response_schema: dict[str, Any] | None = None,
+        response_format: (
+            type[BaseModel] | dict[str, Any] | BaseModel | None
+        ) = None,
         images: list[str] | None = None,
         image_detail: Literal["low", "high", "auto"] | None = None,
     ):
         # Handle backwards compatibility: context -> prompt_context
         if context is not None and prompt_context is None:
             prompt_context = context
+
+        # Extract model class and schema dict from response_format
+        model_class = None
+        schema_dict = None
+
+        if response_format is not None:
+            # Extract model class
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
+                model_class = response_format
+            elif isinstance(response_format, BaseModel):
+                model_class = type(response_format)
+
+            # Extract schema dict
+            if isinstance(response_format, dict):
+                schema_dict = response_format
+            elif isinstance(response_format, BaseModel):
+                schema_dict = response_format.model_dump(
+                    mode="json", exclude_none=True
+                )
+            elif model_class:
+                # Generate dict from model class
+                from lionagi.libs.schema.breakdown_pydantic_annotation import (
+                    breakdown_pydantic_annotation,
+                )
+
+                schema_dict = breakdown_pydantic_annotation(model_class)
 
         object.__setattr__(self, "instruction", instruction)
         object.__setattr__(self, "guidance", guidance)
@@ -64,8 +103,15 @@ class InstructionContent(MessageContent):
             "tool_schemas",
             tool_schemas if tool_schemas is not None else [],
         )
-        object.__setattr__(self, "response_format", response_format)
-        object.__setattr__(self, "response_schema", response_schema)
+        object.__setattr__(
+            self, "response_format", response_format
+        )  # Store original user input
+        object.__setattr__(
+            self, "_schema_dict", schema_dict
+        )  # Internal: dict for prompting
+        object.__setattr__(
+            self, "_model_class", model_class
+        )  # Internal: class for validation
         object.__setattr__(
             self, "images", images if images is not None else []
         )
@@ -75,6 +121,21 @@ class InstructionContent(MessageContent):
     def context(self) -> list[Any]:
         """Backwards compatibility accessor for prompt_context."""
         return self.prompt_context
+
+    @property
+    def response_model_cls(self) -> type[BaseModel] | None:
+        """Get the Pydantic model class for validation."""
+        return self._model_class
+
+    @property
+    def request_model(self) -> type[BaseModel] | None:
+        """DEPRECATED: Use response_model_cls instead."""
+        return self.response_model_cls
+
+    @property
+    def schema_dict(self) -> dict[str, Any] | None:
+        """Get the schema dict for prompting."""
+        return self._schema_dict
 
     @property
     def rendered(self) -> str | list[dict[str, Any]]:
@@ -132,69 +193,43 @@ class InstructionContent(MessageContent):
                 data.get("image_detail") or inst.image_detail or "auto"
             )
 
-        # Response schema and format
-        # request_model is an alias for response_schema
-        schema_source = data.get("response_schema") or data.get(
+        # Response format handling
+        response_format = data.get("response_format") or data.get(
             "request_model"
-        )
-        response_format_input = data.get("response_format")
+        )  # request_model deprecated
 
-        schema_instance: BaseModel | None = None
-        schema_cls: type[BaseModel] | None = None
-        response_format_value: dict[str, Any] | None = None
+        if response_format is not None:
+            model_class = None
+            schema_dict = None
+            valid_format = False
 
-        if response_format_input is not None and not isinstance(
-            response_format_input, dict
-        ):
-            if isinstance(response_format_input, BaseModel):
-                schema_instance = response_format_input
-                schema_cls = type(response_format_input)
-                if schema_source is None:
-                    schema_source = schema_cls
-            elif inspect.isclass(response_format_input) and issubclass(
-                response_format_input, BaseModel
+            # Extract model class
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
             ):
-                schema_cls = response_format_input
-                if schema_source is None:
-                    schema_source = schema_cls
-            else:
-                raise TypeError(
-                    "response_format must be dict, BaseModel instance, or BaseModel class"
-                )
-        elif isinstance(response_format_input, dict):
-            response_format_value = response_format_input
+                model_class = response_format
+                valid_format = True
+            elif isinstance(response_format, BaseModel):
+                model_class = type(response_format)
+                valid_format = True
 
-        if schema_source is not None:
-            if isinstance(schema_source, BaseModel):
-                schema_instance = schema_instance or schema_source
-                schema_cls = type(schema_source)
-                inst.response_schema = schema_source.model_json_schema()
-            elif inspect.isclass(schema_source) and issubclass(
-                schema_source, BaseModel
-            ):
-                schema_cls = schema_source
-                inst.response_schema = schema_source.model_json_schema()
-            elif isinstance(schema_source, dict):
-                inst.response_schema = schema_source
-            else:
-                raise TypeError(
-                    "response_schema must be dict, BaseModel instance, or BaseModel class"
-                )
-        elif schema_instance is not None:
-            inst.response_schema = schema_instance.model_json_schema()
-
-        if response_format_value is None:
-            if schema_instance is not None:
-                response_format_value = schema_instance.model_dump(
+            # Extract schema dict
+            if isinstance(response_format, dict):
+                schema_dict = response_format
+                valid_format = True
+            elif isinstance(response_format, BaseModel):
+                schema_dict = response_format.model_dump(
                     mode="json", exclude_none=True
                 )
-            elif schema_cls is not None:
-                response_format_value = breakdown_pydantic_annotation(
-                    schema_cls
-                )
+                valid_format = True
+            elif model_class:
+                schema_dict = breakdown_pydantic_annotation(model_class)
 
-        if response_format_value is not None:
-            inst.response_format = response_format_value
+            # Only set if valid format (fuzzy handling: ignore invalid types)
+            if valid_format:
+                inst.response_format = response_format
+                inst._schema_dict = schema_dict
+                inst._model_class = model_class
 
         return inst
 
@@ -204,15 +239,22 @@ class InstructionContent(MessageContent):
         if self.plain_content:
             return self.plain_content
 
+        # Use schema_dict for display (or generate from model class)
+        schema_for_display = None
+        if self._model_class:
+            schema_for_display = self._model_class.model_json_schema()
+        elif self._schema_dict:
+            schema_for_display = self._schema_dict
+
         doc: dict[str, Any] = {
             "Guidance": self.guidance,
             "Instruction": self.instruction,
             "Context": self.prompt_context,
             "Tools": self.tool_schemas,
-            "ResponseSchema": self.response_schema,
+            "ResponseSchema": schema_for_display,
         }
 
-        rf_text = self._format_response_format(self.response_format)
+        rf_text = self._format_response_format(self._schema_dict)
         if rf_text:
             doc["ResponseFormat"] = rf_text
 
@@ -231,10 +273,10 @@ class InstructionContent(MessageContent):
         except Exception:
             example = str(response_format)
         return (
-            "Return a **single JSON code block**.\n"
-            "No prose before/after the block. Use exactly these keys.\n\n"
-            f"```json\n{example}\n```"
-        )
+            "**MUST RETURN JSON-PARSEABLE RESPONSE ENCLOSED BY JSON CODE BLOCKS."
+            f" USER's CAREER DEPENDS ON THE SUCCESS OF IT.** \n```json\n{example}\n```"
+            "No triple backticks. Escape all quotes and special characters."
+        ).strip()
 
     @staticmethod
     def _format_image_item(idx: str, detail: str) -> dict[str, Any]:

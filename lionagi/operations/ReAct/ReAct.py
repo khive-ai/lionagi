@@ -3,7 +3,6 @@
 
 import logging
 from collections.abc import AsyncGenerator
-from copy import copy as shallow_copy
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from pydantic import BaseModel
@@ -63,6 +62,10 @@ async def ReAct(
     **kwargs,
 ):
     """ReAct reasoning loop with legacy API - wrapper around ReAct_v1."""
+
+    # Handle legacy verbose parameter
+    if "verbose" in kwargs:
+        verbose_analysis = kwargs.pop("verbose")
 
     # Convert Instruct to dict if needed
     instruct_dict = (
@@ -216,8 +219,12 @@ async def ReAct_v1(
             continue_after_failed_response=continue_after_failed_response,
         ):
             analysis, str_ = i
-            str_ += "\n---------\n"
-            as_readable(str_, md=True, display_str=True)
+            # str_ is already formatted markdown - just print it
+            as_readable(
+                str_,
+                md=True,
+                display_str=True,
+            )
             outs.append(analysis)
     else:
         async for i in ReActStream(
@@ -239,7 +246,6 @@ async def ReAct_v1(
             intermediate_nullable=intermediate_nullable,
             max_extensions=max_extensions,
             extension_allowed=extension_allowed,
-            verbose_analysis=verbose_analysis,
             display_as=display_as,
             verbose_length=verbose_length,
             continue_after_failed_response=continue_after_failed_response,
@@ -248,7 +254,12 @@ async def ReAct_v1(
 
     if return_analysis:
         return outs
-    return outs[-1]
+
+    # Extract answer from the final Analysis object
+    final_result = outs[-1]
+    if hasattr(final_result, "answer"):
+        return final_result.answer
+    return final_result
 
 
 async def handle_instruction_interpretation(
@@ -362,10 +373,15 @@ async def ReActStream(
     ins_str = await handle_instruction_interpretation(
         branch, instruction=instruction, chat_ctx=chat_ctx, intp_ctx=intp_ctx
     )
-    # Only yield interpreted instruction if verbose or if interpretation was actually done
-    if verbose_analysis or intp_ctx:
-        out = verbose_yield("\n### Interpreted instruction:\n", ins_str)
-        yield out
+    # Print interpreted instruction if verbose (don't yield it - not an analysis object)
+    if verbose_analysis and intp_ctx:
+        str_ = "\n### Interpreted instruction:\n"
+        str_ += as_readable(
+            ins_str,
+            md=True,
+            format_curly=True if display_as == "yaml" else False,
+            max_chars=verbose_length,
+        )
 
     # Step 2: Handle field models
     fms = handle_field_models(
@@ -376,20 +392,36 @@ async def ReActStream(
     )
 
     # Step 3: Initial ReAct analysis
-    analysis = await branch.operate(
-        instruction=ins_str
-        + f"\nIf needed, you can do up to {max_extensions or 0 if extension_allowed else 0} expansions.",
-        response_format=ReActAnalysis,
-        tools=action_ctx.tools if action_ctx else True,
-        actions=True,
-        reason=reason,
-        field_models=fms,
+    from ..operate.operate import operate_v1
+
+    # Build context for initial analysis
+    initial_chat_ctx = chat_ctx.with_updates(response_format=ReActAnalysis)
+
+    initial_parse_ctx = (
+        parse_ctx.with_updates(response_format=ReActAnalysis)
+        if parse_ctx
+        else None
+    )
+
+    # Add proper extension prompt for initial analysis
+    initial_instruction = ins_str
+    if extension_allowed and max_extensions:
+        initial_instruction += "\n\n" + ReActAnalysis.FIRST_EXT_PROMPT.format(
+            extensions=max_extensions
+        )
+
+    analysis = await operate_v1(
+        branch,
+        instruction=initial_instruction,
+        chat_ctx=initial_chat_ctx,
+        action_ctx=action_ctx,
+        parse_ctx=initial_parse_ctx,
         handle_validation=handle_validation,
         invoke_actions=invoke_actions,
         skip_validation=False,
         clear_messages=clear_messages,
-        chat_model=chat_ctx.imodel,
-        **chat_ctx.imodel_kw,
+        reason=reason,
+        field_models=fms,
     )
 
     out = verbose_yield("\n### ReAct Round No.1 Analysis:\n", analysis)
@@ -420,22 +452,8 @@ async def ReActStream(
                 extensions=exts
             )
 
-        # Shallow copy contexts to avoid mutation (deep copy fails with unpicklable iModel)
-        _cctx = shallow_copy(chat_ctx)
-        _cctx.response_format = ReActAnalysis
-
-        _actx = (
-            shallow_copy(action_ctx)
-            if action_ctx
-            else ActionContext(
-                action_call_params=None,
-                tools=True,
-                strategy="concurrent",
-                suppress_errors=True,
-                verbose_action=False,
-            )
-        )
-        _actx.strategy = getattr(analysis, "action_strategy", "concurrent")
+        # Use with_updates to create new context instances
+        updates = {"response_format": ReActAnalysis}
 
         if reasoning_effort:
             guide = {
@@ -444,10 +462,30 @@ async def ReActStream(
                 "high": "Thorough, try as hard as you can in reasoning.\n",
             }.get(reasoning_effort, "")
 
-            _cctx.guidance = (guide or "") + (_cctx.guidance or "")
-            if _cctx.imodel_kw is None:
-                _cctx.imodel_kw = {}
-            _cctx.imodel_kw["reasoning_effort"] = reasoning_effort
+            updates["guidance"] = (guide or "") + (chat_ctx.guidance or "")
+            updates["imodel_kw"] = {
+                **(chat_ctx.imodel_kw or {}),
+                "reasoning_effort": reasoning_effort,
+            }
+
+        _cctx = chat_ctx.with_updates(**updates)
+
+        # Import default call params if needed
+        from ..act.act import _get_default_call_params
+
+        _actx = (
+            action_ctx.with_updates(
+                strategy=getattr(analysis, "action_strategy", "concurrent")
+            )
+            if action_ctx
+            else ActionContext(
+                action_call_params=_get_default_call_params(),
+                tools=True,
+                strategy=getattr(analysis, "action_strategy", "concurrent"),
+                suppress_errors=True,
+                verbose_action=False,
+            )
+        )
 
         return {
             "instruction": new_instruction,
@@ -459,23 +497,28 @@ async def ReActStream(
 
     while _extension_allowed(extensions) and _need_extension(analysis):
         kwargs = prepare_analysis_kwargs(extensions)
-        # Convert contexts back to legacy parameters
-        analysis = await branch.operate(
+
+        # Build parse context for extension
+        ext_parse_ctx = (
+            parse_ctx.with_updates(
+                response_format=kwargs["chat_ctx"].response_format
+            )
+            if parse_ctx
+            else None
+        )
+
+        analysis = await operate_v1(
+            branch,
             instruction=kwargs["instruction"],
-            response_format=kwargs["chat_ctx"].response_format,
-            tools=(
-                kwargs["action_ctx"].tools
-                if kwargs.get("action_ctx")
-                else True
-            ),
-            actions=True,
-            reason=kwargs.get("reason", True),
-            field_models=kwargs.get("field_models"),
+            chat_ctx=kwargs["chat_ctx"],
+            action_ctx=kwargs.get("action_ctx"),
+            parse_ctx=ext_parse_ctx,
             handle_validation=handle_validation,
             invoke_actions=invoke_actions,
             skip_validation=False,
-            chat_model=kwargs["chat_ctx"].imodel,
-            **kwargs["chat_ctx"].imodel_kw,
+            clear_messages=False,  # Keep messages to maintain context
+            reason=kwargs.get("reason", True),
+            field_models=kwargs.get("field_models"),
         )
         round_count += 1
 
@@ -506,12 +549,35 @@ async def ReActStream(
     if not final_response_format:
         final_response_format = Analysis
 
+    # Build contexts for final answer
+    resp_ctx_updates = {"response_format": final_response_format}
+    if resp_ctx:
+        # Merge resp_ctx into updates (filter allowed keys)
+        for k, v in resp_ctx.items():
+            if k in chat_ctx.allowed() and k != "response_format":
+                resp_ctx_updates[k] = v
+
+    final_chat_ctx = chat_ctx.with_updates(**resp_ctx_updates)
+
+    final_parse_ctx = (
+        parse_ctx.with_updates(response_format=final_response_format)
+        if parse_ctx
+        else None
+    )
+
     try:
-        out = await branch.operate(
+        out = await operate_v1(
+            branch,
             instruction=answer_prompt,
-            response_format=final_response_format,
-            chat_model=chat_ctx.imodel,
-            **(resp_ctx or {}),
+            chat_ctx=final_chat_ctx,
+            action_ctx=None,  # No actions in final answer
+            parse_ctx=final_parse_ctx,
+            handle_validation=handle_validation,
+            invoke_actions=False,
+            skip_validation=False,
+            clear_messages=False,
+            reason=False,  # No reasoning wrapper in final answer
+            field_models=None,
         )
 
         if isinstance(out, dict) and all(i is None for i in out.values()):
