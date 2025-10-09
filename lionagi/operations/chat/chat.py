@@ -167,7 +167,7 @@ async def chat(
 
     if meth is imodel.invoke:
         # Only set if it's not the Unset sentinel value
-        if not chat_param._is_sentinel("include_token_usage_to_model"):
+        if not chat_param._is_sentinel(chat_param.include_token_usage_to_model):
             kw["include_token_usage_to_model"] = (
                 chat_param.include_token_usage_to_model
             )
