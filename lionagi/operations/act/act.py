@@ -20,30 +20,31 @@ _DEFAULT_ALCALL_PARAMS = None
 
 async def _act(
     branch: "Branch",
-    action_request: BaseModel | dict,
+    action_request: BaseModel | dict | ActionRequest,
     suppress_errors: bool = False,
     verbose_action: bool = False,
-) -> ActionResponseModel | None:
-    _request = {}
+):
 
-    if isinstance(action_request, BaseModel):
-        # Check if it's an ActionRequest with content
-        if hasattr(action_request, "content"):
-            if hasattr(action_request.content, "function") and hasattr(
-                action_request.content, "arguments"
-            ):
-                _request["function"] = action_request.content.function
-                _request["arguments"] = action_request.content.arguments
-        # Fallback for direct attributes (backward compatibility)
-        elif hasattr(action_request, "function") and hasattr(
-            action_request, "arguments"
-        ):
-            _request["function"] = action_request.function
-            _request["arguments"] = action_request.arguments
-    elif isinstance(action_request, dict):
-        if {"function", "arguments"} <= set(action_request.keys()):
-            _request["function"] = action_request["function"]
-            _request["arguments"] = action_request["arguments"]
+    _request = action_request
+    if isinstance(action_request, ActionRequest):
+        _request = {
+            "function": action_request.function,
+            "arguments": action_request.arguments,
+        }
+    elif isinstance(action_request, BaseModel) and set(
+        action_request.__class__.model_fields.keys()
+    ) >= {"function", "arguments"}:
+        _request = {
+            "function": action_request.function,
+            "arguments": action_request.arguments,
+        }
+    if not isinstance(_request, dict) or not {"function", "arguments"} <= set(
+        _request.keys()
+    ):
+        raise ValueError(
+            "action_request must be an ActionRequest, BaseModel with 'function'"
+            " and 'arguments', or dict with 'function' and 'arguments'."
+        )
 
     try:
         if verbose_action:
@@ -104,7 +105,7 @@ async def _act(
     )
 
 
-async def act(
+def prepare_act_kw(
     branch: "Branch",
     action_request: list | ActionRequest | BaseModel | dict,
     *,
@@ -112,8 +113,8 @@ async def act(
     verbose_action: bool = False,
     suppress_errors: bool = True,
     call_params: AlcallParams = None,
-) -> list[ActionResponse]:
-    """Execute action requests using the branch's action manager."""
+):
+
     action_param = ActionParam(
         action_call_params=call_params or _get_default_call_params(),
         tools=None,  # Not used in this context
@@ -121,11 +122,13 @@ async def act(
         suppress_errors=suppress_errors,
         verbose_action=verbose_action,
     )
+    return {
+        "action_request": action_request,
+        "action_param": action_param,
+    }
 
-    return await act_v1(branch, action_request, action_param)
 
-
-async def act_v1(
+async def act(
     branch: "Branch",
     action_request: list | ActionRequest | BaseModel | dict,
     action_param: ActionParam,

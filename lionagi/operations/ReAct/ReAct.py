@@ -272,9 +272,9 @@ async def handle_instruction_interpretation(
     if not intp_param:
         return instruction
 
-    from ..interpret.interpret import interpret_v1
+    from ..interpret.interpret import interpret
 
-    return await interpret_v1(branch, instruction, intp_param)
+    return await interpret(branch, instruction, intp_param)
 
 
 def handle_field_models(
@@ -397,7 +397,7 @@ async def ReActStream(
     )
 
     # Step 3: Initial ReAct analysis
-    from ..operate.operate import operate_v1
+    from ..operate.operate import operate
 
     # Build context for initial analysis
     initial_chat_param = chat_param.with_updates(response_format=ReActAnalysis)
@@ -415,7 +415,7 @@ async def ReActStream(
             extensions=max_extensions
         )
 
-    analysis = await operate_v1(
+    analysis = await operate(
         branch,
         instruction=initial_instruction,
         chat_param=initial_chat_param,
@@ -512,7 +512,7 @@ async def ReActStream(
             else None
         )
 
-        analysis = await operate_v1(
+        analysis = await operate(
             branch,
             instruction=kwargs["instruction"],
             chat_param=kwargs["chat_param"],
@@ -570,7 +570,7 @@ async def ReActStream(
         else None
     )
 
-    # Build operate_v1 kwargs, honoring response_kwargs
+    # Build operate kwargs, honoring response_kwargs
     operate_kwargs = {
         "branch": branch,
         "instruction": answer_prompt,
@@ -588,7 +588,7 @@ async def ReActStream(
 
     # Honor response_kwargs for final answer generation
     if resp_ctx:
-        # Extract operate_v1 specific parameters from resp_ctx
+        # Extract operate specific parameters from resp_ctx
         operate_params = {
             "skip_validation",
             "handle_validation",
@@ -601,7 +601,7 @@ async def ReActStream(
                 operate_kwargs[param] = resp_ctx[param]
 
     try:
-        out = await operate_v1(**operate_kwargs)
+        out = await operate(**operate_kwargs)
 
         if isinstance(out, dict) and all(i is None for i in out.values()):
             if not continue_after_failed_response:

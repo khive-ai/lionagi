@@ -1018,38 +1018,17 @@ class Branch(Element, Communicatable, Relational):
                 - If both `operative_model` and `response_format` or `request_model` are given.
                 - If the LLM's response cannot be parsed into the expected format and `handle_validation='raise'`.
         """
-        from lionagi.operations.operate.operate import operate
-
-        return await operate(
-            self,
-            instruct=instruct,
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
-            sender=sender,
-            recipient=recipient,
-            progression=progression,
-            chat_model=chat_model,
-            invoke_actions=invoke_actions,
-            tool_schemas=tool_schemas,
-            images=images,
-            image_detail=image_detail,
-            parse_model=parse_model,
-            skip_validation=skip_validation,
-            tools=tools,
-            operative=operative,
-            response_format=response_format,
-            actions=actions,
-            reason=reason,
-            call_params=call_params,
-            action_strategy=action_strategy,
-            verbose_action=verbose_action,
-            field_models=field_models,
-            exclude_fields=exclude_fields,
-            handle_validation=handle_validation,
-            include_token_usage_to_model=include_token_usage_to_model,
-            **kwargs,
+        from lionagi.operations.operate.operate import (
+            operate,
+            prepare_operate_kw,
         )
+
+        _pms = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "_pms") and v is not None
+        }
+        return await operate(self, **prepare_operate_kw(self, **_pms))
 
     async def communicate(
         self,
@@ -1138,21 +1117,6 @@ class Branch(Element, Communicatable, Relational):
 
         return await communicate(self, **prepare_communicate_kw(self, **_pms))
 
-    async def _act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        suppress_errors: bool,
-        verbose_action: bool,
-    ) -> ActionResponse:
-        from lionagi.operations.act.act import _act
-
-        return await _act(
-            branch=self,
-            action_request=action_request,
-            suppress_errors=suppress_errors,
-            verbose_action=verbose_action,
-        )
-
     async def act(
         self,
         action_request: list | ActionRequest | BaseModel | dict,
@@ -1162,54 +1126,15 @@ class Branch(Element, Communicatable, Relational):
         suppress_errors: bool = True,
         call_params: AlcallParams = None,
     ) -> list[ActionResponse]:
-        global _DEFAULT_ALCALL_PARAMS
-        if call_params is None:
-            if _DEFAULT_ALCALL_PARAMS is None:
-                _DEFAULT_ALCALL_PARAMS = AlcallParams(output_dropna=True)
-            call_params = _DEFAULT_ALCALL_PARAMS
 
-        kw = {
-            "suppress_errors": suppress_errors,
-            "verbose_action": verbose_action,
+        _pms = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "_pms") and v is not None
         }
+        from lionagi.operations.act.act import act, prepare_act_kw
 
-        match strategy:
-            case "concurrent":
-                return await self._concurrent_act(
-                    action_request, call_params, **kw
-                )
-            case "sequential":
-                return await self._sequential_act(action_request, **kw)
-            case _:
-                raise ValueError(
-                    "Invalid strategy. Choose 'concurrent' or 'sequential'."
-                )
-
-    async def _concurrent_act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        call_params: AlcallParams = None,
-        **kwargs,
-    ) -> list:
-        return await call_params(action_request, self._act, **kwargs)
-
-    async def _sequential_act(
-        self,
-        action_request: ActionRequest | BaseModel | dict,
-        suppress_errors: bool = True,
-        verbose_action: bool = False,
-    ) -> list:
-        action_request = (
-            action_request
-            if isinstance(action_request, list)
-            else [action_request]
-        )
-        results = []
-        for req in action_request:
-            results.append(
-                await self._act(req, verbose_action, suppress_errors)
-            )
-        return results
+        return await act(self, **prepare_act_kw(self, **_pms))
 
     async def interpret(
         self,
@@ -1257,16 +1182,20 @@ class Branch(Element, Communicatable, Relational):
             # refined might be "Explain step-by-step how to set up a marketing analytics
             #  pipeline to track campaign performance..."
         """
-        from lionagi.operations.interpret.interpret import interpret
 
-        return await interpret(
-            self,
-            text=text,
-            domain=domain,
-            style=style,
-            interpret_model=interpret_model,
-            **kwargs,
+        _pms = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "_pms", "kwargs") and v is not None
+        }
+        _pms.update(kwargs)
+
+        from lionagi.operations.interpret.interpret import (
+            interpret,
+            prepare_interpret_kw,
         )
+
+        return await interpret(self, **prepare_interpret_kw(self, **_pms))
 
     async def instruct(
         self,

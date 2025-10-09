@@ -5,13 +5,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import JsonValue
 
-from lionagi.protocols.types import (
+from lionagi.ln._to_list import to_list
+from lionagi.protocols.messages import (
     ActionResponse,
     AssistantResponse,
     Instruction,
-    Log,
 )
-from lionagi.utils import copy, to_list
 
 from ..types import ChatParam
 
@@ -24,7 +23,7 @@ async def chat(
     instruction: JsonValue | Instruction,
     chat_param: ChatParam,
     return_ins_res_message: bool = False,
-) -> tuple[Instruction, AssistantResponse]:
+) -> tuple[Instruction, AssistantResponse] | str:
     params = chat_param.to_dict(
         exclude={
             "imodel",
@@ -121,12 +120,10 @@ async def chat(
     if branch.msgs.system:
         messages = [msg for msg in messages if msg.role != "system"]
         first_instruction = None
-
+        f = lambda x: branch.msgs.system.rendered + (x.content.guidance or "")
         if len(messages) == 0:
-            first_instruction = copy(ins)
-            first_instruction.content.guidance = (
-                branch.msgs.system.rendered
-                + (first_instruction.content.guidance or "")
+            first_instruction = ins.model_copy(
+                update={"content": ins.content.with_updates(guidance=f(ins))}
             )
             messages.append(first_instruction)
         elif len(messages) >= 1:
@@ -135,10 +132,12 @@ async def chat(
                 raise ValueError(
                     "First message in progression must be an Instruction or System"
                 )
-            first_instruction = copy(first_instruction)
-            first_instruction.content.guidance = (
-                branch.msgs.system.rendered
-                + (first_instruction.content.guidance or "")
+            first_instruction = first_instruction.model_copy(
+                update={
+                    "content": first_instruction.content.with_updates(
+                        guidance=f(first_instruction)
+                    )
+                }
             )
             messages[0] = first_instruction
             msg_to_append = _use_ins or ins
