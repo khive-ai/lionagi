@@ -19,96 +19,14 @@ from pydantic import (
 
 from lionagi import ln
 from lionagi._class_registry import get_class
-from lionagi._errors import IDError
 from lionagi.utils import import_module, to_dict
 
 from .._concepts import Collective, Observable, Ordering
 
 __all__ = (
-    "IDType",
     "Element",
-    "ID",
     "validate_order",
-    "DEFAULT_ELEMENT_SERIALIZER",
 )
-
-
-class IDType:
-    """Represents a UUIDv4-based identifier.
-
-    This class wraps a UUID object and provides helper methods for
-    validating and creating UUID version 4. It also implements equality
-    and hashing so that it can be used as dictionary keys or in sets.
-
-    Attributes:
-        _id (UUID): The wrapped UUID object.
-    """
-
-    __slots__ = ("_id",)
-
-    def __init__(self, id: UUID) -> None:
-        """Initializes an IDType instance."""
-        self._id = id
-
-    @classmethod
-    def validate(cls, value: str | UUID | IDType) -> IDType:
-        """Validates and converts a value into an IDType.
-
-        Returns:
-            IDType: The validated IDType object.
-
-        Raises:
-            IDError: If the provided value is not a valid UUIDv4.
-        """
-        if isinstance(value, IDType):
-            return value
-        try:
-            return cls(UUID(str(value), version=4))
-        except ValueError:
-            raise IDError(f"Invalid ID: {value}") from None
-
-    @classmethod
-    def create(cls) -> IDType:
-        """Creates a new IDType with a randomly generated UUIDv4.
-
-        Returns:
-            IDType: A new IDType instance with a random UUIDv4.
-        """
-        return cls(uuid4())
-
-    def __str__(self) -> str:
-        """Returns the string representation of the underlying UUID.
-
-        Returns:
-            str: The string form of this IDType's UUID.
-        """
-        return str(self._id)
-
-    def __repr__(self) -> str:
-        """Returns the unambiguous string representation of this IDType.
-
-        Returns:
-            str: A developer-friendly string for debugging.
-        """
-        return f"IDType({self._id})"
-
-    def __eq__(self, other: Any) -> bool:
-        """Checks equality with another IDType based on UUID value.
-
-        Returns:
-            bool: True if both have the same underlying UUID; False otherwise.
-        """
-        if not isinstance(other, IDType):
-            return NotImplemented
-        return self._id == other._id
-
-    def __hash__(self) -> int:
-        """Returns a hash based on the underlying UUID.
-
-        Returns:
-            int: The hash of this object, allowing IDType to be dictionary keys.
-        """
-        return hash(self._id)
 
 
 class Element(BaseModel, Observable):
@@ -119,7 +37,7 @@ class Element(BaseModel, Observable):
     dictionary.
 
     Attributes:
-        id (IDType):
+        id (UUID):
             A unique ID based on UUIDv4 (defaults to a newly generated one).
         created_at (float):
             The creation timestamp as a float (Unix epoch). Defaults to
@@ -135,8 +53,8 @@ class Element(BaseModel, Observable):
         extra="forbid",
     )
 
-    id: IDType = Field(
-        default_factory=IDType.create,
+    id: UUID = Field(
+        default_factory=uuid4,
         title="ID",
         description="Unique identifier for this element.",
         frozen=True,
@@ -211,12 +129,14 @@ class Element(BaseModel, Observable):
             raise ValueError(f"Invalid created_at: {val}") from None
 
     @field_validator("id", mode="before")
-    def _ensure_idtype(cls, val: IDType | UUID | str) -> IDType:
-        """Ensures `id` is validated as an IDType."""
-        return IDType.validate(val)
+    def _ensure_UUID(cls, val: UUID | str) -> UUID:
+        """Ensures `id` is validated as an UUID."""
+        if isinstance(val, UUID):
+            return val
+        return UUID(str(val))
 
     @field_serializer("id")
-    def _serialize_id_type(self, val: IDType) -> str:
+    def _serialize_id_type(self, val: UUID) -> str:
         """Serializes the `id` field to a string."""
         return str(val)
 
@@ -328,28 +248,27 @@ class Element(BaseModel, Observable):
 
 
 DEFAULT_ELEMENT_SERIALIZER = ln.get_orjson_default(
-    order=[IDType, Element, BaseModel],
+    order=[Element, BaseModel],
     additional={
-        IDType: lambda o: str(o),
         Element: lambda o: o.to_dict(),
         BaseModel: lambda o: o.model_dump(mode="json"),
     },
 )
 
 
-def validate_order(order: Any) -> list[IDType]:
-    """Validates and flattens an ordering into a list of IDType objects.
+def validate_order(order: Any) -> list[UUID]:
+    """Validates and flattens an ordering into a list of UUID objects.
 
     This function accepts a variety of possible representations for ordering
     (e.g., a single Element, a list of Elements, a dictionary with ID keys,
-    or a nested structure) and returns a flat list of IDType objects.
+    or a nested structure) and returns a flat list of UUID objects.
 
     Returns:
-        list[IDType]: A flat list of validated IDType objects.
+        list[UUID]: A flat list of validated UUID objects.
 
     Raises:
         ValueError: If an invalid item is encountered or if there's a mixture
-            of types not all convertible to IDType.
+            of types not all convertible to UUID.
     """
     if isinstance(order, Element):
         return [order.id]
@@ -357,89 +276,79 @@ def validate_order(order: Any) -> list[IDType]:
         order = list(order.keys())
 
     stack = [order]
-    out: list[IDType] = []
+    out: list[UUID] = []
     while stack:
         cur = stack.pop()
         if cur is None:
             continue
         if isinstance(cur, Element):
             out.append(cur.id)
-        elif isinstance(cur, IDType):
-            out.append(cur)
         elif isinstance(cur, UUID):
-            out.append(IDType.validate(cur))
+            out.append(cur)
         elif isinstance(cur, str):
-            out.append(IDType.validate(cur))
+            out.append(UUID(cur))
         elif isinstance(cur, (list, tuple, set)):
             stack.extend(reversed(cur))
         else:
             raise ValueError("Invalid item in order.")
 
-    if not out:
-        return []
-
-    # Check for consistent IDType usage
-    first_type = type(out[0])
-    if first_type is IDType:
-        for item in out:
-            if not isinstance(item, IDType):
-                raise ValueError("Mixed types in order.")
-        return out
-    raise ValueError("Unrecognized type(s) in order.")
+    return [] if not out else out
 
 
 E = TypeVar("E", bound=Element)
 
 
 class ID(Generic[E]):
-    """Utility class for working with IDType objects and Elements.
+    """Utility class for working with UUID objects and Elements.
 
     This class provides helper methods to extract IDs from Elements, strings,
     or UUIDs, and to test whether a given object can be interpreted as
     an ID.
     """
 
-    ID: TypeAlias = IDType
+    ID: TypeAlias = UUID
     Item: TypeAlias = E | Element  # type: ignore
-    Ref: TypeAlias = IDType | E | str  # type: ignore
-    IDSeq: TypeAlias = Sequence[IDType] | Ordering[E]  # type: ignore
+    Ref: TypeAlias = UUID | E | str  # type: ignore
+    IDSeq: TypeAlias = Sequence[UUID] | Ordering[E]  # type: ignore
     ItemSeq: TypeAlias = Sequence[E] | Collective[E]  # type: ignore
     RefSeq: TypeAlias = ItemSeq | Sequence[Ref] | Ordering[E]  # type: ignore
 
     @staticmethod
-    def get_id(item: E) -> IDType:
-        """Retrieves an IDType from multiple possible item forms.
+    def get_id(item: E) -> UUID:
+        """Retrieves an UUID from multiple possible item forms.
 
         Acceptable item types include:
         - Element: Uses its `id` attribute.
-        - IDType: Returns it directly.
+        - UUID: Returns it directly.
         - UUID: Validates and wraps it.
         - str: Interpreted as a UUID if possible.
 
         Returns:
-            IDType: The validated ID.
+            UUID: The validated ID.
 
         Raises:
-            ValueError: If the item cannot be converted to an IDType.
+            ValueError: If the item cannot be converted to an UUID.
         """
+        if isinstance(item, UUID):
+            return item
         if isinstance(item, Element):
             return item.id
-        if isinstance(item, (IDType, UUID, str)):
-            return IDType.validate(item)
+        if isinstance(item, str):
+            return UUID(item)
         raise ValueError("Cannot get ID from item.")
 
     @staticmethod
     def is_id(item: Any) -> bool:
-        """Checks if an item can be validated as an IDType.
+        """Checks if an item can be validated as an UUID.
 
         Returns:
-            bool: True if `item` is or can be validated as an IDType;
+            bool: True if `item` is or can be validated as an UUID;
                 otherwise, False.
         """
         try:
-            IDType.validate(item)
+            ID.get_id(item)  # type: ignore
             return True
-        except IDError:
+        except ValueError:
             return False
 
 
