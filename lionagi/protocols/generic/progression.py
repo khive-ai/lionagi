@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
+from uuid import UUID
 
 from pydantic import Field, field_serializer, field_validator
 from typing_extensions import Self
@@ -11,7 +12,7 @@ from typing_extensions import Self
 from lionagi._errors import ItemNotFoundError
 
 from .._concepts import Ordering
-from .element import ID, Element, IDError, IDType, validate_order
+from .element import ID, Element, validate_order
 
 T = TypeVar("T", bound=Element)
 
@@ -26,7 +27,7 @@ class Progression(Element, Ordering[T], Generic[T]):
     """Tracks an ordered sequence of item IDs, with optional naming.
 
     This class extends `Element` and implements `Ordering`, providing
-    list-like operations for managing item IDs (based on `IDType`). It
+    list-like operations for managing item IDs (based on `UUID`). It
     supports insertion, removal, slicing, and more. Items are stored in
     `order`, which is a simple list of IDs, and an optional `name`
     attribute can be assigned for identification.
@@ -50,23 +51,23 @@ class Progression(Element, Ordering[T], Generic[T]):
     )
 
     @field_validator("order", mode="before")
-    def _validate_ordering(cls, value: Any) -> list[IDType]:
-        """Ensures `order` is a valid list of IDTypes.
+    def _validate_ordering(cls, value: Any) -> list[UUID]:
+        """Ensures `order` is a valid list of UUIDs.
 
         Args:
             value (Any): Input sequence (could be elements, IDs, etc.).
 
         Returns:
-            list[IDType]: The list of validated IDType objects.
+            list[UUID]: The list of validated UUID objects.
         """
         return validate_order(value)
 
     @field_serializer("order")
-    def _serialize_order(self, value: list[IDType]) -> list[str]:
+    def _serialize_order(self, value: list[UUID]) -> list[str]:
         """Serializes IDs in `order` to string form.
 
         Args:
-            value (list[IDType]): The order list of ID objects.
+            value (list[UUID]): The order list of ID objects.
 
         Returns:
             list[str]: A list of stringified IDs.
@@ -85,7 +86,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         """Checks if one or more IDs exist in the progression.
 
         Args:
-            item (Any): Could be an `Element`, `IDType`, `UUID`, string,
+            item (Any): Could be an `Element`, `UUID`, `UUID`, string,
                 or a sequence of these.
 
         Returns:
@@ -98,14 +99,14 @@ class Progression(Element, Ordering[T], Generic[T]):
         except Exception:
             return False
 
-    def __getitem__(self, key: int | slice) -> IDType | list[IDType]:
+    def __getitem__(self, key: int | slice) -> UUID | list[UUID]:
         """Gets one or more items by index or slice.
 
         Args:
             key (int | slice): The index or slice.
 
         Returns:
-            IDType | list[IDType]:
+            UUID | list[UUID]:
                 A single ID if `key` is an int; a new `Progression`
                 if `key` is a slice.
 
@@ -164,15 +165,15 @@ class Progression(Element, Ordering[T], Generic[T]):
         """Iterates over the IDs in this progression.
 
         Returns:
-            Iterator[IDType]: An iterator over the ID elements.
+            Iterator[UUID]: An iterator over the ID elements.
         """
         return iter(self.order)
 
-    def __next__(self) -> IDType:
+    def __next__(self) -> UUID:
         """Returns the next item if used as an iterator.
 
         Returns:
-            IDType: The next item in the iteration.
+            UUID: The next item in the iteration.
 
         Raises:
             StopIteration: If there are no more items.
@@ -182,11 +183,11 @@ class Progression(Element, Ordering[T], Generic[T]):
         except StopIteration:
             raise StopIteration("No more items in the progression")
 
-    def __list__(self) -> list[IDType]:
+    def __list__(self) -> list[UUID]:
         """Returns a copy of all IDs in the progression.
 
         Returns:
-            list[IDType]: A shallow copy of the ID list.
+            list[UUID]: A shallow copy of the ID list.
         """
         return self.order[:]
 
@@ -256,7 +257,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         refs = validate_order(item)
         self.order.extend(refs)
 
-    def pop(self, index: int = -1) -> IDType:
+    def pop(self, index: int = -1) -> UUID:
         """Removes and returns one ID by index.
 
         Args:
@@ -264,7 +265,7 @@ class Progression(Element, Ordering[T], Generic[T]):
                 Position of the item to pop (default is the last item).
 
         Returns:
-            IDType: The removed ID.
+            UUID: The removed ID.
 
         Raises:
             ItemNotFoundError: If the index is invalid or out of range.
@@ -274,11 +275,11 @@ class Progression(Element, Ordering[T], Generic[T]):
         except Exception as e:
             raise ItemNotFoundError(str(e)) from e
 
-    def popleft(self) -> IDType:
+    def popleft(self) -> UUID:
         """Removes and returns the first ID.
 
         Returns:
-            IDType: The ID at the front of the progression.
+            UUID: The ID at the front of the progression.
 
         Raises:
             ItemNotFoundError: If the progression is empty.
@@ -300,9 +301,9 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         try:
             refs = validate_order(item)
-        except IDError:
-            raise ItemNotFoundError("Invalid ID(s) provided.")
-
+        except ValueError as e:
+            # Invalid UUID strings are treated as not found
+            raise ItemNotFoundError(str(item)) from e
         if not refs:
             return
         missing = [r for r in refs if r not in self.order]
