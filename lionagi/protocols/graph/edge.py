@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -14,7 +15,7 @@ from pydantic import (
 from lionagi.utils import is_same_dtype
 
 from .._concepts import Condition, Relational
-from ..generic.element import ID, Element, IDType
+from ..generic.element import ID, Element
 
 __all__ = (
     "EdgeCondition",
@@ -51,8 +52,8 @@ class Edge(Element):
     metadata, etc., may be stored in `properties`.
     """
 
-    head: IDType
-    tail: IDType
+    head: UUID
+    tail: UUID
     properties: dict[str, Any] = Field(
         default_factory=dict,
         title="Properties",
@@ -106,11 +107,11 @@ class Edge(Element):
         super().__init__(head=head, tail=tail, properties=kwargs)
 
     @field_serializer("head", "tail")
-    def _serialize_id(self, value: IDType) -> str:
+    def _serialize_id(self, value: UUID) -> str:
         return str(value)
 
     @field_validator("head", "tail", mode="before")
-    def _validate_id(cls, value: str) -> IDType:
+    def _validate_id(cls, value: str) -> UUID:
         return ID.get_id(value)
 
     @property

@@ -13,7 +13,6 @@ __all__ = (
     "ObservationError",
     "ResourceError",
     "RateLimitError",
-    "IDError",
     "RelationError",
     "OperationError",
     "ExecutionError",
@@ -125,10 +124,6 @@ class RateLimitError(LionError):
     def __init__(self, retry_after: float, **kw):
         super().__init__(**kw)
         object.__setattr__(self, "retry_after", retry_after)
-
-
-class IDError(LionError):
-    pass
 
 
 class RelationError(LionError):

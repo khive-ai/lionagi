@@ -5,7 +5,7 @@ from ._concepts import Collective, Communicatable, Condition, Manager
 from ._concepts import Observable as LegacyObservable
 from ._concepts import Observer, Ordering, Relational, Sendable
 from .contracts import Observable, ObservableProto
-from .generic.element import ID, Element, IDError, IDType, validate_order
+from .generic.element import ID, Element, validate_order
 from .generic.event import Event, EventStatus, Execution
 from .generic.log import (
     DataLogger,
@@ -55,8 +55,6 @@ __all__ = (
     "to_uuid",  # ID conversion utility
     "ID",
     "Element",
-    "IDError",
-    "IDType",
     "validate_order",
     "Event",
     "EventStatus",

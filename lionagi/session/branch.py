@@ -3,6 +3,7 @@
 
 from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any, Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
 
@@ -22,7 +23,6 @@ from lionagi.protocols.types import (
     AssistantResponse,
     Communicatable,
     Element,
-    IDType,
     Instruction,
     Log,
     LogManager,
@@ -431,22 +431,22 @@ class Branch(Element, Communicatable, Relational):
     # -------------------------------------------------------------------------
     def send(
         self,
-        recipient: IDType,
+        recipient: UUID,
         category: Optional["PackageCategory"],
         item: Any,
-        request_source: IDType | None = None,
+        request_source: UUID | None = None,
     ) -> None:
         """
         Sends a `Package` (wrapped in a `Mail` object) to a specified recipient.
 
         Args:
-            recipient (IDType):
+            recipient (UUID):
                 ID of the recipient branch or component.
             category (PackageCategory | None):
                 The category/type of the package (e.g., 'message', 'tool', 'imodel').
             item (Any):
                 The payload to send (e.g., a message, tool reference, model, etc.).
-            request_source (IDType | None):
+            request_source (UUID | None):
                 The ID that prompted or requested this send operation (optional).
         """
         from lionagi.protocols.mail.package import Package
@@ -466,7 +466,7 @@ class Branch(Element, Communicatable, Relational):
 
     def receive(
         self,
-        sender: IDType,
+        sender: UUID,
         message: bool = False,
         tool: bool = False,
         imodel: bool = False,
@@ -475,7 +475,7 @@ class Branch(Element, Communicatable, Relational):
         Retrieves and processes mail from a given sender according to the specified flags.
 
         Args:
-            sender (IDType):
+            sender (UUID):
                 The ID of the mail sender.
             message (bool):
                 If `True`, process packages categorized as "message".
@@ -537,22 +537,22 @@ class Branch(Element, Communicatable, Relational):
 
     async def asend(
         self,
-        recipient: IDType,
+        recipient: UUID,
         category: PackageCategory | None,
         package: Any,
-        request_source: IDType | None = None,
+        request_source: UUID | None = None,
     ):
         """
         Async version of `send()`.
 
         Args:
-            recipient (IDType):
+            recipient (UUID):
                 ID of the recipient branch or component.
             category (PackageCategory | None):
                 The category/type of the package.
             package (Any):
                 The item(s) to send (message/tool/model).
-            request_source (IDType | None):
+            request_source (UUID | None):
                 The origin request ID (if any).
         """
         async with self.mailbox.pile_:
@@ -560,7 +560,7 @@ class Branch(Element, Communicatable, Relational):
 
     async def areceive(
         self,
-        sender: IDType,
+        sender: UUID,
         message: bool = False,
         tool: bool = False,
         imodel: bool = False,
@@ -569,7 +569,7 @@ class Branch(Element, Communicatable, Relational):
         Async version of `receive()`.
 
         Args:
-            sender (IDType):
+            sender (UUID):
                 The ID of the mail sender.
             message (bool):
                 If `True`, process packages categorized as "message".
