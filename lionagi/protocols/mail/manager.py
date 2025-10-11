@@ -4,11 +4,12 @@
 import asyncio
 from collections import deque
 from typing import Any
+from uuid import UUID
 
 from lionagi._errors import ItemNotFoundError
 
 from .._concepts import Manager, Observable
-from ..generic.element import ID, IDType
+from ..generic.element import ID
 from ..generic.pile import Pile, to_list_type
 from .exchange import Exchange
 from .mail import Mail, Package, PackageCategory
@@ -103,13 +104,13 @@ class MailManager(Manager):
         )
         return Mail(sender=sender, recipient=recipient, package=pack)
 
-    def delete_source(self, source_id: IDType) -> None:
+    def delete_source(self, source_id: UUID) -> None:
         """
         Remove a source from the manager, discarding any associated mail.
 
         Parameters
         ----------
-        source_id : IDType
+        source_id : UUID
             The ID of the source to be removed.
 
         Raises
@@ -122,13 +123,13 @@ class MailManager(Manager):
         self.sources.pop(source_id)
         self.mails.pop(source_id)
 
-    def collect(self, sender: IDType) -> None:
+    def collect(self, sender: UUID) -> None:
         """
         Collect outbound mail from a single source.
 
         Parameters
         ----------
-        sender : IDType
+        sender : UUID
             The ID of the sender whose outbound mail is retrieved.
 
         Raises
@@ -155,13 +156,13 @@ class MailManager(Manager):
                 self.mails[mail.recipient].update({mail.sender: deque()})
             self.mails[mail.recipient][mail.sender].append(mail)
 
-    def send(self, recipient: IDType) -> None:
+    def send(self, recipient: UUID) -> None:
         """
         Send any pending mail to a specified recipient.
 
         Parameters
         ----------
-        recipient : IDType
+        recipient : UUID
             The ID of the recipient to which mail should be delivered.
 
         Raises

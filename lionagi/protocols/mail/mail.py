@@ -1,11 +1,12 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+from uuid import UUID
+
 from pydantic import field_validator
 
 from .._concepts import Sendable
-from ..generic.element import Element
-from ..messages.base import IDType
+from ..generic.element import ID, Element
 from .package import Package, PackageCategory
 
 
@@ -17,24 +18,24 @@ class Mail(Element, Sendable):
 
     Attributes
     ----------
-    sender : IDType
+    sender : UUID
         The ID representing the mail sender.
-    recipient : IDType
+    recipient : UUID
         The ID representing the mail recipient.
     package : Package
         The package (category + payload) contained in this mail.
     """
 
-    sender: IDType
-    recipient: IDType
+    sender: UUID
+    recipient: UUID
     package: Package
 
     @field_validator("sender", "recipient")
     def _validate_sender_recipient(cls, value):
         """
-        Validate that the sender and recipient fields are correct IDTypes.
+        Validate that the sender and recipient fields are correct UUIDs.
         """
-        return IDType.validate(value)
+        return ID.get_id(value)
 
     @property
     def category(self) -> PackageCategory:
