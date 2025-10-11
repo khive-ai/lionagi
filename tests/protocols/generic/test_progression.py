@@ -2,12 +2,13 @@ import asyncio
 import random
 import string
 from typing import Any
+from uuid import UUID
 
 import pytest
 from pydantic import Field
 
-from lionagi._errors import IDError, ItemNotFoundError
-from lionagi.protocols.types import ID, Element, IDType, Progression
+from lionagi._errors import ItemNotFoundError
+from lionagi.protocols.types import ID, Element, Progression
 
 
 class MockElement(Element):
@@ -65,7 +66,7 @@ def test_list_conversion(sample_progression, sample_elements):
     prog_list = sample_progression.__list__()
     assert isinstance(prog_list, list)
     assert len(prog_list) == len(sample_elements)
-    assert all(isinstance(item, IDType) for item in prog_list)
+    assert all(isinstance(item, UUID) for item in prog_list)
 
 
 def test_len(sample_progression, sample_elements):
@@ -75,7 +76,7 @@ def test_len(sample_progression, sample_elements):
 @pytest.mark.parametrize(
     "index, expected_type",
     [
-        (0, IDType),
+        (0, UUID),
         (slice(0, 2), Progression),
     ],
 )
@@ -380,6 +381,6 @@ def test_progression_serialization_advanced():
 
     assert len(deserialized) == 5
     assert all(
-        isinstance(elem, IDType) for elem in deserialized
-    )  # IDs are IDTypes
+        isinstance(elem, UUID) for elem in deserialized
+    )  # IDs are UUIDs
     assert p == deserialized

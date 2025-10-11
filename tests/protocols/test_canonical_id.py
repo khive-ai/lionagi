@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from lionagi.protocols.generic.element import Element, IDType
+from lionagi.protocols.generic.element import ID, Element
 from lionagi.protocols.generic.event import Event
 from lionagi.protocols.generic.log import Log
 from lionagi.protocols.ids import canonical_id, to_uuid
@@ -17,7 +17,7 @@ class TestToUuidUtility:
     """Test to_uuid conversion utility."""
 
     def test_element_to_uuid(self):
-        """Element.id (IDType) converts to UUID correctly."""
+        """Element.id (UUID) converts to UUID correctly."""
         element = Element()
         result = to_uuid(element)
         assert isinstance(result, UUID)
@@ -31,8 +31,8 @@ class TestToUuidUtility:
         assert result.version == 4
 
     def test_idtype_to_uuid(self):
-        """IDType converts to UUID correctly."""
-        id_type = IDType.create()
+        """UUID converts to UUID correctly."""
+        id_type = uuid4()
         result = to_uuid(id_type)
         assert isinstance(result, UUID)
         assert result.version == 4
@@ -53,21 +53,21 @@ class TestToUuidUtility:
 
     def test_invalid_string_raises_error(self):
         """Invalid UUID string raises appropriate error."""
-        with pytest.raises(Exception):  # IDError or ValueError
+        with pytest.raises(Exception):  # ValueError
             to_uuid("not-a-uuid")
 
     def test_consistency_with_idtype_validate(self):
-        """to_uuid behavior matches IDType.validate semantics."""
+        """to_uuid behavior matches UUID.validate semantics."""
         test_values = [
             "550e8400-e29b-41d4-a716-446655440000",
             uuid4(),
-            IDType.create(),
+            uuid4(),
         ]
 
         for value in test_values:
             # Both should succeed or fail together
             try:
-                validated = IDType.validate(value)
+                validated = ID.get_id(value)
                 converted = to_uuid(value)
                 assert isinstance(converted, UUID)
                 assert str(validated) == str(converted)
@@ -125,13 +125,13 @@ class TestCanonicalIdUtility:
         assert result == mock.id
 
     def test_observable_like_with_idtype(self):
-        """Object with .id as IDType handled correctly."""
+        """Object with .id as UUID handled correctly."""
 
-        class MockWithIDType:
+        class MockWithUUID:
             def __init__(self):
-                self.id = IDType.create()
+                self.id = uuid4()
 
-        mock = MockWithIDType()
+        mock = MockWithUUID()
         result = canonical_id(mock)
         assert isinstance(result, UUID)
         assert str(result) == str(mock.id)

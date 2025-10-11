@@ -17,6 +17,7 @@ These tests serve as regression guards and specification for correct behavior.
 import asyncio
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
@@ -529,11 +530,10 @@ async def test_validation_invalid_edge_condition_type():
     """
     VALIDATION: Non-EdgeCondition objects should be rejected during edge creation.
     """
-    from lionagi.protocols.generic.element import IDType
 
     # Use valid node IDs
-    node1_id = IDType.create()
-    node2_id = IDType.create()
+    node1_id = uuid4()
+    node2_id = uuid4()
 
     with pytest.raises(
         ValueError, match="Condition must be an instance of EdgeCondition"

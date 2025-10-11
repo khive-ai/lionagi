@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Test IDType JSON serialization in flow operations.
+Test UUID JSON serialization in flow operations.
 
-This test ensures that IDType objects are properly serialized to strings
+This test ensures that UUID objects are properly serialized to strings
 when passed as parameters to operations, preventing JSON serialization errors.
 """
 
@@ -19,11 +19,11 @@ from lionagi.session.session import Session
 
 
 @pytest.mark.asyncio
-async def test_aggregation_with_idtype_serialization():
+async def test_aggregation_with_UUID_serialization():
     """
-    Test that aggregation operations properly serialize IDType objects.
+    Test that aggregation operations properly serialize UUID objects.
 
-    Previously, aggregation_sources contained IDType objects that caused
+    Previously, aggregation_sources contained UUID objects that caused
     JSON serialization errors when passed to API calls.
     """
     # Create session and builder
@@ -54,7 +54,7 @@ async def test_aggregation_with_idtype_serialization():
 
     assert agg_op is not None, "Aggregation operation not found"
 
-    # Check that aggregation_sources are strings, not IDType
+    # Check that aggregation_sources are strings, not UUID
     sources = agg_op.parameters.get("aggregation_sources", [])
     assert len(sources) == 3, "Should have 3 sources"
 
@@ -64,7 +64,7 @@ async def test_aggregation_with_idtype_serialization():
             source, str
         ), f"Source should be string, got {type(source)}"
         # Should be able to JSON serialize
-        json.dumps(source)  # This would fail if it were IDType
+        json.dumps(source)  # This would fail if it were UUID
 
     # Verify the entire parameters dict is JSON serializable
     try:
@@ -74,9 +74,9 @@ async def test_aggregation_with_idtype_serialization():
 
 
 @pytest.mark.asyncio
-async def test_context_with_idtype_keys():
+async def test_context_with_UUID_keys():
     """
-    Test that predecessor context uses string keys for IDType objects.
+    Test that predecessor context uses string keys for UUID objects.
 
     Previously, pred.id was used directly as a key, which could cause issues.
     """

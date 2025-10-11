@@ -383,10 +383,10 @@ def test_operation_inheritance():
     # Test Node properties
     assert hasattr(op, "id")
     assert hasattr(op, "metadata")
-    # op.id is an IDType object
-    from lionagi.protocols.generic.element import IDType
+    # op.id is an UUID object
+    from lionagi.protocols.generic.element import UUID
 
-    assert isinstance(op.id, IDType)
+    assert isinstance(op.id, UUID)
 
     # Test Event properties
     assert hasattr(op, "execution")
