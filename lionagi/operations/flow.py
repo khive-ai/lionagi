@@ -10,6 +10,7 @@ using Events for synchronization and CapacityLimiter for concurrency control.
 
 import os
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from lionagi.ln._async_call import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
@@ -164,13 +165,11 @@ class DependencyAwareExecutor:
                 # Add to session branches collection directly
                 # Check if this is a real branch (not a mock)
                 try:
-                    from lionagi.protocols.types import IDType
-
                     # Try to validate the ID
                     if hasattr(branch_clone, "id"):
                         branch_id = branch_clone.id
                         # Only add to collections if it's a valid ID
-                        if isinstance(branch_id, (str, IDType)) or (
+                        if isinstance(branch_id, (str, UUID)) or (
                             hasattr(branch_id, "__str__")
                             and not hasattr(branch_id, "_mock_name")
                         ):
@@ -334,7 +333,7 @@ class DependencyAwareExecutor:
 
             # Wait for ALL sources (sources are now strings from builder.py)
             for source_id_str in sources:
-                # Convert string back to IDType for lookup
+                # Convert string back to UUID for lookup
                 # Check all operations to find matching ID
                 for op_id in self.completion_events.keys():
                     if str(op_id) == source_id_str:
@@ -367,7 +366,6 @@ class DependencyAwareExecutor:
                         result, (str, int, float, bool)
                     ):
                         result = to_dict(result, recursive=True)
-                    # Use string representation of IDType for JSON serialization
                     pred_context[f"{str(pred.id)}_result"] = result
 
             if "context" not in operation.parameters:

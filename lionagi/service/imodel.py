@@ -3,12 +3,13 @@
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 
 from lionagi.ln import is_coro_func, now_utc
 from lionagi.protocols.generic.log import Log
-from lionagi.protocols.types import ID, Event, EventStatus, IDType
+from lionagi.protocols.types import ID, Event, EventStatus
 from lionagi.service.hooks.hook_event import HookEventTypes
 from lionagi.service.hooks.hooked_event import HookedEvent
 
@@ -52,7 +53,7 @@ class iModel:
         provider_metadata: dict | None = None,
         hook_registry: HookRegistry | dict | None = None,
         exit_hook: bool = False,
-        id: IDType | str = None,
+        id: UUID | str = None,
         created_at: float | None = None,
         **kwargs,
     ) -> None:
@@ -100,7 +101,7 @@ class iModel:
         if id is not None:
             self.id = ID.get_id(id)
         else:
-            self.id = IDType.create()
+            self.id = uuid4()
         if created_at is not None:
             if not isinstance(created_at, float):
                 raise ValueError("created_at must be a float timestamp.")

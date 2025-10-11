@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from lionagi.protocols.generic.element import IDType
+from uuid import UUID
 
 from ..generic.pile import Pile, Progression
 from .mail import Mail
@@ -18,7 +18,7 @@ class Mailbox:
     ----------
     pile_ : Pile[Mail]
         A concurrency-safe collection storing all mail items.
-    pending_ins : dict[IDType, Progression]
+    pending_ins : dict[UUID, Progression]
         Maps each sender's ID to a progression of inbound mail.
     pending_outs : Progression
         A progression of mail items waiting to be sent (outbound).
@@ -30,7 +30,7 @@ class Mailbox:
         and outbound mail.
         """
         self.pile_ = Pile(item_type=Mail, strict_type=True)
-        self.pending_ins: dict[IDType, Progression] = {}
+        self.pending_ins: dict[UUID, Progression] = {}
         self.pending_outs = Progression()
 
     def __contains__(self, item: Mail) -> bool:

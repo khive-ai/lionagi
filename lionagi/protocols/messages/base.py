@@ -3,8 +3,9 @@
 
 from enum import Enum
 from typing import Any, TypeAlias
+from uuid import UUID
 
-from ..generic.element import ID, Element, IDError, IDType, Observable
+from ..generic.element import ID, Element, Observable
 
 __all__ = (
     "MessageRole",
@@ -27,10 +28,10 @@ class MessageRole(str, Enum):
     ACTION = "action"
 
 
-SenderRecipient: TypeAlias = IDType | MessageRole | str
+SenderRecipient: TypeAlias = MessageRole | str | UUID
 """
 A union type indicating that a sender or recipient could be:
-- A lionagi IDType,
+- A UUID,
 - A string-based role or ID,
 - A specific enum role from `MessageRole`.
 """
@@ -69,7 +70,7 @@ def validate_sender_recipient(value: Any, /) -> SenderRecipient:
     if isinstance(value, MessageRole):
         return value
 
-    if isinstance(value, IDType):
+    if isinstance(value, UUID):
         return value
 
     if isinstance(value, Observable):
@@ -86,7 +87,7 @@ def validate_sender_recipient(value: Any, /) -> SenderRecipient:
         # Try to parse as ID first, but allow plain strings as fallback
         try:
             return ID.get_id(value)
-        except IDError:
+        except Exception:
             return value
 
     raise ValueError("Invalid sender or recipient")
@@ -98,7 +99,7 @@ def serialize_sender_recipient(value: Any) -> str | None:
     # Check instance types first before enum membership
     if isinstance(value, Element):
         return str(value.id)
-    if isinstance(value, IDType):
+    if isinstance(value, UUID):
         return str(value)
     if isinstance(value, MessageRole):
         return value.value

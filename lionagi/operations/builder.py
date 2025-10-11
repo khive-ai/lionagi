@@ -253,11 +253,9 @@ class OperationGraphBuilder:
         if not sources:
             raise ValueError("No source nodes for aggregation")
 
-        # Add aggregation metadata - convert IDType to strings for JSON serialization
+        # Add aggregation metadata - convert UUID to strings for JSON serialization
         agg_params = {
-            "aggregation_sources": [
-                str(s) for s in sources
-            ],  # Convert IDType to strings
+            "aggregation_sources": [str(s) for s in sources],
             "aggregation_count": len(sources),
             **parameters,
         }

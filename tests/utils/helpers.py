@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, TypeVar, Union
 
 import pytest
 
-from lionagi.protocols.generic.element import IDType
+from lionagi.protocols.generic.element import UUID
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.node import Node
 
@@ -221,8 +221,8 @@ class ValidationHelpers:
             assert hasattr(node, "id"), "Object missing 'id' field"
             assert node.id is not None, "Object 'id' field is None"
             assert isinstance(
-                node.id, (str, IDType)
-            ), f"Object 'id' should be string or IDType, got {type(node.id)}"
+                node.id, (str, UUID)
+            ), f"Object 'id' should be string or UUID, got {type(node.id)}"
 
         if check_timestamp and hasattr(node, "timestamp"):
             assert (

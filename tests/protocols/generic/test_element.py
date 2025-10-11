@@ -1,31 +1,29 @@
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
 from lionagi.protocols.generic.element import (
     ID,
     Element,
-    IDType,
     validate_order,
 )
 
 
-def test_idtype_creation():
-    id_type = IDType.create()
-    assert isinstance(id_type, IDType)
-    assert isinstance(id_type._id, UUID)
+def test_UUID_creation():
+    id_type = uuid4()
+    assert isinstance(id_type, UUID)
 
 
-def test_idtype_validation():
+def test_UUID_validation():
     uuid_str = "123e4567-e89b-42d3-a456-426614174000"
-    id_type = IDType.validate(uuid_str)
+    id_type = ID.get_id(uuid_str)
     assert str(id_type) == uuid_str
 
 
 def test_element_creation():
     element = Element()
-    assert isinstance(element.id, IDType)
+    assert isinstance(element.id, UUID)
     assert isinstance(element.created_at, float)
     assert isinstance(element.metadata, dict)
 
@@ -82,9 +80,9 @@ def test_element_from_dict():
     assert new_element.metadata == element.metadata
 
 
-def test_invalid_idtype_validation():
+def test_invalid_UUID_validation():
     with pytest.raises(Exception):
-        IDType.validate("invalid-uuid")
+        UUID.validate("invalid-uuid")
 
 
 def test_element_metadata_class_mismatch():

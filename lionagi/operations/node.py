@@ -6,7 +6,7 @@ from uuid import UUID
 from anyio import get_cancelled_exc_class
 from pydantic import BaseModel, Field
 
-from lionagi.protocols.types import ID, Event, EventStatus, IDType, Node
+from lionagi.protocols.types import ID, Event, EventStatus, Node
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -37,12 +37,12 @@ class Operation(Node, Event):
     )
 
     @property
-    def branch_id(self) -> IDType | None:
+    def branch_id(self) -> UUID | None:
         if a := self.metadata.get("branch_id"):
             return ID.get_id(a)
 
     @branch_id.setter
-    def branch_id(self, value: str | UUID | IDType | None):
+    def branch_id(self, value: str | UUID | None):
         if value is None:
             self.metadata.pop("branch_id", None)
         else:
@@ -54,7 +54,7 @@ class Operation(Node, Event):
             return ID.get_id(a)
 
     @graph_id.setter
-    def graph_id(self, value: str | UUID | IDType | None):
+    def graph_id(self, value: str | UUID | None):
         if value is None:
             self.metadata.pop("graph_id", None)
         else:

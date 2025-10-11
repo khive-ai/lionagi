@@ -3,8 +3,7 @@
 
 import asyncio
 from typing import Any
-
-from lionagi.protocols.generic.element import IDType
+from uuid import UUID
 
 from .._concepts import Communicatable
 from ..generic.element import ID
@@ -23,10 +22,10 @@ class Exchange:
     ----------
     sources : Pile[Communicatable]
         The communicatable sources participating in the exchange.
-    buffer : dict[IDType, list[Mail]]
+    buffer : dict[UUID, list[Mail]]
         A temporary holding area for mail messages before they reach
         their recipient's mailbox.
-    mailboxes : dict[IDType, Mailbox]
+    mailboxes : dict[UUID, Mailbox]
         Maps each source's ID to its Mailbox.
     _execute_stop : bool
         A flag indicating whether to stop the asynchronous execution loop.
@@ -45,8 +44,8 @@ class Exchange:
         self.sources: Pile[Communicatable] = Pile(
             item_type={Communicatable}, strict_type=False
         )
-        self.buffer: dict[IDType, list[Mail]] = {}
-        self.mailboxes: dict[IDType, Mailbox] = {}
+        self.buffer: dict[UUID, list[Mail]] = {}
+        self.mailboxes: dict[UUID, Mailbox] = {}
         if sources:
             self.add_source(sources)
         self._execute_stop: bool = False

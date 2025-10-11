@@ -16,6 +16,7 @@ from collections.abc import (
 from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar
+from uuid import UUID
 
 from pydantic import Field, field_serializer
 from pydapter import Adaptable, AsyncAdaptable
@@ -32,7 +33,7 @@ from lionagi.utils import (
 )
 
 from .._concepts import Observable
-from .element import ID, Collective, E, Element, IDType, validate_order
+from .element import ID, Collective, E, Element, validate_order
 from .progression import Progression
 
 if TYPE_CHECKING:
@@ -112,7 +113,7 @@ def _validate_item_type(value, /) -> set[type[T]] | None:
 
 
 def _validate_progression(
-    value: Any, collections: dict[IDType, T], /
+    value: Any, collections: dict[UUID, T], /
 ) -> Progression:
     if not value:
         return Progression(order=list(collections.keys()))
@@ -198,7 +199,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         strict_type (bool): Whether to enforce strict type checking
     """
 
-    collections: dict[IDType, T] = Field(default_factory=dict)
+    collections: dict[UUID, T] = Field(default_factory=dict)
     item_type: set | None = Field(
         default=None,
         description="Set of allowed types for items in the pile.",
@@ -282,9 +283,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         super().__init__(**data)
 
     @field_serializer("collections")
-    def _serialize_collections(
-        self, v: dict[IDType, T]
-    ) -> list[dict[str, Any]]:
+    def _serialize_collections(self, v: dict[UUID, T]) -> list[dict[str, Any]]:
         return [i.to_dict() for i in v.values()]
 
     @field_serializer("progression")
@@ -492,7 +491,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         """Get all items in order."""
         return [self.collections[key] for key in self.progression]
 
-    def items(self) -> Sequence[tuple[IDType, T]]:
+    def items(self) -> Sequence[tuple[UUID, T]]:
         """Get all (ID, item) pairs in order."""
         return [(key, self.collections[key]) for key in self.progression]
 
@@ -797,7 +796,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             except Exception as e:
                 raise ItemNotFoundError(f"index {key}. Error: {e}")
 
-        elif isinstance(key, IDType):
+        elif isinstance(key, UUID):
             try:
                 return self.collections[key]
             except Exception as e:
@@ -904,7 +903,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         if isinstance(key, int | slice):
             try:
                 pops = self.progression[key]
-                pops = [pops] if isinstance(pops, IDType) else pops
+                pops = [pops] if isinstance(pops, UUID) else pops
                 result = []
                 for i in pops:
                     self.progression.remove(i)
@@ -1196,7 +1195,7 @@ def to_list_type(value: Any, /) -> list[Any]:
     """Convert input to a list format"""
     if value is None:
         return []
-    if isinstance(value, IDType):
+    if isinstance(value, UUID):
         return [value]
     if isinstance(value, str):
         return ID.get_id(value) if ID.is_id(value) else []

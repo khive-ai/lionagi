@@ -24,7 +24,7 @@ class ObservableProto(Protocol):
 
     This protocol defines the minimal contract for observable objects:
     they must have an 'id' property. The return type is permissive (Any)
-    to maintain compatibility with V0's IDType wrapper while enabling
+    to maintain compatibility with V0's UUID wrapper while enabling
     V1 evolution.
 
     All V0 Element subclasses automatically satisfy this protocol without
@@ -33,7 +33,7 @@ class ObservableProto(Protocol):
 
     @property
     def id(self) -> object:
-        """Unique identifier. Accepts IDType, UUID, or string."""
+        """Unique identifier. Accepts UUID, UUID, or string."""
         ...
 
 

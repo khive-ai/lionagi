@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 
 from lionagi.ln import now_utc
-from lionagi.protocols.generic.element import ID, IDType
+from lionagi.protocols.generic.element import ID
 
 from .._concepts import Communicatable, Observable
 
@@ -90,8 +90,10 @@ class Package(Observable):
         item: Any,
         request_source: ID[Communicatable] = None,
     ):
+        from uuid import uuid4
+
         super().__init__()
-        self.id = IDType.create()
+        self.id = uuid4()
         self.created_at = now_utc().timestamp()
         self.category = validate_category(category)
         self.item = item

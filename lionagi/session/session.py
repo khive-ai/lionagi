@@ -4,6 +4,7 @@
 import contextlib
 from collections.abc import Callable
 from typing import Any
+from uuid import UUID
 
 from pydantic import (
     Field,
@@ -20,7 +21,6 @@ from lionagi.protocols.types import (
     Communicatable,
     Exchange,
     Graph,
-    IDType,
     MailManager,
     Node,
     Pile,
@@ -395,7 +395,7 @@ class Session(Node, Communicatable, Relational):
 
         # Use specified branch or session's default
         branch = default_branch or self.default_branch
-        if isinstance(branch, (str, IDType)):
+        if isinstance(branch, (str, UUID)):
             branch = self.branches[branch]
 
         return await flow(

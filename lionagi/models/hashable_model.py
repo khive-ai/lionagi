@@ -94,12 +94,11 @@ class HashableModel(BaseModel):
 def _get_default_hashable_serializer():
     global _DEFAULT_HASHABLE_SERIALIZER
     if _DEFAULT_HASHABLE_SERIALIZER is None:
-        from lionagi.protocols.ids import Element, IDType
+        from lionagi.protocols.ids import Element
 
         _DEFAULT_HASHABLE_SERIALIZER = ln.get_orjson_default(
-            order=[IDType, Element, BaseModel],
+            order=[Element, BaseModel],
             additional={
-                IDType: lambda o: str(o),
                 Element: lambda o: o.to_dict(),
                 BaseModel: lambda o: o.model_dump(mode="json"),
             },
