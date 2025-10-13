@@ -1,48 +1,38 @@
-from __future__ import annotations
-
-import os
-import threading
-from collections import OrderedDict
-from dataclasses import dataclass
-from typing import Annotated, Any, Literal
-
-from typing_extensions import Self
-
-from lionagi.ln.types import Meta
+from typing import Any
 
 
 class PydanticFieldAdapter:
 
     @staticmethod
-    def create_validator(self):
-        if "validator" not in self.metadata:
+    def create_validator(lspec):
+        if "validator" not in lspec.metadata:
             return None
 
-        name = self.metadata.get("name") or "unnamed_field"
+        name = lspec.metadata.get("name") or "unnamed_field"
         from pydantic import field_validator
 
         validator_name = f"{name}_validator"
         return {
-            validator_name: field_validator(name)(self.metadata["validator"])
+            validator_name: field_validator(name)(lspec.metadata["validator"])
         }
 
     @staticmethod
-    def create_serializer(self):
-        if "serializer" not in self.metadata:
+    def create_serializer(lspec):
+        if "serializer" not in lspec.metadata:
             return None
 
-        name = self.metadata.get("name") or "unnamed_field"
+        name = lspec.metadata.get("name") or "unnamed_field"
         from pydantic import field_serializer
 
         serializer_name = f"{name}_serializer"
         return {
             serializer_name: field_serializer(name)(
-                self.metadata["serializer"]
+                lspec.metadata["serializer"]
             )
         }
 
     @staticmethod
-    def create_field(self) -> Any:
+    def create_field(lspec) -> Any:
         """Create Pydantic FieldInfo with metadata applied.
 
         Converts metadata to Pydantic format: valid params passed directly,
@@ -51,16 +41,16 @@ class PydanticFieldAdapter:
         from pydantic import Field as PydanticField
 
         # Get valid Pydantic Field parameters (cached at class level)
-        if not hasattr(type(self), "_pydantic_params"):
+        if not hasattr(type(lspec), "_pydantic_params"):
             import inspect
 
             params = set(inspect.signature(PydanticField).parameters.keys())
             params.discard("kwargs")
-            type(self)._pydantic_params = params
+            type(lspec)._pydantic_params = params
 
         field_kwargs = {}
 
-        for key, value in self.metadata.items():
+        for key, value in lspec.metadata.items():
             if key == "default":
                 # Handle callable defaults as default_factory
                 if callable(value):
@@ -76,7 +66,7 @@ class PydanticFieldAdapter:
                 # Internal markers - don't pass to Pydantic
                 continue
 
-            elif key in type(self)._pydantic_params:
+            elif key in type(lspec)._pydantic_params:
                 # Valid Pydantic parameter
                 field_kwargs[key] = value
 
@@ -90,72 +80,23 @@ class PydanticFieldAdapter:
 
         # Handle nullable case - ensure default is set
         if (
-            self.metadata.get("nullable")
+            lspec.metadata.get("nullable")
             and "default" not in field_kwargs
             and "default_factory" not in field_kwargs
         ):
             field_kwargs["default"] = None
 
         # Apply type transformations in same order as annotated()
-        actual_type = self.base_type
+        actual_type = lspec.base_type
 
         # 1. Apply listable first (inner)
-        if self.metadata.get("listable"):
+        if lspec.metadata.get("listable"):
             actual_type = list[actual_type]  # type: ignore
 
         # 2. Apply nullable second (outer)
-        if self.metadata.get("nullable"):
+        if lspec.metadata.get("nullable"):
             actual_type = actual_type | None  # type: ignore
 
         field_info = PydanticField(**field_kwargs)
         field_info.annotation = actual_type
         return field_info
-
-
-class LField:
-    """Lion Field definition with metadata and type transformations."""
-
-    base_type: type[Any]
-    metadata: dict[str, Any]
-
-    def create_field(self, mode: Literal["pydantic"] = "pydantic") -> Any:
-        """Create field definition for specified framework (default: pydantic)."""
-        match mode:
-            case "pydantic":
-                return PydanticFieldAdapter.create_field(self)
-            case _:
-                raise ValueError(f"Unsupported mode: {mode}")
-
-    def create_validator(
-        self, mode: Literal["pydantic"] = "pydantic"
-    ) -> dict[str, Any] | None:
-        """Pydantic field_validator config if validator in metadata."""
-        match mode:
-            case "pydantic":
-                return PydanticFieldAdapter.create_validator(self)
-            case _:
-                raise ValueError(f"Unsupported mode: {mode}")
-
-    def create_serializer(
-        self, mode: Literal["pydantic"] = "pydantic"
-    ) -> dict[str, Any] | None:
-        """Pydantic field_serializer config if serializer in metadata."""
-        match mode:
-            case "pydantic":
-                return PydanticFieldAdapter.create_serializer(self)
-            case _:
-                raise ValueError(f"Unsupported mode: {mode}")
-
-    def validate(self, v): ...
-
-    async def a_validate(self, v): ...
-
-    def serialize(self, v): ...
-
-    async def a_serialize(self, v): ...
-
-    def __getattr__(): ...
-
-    def __repr__(): ...
-
-    def __str__(): ...
