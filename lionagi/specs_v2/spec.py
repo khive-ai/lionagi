@@ -6,7 +6,7 @@ This is a data structure, not a validator. Actual validation happens in backends
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, get_origin, get_args
+from typing import Any, get_args, get_origin
 
 
 @dataclass(frozen=True)
@@ -136,11 +136,14 @@ class FieldSpec:
     def __repr__(self) -> str:
         """Human-readable representation."""
         type_name = _type_to_string(self.type)
-        constraints_str = ", ".join(f"{k}={v!r}" for k, v in self.constraints.items())
+        constraints_str = ", ".join(
+            f"{k}={v!r}" for k, v in self.constraints.items()
+        )
         return f"FieldSpec({type_name}, {{{constraints_str}}})"
 
 
 # Type serialization utilities
+
 
 def _type_to_string(type_: type) -> str:
     """Convert Python type to string representation.
@@ -163,7 +166,9 @@ def _type_to_string(type_: type) -> str:
 
     if origin is not None and args:
         args_str = ", ".join(_type_to_string(arg) for arg in args)
-        origin_name = origin.__name__ if hasattr(origin, "__name__") else str(origin)
+        origin_name = (
+            origin.__name__ if hasattr(origin, "__name__") else str(origin)
+        )
         return f"{origin_name}[{args_str}]"
 
     return name

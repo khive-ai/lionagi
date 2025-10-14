@@ -145,7 +145,9 @@ class BackendRegistry:
             >>> BackendRegistry.set_default("pydantic")
         """
         if name not in cls._backends:
-            raise ValueError(f"Cannot set default to unregistered backend '{name}'")
+            raise ValueError(
+                f"Cannot set default to unregistered backend '{name}'"
+            )
         cls._default = name
 
     @classmethod
@@ -163,10 +165,7 @@ class BackendRegistry:
 
     @classmethod
     def validate(
-        cls,
-        spec: FieldSpec,
-        value: Any,
-        backend: str | None = None
+        cls, spec: FieldSpec, value: Any, backend: str | None = None
     ) -> Any:
         """Validate a value using specified backend.
 
@@ -190,11 +189,7 @@ class BackendRegistry:
         return cls.get(backend).validate(spec, value)
 
     @classmethod
-    def create_field(
-        cls,
-        spec: FieldSpec,
-        backend: str | None = None
-    ) -> Any:
+    def create_field(cls, spec: FieldSpec, backend: str | None = None) -> Any:
         """Create backend-specific field object.
 
         Args:

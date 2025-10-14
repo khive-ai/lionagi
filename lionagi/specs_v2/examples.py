@@ -3,12 +3,10 @@
 Run with: python -m lionagi.specs_v2.examples
 """
 
-from lionagi.specs_v2 import (
-    FieldSpec,
+from lionagi.specs_v2 import (  # RustBackend,  # Requires lionagi[rust]; CloudBackend,  # Requires API key
     BackendRegistry,
+    FieldSpec,
     PydanticBackend,
-    # RustBackend,  # Requires lionagi[rust]
-    # CloudBackend,  # Requires API key
 )
 
 
@@ -46,7 +44,9 @@ def example_composition():
     print("\n=== Example 2: Field Composition ===\n")
 
     # Base instruction field
-    base_instruct = FieldSpec(str, {"description": "Task to perform", "min_length": 1})
+    base_instruct = FieldSpec(
+        str, {"description": "Task to perform", "min_length": 1}
+    )
     print(f"Base spec: {base_instruct}")
 
     # Make nullable
@@ -77,7 +77,9 @@ def example_serialization():
     # Deserialize back
     restored = FieldSpec.from_dict(spec_dict)
     print(f"\nRestored: {restored}")
-    print(f"Equal: {spec.type == restored.type and spec.constraints == restored.constraints}")
+    print(
+        f"Equal: {spec.type == restored.type and spec.constraints == restored.constraints}"
+    )
 
 
 def example_reusable_specs():
@@ -87,20 +89,26 @@ def example_reusable_specs():
     # Define reusable specs (like constants)
     AGE_SPEC = FieldSpec(int, {"min": 0, "max": 120})
     EMAIL_SPEC = FieldSpec(str, {"pattern": r"^[\w\.-]+@[\w\.-]+\.\w+$"})
-    USERNAME_SPEC = FieldSpec(str, {"min_length": 3, "max_length": 20, "pattern": r"^[a-zA-Z0-9_]+$"})
+    USERNAME_SPEC = FieldSpec(
+        str, {"min_length": 3, "max_length": 20, "pattern": r"^[a-zA-Z0-9_]+$"}
+    )
 
     # Use across multiple models/contexts
     print("User profile validation:")
     user_data = {
         "age": 25,
         "email": "user@example.com",
-        "username": "john_doe"
+        "username": "john_doe",
     }
 
     validated = {}
     validated["age"] = BackendRegistry.validate(AGE_SPEC, user_data["age"])
-    validated["email"] = BackendRegistry.validate(EMAIL_SPEC, user_data["email"])
-    validated["username"] = BackendRegistry.validate(USERNAME_SPEC, user_data["username"])
+    validated["email"] = BackendRegistry.validate(
+        EMAIL_SPEC, user_data["email"]
+    )
+    validated["username"] = BackendRegistry.validate(
+        USERNAME_SPEC, user_data["username"]
+    )
 
     print(f"✓ Validated user: {validated}")
 
@@ -128,7 +136,9 @@ def example_backend_switching():
         # BackendRegistry.register("rust", RustBackend())
         # result = BackendRegistry.validate(spec, value, backend="rust")
         # print(f"✓ Valid (Rust): {result}")
-        print("(Rust backend not installed - would provide formal verification)")
+        print(
+            "(Rust backend not installed - would provide formal verification)"
+        )
     except Exception as e:
         print(f"Note: {e}")
 
@@ -140,7 +150,9 @@ def example_backend_switching():
         # cloud = CloudBackend(api_key="...")
         # BackendRegistry.register("cloud", cloud)
         # result = BackendRegistry.validate(spec, value, backend="cloud")
-        print("(Cloud backend not configured - would provide guarantees + audit trail)")
+        print(
+            "(Cloud backend not configured - would provide guarantees + audit trail)"
+        )
     except Exception as e:
         print(f"Note: {e}")
 

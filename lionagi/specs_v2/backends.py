@@ -49,10 +49,7 @@ class PydanticBackend:
             annotation = Optional[annotation]
 
         # Create a temporary model for validation
-        TempModel = create_model(
-            "TempModel",
-            value=(annotation, field_info)
-        )
+        TempModel = create_model("TempModel", value=(annotation, field_info))
 
         try:
             # Validate
@@ -61,8 +58,7 @@ class PydanticBackend:
         except ValidationError as e:
             # Re-raise with clearer context
             raise ValidationError(
-                f"Validation failed for {spec}: {e}",
-                model=TempModel
+                f"Validation failed for {spec}: {e}", model=TempModel
             ) from e
 
     def create_field(self, spec: FieldSpec) -> Any:
@@ -134,6 +130,7 @@ class RustBackend:
         """
         try:
             import lionbridge  # Rust PyO3 extension
+
             self.lionbridge = lionbridge
         except ImportError as e:
             raise ImportError(
@@ -205,7 +202,7 @@ class CloudBackend:
     def __init__(
         self,
         api_key: str | None = None,
-        endpoint: str = "https://api.lionagi.ai"
+        endpoint: str = "https://api.lionagi.ai",
     ):
         """Initialize cloud backend.
 
@@ -232,11 +229,14 @@ class CloudBackend:
         if self._session is None:
             try:
                 import requests
+
                 self._session = requests.Session()
-                self._session.headers.update({
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                })
+                self._session.headers.update(
+                    {
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    }
+                )
             except ImportError as e:
                 raise ImportError(
                     "Cloud backend requires 'requests' library. "
@@ -284,9 +284,7 @@ class CloudBackend:
         except Exception as e:
             if isinstance(e, ValidationError):
                 raise
-            raise RuntimeError(
-                f"Cloud API request failed: {e}"
-            ) from e
+            raise RuntimeError(f"Cloud API request failed: {e}") from e
 
     def create_field(self, spec: FieldSpec) -> Any:
         """Create field via cloud API.
@@ -311,4 +309,5 @@ class CloudBackend:
 
 class ValidationError(Exception):
     """Validation error raised by backends."""
+
     pass

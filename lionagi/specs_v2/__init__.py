@@ -16,9 +16,9 @@ Design principles:
 - Composition = reusable field specs that compose into models
 """
 
+from .backends import CloudBackend, PydanticBackend, RustBackend
+from .registry import Backend, BackendRegistry
 from .spec import FieldSpec
-from .registry import BackendRegistry, Backend
-from .backends import PydanticBackend, RustBackend, CloudBackend
 
 __all__ = [
     "FieldSpec",

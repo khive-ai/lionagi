@@ -5,9 +5,10 @@ Or: python -m pytest lionagi/specs_v2/test_basic.py -v
 """
 
 import pytest
+
 from lionagi.specs_v2 import (
-    FieldSpec,
     BackendRegistry,
+    FieldSpec,
     PydanticBackend,
 )
 
@@ -70,10 +71,7 @@ def test_fieldspec_serialization():
     spec = FieldSpec(int, {"min": 0, "max": 100})
     spec_dict = spec.to_dict()
 
-    assert spec_dict == {
-        "type": "int",
-        "constraints": {"min": 0, "max": 100}
-    }
+    assert spec_dict == {"type": "int", "constraints": {"min": 0, "max": 100}}
 
     # Deserialize
     restored = FieldSpec.from_dict(spec_dict)
