@@ -12,7 +12,7 @@ import os
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from lionagi.ln._async_call import AlcallParams
+from lionagi.ln import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
 from lionagi.operations.node import Operation
 from lionagi.protocols.types import EventStatus

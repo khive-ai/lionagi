@@ -6,10 +6,9 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from lionagi.ln import extract_json
-from lionagi.ln.fuzzy._fuzzy_match import fuzzy_match_keys
+from lionagi.ln import extract_json, fuzzy_match_keys
+from lionagi.ln.types import Undefined
 from lionagi.models import FieldModel, ModelParams, OperableModel
-from lionagi.utils import UNDEFINED
 
 
 class Operative:
@@ -169,7 +168,7 @@ class Operative:
             d_ = fuzzy_match_keys(
                 d_, self.request_type.model_fields, handle_unmatched="raise"
             )
-            d_ = {k: v for k, v in d_.items() if v != UNDEFINED}
+            d_ = {k: v for k, v in d_.items() if v != Undefined}
             self.response_model = self.request_type.model_validate(d_)
             self._should_retry = False
         except Exception:
@@ -190,7 +189,7 @@ class Operative:
             d_ = fuzzy_match_keys(
                 d_, self.request_type.model_fields, handle_unmatched="force"
             )
-            d_ = {k: v for k, v in d_.items() if v != UNDEFINED}
+            d_ = {k: v for k, v in d_.items() if v != Undefined}
             self.response_model = self.request_type.model_validate(d_)
             self._should_retry = False
         except Exception:

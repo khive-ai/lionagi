@@ -6,18 +6,20 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, JsonValue
 
-from lionagi.fields.instruct import Instruct
+from lionagi.ln import AlcallParams
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.models import FieldModel, ModelParams
-from lionagi.protocols.types import Instruction, Progression, SenderRecipient
-from lionagi.session.branch import AlcallParams
+from lionagi.protocols.generic import Progression
+from lionagi.protocols.messages import Instruction, SenderRecipient
 
+from ..fields import Instruct
 from ..types import ActionParam, ChatParam, HandleValidation, ParseParam
 
 if TYPE_CHECKING:
-    from lionagi.protocols.operatives.step import Operative
     from lionagi.service.imodel import iModel
     from lionagi.session.branch import Branch, ToolRef
+
+    from .operative import Operative
 
 
 def prepare_operate_kw(
@@ -105,7 +107,7 @@ def prepare_operate_kw(
             instruct.action_strategy = action_strategy
 
     # Build the Operative - always create it for backwards compatibility
-    from lionagi.protocols.operatives.step import Step
+    from .step import Step
 
     operative = Step.request_operative(
         request_params=request_params,
@@ -229,7 +231,7 @@ async def operate(
     operative = None
 
     if model_class:
-        from lionagi.protocols.operatives.step import Step
+        from .step import Step
 
         operative = Step.request_operative(
             reason=reason,
@@ -306,7 +308,7 @@ async def operate(
         result.update({"action_responses": action_response_models})
         return result
 
-    from lionagi.protocols.operatives.step import Step
+    from .step import Step
 
     operative.response_model = result
     operative = Step.respond_operative(

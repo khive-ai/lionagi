@@ -1,4 +1,4 @@
-from ._async_call import alcall, bcall
+from ._async_call import AlcallParams, BcallParams, alcall, bcall
 from ._hash import hash_dict
 from ._json_dump import (
     get_orjson_default,
@@ -80,4 +80,6 @@ __all__ = (
     "not_sentinel",
     "to_dict",
     "fuzzy_validate_mapping",
+    "AlcallParams",
+    "BcallParams",
 )
