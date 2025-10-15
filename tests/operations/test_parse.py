@@ -128,21 +128,34 @@ class TestBasicParsing:
         async def _fake_chat_unparseable(*args, **kwargs):
             return "unparseable content"
 
+        # Mock AlcallParams.__call__ to bypass retry/delay logic completely
+        async def _mock_alcall_call(self, input_, func, **kwargs):
+            # Call function once immediately without any delays
+            try:
+                result = await func(input_[0])
+                return [result]
+            except Exception:
+                raise
+
         with patch.object(
             branch.__class__,
             "chat",
             new=AsyncMock(side_effect=_fake_chat_unparseable),
         ):
-            text = "unparseable content"
+            with patch(
+                "lionagi.session.branch.AlcallParams.__call__",
+                new=_mock_alcall_call,
+            ):
+                text = "unparseable content"
 
-            with pytest.raises(ValueError, match="Failed to parse"):
-                await parse(
-                    branch,
-                    text=text,
-                    request_type=SampleModel,
-                    handle_validation="raise",
-                    max_retries=0,  # Force immediate failure
-                )
+                with pytest.raises(ValueError, match="Failed to parse"):
+                    await parse(
+                        branch,
+                        text=text,
+                        request_type=SampleModel,
+                        handle_validation="raise",
+                        max_retries=0,  # Force immediate failure
+                    )
 
     @pytest.mark.asyncio
     async def test_parse_error_handling_return_none(
@@ -155,22 +168,35 @@ class TestBasicParsing:
         async def _fake_chat_unparseable(*args, **kwargs):
             return "unparseable"
 
+        # Mock AlcallParams.__call__ to bypass retry/delay logic completely
+        async def _mock_alcall_call(self, input_, func, **kwargs):
+            # Call function once immediately without any delays
+            try:
+                result = await func(input_[0])
+                return [result]
+            except Exception:
+                raise
+
         with patch.object(
             branch.__class__,
             "chat",
             new=AsyncMock(side_effect=_fake_chat_unparseable),
         ):
-            text = "unparseable"
+            with patch(
+                "lionagi.session.branch.AlcallParams.__call__",
+                new=_mock_alcall_call,
+            ):
+                text = "unparseable"
 
-            result = await parse(
-                branch,
-                text=text,
-                request_type=SampleModel,
-                handle_validation="return_none",
-                max_retries=0,
-            )
+                result = await parse(
+                    branch,
+                    text=text,
+                    request_type=SampleModel,
+                    handle_validation="return_none",
+                    max_retries=0,
+                )
 
-            assert result is None
+                assert result is None
 
     @pytest.mark.asyncio
     async def test_parse_error_handling_return_value(
@@ -183,22 +209,35 @@ class TestBasicParsing:
         async def _fake_chat_unparseable(*args, **kwargs):
             return "original input text"
 
+        # Mock AlcallParams.__call__ to bypass retry/delay logic completely
+        async def _mock_alcall_call(self, input_, func, **kwargs):
+            # Call function once immediately without any delays
+            try:
+                result = await func(input_[0])
+                return [result]
+            except Exception:
+                raise
+
         with patch.object(
             branch.__class__,
             "chat",
             new=AsyncMock(side_effect=_fake_chat_unparseable),
         ):
-            text = "original input text"
+            with patch(
+                "lionagi.session.branch.AlcallParams.__call__",
+                new=_mock_alcall_call,
+            ):
+                text = "original input text"
 
-            result = await parse(
-                branch,
-                text=text,
-                request_type=SampleModel,
-                handle_validation="return_value",
-                max_retries=0,
-            )
+                result = await parse(
+                    branch,
+                    text=text,
+                    request_type=SampleModel,
+                    handle_validation="return_value",
+                    max_retries=0,
+                )
 
-            assert result == text
+                assert result == text
 
 
 # ============================================================================

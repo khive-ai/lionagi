@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .element import ID, Element
-from .event import Event, Execution
+from .event import Event, EventStatus, Execution
 from .log import DataLogger, DataLoggerConfig, Log
 from .pile import Pile
 from .processor import Executor, Processor
@@ -20,4 +20,5 @@ __all__ = (
     "Progression",
     "Processor",
     "Executor",
+    "EventStatus",
 )

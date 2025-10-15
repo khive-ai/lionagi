@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import anyio
 from pydantic import Field, PrivateAttr, field_validator
@@ -12,19 +12,14 @@ from lionagi.ln.concurrency import fail_after, get_cancelled_exc_class
 from lionagi.protocols.types import Event, EventStatus
 
 from ._types import AssosiatedEventInfo, HookEventTypes
-
-if TYPE_CHECKING:
-    from .hook_registry import HookRegistry
-else:
-    # Import at runtime for Pydantic
-    from .hook_registry import HookRegistry
+from .hook_registry import HookRegistry
 
 
 class HookEvent(Event):
     registry: HookRegistry = Field(..., exclude=True)
     hook_type: HookEventTypes
     exit: bool = Field(False, exclude=True)
-    timeout: int = Field(30, exclude=True)
+    timeout: int | float = Field(30, exclude=True)
     params: dict[str, Any] = Field(default_factory=dict, exclude=True)
     event_like: Event | type[Event] = Field(..., exclude=True)
     _should_exit: bool = PrivateAttr(False)

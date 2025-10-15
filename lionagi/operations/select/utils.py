@@ -68,10 +68,16 @@ def get_choice_representation(choice: Any) -> str:
         return choice
 
     if isinstance(choice, BaseModel):
-        return f"{choice.__class__.__name__}:\n{choice.model_json_schema(indent=2)}"
+        import json
+
+        schema = choice.model_json_schema()
+        return f"{choice.__class__.__name__}:\n{json.dumps(schema, indent=2)}"
 
     if isinstance(choice, Enum):
         return get_choice_representation(choice.value)
+
+    # Handle other types (int, dict, etc.) by converting to string
+    return str(choice)
 
 
 def parse_selection(selection_str: str, choices: Any):
