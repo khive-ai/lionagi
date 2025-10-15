@@ -148,7 +148,7 @@ class Step:
                     field_models.append(fm)
 
         if "reason" in type(operative.response_model).model_fields:
-            field_models.extend(get_default_field("reason"))
+            field_models.append(get_default_field("reason"))
 
         operative = Step._create_response_type(
             operative=operative,
