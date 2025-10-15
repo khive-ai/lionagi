@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from lionagi.models import FieldModel, ModelParams
-from lionagi.protocols.operatives.operative import Operative
+from lionagi.operations.operate.operative import Operative
 
 
 # Define test model outside test class to avoid pytest collection warning

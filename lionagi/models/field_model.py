@@ -84,7 +84,7 @@ class FieldModel(Params):
     base_type: type[Any]
     metadata: tuple[Meta, ...]
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, base_type: type[Any] = None, **kwargs: Any) -> None:
         """Initialize FieldModel with legacy compatibility.
 
         Handles backward compatibility by converting old-style kwargs to the new
@@ -94,6 +94,8 @@ class FieldModel(Params):
             **kwargs: Arbitrary keyword arguments, including legacy ones
         """
         # Convert legacy kwargs to proper format
+        if base_type is not None:
+            kwargs["base_type"] = base_type
         converted = self._convert_kwargs_to_params(**kwargs)
 
         # Set fields directly and validate

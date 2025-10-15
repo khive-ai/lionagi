@@ -2,48 +2,48 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
 
 from lionagi.config import settings
-from lionagi.fields import Instruct
+from lionagi.ln import AlcallParams
 from lionagi.ln.types import Unset
 from lionagi.models.field_model import FieldModel
-from lionagi.operations.flow import AlcallParams
+from lionagi.operations.fields import Instruct
 from lionagi.operations.manager import OperationManager
+from lionagi.protocols._concepts import Relational
 from lionagi.protocols.action.manager import ActionManager
 from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
-from lionagi.protocols.types import (
+from lionagi.protocols.generic import (
     ID,
-    MESSAGE_FIELDS,
+    DataLogger,
+    DataLoggerConfig,
+    Element,
+    Log,
+    Pile,
+    Progression,
+)
+from lionagi.protocols.messages import (
     ActionRequest,
     ActionResponse,
     AssistantResponse,
-    Element,
     Instruction,
-    Log,
-    LogManager,
-    LogManagerConfig,
     MessageManager,
     MessageRole,
-    Pile,
-    Progression,
-    Relational,
     RoledMessage,
     SenderRecipient,
     System,
 )
-from lionagi.service import Endpoint, iModel, iModelManager
+from lionagi.service.connections.endpoint import Endpoint
+from lionagi.service.manager import iModel, iModelManager
 from lionagi.tools.base import LionTool
 from lionagi.utils import copy
 
 from .prompts import LION_SYSTEM_MESSAGE
 
 if TYPE_CHECKING:
-    from lionagi.fields import Instruct
-    from lionagi.protocols.operatives.operative import Operative
+    from lionagi.operations.operate.operative import Operative
 
 
 __all__ = ("Branch",)
@@ -97,7 +97,7 @@ class Branch(Element, Relational):
     _message_manager: MessageManager | None = PrivateAttr(None)
     _action_manager: ActionManager | None = PrivateAttr(None)
     _imodel_manager: iModelManager | None = PrivateAttr(None)
-    _log_manager: LogManager | None = PrivateAttr(None)
+    _log_manager: DataLogger | None = PrivateAttr(None)
     _operation_manager: OperationManager | None = PrivateAttr(None)
 
     def __init__(
@@ -112,7 +112,7 @@ class Branch(Element, Relational):
         parse_model: iModel | dict = None,
         imodel: iModel = None,  # deprecated, alias of chat_model
         tools: FuncTool | list[FuncTool] = None,  # ActionManager kwargs
-        log_config: LogManagerConfig | dict = None,  # LogManager kwargs
+        log_config: DataLoggerConfig | dict = None,  # LogManager kwargs
         system_datetime: bool | str = None,
         system_template=None,
         system_template_context: dict = None,
@@ -216,10 +216,10 @@ class Branch(Element, Relational):
         # --- LogManager ---
         if log_config:
             if isinstance(log_config, dict):
-                log_config = LogManagerConfig(**log_config)
-            self._log_manager = LogManager.from_config(log_config, logs=logs)
+                log_config = DataLoggerConfig(**log_config)
+            self._log_manager = DataLogger.from_config(log_config, logs=logs)
         else:
-            self._log_manager = LogManager(**settings.LOG_CONFIG, logs=logs)
+            self._log_manager = DataLogger(**settings.LOG_CONFIG, logs=logs)
 
         self._operation_manager = OperationManager()
 
@@ -401,6 +401,7 @@ class Branch(Element, Relational):
             pd.DataFrame: Each row represents a message, with columns defined by MESSAGE_FIELDS.
         """
         from lionagi.protocols.generic.pile import Pile
+        from lionagi.protocols.messages.base import MESSAGE_FIELDS
 
         if progression is None:
             progression = self.msgs.progression
@@ -1020,33 +1021,6 @@ class Branch(Element, Relational):
         )
 
         return await interpret(self, **prepare_interpret_kw(self, **_pms))
-
-    async def instruct(
-        self,
-        instruct: "Instruct",
-        /,
-        **kwargs,
-    ):
-        """
-        A convenience method that chooses between `operate()` and `communicate()`
-        based on the contents of an `Instruct` object.
-
-        If the `Instruct` indicates tool usage or advanced response format,
-        `operate()` is used. Otherwise, it defaults to `communicate()`.
-
-        Args:
-            instruct (Instruct):
-                An object containing `instruction`, `guidance`, `context`, etc.
-            **kwargs:
-                Additional args forwarded to `operate()` or `communicate()`.
-
-        Returns:
-            Any:
-                The result of the underlying call (structured object, raw text, etc.).
-        """
-        from lionagi.operations.instruct.instruct import instruct as _ins
-
-        return await _ins(self, instruct, **kwargs)
 
     async def ReAct(
         self,

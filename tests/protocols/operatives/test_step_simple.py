@@ -10,8 +10,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
 from lionagi.models import FieldModel, ModelParams
-from lionagi.protocols.operatives.operative import Operative
-from lionagi.protocols.operatives.step import Step
+from lionagi.operations.operate.step import Operative, Step
 
 
 class TestStepBasicFunctionality:
@@ -208,7 +207,7 @@ class TestStepEdgeCases:
 
     def test_request_operative_reason_already_in_field_models(self):
         """Test adding reason when it's already in field_models."""
-        from lionagi.fields.reason import REASON_FIELD
+        from lionagi.fields import REASON_FIELD
 
         operative = Step.request_operative(
             field_models=[REASON_FIELD], reason=True
@@ -218,7 +217,7 @@ class TestStepEdgeCases:
 
     def test_request_operative_actions_already_in_field_models(self):
         """Test adding actions when already in field_models."""
-        from lionagi.fields.action import ACTION_REQUESTS_FIELD
+        from lionagi.fields import ACTION_REQUESTS_FIELD
 
         operative = Step.request_operative(
             field_models=[ACTION_REQUESTS_FIELD], actions=True

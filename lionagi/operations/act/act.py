@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
-from lionagi.fields.action import ActionResponseModel
-from lionagi.ln._async_call import AlcallParams
-from lionagi.protocols.types import ActionRequest, ActionResponse
+from lionagi.ln import AlcallParams
+from lionagi.protocols.messages import ActionRequest, ActionResponse
 
+from ..fields import ActionResponseModel
 from ..types import ActionParam
 
 if TYPE_CHECKING:

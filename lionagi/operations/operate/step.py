@@ -4,14 +4,10 @@
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from lionagi.fields.action import (
-    ACTION_REQUESTS_FIELD,
-    ACTION_REQUIRED_FIELD,
-    ACTION_RESPONSES_FIELD,
-)
-from lionagi.fields.reason import REASON_FIELD
 from lionagi.models import FieldModel, ModelParams
-from lionagi.protocols.operatives.operative import Operative
+
+from ..fields import get_default_field
+from .operative import Operative
 
 
 class Step:
@@ -71,18 +67,17 @@ class Step:
         field_models = field_models or []
         exclude_fields = exclude_fields or []
         field_descriptions = field_descriptions or {}
-        if reason and REASON_FIELD not in field_models:
-            field_models.append(REASON_FIELD)
-        if actions and ACTION_REQUESTS_FIELD not in field_models:
-            field_models.extend(
-                [
-                    ACTION_REQUESTS_FIELD,
-                    ACTION_REQUIRED_FIELD,
-                ]
-            )
-
+        if reason and (fm := get_default_field("reason")) not in field_models:
+            field_models.append(fm)
+        if (
+            actions
+            and (fm := get_default_field("action_requests"))
+            not in field_models
+        ):
+            fm2 = get_default_field("action_required")
+            field_models.extend([fm, fm2])
         if isinstance(request_params, ModelParams):
-            request_params = request_params.model_dump()
+            request_params = request_params.to_dict()
 
         request_params = request_params or {}
         request_params_fields = {
@@ -143,15 +138,17 @@ class Step:
         additional_data = additional_data or {}
         field_models = field_models or []
         if hasattr(operative.response_model, "action_required"):
-            field_models.extend(
-                [
-                    ACTION_RESPONSES_FIELD,
-                    ACTION_REQUIRED_FIELD,
-                    ACTION_REQUESTS_FIELD,
-                ]
-            )
+            for i in {
+                "action_requests",
+                "action_required",
+                "action_responses",
+            }:
+                fm = get_default_field(i)
+                if fm not in field_models:
+                    field_models.append(fm)
+
         if "reason" in type(operative.response_model).model_fields:
-            field_models.extend([REASON_FIELD])
+            field_models.append(get_default_field("reason"))
 
         operative = Step._create_response_type(
             operative=operative,
@@ -201,24 +198,22 @@ class Step:
             hasattr(operative.request_type, "action_required")
             and operative.response_model.action_required
         ):
-            field_models.extend(
-                [
-                    ACTION_RESPONSES_FIELD,
-                    ACTION_REQUIRED_FIELD,
-                    ACTION_REQUESTS_FIELD,
-                ]
-            )
-        if hasattr(operative.request_type, "reason"):
-            field_models.extend([REASON_FIELD])
+            for i in {
+                "action_requests",
+                "action_required",
+                "action_responses",
+            }:
+                fm = get_default_field(i)
+                if fm not in field_models:
+                    field_models.append(fm)
 
-        exclude_fields = exclude_fields or []
-        # Note: We no longer have access to request_params.exclude_fields
-        # since Operative doesn't store ModelParams anymore
+        if hasattr(operative.request_type, "reason"):
+            field_models.append(get_default_field("reason"))
 
         operative.create_response_type(
             response_params=response_params,
             field_models=field_models,
-            exclude_fields=exclude_fields,
+            exclude_fields=exclude_fields or [],
             doc=response_doc,
             config_dict=response_config_dict,
             frozen=frozen_response,
