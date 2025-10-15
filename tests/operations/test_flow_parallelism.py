@@ -352,9 +352,9 @@ async def test_flow_aggregation_pattern():
 
     async def list_generator(**kwargs):
         """Generate a list of sub-tasks."""
-        # Create a mock result that has instruct_models attribute
+        # Create a mock result that has instruct_model attribute
         result = MagicMock()
-        result.instruct_models = [
+        result.instruct_model = [
             Instruct(instruction="Research topic A", context="context_a"),
             Instruct(instruction="Research topic B", context="context_b"),
             Instruct(instruction="Research topic C", context="context_c"),
@@ -432,13 +432,13 @@ async def test_flow_aggregation_pattern():
 
     # Execute phase 1
     result1 = await flow(session, graph1, verbose=False)
-    instruct_models = result1["operation_results"][root.id].instruct_models
+    instruct_model = result1["operation_results"][root.id].instruct_model
 
     # Phase 2: Create researcher nodes based on results
     graph2 = Graph()
     research_nodes = []
 
-    for i, instruct in enumerate(instruct_models):
+    for i, instruct in enumerate(instruct_model):
         node = Operation(
             operation="operate",
             parameters=instruct.to_dict(),  # Put instruct fields in parameters
