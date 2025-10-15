@@ -46,9 +46,9 @@ class OperationGraphBuilder:
         >>> result = await session.flow(graph)
         >>>
         >>> # Expand based on results
-        >>> if hasattr(result, 'instruct_models'):
+        >>> if hasattr(result, 'instruct_model'):
         ...     builder.expand_from_result(
-        ...         result.instruct_models,
+        ...         result.instruct_model,
         ...         source_node_id=builder.last_operation_id,
         ...         operation="instruct"
         ...     )
@@ -150,7 +150,7 @@ class OperationGraphBuilder:
         based on results.
 
         Args:
-            items: Items from result to expand (e.g., instruct_models)
+            items: Items from result to expand (e.g., instruct_model)
             source_node_id: ID of node that produced these items
             operation: Operation to apply to each item
             strategy: How to organize the expanded operations
