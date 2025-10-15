@@ -8,7 +8,7 @@ from typing import TypeVar
 
 from typing_extensions import TypedDict
 
-from lionagi.utils import Enum
+from lionagi.ln.types import Enum
 
 SC = TypeVar("SC")  # streaming chunk type
 

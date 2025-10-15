@@ -6,8 +6,8 @@ from __future__ import annotations
 from typing import Any, TypeVar
 
 from lionagi.ln.concurrency import get_cancelled_exc_class
+from lionagi.ln.types import Undefined
 from lionagi.protocols.types import Event, EventStatus
-from lionagi.utils import UNDEFINED
 
 from ._types import HookDict, HookEventTypes, StreamHandlers
 from ._utils import get_handler, validate_hooks, validate_stream_handlers
@@ -99,7 +99,7 @@ class HookRegistry:
             )
             return (res, False, EventStatus.COMPLETED)
         except get_cancelled_exc_class() as e:
-            return ((UNDEFINED, e), True, EventStatus.CANCELLED)
+            return ((Undefined, e), True, EventStatus.CANCELLED)
         except Exception as e:
             return (e, exit, EventStatus.CANCELLED)
 
@@ -125,7 +125,7 @@ class HookRegistry:
             )
             return (res, False, EventStatus.COMPLETED)
         except get_cancelled_exc_class() as e:
-            return ((UNDEFINED, e), True, EventStatus.CANCELLED)
+            return ((Undefined, e), True, EventStatus.CANCELLED)
         except Exception as e:
             return (e, exit, EventStatus.CANCELLED)
 
@@ -147,7 +147,7 @@ class HookRegistry:
             )
             return (res, False, EventStatus.COMPLETED)
         except get_cancelled_exc_class() as e:
-            return ((UNDEFINED, e), True, EventStatus.CANCELLED)
+            return ((Undefined, e), True, EventStatus.CANCELLED)
         except Exception as e:
             return (e, exit, EventStatus.ABORTED)
 
@@ -171,7 +171,7 @@ class HookRegistry:
             )
             return (res, False, None)
         except get_cancelled_exc_class() as e:
-            return ((UNDEFINED, e), True, EventStatus.CANCELLED)
+            return ((Undefined, e), True, EventStatus.CANCELLED)
         except Exception as e:
             return (e, exit, EventStatus.ABORTED)
 

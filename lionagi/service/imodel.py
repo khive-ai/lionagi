@@ -3,20 +3,22 @@
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 
 from lionagi.ln import is_coro_func, now_utc
-from lionagi.protocols.generic.log import Log
-from lionagi.protocols.types import ID, Event, EventStatus
-from lionagi.service.hooks.hook_event import HookEventTypes
-from lionagi.service.hooks.hooked_event import HookedEvent
+from lionagi.protocols.generic import ID, Event, EventStatus, Log
 
-from .connections.api_calling import APICalling
-from .connections.endpoint import Endpoint
-from .connections.match_endpoint import match_endpoint
-from .hooks import HookEvent, HookRegistry, global_hook_logger
+from .connections import APICalling, Endpoint, match_endpoint
+from .hooks import (
+    HookedEvent,
+    HookEvent,
+    HookEventTypes,
+    HookRegistry,
+    global_hook_logger,
+)
 from .rate_limited_processor import RateLimitedAPIExecutor
 
 
@@ -271,7 +273,7 @@ class iModel:
             include_token_usage_to_model=include_token_usage_to_model,
         )
 
-    async def process_chunk(self, chunk) -> None:
+    async def process_chunk(self, chunk) -> Any:
         """Processes a chunk of streaming data.
 
         Override this method in subclasses if you need custom handling
@@ -285,6 +287,7 @@ class iModel:
             if is_coro_func(self.streaming_process_func):
                 return await self.streaming_process_func(chunk)
             return self.streaming_process_func(chunk)
+        return None
 
     async def stream(self, api_call=None, **kw) -> AsyncGenerator:
         """Performs a streaming API call with the given arguments.
@@ -314,8 +317,8 @@ class iModel:
                 try:
                     async for i in api_call.stream():
                         result = await self.process_chunk(i)
-                        if result:
-                            yield result
+                        # Yield processed result if available, otherwise yield raw chunk
+                        yield result if result is not None else i
                 except Exception as e:
                     raise ValueError(f"Failed to stream API call: {e}")
                 finally:
@@ -324,8 +327,8 @@ class iModel:
             try:
                 async for i in api_call.stream():
                     result = await self.process_chunk(i)
-                    if result:
-                        yield result
+                    # Yield processed result if available, otherwise yield raw chunk
+                    yield result if result is not None else i
             except Exception as e:
                 raise ValueError(f"Failed to stream API call: {e}")
             finally:
@@ -361,10 +364,7 @@ class iModel:
             await self.executor.append(api_call)
             await self.executor.forward()
             ctr = 0
-            while api_call.status not in (
-                EventStatus.COMPLETED,
-                EventStatus.FAILED,
-            ):
+            while api_call.status == EventStatus.PROCESSING:
                 if ctr > 100:
                     break
                 await self.executor.forward()

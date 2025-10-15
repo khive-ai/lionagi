@@ -16,7 +16,7 @@ dependencies = [
     "msgspec>=0.18.0",
     "pydantic>=2.8.0",
     "pydantic-settings>=2.8.0",
-    "pydapter[pandas]>=1.1.1",
+    "pydapter[pandas]>=1.2.0",
     "python-dotenv>=1.1.0",
     "tiktoken>=0.9.0",
 ]
