@@ -34,9 +34,11 @@ frameworks, focusing on real-world cold-start performance and memory efficiency.
 | 4    | LlamaIndex     | 694.7          | 119.6    | 104.1    | **+352.2% slower** |
 | 5    | LangChain Core | 1407.3         | 213.9    | 164.7    | **+816.0% slower** |
 
-**Notes** • Composite excludes `imports` because sub-millisecond baselines
-(e.g., lazy imports) are dominated by timer granularity. • Conservative
-composite (excluding `data_processing`): LionAGI **176.0 ms** vs LangGraph
+**Notes**
+
+- Composite excludes `imports` because sub-millisecond baselines
+(e.g., lazy imports) are dominated by timer granularity.
+- Conservative composite (excluding `data_processing`): LionAGI **176.0 ms** vs LangGraph
 **342.4 ms** → **LangGraph is 94.5% slower** (**LionAGI is 1.9× faster**).
 
 ## Detailed Benchmark Results
