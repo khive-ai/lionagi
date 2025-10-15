@@ -202,13 +202,13 @@ from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
 response3 = await orchestrator.operate(
   instruct=Instruct(
     instruction="create 4 research questions for parallel discovery",
-    guidance="put into `instruct_models` field as part of your structured result message",
+    guidance="put into `instruct_model` field as part of your structured result message",
     context="I'd like to create an orchestration system for AI agents using lionagi"
   ),
   field_models=[LIST_INSTRUCT_FIELD_MODEL],
 )
 
-len(response3.instruct_models)  # should be 4
+len(response3.instruct_model)  # should be 4
 
 async def handle_instruct(instruct):
   sub_branch = Branch(
@@ -219,7 +219,7 @@ async def handle_instruct(instruct):
 
 # run in parallel across all instruct models
 from lionagi.ln import alcall
-responses = await alcall(response3.instruct_models, handle_instruct)
+responses = await alcall(response3.instruct_model, handle_instruct)
 
 # now hand these reports back to the orchestrator
 final_response = await orchestrator.communicate(
