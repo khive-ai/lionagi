@@ -3,11 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from lionagi.protocols.generic.element import (
-    ID,
-    Element,
-    validate_order,
-)
+from lionagi.protocols.generic.element import ID, Element, validate_order
 
 
 def test_UUID_creation():

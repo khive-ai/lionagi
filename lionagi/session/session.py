@@ -277,7 +277,6 @@ class Session(Node, Relational):
             collections=messages, item_type={RoledMessage}, strict_type=False
         )
 
-
     async def flow(
         self,
         graph: Graph,

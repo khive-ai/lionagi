@@ -118,6 +118,55 @@ class TestGenerateHashableRepresentation:
             == "CustomRepr(data)"
         )
 
+    class CustomObjectBothFail:
+        """Object that fails both str() and repr()."""
+
+        def __init__(self, value):
+            self.value = value
+
+        def __str__(self):
+            raise RuntimeError("str failed")
+
+        def __repr__(self):
+            raise RuntimeError("repr failed")
+
+    def test_other_types_both_str_and_repr_fail(self):
+        # Covers L117-119 (fallback when both str() and repr() fail)
+        obj = TestGenerateHashableRepresentation.CustomObjectBothFail("data")
+        result = hash_utils._generate_hashable_representation(obj)
+        # Should return fallback format: "<unhashable:ClassName:id>"
+        assert result.startswith("<unhashable:CustomObjectBothFail:")
+        assert result.endswith(">")
+        assert "CustomObjectBothFail" in result
+
+    def test_msgspec_struct_representation(self):
+        # Covers L36-39 (msgspec.Struct handling)
+        import msgspec
+
+        class MyStruct(msgspec.Struct):
+            x: int
+            y: str
+
+        struct_instance = MyStruct(x=1, y="test")
+        # msgspec.to_builtins converts to dict: {"x": 1, "y": "test"}
+        # _generate_hashable_representation of this dict:
+        # (_TYPE_MARKER_DICT, (("x",1), ("y","test")))
+        # Final result: (_TYPE_MARKER_MSGSPEC, above_dict_rep)
+
+        expected_inner_dict_rep = (
+            hash_utils._TYPE_MARKER_DICT,
+            (("x", 1), ("y", "test")),  # Keys sorted
+        )
+        expected_rep = (
+            hash_utils._TYPE_MARKER_MSGSPEC,
+            expected_inner_dict_rep,
+        )
+
+        assert (
+            hash_utils._generate_hashable_representation(struct_instance)
+            == expected_rep
+        )
+
     def test_pydantic_model_representation(self):
         from pydantic import BaseModel
 
