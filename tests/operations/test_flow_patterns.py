@@ -44,7 +44,7 @@ class MockClaudeCode:
         if "generate tasks" in str(last_msg).lower():
             return {
                 "content": "I'll generate 3 research tasks",
-                "instruct_models": [
+                "instruct_model": [
                     {"instruction": "Research A", "context": "ctx_a"},
                     {"instruction": "Research B", "context": "ctx_b"},
                     {"instruction": "Research C", "context": "ctx_c"},
@@ -118,7 +118,7 @@ async def test_dynamic_fanout_pattern():
             instruction = kwargs["instruct"].instruction
             if "generate" in instruction.lower():
                 return MagicMock(
-                    instruct_models=[
+                    instruct_model=[
                         Instruct(
                             instruction=f"Research topic {i}",
                             context=f"context_{i}",
@@ -201,12 +201,12 @@ async def test_dynamic_fanout_pattern():
 
     # Verify phase 1 results
     assert root in result["operation_results"]
-    instruct_models = result["operation_results"][root].instruct_models
-    assert len(instruct_models) == 3
+    instruct_model = result["operation_results"][root].instruct_model
+    assert len(instruct_model) == 3
 
     # Phase 2: Add research operations based on results
     research_nodes = []
-    for i, instruct_model in enumerate(instruct_models):
+    for i, instruct_model in enumerate(instruct_model):
         # Mock researcher branch
         researcher_branch = MagicMock()
         researcher_branch.id = f"researcher_{i}"

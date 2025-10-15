@@ -317,9 +317,14 @@ def _get_default_fields(
             fm = FieldModel(Instruct, name="instruct_model")
 
         case "action_required":
+            from lionagi.libs.validate.common_field_validators import (
+                validate_boolean_field,
+            )
+
             fm = FieldModel(
                 bool,
                 name="action_required",
+                validator=lambda cls, v: validate_boolean_field(cls, v, False),
                 description=(
                     "Whether this step strictly requires performing actions. "
                     "If true, the requests in `action_requests` must be fulfilled, "
@@ -352,18 +357,24 @@ def _get_default_fields(
             raise ValueError(f"Unknown default field kind: {kind}")
 
     if listable is not None:
-        if listable:
+        if listable and not fm.is_listable:
             fm = fm.as_listable()
         else:
             fm = fm.with_metadata("listable", False)
 
     if nullable:
         fm = fm.as_nullable()
+        default = None
 
     if fm.is_listable and default is Unset:
         default = list
 
     if default is not Unset:
         fm = fm.with_default(default)
+
+    if fm.is_listable:
+        fm = fm.with_validator(
+            lambda cls, x: to_list(x, dropna=True, flatten=True, unique=True)
+        )
 
     return fm
