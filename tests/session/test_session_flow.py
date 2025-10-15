@@ -947,9 +947,11 @@ class TestSessionFlowAsyncEdgeCases:
         branch = make_mock_branch()
         session.include_branches(branch)
 
-        # Create very slow operations
+        # Create very slow operations that timeout
         async def very_slow_invoke(**kwargs):
-            await asyncio.sleep(10)  # Intentionally long delay
+            # Sleep longer than timeout - this ensures timeout happens
+            await asyncio.sleep(10)
+            # This code never reached due to timeout
             config = _get_oai_config(
                 name="oai_chat",
                 endpoint="chat/completions",
@@ -959,14 +961,17 @@ class TestSessionFlowAsyncEdgeCases:
             endpoint = Endpoint(config=config)
             fake_call = APICalling(
                 payload={"model": "gpt-4.1-mini", "messages": []},
-                headers={"Authorization": "Bearer test"},
+                headers={
+                    "Authorization": "Bearer dummy-test-key"
+                },  # Dummy key - never used
                 endpoint=endpoint,
             )
             fake_call.execution.response = "mocked_response"
             fake_call.execution.status = EventStatus.COMPLETED
             return fake_call
 
-        branch.chat_model.invoke = AsyncMock(side_effect=very_slow_invoke)
+        # Completely replace invoke to prevent any API calls
+        branch.chat_model.invoke = very_slow_invoke
 
         graph, ops = make_simple_graph(2)
 
