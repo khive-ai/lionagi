@@ -6,14 +6,12 @@ Target: 90%+ coverage for lionagi/ln/_async_call.py
 import asyncio
 import sys
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import BaseModel
 
-from lionagi.ln import alcall, bcall
-from lionagi.ln._async_call import AlcallParams, BcallParams
-from lionagi.ln.types import Unset
+from lionagi.ln import AlcallParams, BcallParams, alcall, bcall
 
 # Import ExceptionGroup for Python 3.11+
 if sys.version_info >= (3, 11):

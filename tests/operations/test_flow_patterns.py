@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 
-from lionagi.fields.instruct import Instruct
+from lionagi.fields import Instruct
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.flow import flow
 from lionagi.session.session import Session

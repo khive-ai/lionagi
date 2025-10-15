@@ -1,6 +1,6 @@
 import pytest
 
-from lionagi.fields.action import ActionRequestModel
+from lionagi.fields import ActionRequestModel
 from lionagi.protocols.action.manager import (
     ActionManager,
     ActionRequest,

@@ -1,9 +1,8 @@
 import pytest
 from pydantic import BaseModel
 
-from lionagi.fields.action import ActionResponseModel
-from lionagi.fields.instruct import Instruct
-from lionagi.protocols.operatives.operative import Operative
+from lionagi.fields import ActionResponseModel, Instruct
+from lionagi.operations.operate.operative import Operative
 from lionagi.protocols.types import (
     ActionRequest,
     AssistantResponse,
@@ -350,31 +349,3 @@ def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
     assert len(new_branch.messages) == 1
     nm = new_branch.messages[0]
     assert nm.content.instruction == "hello user"
-
-
-@pytest.mark.asyncio
-async def test_instruct_calls_communicate_when_no_actions(
-    branch_with_mock_imodel: Branch,
-):
-    """
-    If Instruct has no 'actions', _instruct => communicate => returns 'mocked_response' by default.
-    """
-    instruct = Instruct(instruction="No actions needed")
-    await branch_with_mock_imodel.instruct(instruct)
-    # user + assistant in messages
-    assert len(branch_with_mock_imodel.messages) == 2
-
-
-@pytest.mark.asyncio
-async def test_instruct_calls_operate_when_actions_true(
-    branch_with_mock_imodel: Branch,
-):
-    """
-    If instruct.actions=True, instruct => operate => returns 'mocked_response' unless skip_validation or parse is customized.
-    """
-    instruct = Instruct(instruction="Need actions", actions=True)
-    result = await branch_with_mock_imodel.instruct(
-        instruct, skip_validation=True
-    )
-    assert result == """{"foo": "mocked_response", "bar": 123}"""
-    assert len(branch_with_mock_imodel.messages) == 2

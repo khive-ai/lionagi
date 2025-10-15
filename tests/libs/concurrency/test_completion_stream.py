@@ -311,7 +311,7 @@ async def test_completion_stream_handles_slow_tasks(anyio_backend):
     # All results should be collected
     assert len(results) == 10
     # Results can come in any order (not necessarily input order)
-    assert set(r[1] for r in results) == set(range(10))
+    assert {r[1] for r in results} == set(range(10))
 
 
 async def test_completion_stream_single_task(anyio_backend):
