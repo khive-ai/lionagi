@@ -223,11 +223,15 @@ class ResponseFormatJSONObject(BaseModel):
 
 class JSONSchemaFormat(BaseModel):
     name: str
-    schema: dict[str, Any]
+    schema_: dict[str, Any] = Field(
+        alias="schema", description="JSON Schema definition"
+    )
     strict: bool | None = Field(
         default=None,
         description="If true, disallow unspecified properties (strict schema).",
     )
+
+    model_config = {"populate_by_name": True}
 
 
 class ResponseFormatJSONSchema(BaseModel):

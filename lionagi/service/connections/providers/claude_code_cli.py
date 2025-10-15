@@ -84,8 +84,9 @@ class ClaudeCodeCLIEndpoint(Endpoint):
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[ClaudeChunk | dict | ClaudeSession]:
-        payload, _ = self.create_payload(request, **kwargs)["request"]
-        async for chunk in stream_claude_code_cli(payload):
+        payload, _ = self.create_payload(request, **kwargs)
+        request_obj = payload["request"]
+        async for chunk in stream_claude_code_cli(request_obj):
             yield chunk
 
     async def _call(

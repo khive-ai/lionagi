@@ -5,7 +5,7 @@ import anyio
 from pydantic import PrivateAttr
 
 from lionagi.ln import get_cancelled_exc_class
-from lionagi.protocols.types import DataLogger, Event, EventStatus, Log
+from lionagi.protocols.types import DataLogger, Event, EventStatus
 from lionagi.service.hooks import HookEvent, HookEventTypes
 
 global_hook_logger = DataLogger(

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Any, TypeVar
 
 import anyio
+import anyio.abc
 
 T = TypeVar("T")
 R = TypeVar("R")
