@@ -944,38 +944,34 @@ class TestSessionFlowAsyncEdgeCases:
     async def test_flow_timeout_behavior(self):
         """Test flow timeout enforcement with asyncio.wait_for."""
         session = Session()
-        branch = make_mock_branch()
-        session.include_branches(branch)
 
-        # Create very slow operations that timeout
-        async def very_slow_invoke(**kwargs):
+        # Create a MagicMock branch for this test to allow method mocking
+        branch = MagicMock()
+        branch.id = "test-branch-id"
+
+        # Mock the chat method to sleep and prevent API calls
+        async def very_slow_chat(**kwargs):
             # Sleep longer than timeout - this ensures timeout happens
             await asyncio.sleep(10)
-            # This code never reached due to timeout
-            config = _get_oai_config(
-                name="oai_chat",
-                endpoint="chat/completions",
-                request_options=OpenAIChatCompletionsRequest,
-                kwargs={"model": "gpt-4.1-mini"},
-            )
-            endpoint = Endpoint(config=config)
-            fake_call = APICalling(
-                payload={"model": "gpt-4.1-mini", "messages": []},
-                headers={
-                    "Authorization": "Bearer dummy-test-key"
-                },  # Dummy key - never used
-                endpoint=endpoint,
-            )
-            fake_call.execution.response = "mocked_response"
-            fake_call.execution.status = EventStatus.COMPLETED
-            return fake_call
+            # This code never reached due to timeout - no API setup at all
+            return "mocked_response"
 
-        # Completely replace invoke to prevent any API calls
-        branch.chat_model.invoke = very_slow_invoke
+        branch.chat = AsyncMock(side_effect=very_slow_chat)
+
+        # Mock get_operation to return the correct async method
+        def mock_get_operation(operation: str):
+            if operation == "chat":
+                return branch.chat
+            return None
+
+        branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
+        session.branches.include(branch)
+        session.default_branch = branch
 
         graph, ops = make_simple_graph(2)
 
-        # Apply timeout to flow execution
+        # Apply timeout to flow execution - should raise TimeoutError
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(
                 session.flow(graph, parallel=False, verbose=False), timeout=0.5
