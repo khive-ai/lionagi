@@ -9,7 +9,6 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-from lionagi.fields.instruct import Instruct
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.libs.validate.common_field_validators import (
     validate_model_to_type,
@@ -18,6 +17,7 @@ from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.models.field_model import FieldModel
 from lionagi.service.imodel import iModel
 
+from ..fields import Instruct
 from ..types import (
     ActionParam,
     ChatParam,

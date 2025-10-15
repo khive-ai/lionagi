@@ -4,7 +4,8 @@
 import logging
 from typing import Any
 
-from lionagi.fields.action import ActionRequestModel
+from pydantic import BaseModel
+
 from lionagi.protocols._concepts import Manager
 from lionagi.protocols.messages.action_request import ActionRequest
 from lionagi.utils import to_list
@@ -121,7 +122,7 @@ class ActionManager(Manager):
             self.register_tool(t, update=update)
 
     def match_tool(
-        self, action_request: ActionRequest | ActionRequestModel | dict
+        self, action_request: ActionRequest | BaseModel | dict
     ) -> FunctionCalling:
         """
         Convert an ActionRequest (or dict with "function"/"arguments")
@@ -134,9 +135,7 @@ class ActionManager(Manager):
         Returns:
             FunctionCalling: The event object that can be invoked.
         """
-        if not isinstance(
-            action_request, ActionRequest | ActionRequestModel | dict
-        ):
+        if not isinstance(action_request, ActionRequest | BaseModel | dict):
             raise TypeError(f"Unsupported type {type(action_request)}")
 
         func, args = None, None
@@ -155,7 +154,7 @@ class ActionManager(Manager):
 
     async def invoke(
         self,
-        func_call: ActionRequestModel | ActionRequest,
+        func_call: BaseModel | ActionRequest,
     ) -> FunctionCalling:
         """
         High-level API to parse and run a function call.

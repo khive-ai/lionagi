@@ -6,7 +6,7 @@ from __future__ import annotations
 from anyio import sleep
 
 from lionagi._errors import ValidationError
-from lionagi.utils import is_coro_func
+from lionagi.ln import is_coro_func
 
 from ._types import ALLOWED_HOOKS_TYPES, HookEventTypes
 

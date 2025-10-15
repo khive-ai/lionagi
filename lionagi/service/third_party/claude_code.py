@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lionagi import ln
 from lionagi.libs.schema.as_readable import as_readable
-from lionagi.utils import is_coro_func
 
 HAS_CLAUDE_CODE_CLI = False
 CLAUDE_CLI = None
@@ -556,7 +555,7 @@ def _pp_final(sess: ClaudeSession, theme) -> None:
 async def _maybe_await(func, *args, **kw):
     """Call func which may be sync or async."""
     res = func(*args, **kw) if func else None
-    if is_coro_func(res):
+    if ln.is_coro_func(res):
         await res
 
 

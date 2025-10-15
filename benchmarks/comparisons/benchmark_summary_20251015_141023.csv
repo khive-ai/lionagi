@@ -1,0 +1,46 @@
+category,category_description,framework,mode,mean_ms,median_ms,stdev_ms,mad_ms,trimmed_mean_ms,p95_ms,min_ms,max_ms,mean_rss_mb,max_rss_mb,mean_uss_mb,max_uss_mb,successful_runs,total_runs
+imports,"Core package import (cold start, core-only)",lionagi,cold,35.0,35.1,0.9,0.8,35.0,36.1,33.5,37.0,10.045,10.422,8.416,8.797,20,20
+imports,"Core package import (cold start, core-only)",langgraph,cold,0.1,0.1,0.0,0.0,0.1,0.1,0.1,0.2,0.006,0.062,0.006,0.062,20,20
+imports,"Core package import (cold start, core-only)",langchain_core,cold,53.2,52.1,3.8,1.0,52.2,60.4,50.3,66.9,13.615,14.203,11.57,12.172,20,20
+imports,"Core package import (cold start, core-only)",llamaindex,cold,709.2,689.9,57.8,23.9,698.6,771.7,656.3,925.8,89.225,92.391,81.235,85.422,20,20
+imports,"Core package import (cold start, core-only)",autogen,cold,709.9,687.2,63.6,11.7,696.1,767.1,664.0,967.6,105.964,110.484,93.178,98.438,20,20
+basic_primitives,Basic primitive object creation (core building blocks),lionagi,cold,186.3,182.7,12.6,1.2,182.7,222.7,176.8,224.6,28.249,29.562,24.73,26.062,20,20
+basic_primitives,Basic primitive object creation (core building blocks),lionagi,construct,9.5,8.9,2.8,0.3,9.0,10.0,8.3,21.5,0.667,0.859,0.605,0.797,20,20
+basic_primitives,Basic primitive object creation (core building blocks),langgraph,cold,457.0,368.2,206.9,20.0,405.9,837.7,336.3,1143.9,58.605,64.047,49.959,60.125,20,20
+basic_primitives,Basic primitive object creation (core building blocks),langgraph,construct,0.1,0.1,0.0,0.0,0.1,0.1,0.1,0.1,0.002,0.016,0.002,0.016,20,20
+basic_primitives,Basic primitive object creation (core building blocks),langchain_core,cold,1537.7,1488.5,182.7,50.8,1505.3,1685.7,1377.4,2258.1,216.454,221.938,168.034,176.062,20,20
+basic_primitives,Basic primitive object creation (core building blocks),langchain_core,construct,0.1,0.0,0.0,0.0,0.1,0.1,0.0,0.1,0.13,0.156,0.004,0.031,20,20
+basic_primitives,Basic primitive object creation (core building blocks),llamaindex,cold,643.1,630.0,32.3,6.7,635.8,689.8,621.4,759.6,85.338,90.25,77.016,81.547,20,20
+basic_primitives,Basic primitive object creation (core building blocks),llamaindex,construct,0.1,0.1,0.0,0.0,0.1,0.1,0.0,0.1,0.0,0.0,0.0,0.0,20,20
+basic_primitives,Basic primitive object creation (core building blocks),autogen,cold,636.7,626.2,45.0,5.4,627.0,650.1,614.9,830.3,101.584,109.156,89.212,95.016,20,20
+basic_primitives,Basic primitive object creation (core building blocks),autogen,construct,0.1,0.1,0.0,0.0,0.1,0.2,0.1,0.2,0.047,0.047,0.0,0.0,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),lionagi,cold,172.0,170.1,8.6,2.5,170.3,177.4,165.5,207.6,26.869,28.531,23.349,24.984,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),lionagi,construct,8.5,8.4,0.4,0.1,8.4,8.9,8.2,9.9,0.644,0.828,0.581,0.766,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),langgraph,cold,333.0,329.0,14.2,3.1,330.0,339.9,324.7,392.6,53.42,59.688,39.196,53.422,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),langgraph,construct,0.3,0.3,0.0,0.0,0.3,0.3,0.3,0.3,0.007,0.016,0.006,0.016,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),langchain_core,cold,1356.1,1329.7,118.0,6.3,1329.7,1368.1,1315.6,1869.6,209.08,218.875,158.685,167.672,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),langchain_core,construct,0.1,0.1,0.0,0.0,0.1,0.1,0.1,0.1,0.129,0.141,0.002,0.016,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),llamaindex,cold,724.3,713.7,36.0,8.3,715.7,763.8,703.5,870.2,130.488,135.094,112.551,117.953,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),llamaindex,construct,84.7,85.2,2.8,2.8,84.6,89.2,80.7,90.1,45.407,49.703,35.716,40.094,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),autogen,cold,672.5,668.4,36.1,19.9,669.0,713.8,618.9,788.3,105.862,111.781,93.077,97.75,20,20
+orchestrators,Minimal orchestrator objects (ready-to-use state),autogen,construct,0.2,0.2,0.1,0.0,0.2,0.3,0.1,0.5,0.048,0.062,0.001,0.016,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),lionagi,cold,175.5,175.5,8.5,6.6,174.3,186.0,165.7,202.5,27.353,30.0,23.811,26.438,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),lionagi,construct,8.3,8.3,0.1,0.1,8.3,8.5,8.2,8.6,0.67,0.688,0.576,0.594,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),langgraph,cold,336.1,331.4,13.9,6.1,333.5,350.0,325.0,388.3,55.889,65.938,41.932,53.516,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),langgraph,construct,0.4,0.4,0.0,0.0,0.4,0.5,0.4,0.5,0.009,0.031,0.009,0.031,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),langchain_core,cold,1482.1,1448.6,131.4,36.2,1456.4,1624.8,1356.6,1989.6,213.952,223.375,166.012,177.5,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),langchain_core,construct,0.1,0.1,0.0,0.0,0.1,0.2,0.1,0.2,0.129,0.141,0.003,0.016,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),llamaindex,cold,733.1,722.3,27.2,6.0,726.6,792.3,711.2,819.4,132.89,138.938,115.465,120.609,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),llamaindex,construct,83.5,83.1,1.5,0.8,83.2,86.4,81.9,88.2,45.436,49.234,35.688,40.234,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),autogen,cold,635.1,628.5,24.1,5.0,629.4,654.3,622.4,736.0,104.603,108.5,91.98,97.625,20,20
+workflow_setup,Practical workflow setup (multi-component coordination),autogen,construct,0.5,0.5,0.0,0.0,0.5,0.5,0.5,0.5,0.047,0.047,0.0,0.0,20,20
+data_processing,Data structure creation and processing (realistic workload),lionagi,cold,103.9,102.1,5.3,1.4,102.8,112.9,99.2,122.8,21.71,23.781,18.455,20.484,20,20
+data_processing,Data structure creation and processing (realistic workload),lionagi,construct,0.3,0.3,0.0,0.0,0.3,0.3,0.3,0.3,0.091,0.188,0.013,0.109,20,20
+data_processing,Data structure creation and processing (realistic workload),langgraph,cold,337.8,336.5,7.5,4.8,336.8,346.4,329.8,362.2,57.84,62.953,43.986,54.953,20,20
+data_processing,Data structure creation and processing (realistic workload),langgraph,construct,0.3,0.3,0.0,0.0,0.3,0.4,0.3,0.4,0.007,0.016,0.007,0.016,20,20
+data_processing,Data structure creation and processing (realistic workload),langchain_core,cold,1402.3,1367.9,115.1,25.1,1377.6,1461.8,1338.8,1885.3,216.152,225.594,166.044,177.266,20,20
+data_processing,Data structure creation and processing (realistic workload),langchain_core,construct,3.3,3.3,0.1,0.0,3.3,3.5,3.3,3.6,0.209,0.781,0.145,0.719,20,20
+data_processing,Data structure creation and processing (realistic workload),llamaindex,cold,724.3,717.0,37.7,5.5,715.7,753.6,702.3,883.2,129.514,135.906,111.566,119.531,20,20
+data_processing,Data structure creation and processing (realistic workload),llamaindex,construct,83.8,83.3,1.1,0.4,83.6,85.2,82.7,87.7,43.573,47.938,33.927,37.75,20,20
+data_processing,Data structure creation and processing (realistic workload),autogen,cold,650.1,627.4,44.0,11.8,641.9,736.6,614.5,765.3,103.227,110.938,90.322,98.312,20,20
+data_processing,Data structure creation and processing (realistic workload),autogen,construct,0.5,0.5,0.0,0.0,0.5,0.6,0.5,0.6,0.048,0.062,0.002,0.016,20,20

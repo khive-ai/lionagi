@@ -5,11 +5,7 @@ concurrency = thread,multiprocessing
 omit =
     tests/*
     lionagi/service/third_party/*
-    lionagi/operations/brainstorm/*
-    lionagi/operations/plan/*
-    lionagi/operations/select/*
     lionagi/operations/_visualize_graph.py
-    lionagi/operations/types.py
     lionagi/tools/file/reader.py
     lionagi/tools/types.py
     lionagi/_types.py

@@ -5,7 +5,7 @@ import anyio
 from pydantic import PrivateAttr
 
 from lionagi.ln import get_cancelled_exc_class
-from lionagi.protocols.types import DataLogger, Event, EventStatus, Log
+from lionagi.protocols.types import DataLogger, Event, EventStatus
 from lionagi.service.hooks import HookEvent, HookEventTypes
 
 global_hook_logger = DataLogger(
@@ -43,6 +43,16 @@ class HookedEvent(Event):
             self.execution.status = EventStatus.PROCESSING
             if h_ev := self._pre_invoke_hook_event:
                 await h_ev.invoke()
+
+                # Check if hook failed or was cancelled - propagate to main event
+                if h_ev.execution.status in (
+                    EventStatus.FAILED,
+                    EventStatus.CANCELLED,
+                ):
+                    self.execution.status = h_ev.execution.status
+                    self.execution.error = f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
+                    return
+
                 if h_ev._should_exit:
                     raise h_ev._exit_cause or RuntimeError(
                         "Pre-invocation hook requested exit without a cause"
@@ -53,6 +63,19 @@ class HookedEvent(Event):
 
             if h_ev := self._post_invoke_hook_event:
                 await h_ev.invoke()
+
+                # Check if hook failed or was cancelled - propagate to main event
+                if h_ev.execution.status in (
+                    EventStatus.FAILED,
+                    EventStatus.CANCELLED,
+                ):
+                    self.execution.status = h_ev.execution.status
+                    self.execution.error = f"Post-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
+                    self.execution.response = (
+                        response  # Keep response even if hook failed
+                    )
+                    return
+
                 if h_ev._should_exit:
                     raise h_ev._exit_cause or RuntimeError(
                         "Post-invocation hook requested exit without a cause"
@@ -87,9 +110,46 @@ class HookedEvent(Event):
         try:
             self.execution.status = EventStatus.PROCESSING
 
+            # Execute pre-invoke hook if present
+            if h_ev := self._pre_invoke_hook_event:
+                await h_ev.invoke()
+
+                # Check if hook failed or was cancelled - propagate to main event
+                if h_ev.execution.status in (
+                    EventStatus.FAILED,
+                    EventStatus.CANCELLED,
+                ):
+                    self.execution.status = h_ev.execution.status
+                    self.execution.error = f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
+                    return
+
+                if h_ev._should_exit:
+                    raise h_ev._exit_cause or RuntimeError(
+                        "Pre-invocation hook requested exit without a cause"
+                    )
+                await global_hook_logger.alog(h_ev)
+
             async for chunk in self._stream():
                 response.append(chunk)
                 yield chunk
+
+            # Execute post-invoke hook if present
+            if h_ev := self._post_invoke_hook_event:
+                await h_ev.invoke()
+
+                # Check if hook failed or was cancelled - don't fail the stream since data was already sent
+                if h_ev.execution.status in (
+                    EventStatus.FAILED,
+                    EventStatus.CANCELLED,
+                ):
+                    # Log but don't fail the stream
+                    await global_hook_logger.alog(h_ev)
+                elif h_ev._should_exit:
+                    raise h_ev._exit_cause or RuntimeError(
+                        "Post-invocation hook requested exit without a cause"
+                    )
+                else:
+                    await global_hook_logger.alog(h_ev)
 
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED

@@ -145,7 +145,7 @@ class ImageURLObject(BaseModel):
     """Image URL object; 'detail' is optional and model-dependent."""
 
     url: str
-    detail: Optional[Literal["auto", "low", "high"]] = Field(
+    detail: Literal["auto", "low", "high"] | None = Field(
         default=None,
         description="Optional detail control for vision models (auto/low/high).",
     )
@@ -168,8 +168,8 @@ class FunctionDef(BaseModel):
     """JSON Schema function definition for tool-calling."""
 
     name: str
-    description: Optional[str] = None
-    parameters: Dict[str, Any] = Field(
+    description: str | None = None
+    parameters: dict[str, Any] = Field(
         default_factory=dict,
         description="JSON Schema describing function parameters.",
     )
@@ -204,7 +204,7 @@ class ToolChoiceFunction(BaseModel):
     """Explicit tool selection."""
 
     type: Literal["function"] = "function"
-    function: Dict[str, str]  # {"name": "<function_name>"}
+    function: dict[str, str]  # {"name": "<function_name>"}
 
 
 ToolChoice = Union[Literal["auto", "none"], ToolChoiceFunction]
@@ -223,11 +223,15 @@ class ResponseFormatJSONObject(BaseModel):
 
 class JSONSchemaFormat(BaseModel):
     name: str
-    schema: Dict[str, Any]
-    strict: Optional[bool] = Field(
+    schema_: dict[str, Any] = Field(
+        alias="schema", description="JSON Schema definition"
+    )
+    strict: bool | None = Field(
         default=None,
         description="If true, disallow unspecified properties (strict schema).",
     )
+
+    model_config = {"populate_by_name": True}
 
 
 class ResponseFormatJSONSchema(BaseModel):
@@ -247,31 +251,29 @@ ResponseFormat = Union[
 
 class SystemMessage(BaseModel):
     role: Literal[ChatRole.system] = ChatRole.system
-    content: Union[str, List[ContentPart]]
-    name: Optional[str] = None  # optional per API
+    content: str | list[ContentPart]
+    name: str | None = None  # optional per API
 
 
 class DeveloperMessage(BaseModel):
     role: Literal[ChatRole.developer] = ChatRole.developer
-    content: Union[str, List[ContentPart]]
-    name: Optional[str] = None
+    content: str | list[ContentPart]
+    name: str | None = None
 
 
 class UserMessage(BaseModel):
     role: Literal[ChatRole.user] = ChatRole.user
-    content: Union[str, List[ContentPart]]
-    name: Optional[str] = None
+    content: str | list[ContentPart]
+    name: str | None = None
 
 
 class AssistantMessage(BaseModel):
     role: Literal[ChatRole.assistant] = ChatRole.assistant
     # Either textual content, or only tool_calls (when asking you to call tools)
-    content: Optional[Union[str, List[ContentPart]]] = None
-    name: Optional[str] = None
-    tool_calls: Optional[List[ToolCall]] = None  # modern tool-calling result
-    function_call: Optional[FunctionCall] = (
-        None  # legacy function-calling result
-    )
+    content: str | list[ContentPart] | None = None
+    name: str | None = None
+    tool_calls: list[ToolCall] | None = None  # modern tool-calling result
+    function_call: FunctionCall | None = None  # legacy function-calling result
 
 
 class ToolMessage(BaseModel):
@@ -292,7 +294,7 @@ ChatMessage = (
 
 
 class StreamOptions(BaseModel):
-    include_usage: Optional[bool] = Field(
+    include_usage: bool | None = Field(
         default=None,
         description="If true, a final streamed chunk includes token usage.",
     )
@@ -309,7 +311,7 @@ class OpenAIChatCompletionsRequest(BaseModel):
 
     # Required
     model: str = Field(..., description="Model name, e.g., 'gpt-4o', 'gpt-4o-mini'.")  # type: ignore
-    messages: List[ChatMessage] = Field(
+    messages: list[ChatMessage] = Field(
         ...,
         description="Conversation so far, including system/developer context.",
     )
@@ -348,7 +350,7 @@ class OpenAIChatCompletionsRequest(BaseModel):
     n: int | None = Field(
         default=None, ge=1, description="# of choices to generate."
     )
-    stop: str | List[str] | None = Field(
+    stop: str | list[str] | None = Field(
         default=None, description="Stop sequence(s)."
     )
     logit_bias: dict[str, float] | None = Field(
@@ -406,7 +408,7 @@ class OpenAIChatCompletionsRequest(BaseModel):
         description="Whether to store the response server-side (model-dependent).",
     )
     metadata: dict[str, Any] | None = None
-    reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(
+    reasoning_effort: Literal["low", "medium", "high"] | None = Field(
         default=None,
         description="For reasoning models: trade-off between speed and accuracy.",
     )

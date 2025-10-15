@@ -1,6 +1,6 @@
 """Tests for the reason module."""
 
-from lionagi.fields.reason import Reason, validate_confidence_score
+from lionagi.fields import Reason
 
 
 class TestValidateConfidenceScore:
@@ -15,7 +15,7 @@ class TestValidateConfidenceScore:
             (1, 1.0),  # Upper bound
         ]
         for input_val, expected in test_cases:
-            assert validate_confidence_score(None, input_val) == expected
+            assert Reason._validate_confidence(input_val) == expected
 
     def test_invalid_inputs(self):
         """Test validation of invalid confidence scores."""
@@ -27,10 +27,10 @@ class TestValidateConfidenceScore:
             1.5,  # Above upper bound
         ]
         for input_val in invalid_inputs:
-            assert validate_confidence_score(None, input_val) == -1
+            assert Reason._validate_confidence(input_val) == -1
 
         # None is a valid value (remains None)
-        assert validate_confidence_score(None, None) is None
+        assert Reason._validate_confidence(None) is None
 
     def test_precision_handling(self):
         """Test that confidence scores are rounded to 3 decimal places."""
@@ -41,7 +41,7 @@ class TestValidateConfidenceScore:
             (0.001001, 0.001),
         ]
         for input_val, expected in test_cases:
-            assert validate_confidence_score(None, input_val) == expected
+            assert Reason._validate_confidence(input_val) == expected
 
 
 class TestReason:

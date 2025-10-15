@@ -84,7 +84,7 @@ class FieldModel(Params):
     base_type: type[Any]
     metadata: tuple[Meta, ...]
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, base_type: type[Any] = None, **kwargs: Any) -> None:
         """Initialize FieldModel with legacy compatibility.
 
         Handles backward compatibility by converting old-style kwargs to the new
@@ -94,6 +94,8 @@ class FieldModel(Params):
             **kwargs: Arbitrary keyword arguments, including legacy ones
         """
         # Convert legacy kwargs to proper format
+        if base_type is not None:
+            kwargs["base_type"] = base_type
         converted = self._convert_kwargs_to_params(**kwargs)
 
         # Set fields directly and validate
@@ -538,7 +540,7 @@ class FieldModel(Params):
         field_info = PydanticField(**field_kwargs)
 
         # Set the annotation from base_type for backward compatibility
-        field_info.annotation = self.base_type
+        field_info.annotation = self.annotation
 
         return field_info
 
@@ -745,8 +747,14 @@ class FieldModel(Params):
 
     @property
     def annotation(self) -> type[Any]:
-        """Get field annotation (base_type) for backward compatibility."""
-        return Any if self._is_sentinel(self.base_type) else self.base_type
+        if self._is_sentinel(self.base_type):
+            return Any
+        t_ = self.base_type
+        if self.is_listable:
+            t_ = list[t_]
+        if self.is_nullable:
+            t_ = t_ | None
+        return t_
 
     def to_dict(self) -> dict[str, Any]:
         """Convert field model to dictionary for backward compatibility.

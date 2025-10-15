@@ -7,7 +7,7 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, JsonValue
 
-from lionagi.ln._async_call import AlcallParams
+from lionagi.ln import AlcallParams
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.types import Params
 from lionagi.protocols.action.tool import ToolRef

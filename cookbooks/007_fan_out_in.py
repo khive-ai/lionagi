@@ -26,12 +26,12 @@ def create_cc(
 
 
 prompt = """
-Task: Quickly Investigate the codebase in the specified directory and provide a comprehensive overview.
+Task: Quickly Investigate the codebase in the specified directory and provide a concise overview.
 
 ---START
 read into the specified dir, glance over the key components and pay attention to architecture, 
 design patterns, and any notable features. Think deeply about the codebase and give three parallel
-instructions, as part of the structured output (`instruct_models`) in the final response message.
+instructions, as part of the structured output (`instruct_model`) in the final response message.
 
 ---Then
 The instruct models will be run in parallel by each researcher branch, and I will provide you with 
@@ -72,12 +72,12 @@ async def main():
 
         result = await session.flow(builder.get_graph())
 
-        instruct_models: list[Instruct] = result["operation_results"][
+        instruct_model: list[Instruct] = result["operation_results"][
             root
-        ].instruct_models
+        ].instruct_model
         research_nodes = []
 
-        for i in instruct_models:
+        for i in instruct_model:
             node = builder.add_operation(
                 "communicate",
                 depends_on=[root],
@@ -122,7 +122,6 @@ async def main():
             "LionAGI codebase investigation: fan-out fan-in pattern with Claude Code"
         )
 
-        print(result_synthesis)
         print(f"Flow total cost: ${costs:.4f}")
 
     except Exception as e:

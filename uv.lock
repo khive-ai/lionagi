@@ -2293,7 +2293,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.18.0"
+version = "0.18.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -2321,6 +2321,7 @@ all = [
     { name = "ollama" },
     { name = "pydapter", extra = ["postgres"] },
     { name = "rich" },
+    { name = "xmltodict" },
 ]
 graph = [
     { name = "matplotlib" },
@@ -2407,13 +2408,14 @@ requires-dist = [
     { name = "lionagi", extras = ["rich"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["schema"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["sqlite"], marker = "extra == 'all'" },
+    { name = "lionagi", extras = ["xml"], marker = "extra == 'all'" },
     { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.7.0" },
     { name = "msgspec", specifier = ">=0.18.0" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0.0" },
     { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
     { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.1.1" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.2.0" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
@@ -4427,16 +4429,18 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "1.1.1"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "toml" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/08/73/766e7d8a18a2c75b8fea4f640686e37eed46c5a50b5dd4e4bc1d3a00168e/pydapter-1.1.1.tar.gz", hash = "sha256:9220f8eae748ed1bd60bcc2719e6f9253174c902e3d7b714b19b3d948aa0fd40", size = 409445, upload-time = "2025-09-06T03:18:21.44Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/a4/dce36a3bc6b1c28434254e67eeefcaa762f6a3e30d311808ec2f364eafe5/pydapter-1.2.0.tar.gz", hash = "sha256:657d8d0373d308235bad766e6895f18f6e0a8aef047649f54e225bf1afefc498", size = 386400, upload-time = "2025-10-15T00:17:27.337Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/91/1f280a24ecae3aad3b72cee136dc419cc402e28414b388fe1dc7e92fca6c/pydapter-1.1.1-py3-none-any.whl", hash = "sha256:e3037bd9807ff3a5fa3f20b6ed6960783214224cd5b411e3852ca1699469b00f", size = 96440, upload-time = "2025-09-06T03:18:19.79Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/f8/8e249869470df09a02cd63f1dc4da6bb302bd36af8da15bab1fa8575bb9b/pydapter-1.2.0-py3-none-any.whl", hash = "sha256:4269eb1acfbf485cf640d8525c23b67a3e1cc3f49c15dac0fa3d7e6411b0dba2", size = 104578, upload-time = "2025-10-15T00:17:25.895Z" },
 ]
 
 [package.optional-dependencies]

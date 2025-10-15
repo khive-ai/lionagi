@@ -1,16 +1,14 @@
 import pytest
 from pydantic import BaseModel
 
-from lionagi.fields.action import ActionResponseModel
-from lionagi.fields.instruct import Instruct
-from lionagi.protocols.operatives.operative import Operative
+from lionagi.fields import ActionResponseModel, Instruct
+from lionagi.operations.operate.operative import Operative
 from lionagi.protocols.types import (
     ActionRequest,
     AssistantResponse,
     Instruction,
     LogManagerConfig,
     MessageRole,
-    PackageCategory,
     RoledMessage,
 )
 from lionagi.service.manager import iModel
@@ -73,7 +71,6 @@ def test_branch_init_basic():
     assert branch.acts is not None
     assert branch.mdls is not None
     assert branch.logs is not None
-    assert branch.mailbox is not None
 
 
 def test_branch_init_system_message():
@@ -331,40 +328,6 @@ async def test_aclone(branch_with_mock_imodel: Branch):
     assert cmsg.recipient == cloned.id
 
 
-def test_send_and_receive_sync(branch_with_mock_imodel: Branch):
-    """
-    send(...) => place in out_queue. We simulate transferring to a target's mailbox => target calls receive(...).
-    """
-    target_branch = Branch(user="target", name="ReceiverBranch")
-
-    msg = Instruction(
-        content={"instruction": "Message from outside"},
-        sender=branch_with_mock_imodel.user,
-        recipient=branch_with_mock_imodel.id,
-    )
-
-    branch_with_mock_imodel.send(
-        recipient=target_branch.id,
-        category=PackageCategory.MESSAGE,
-        item=msg,
-    )
-    # Mail in out_queue
-    assert len(branch_with_mock_imodel.mailbox.pending_outs) == 1
-    mail_id = branch_with_mock_imodel.mailbox.pending_outs[0]
-    mail_obj = branch_with_mock_imodel.mailbox.pile_[mail_id]
-
-    # Transfer mail to target mailbox
-    target_branch.mailbox.pile_[mail_id] = mail_obj
-    target_branch.mailbox.append_in(mail_obj)
-
-    # Now target receives
-    target_branch.receive(sender=branch_with_mock_imodel, message=True)
-    assert len(target_branch.messages) == 1
-    rm = target_branch.messages[0]
-    assert rm.content.instruction == "Message from outside"
-    assert rm.sender == branch_with_mock_imodel.id
-
-
 def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
     """
     Round-trip with to_dict, from_dict => confirm logs, messages, models are restored.
@@ -386,31 +349,3 @@ def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
     assert len(new_branch.messages) == 1
     nm = new_branch.messages[0]
     assert nm.content.instruction == "hello user"
-
-
-@pytest.mark.asyncio
-async def test_instruct_calls_communicate_when_no_actions(
-    branch_with_mock_imodel: Branch,
-):
-    """
-    If Instruct has no 'actions', _instruct => communicate => returns 'mocked_response' by default.
-    """
-    instruct = Instruct(instruction="No actions needed")
-    await branch_with_mock_imodel.instruct(instruct)
-    # user + assistant in messages
-    assert len(branch_with_mock_imodel.messages) == 2
-
-
-@pytest.mark.asyncio
-async def test_instruct_calls_operate_when_actions_true(
-    branch_with_mock_imodel: Branch,
-):
-    """
-    If instruct.actions=True, instruct => operate => returns 'mocked_response' unless skip_validation or parse is customized.
-    """
-    instruct = Instruct(instruction="Need actions", actions=True)
-    result = await branch_with_mock_imodel.instruct(
-        instruct, skip_validation=True
-    )
-    assert result == """{"foo": "mocked_response", "bar": 123}"""
-    assert len(branch_with_mock_imodel.messages) == 2

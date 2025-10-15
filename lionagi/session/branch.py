@@ -2,52 +2,48 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
 
 from lionagi.config import settings
-from lionagi.fields import Instruct
+from lionagi.ln import AlcallParams
 from lionagi.ln.types import Unset
 from lionagi.models.field_model import FieldModel
-from lionagi.operations.flow import AlcallParams
+from lionagi.operations.fields import Instruct
 from lionagi.operations.manager import OperationManager
+from lionagi.protocols._concepts import Relational
 from lionagi.protocols.action.manager import ActionManager
 from lionagi.protocols.action.tool import FuncTool, Tool, ToolRef
-from lionagi.protocols.types import (
+from lionagi.protocols.generic import (
     ID,
-    MESSAGE_FIELDS,
+    DataLogger,
+    DataLoggerConfig,
+    Element,
+    Log,
+    Pile,
+    Progression,
+)
+from lionagi.protocols.messages import (
     ActionRequest,
     ActionResponse,
     AssistantResponse,
-    Communicatable,
-    Element,
     Instruction,
-    Log,
-    LogManager,
-    LogManagerConfig,
-    Mail,
-    Mailbox,
     MessageManager,
     MessageRole,
-    PackageCategory,
-    Pile,
-    Progression,
-    Relational,
     RoledMessage,
     SenderRecipient,
     System,
 )
-from lionagi.service import Endpoint, iModel, iModelManager
+from lionagi.service.connections.endpoint import Endpoint
+from lionagi.service.manager import iModel, iModelManager
 from lionagi.tools.base import LionTool
 from lionagi.utils import copy
 
 from .prompts import LION_SYSTEM_MESSAGE
 
 if TYPE_CHECKING:
-    from lionagi.fields import Instruct
-    from lionagi.protocols.operatives.operative import Operative
+    from lionagi.operations.operate.operative import Operative
 
 
 __all__ = ("Branch",)
@@ -56,7 +52,7 @@ __all__ = ("Branch",)
 _DEFAULT_ALCALL_PARAMS = None
 
 
-class Branch(Element, Communicatable, Relational):
+class Branch(Element, Relational):
     """
     Manages a conversation 'branch' with messages, tools, and iModels.
 
@@ -65,20 +61,17 @@ class Branch(Element, Communicatable, Relational):
         - Registers and invokes tools/actions (`ActionManager`).
         - Manages model instances (`iModelManager`).
         - Logs activity (`LogManager`).
-        - Communicates via mailboxes (`Mailbox`).
 
     **Key responsibilities**:
         - Storing and organizing messages, including system instructions, user instructions, and model responses.
         - Handling asynchronous or synchronous execution of LLM calls and tool invocations.
-        - Providing a consistent interface for “operate,” “chat,” “communicate,” “parse,” etc.
+        - Providing a consistent interface for "operate," "chat," "communicate," "parse," etc.
 
     Attributes:
         user (SenderRecipient | None):
             The user or "owner" of this branch (often tied to a session).
         name (str | None):
             A human-readable name for this branch.
-        mailbox (Mailbox):
-            A mailbox for sending and receiving `Package` objects to/from other branches.
 
     Note:
         Actual implementations for chat, parse, operate, etc., are referenced
@@ -101,16 +94,10 @@ class Branch(Element, Communicatable, Relational):
         description="A human-readable name of the branch (optional).",
     )
 
-    mailbox: Mailbox = Field(
-        default_factory=Mailbox,
-        exclude=True,
-        description="Mailbox for cross-branch or external communication.",
-    )
-
     _message_manager: MessageManager | None = PrivateAttr(None)
     _action_manager: ActionManager | None = PrivateAttr(None)
     _imodel_manager: iModelManager | None = PrivateAttr(None)
-    _log_manager: LogManager | None = PrivateAttr(None)
+    _log_manager: DataLogger | None = PrivateAttr(None)
     _operation_manager: OperationManager | None = PrivateAttr(None)
 
     def __init__(
@@ -125,7 +112,7 @@ class Branch(Element, Communicatable, Relational):
         parse_model: iModel | dict = None,
         imodel: iModel = None,  # deprecated, alias of chat_model
         tools: FuncTool | list[FuncTool] = None,  # ActionManager kwargs
-        log_config: LogManagerConfig | dict = None,  # LogManager kwargs
+        log_config: DataLoggerConfig | dict = None,  # LogManager kwargs
         system_datetime: bool | str = None,
         system_template=None,
         system_template_context: dict = None,
@@ -229,10 +216,10 @@ class Branch(Element, Communicatable, Relational):
         # --- LogManager ---
         if log_config:
             if isinstance(log_config, dict):
-                log_config = LogManagerConfig(**log_config)
-            self._log_manager = LogManager.from_config(log_config, logs=logs)
+                log_config = DataLoggerConfig(**log_config)
+            self._log_manager = DataLogger.from_config(log_config, logs=logs)
         else:
-            self._log_manager = LogManager(**settings.LOG_CONFIG, logs=logs)
+            self._log_manager = DataLogger(**settings.LOG_CONFIG, logs=logs)
 
         self._operation_manager = OperationManager()
 
@@ -414,6 +401,7 @@ class Branch(Element, Communicatable, Relational):
             pd.DataFrame: Each row represents a message, with columns defined by MESSAGE_FIELDS.
         """
         from lionagi.protocols.generic.pile import Pile
+        from lionagi.protocols.messages.base import MESSAGE_FIELDS
 
         if progression is None:
             progression = self.msgs.progression
@@ -425,170 +413,6 @@ class Branch(Element, Communicatable, Relational):
         ]
         p = Pile(collections=msgs)
         return p.to_df(columns=MESSAGE_FIELDS)
-
-    # -------------------------------------------------------------------------
-    # Mailbox Send / Receive
-    # -------------------------------------------------------------------------
-    def send(
-        self,
-        recipient: UUID,
-        category: Optional["PackageCategory"],
-        item: Any,
-        request_source: UUID | None = None,
-    ) -> None:
-        """
-        Sends a `Package` (wrapped in a `Mail` object) to a specified recipient.
-
-        Args:
-            recipient (UUID):
-                ID of the recipient branch or component.
-            category (PackageCategory | None):
-                The category/type of the package (e.g., 'message', 'tool', 'imodel').
-            item (Any):
-                The payload to send (e.g., a message, tool reference, model, etc.).
-            request_source (UUID | None):
-                The ID that prompted or requested this send operation (optional).
-        """
-        from lionagi.protocols.mail.package import Package
-
-        package = Package(
-            category=category,
-            item=item,
-            request_source=request_source,
-        )
-
-        mail = Mail(
-            sender=self.id,
-            recipient=recipient,
-            package=package,
-        )
-        self.mailbox.append_out(mail)
-
-    def receive(
-        self,
-        sender: UUID,
-        message: bool = False,
-        tool: bool = False,
-        imodel: bool = False,
-    ) -> None:
-        """
-        Retrieves and processes mail from a given sender according to the specified flags.
-
-        Args:
-            sender (UUID):
-                The ID of the mail sender.
-            message (bool):
-                If `True`, process packages categorized as "message".
-            tool (bool):
-                If `True`, process packages categorized as "tool".
-            imodel (bool):
-                If `True`, process packages categorized as "imodel".
-
-        Raises:
-            ValueError: If no mail exists from the specified sender,
-                        or if a package is invalid for the chosen category.
-        """
-        sender = ID.get_id(sender)
-        if sender not in self.mailbox.pending_ins.keys():
-            raise ValueError(f"No mail or package found from sender: {sender}")
-
-        skipped_requests = Progression()
-        while self.mailbox.pending_ins[sender]:
-            mail_id = self.mailbox.pending_ins[sender].popleft()
-            mail: Mail = self.mailbox.pile_[mail_id]
-
-            if mail.category == "message" and message:
-                if not isinstance(mail.package.item, RoledMessage):
-                    raise ValueError(
-                        "Invalid message package: The item must be a `RoledMessage`."
-                    )
-                new_message = mail.package.item.model_copy(deep=True)
-                new_message.sender = mail.sender
-                new_message.recipient = self.id
-                self.msgs.messages.include(new_message)
-                self.mailbox.pile_.pop(mail_id)
-
-            elif mail.category == "tool" and tool:
-                if not isinstance(mail.package.item, Tool):
-                    raise ValueError(
-                        "Invalid tool package: The item must be a `Tool` instance."
-                    )
-                self._action_manager.register_tools(mail.package.item)
-                self.mailbox.pile_.pop(mail_id)
-
-            elif mail.category == "imodel" and imodel:
-                if not isinstance(mail.package.item, iModel):
-                    raise ValueError(
-                        "Invalid iModel package: The item must be an `iModel` instance."
-                    )
-                self._imodel_manager.register_imodel(
-                    mail.package.item.name or "chat", mail.package.item
-                )
-                self.mailbox.pile_.pop(mail_id)
-
-            else:
-                # If the category doesn't match the flags or is unhandled
-                skipped_requests.append(mail)
-
-        # Requeue any skipped mail
-        self.mailbox.pending_ins[sender] = skipped_requests
-        if len(self.mailbox.pending_ins[sender]) == 0:
-            self.mailbox.pending_ins.pop(sender)
-
-    async def asend(
-        self,
-        recipient: UUID,
-        category: PackageCategory | None,
-        package: Any,
-        request_source: UUID | None = None,
-    ):
-        """
-        Async version of `send()`.
-
-        Args:
-            recipient (UUID):
-                ID of the recipient branch or component.
-            category (PackageCategory | None):
-                The category/type of the package.
-            package (Any):
-                The item(s) to send (message/tool/model).
-            request_source (UUID | None):
-                The origin request ID (if any).
-        """
-        async with self.mailbox.pile_:
-            self.send(recipient, category, package, request_source)
-
-    async def areceive(
-        self,
-        sender: UUID,
-        message: bool = False,
-        tool: bool = False,
-        imodel: bool = False,
-    ) -> None:
-        """
-        Async version of `receive()`.
-
-        Args:
-            sender (UUID):
-                The ID of the mail sender.
-            message (bool):
-                If `True`, process packages categorized as "message".
-            tool (bool):
-                If `True`, process packages categorized as "tool".
-            imodel (bool):
-                If `True`, process packages categorized as "imodel".
-        """
-        async with self.mailbox.pile_:
-            self.receive(sender, message, tool, imodel)
-
-    def receive_all(self) -> None:
-        """
-        Receives mail from all known senders without filtering.
-
-        (Duplicate method included in your snippet; you may unify or remove.)
-        """
-        for key in self.mailbox.pending_ins:
-            self.receive(key)
 
     def connect(
         self,
@@ -892,13 +716,14 @@ class Branch(Element, Communicatable, Relational):
             BaseModel | dict | str | None:
                 Parsed model instance, or a fallback based on `handle_validation`.
         """
-        from lionagi.operations.parse.parse import parse, prepare_parse_kws
 
         _pms = {
             k: v
             for k, v in locals().items()
             if k not in ("self", "_pms") and v is not None
         }
+        from lionagi.operations.parse.parse import parse, prepare_parse_kws
+
         return await parse(self, **prepare_parse_kws(self, **_pms))
 
     async def operate(
@@ -1196,33 +1021,6 @@ class Branch(Element, Communicatable, Relational):
         )
 
         return await interpret(self, **prepare_interpret_kw(self, **_pms))
-
-    async def instruct(
-        self,
-        instruct: "Instruct",
-        /,
-        **kwargs,
-    ):
-        """
-        A convenience method that chooses between `operate()` and `communicate()`
-        based on the contents of an `Instruct` object.
-
-        If the `Instruct` indicates tool usage or advanced response format,
-        `operate()` is used. Otherwise, it defaults to `communicate()`.
-
-        Args:
-            instruct (Instruct):
-                An object containing `instruction`, `guidance`, `context`, etc.
-            **kwargs:
-                Additional args forwarded to `operate()` or `communicate()`.
-
-        Returns:
-            Any:
-                The result of the underlying call (structured object, raw text, etc.).
-        """
-        from lionagi.operations.instruct.instruct import instruct as _ins
-
-        return await _ins(self, instruct, **kwargs)
 
     async def ReAct(
         self,
