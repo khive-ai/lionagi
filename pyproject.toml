@@ -118,6 +118,7 @@ all = [
     "lionagi[postgres]",
     "lionagi[graph]",
     "lionagi[sqlite]",
+    "lionagi[xml]"
 ]
 
 

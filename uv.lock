@@ -2321,6 +2321,7 @@ all = [
     { name = "ollama" },
     { name = "pydapter", extra = ["postgres"] },
     { name = "rich" },
+    { name = "xmltodict" },
 ]
 graph = [
     { name = "matplotlib" },
@@ -2407,6 +2408,7 @@ requires-dist = [
     { name = "lionagi", extras = ["rich"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["schema"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["sqlite"], marker = "extra == 'all'" },
+    { name = "lionagi", extras = ["xml"], marker = "extra == 'all'" },
     { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.7.0" },
     { name = "msgspec", specifier = ">=0.18.0" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0.0" },
