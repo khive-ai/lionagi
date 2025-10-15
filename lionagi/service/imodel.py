@@ -364,7 +364,7 @@ class iModel:
             await self.executor.append(api_call)
             await self.executor.forward()
             ctr = 0
-            while api_call.status == EventStatus.PROCESSING:
+            while api_call.status in [EventStatus.PROCESSING, EventStatus.PENDING]:
                 if ctr > 100:
                     break
                 await self.executor.forward()
