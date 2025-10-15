@@ -20,8 +20,6 @@ from .generic.progression import Progression, prog
 from .graph.edge import EdgeCondition
 from .graph.graph import Edge, Graph, Node
 from .ids import canonical_id, to_uuid
-from .mail.exchange import Exchange, Mail, Mailbox, Package, PackageCategory
-from .mail.manager import MailManager
 from .messages.base import (
     MESSAGE_FIELDS,
     MessageField,
@@ -72,11 +70,6 @@ __all__ = (
     "Edge",
     "Graph",
     "Node",
-    "Exchange",
-    "Mail",
-    "Mailbox",
-    "Package",
-    "PackageCategory",
     "MESSAGE_FIELDS",
     "MessageField",
     "MessageRole",
@@ -89,7 +82,6 @@ __all__ = (
     "RoledMessage",
     "SenderRecipient",
     "System",
-    "MailManager",
     "DataLogger",
     "DataLoggerConfig",
 )

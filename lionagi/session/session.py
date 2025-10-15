@@ -18,10 +18,7 @@ from typing_extensions import Self
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
-    Communicatable,
-    Exchange,
     Graph,
-    MailManager,
     Node,
     Pile,
     Progression,
@@ -37,25 +34,19 @@ from ..service.imodel import iModel
 from .branch import ActionManager, Branch, OperationManager, Tool
 
 
-class Session(Node, Communicatable, Relational):
+class Session(Node, Relational):
     """
-    Manages multiple conversation branches and mail transfer in a session.
+    Manages multiple conversation branches in a session.
 
     Attributes:
         branches (Pile | None): Collection of conversation branches.
         default_branch (Branch | None): The default conversation branch.
-        mail_transfer (Exchange | None): Mail transfer system.
-        mail_manager (MailManager | None): Manages mail operations.
     """
 
     branches: Pile[Branch] = Field(
         default_factory=lambda: Pile(item_type={Branch}, strict_type=False)
     )
     default_branch: Any = Field(default=None, exclude=True)
-    mail_transfer: Exchange = Field(default_factory=Exchange, exclude=True)
-    mail_manager: MailManager = Field(
-        default_factory=MailManager, exclude=True
-    )
     name: str = Field(default="Session")
     user: SenderRecipient | None = None
     _operation_manager: OperationManager = PrivateAttr(
@@ -76,7 +67,6 @@ class Session(Node, Communicatable, Relational):
         def _take_in_branch(branch: Branch):
             if branch not in self.branches:
                 self.branches.include(branch)
-                self.mail_manager.add_sources(branch)
 
             branch.user = self.id
             branch._operation_manager = self._operation_manager
@@ -119,7 +109,7 @@ class Session(Node, Communicatable, Relational):
         return decorator
 
     @model_validator(mode="after")
-    def _add_mail_sources(self) -> Self:
+    def _initialize_branches(self) -> Self:
         if self.default_branch is None:
             self.default_branch = Branch()
         if self.default_branch not in self.branches:
@@ -196,7 +186,6 @@ class Session(Node, Communicatable, Relational):
         branch: Branch = self.branches[branch]
 
         self.branches.exclude(branch)
-        self.mail_manager.delete_source(branch.id)
 
         if self.default_branch.id == branch.id:
             if not self.branches:
@@ -288,79 +277,6 @@ class Session(Node, Communicatable, Relational):
             collections=messages, item_type={RoledMessage}, strict_type=False
         )
 
-    def send(self, to_: ID.RefSeq = None):
-        """
-        Send mail to specified branches.
-
-        Args:
-            to_: The branches to send mail to. If None, send to all.
-
-        Raises:
-            ValueError: If mail sending fails.
-        """
-        if to_ is None:
-            self.mail_manager.send_all()
-        else:
-            try:
-                lcall(
-                    to_,
-                    lambda x: self.mail_manager.send(ID.get_id(x)),
-                    input_unique=True,
-                    input_flatten=True,
-                    input_dropna=True,
-                    input_use_values=True,
-                )
-            except Exception as e:
-                raise ValueError(f"Failed to send mail. Error: {e}")
-
-    async def acollect_send_all(self, receive_all: bool = True):
-        """
-        Collect and send mail for all branches, optionally receiving all mail.
-
-        Args:
-            receive_all: If True, receive all mail for all branches.
-        """
-        async with self.mail_manager.sources:
-            self.collect_send_all(receive_all)
-
-    def collect_send_all(self, receive_all: bool = True):
-        """
-        Collect and send mail for all branches, optionally receiving all mail.
-
-        Args:
-            receive_all: If True, receive all mail for all branches.
-        """
-        self.collect()
-        self.send()
-        if receive_all:
-            for i in self.branches:
-                i.receive_all()
-
-    def collect(self, from_: ID.RefSeq = None):
-        """
-        Collect mail from specified branches.
-
-        Args:
-            from_: The branches to collect mail from. If None, collect
-                from all.
-
-        Raises:
-            ValueError: If mail collection fails.
-        """
-        if from_ is None:
-            self.mail_manager.collect_all()
-        else:
-            try:
-                lcall(
-                    from_,
-                    lambda x: self.mail_manager.collect(ID.get_id(x)),
-                    input_flatten=True,
-                    input_dropna=True,
-                    input_unique=True,
-                    input_use_values=True,
-                )
-            except Exception as e:
-                raise ValueError(f"Failed to collect mail. Error: {e}")
 
     async def flow(
         self,

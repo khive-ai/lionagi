@@ -10,7 +10,6 @@ from lionagi.protocols.types import (
     Instruction,
     LogManagerConfig,
     MessageRole,
-    PackageCategory,
     RoledMessage,
 )
 from lionagi.service.manager import iModel
@@ -73,7 +72,6 @@ def test_branch_init_basic():
     assert branch.acts is not None
     assert branch.mdls is not None
     assert branch.logs is not None
-    assert branch.mailbox is not None
 
 
 def test_branch_init_system_message():
@@ -329,40 +327,6 @@ async def test_aclone(branch_with_mock_imodel: Branch):
     assert len(cloned.messages) == 1
     cmsg = cloned.messages[0]
     assert cmsg.recipient == cloned.id
-
-
-def test_send_and_receive_sync(branch_with_mock_imodel: Branch):
-    """
-    send(...) => place in out_queue. We simulate transferring to a target's mailbox => target calls receive(...).
-    """
-    target_branch = Branch(user="target", name="ReceiverBranch")
-
-    msg = Instruction(
-        content={"instruction": "Message from outside"},
-        sender=branch_with_mock_imodel.user,
-        recipient=branch_with_mock_imodel.id,
-    )
-
-    branch_with_mock_imodel.send(
-        recipient=target_branch.id,
-        category=PackageCategory.MESSAGE,
-        item=msg,
-    )
-    # Mail in out_queue
-    assert len(branch_with_mock_imodel.mailbox.pending_outs) == 1
-    mail_id = branch_with_mock_imodel.mailbox.pending_outs[0]
-    mail_obj = branch_with_mock_imodel.mailbox.pile_[mail_id]
-
-    # Transfer mail to target mailbox
-    target_branch.mailbox.pile_[mail_id] = mail_obj
-    target_branch.mailbox.append_in(mail_obj)
-
-    # Now target receives
-    target_branch.receive(sender=branch_with_mock_imodel, message=True)
-    assert len(target_branch.messages) == 1
-    rm = target_branch.messages[0]
-    assert rm.content.instruction == "Message from outside"
-    assert rm.sender == branch_with_mock_imodel.id
 
 
 def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
