@@ -295,32 +295,6 @@ class TestAlcallRetryTimeout:
 class TestAlcallExceptionHandling:
     """Test alcall exception handling."""
 
-    @pytest.mark.skip(
-        reason="CancelledError handling is complex with task groups - line 154 conceptually covered"
-    )
-    @pytest.mark.anyio
-    async def test_alcall_cancelled_exception_reraises(self):
-        """Test cancelled exception re-raises (line 154).
-
-        Note: This test is skipped because CancelledError behavior with task groups
-        is complex and inconsistent across async backends. The code path is exercised
-        but the exception handling is difficult to test reliably.
-        """
-        import anyio
-
-        async def func_with_cancel(x: int) -> int:
-            raise anyio.get_cancelled_exc_class()()
-
-        inputs = [1]
-        with pytest.raises(
-            (
-                asyncio.CancelledError,
-                BaseExceptionGroup,
-                anyio.get_cancelled_exc_class(),
-            )
-        ):
-            await alcall(inputs, func_with_cancel)
-
     @pytest.mark.anyio
     async def test_alcall_exception_reraises_after_retry_exhaustion(self):
         """Test exception re-raises after retry exhaustion (line 169)."""
