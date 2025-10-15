@@ -426,22 +426,15 @@ async def test_capacity_limiter_acquire_on_behalf_of(anyio_backend):
     assert limiter.available_tokens == 2
     assert limiter.borrowed_tokens == 0
 
-    # Test the wrapper method - it should call through to anyio's method
-    # The wrapper is sync but calls the anyio method which may be async
-    try:
-        limiter.acquire_on_behalf_of(borrower)
-    except RuntimeError:
-        # If anyio's method is async, we need to await it
-        await anyio.lowlevel.checkpoint()
-        # Just verify the method exists and can be called
-        pass
+    # Test the async acquire method
+    await limiter.acquire_on_behalf_of(borrower)
+    assert limiter.borrowed_tokens == 1
+    assert limiter.available_tokens == 1
 
-    # Even if the call didn't work as expected, the line is covered
-    # Release also covers line 161
-    try:
-        limiter.release_on_behalf_of(borrower)
-    except RuntimeError:
-        pass
+    # Release is synchronous
+    limiter.release_on_behalf_of(borrower)
+    assert limiter.borrowed_tokens == 0
+    assert limiter.available_tokens == 2
 
 
 @pytest.mark.anyio
@@ -452,21 +445,19 @@ async def test_capacity_limiter_release_on_behalf_of(anyio_backend):
     borrower1 = object()
     borrower2 = object()
 
-    # Test that the methods can be called (covering lines 153 and 161)
-    # The actual behavior depends on anyio's implementation
-    try:
-        limiter.acquire_on_behalf_of(borrower1)
-        limiter.acquire_on_behalf_of(borrower2)
-    except RuntimeError:
-        # Method called, line covered
-        pass
+    # Test multiple acquire/release cycles
+    await limiter.acquire_on_behalf_of(borrower1)
+    assert limiter.borrowed_tokens == 1
 
-    try:
-        limiter.release_on_behalf_of(borrower1)
-        limiter.release_on_behalf_of(borrower2)
-    except RuntimeError:
-        # Method called, line covered
-        pass
+    await limiter.acquire_on_behalf_of(borrower2)
+    assert limiter.borrowed_tokens == 2
+
+    # Release is synchronous
+    limiter.release_on_behalf_of(borrower1)
+    assert limiter.borrowed_tokens == 1
+
+    limiter.release_on_behalf_of(borrower2)
+    assert limiter.borrowed_tokens == 0
 
 
 @pytest.mark.anyio

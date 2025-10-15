@@ -172,6 +172,7 @@ async def test_completion_stream_consume_all_results(anyio_backend):
 # =============================================================================
 
 
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 async def test_completion_stream_exception_propagation(anyio_backend):
     """Test CompletionStream propagates exceptions through ExceptionGroup."""
     from lionagi.ln.concurrency._compat import ExceptionGroup
@@ -221,6 +222,7 @@ async def test_completion_stream_cleanup_on_exception(anyio_backend):
     # __aexit__ should have closed resources
 
 
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 async def test_completion_stream_exception_early_in_iteration(anyio_backend):
     """Test exception early in iteration propagates through ExceptionGroup."""
     from lionagi.ln.concurrency._compat import ExceptionGroup
@@ -250,15 +252,26 @@ async def test_completion_stream_exception_early_in_iteration(anyio_backend):
 # =============================================================================
 
 
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 async def test_completion_stream_not_in_context_manager_raises(anyio_backend):
     """Test CompletionStream raises when used outside context manager."""
-    stream = CompletionStream([anyio.sleep(0) for _ in range(3)])
+    import warnings
 
-    with pytest.raises(
-        RuntimeError, match="must be used as async context manager"
-    ):
-        async for idx, result in stream:
-            pass
+    # Use task factory to create coroutines
+    async def dummy_task(x):
+        await anyio.sleep(0)
+        return x
+
+    # Suppress RuntimeWarning for unawaited coroutines in this error test
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        stream = CompletionStream([dummy_task(i) for i in range(3)])
+
+        with pytest.raises(
+            RuntimeError, match="must be used as async context manager"
+        ):
+            async for idx, result in stream:
+                pass
 
 
 async def test_completion_stream_proper_cleanup_in_aexit(anyio_backend):

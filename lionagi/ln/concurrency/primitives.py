@@ -142,15 +142,15 @@ class CapacityLimiter:
         """Get the number of currently available tokens."""
         return self._lim.available_tokens
 
-    def acquire_on_behalf_of(self, borrower: object) -> None:
-        """Synchronously acquire capacity on behalf of another object.
+    async def acquire_on_behalf_of(self, borrower: object) -> None:
+        """Asynchronously acquire capacity on behalf of another object.
 
         For resource pooling where the acquirer differs from the releaser.
 
         Args:
             borrower: Object that will be responsible for releasing.
         """
-        self._lim.acquire_on_behalf_of(borrower)
+        await self._lim.acquire_on_behalf_of(borrower)
 
     def release_on_behalf_of(self, borrower: object) -> None:
         """Release capacity that was acquired on behalf of an object.
@@ -326,6 +326,6 @@ class Condition:
         """Wake up all tasks waiting on this condition."""
         self._condition.notify_all()
 
-    def statistics(self) -> anyio.abc.ConditionStatistics:
+    def statistics(self) -> anyio.ConditionStatistics:
         """Return statistics about waiting tasks."""
         return self._condition.statistics()

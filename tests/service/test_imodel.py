@@ -325,3 +325,278 @@ class TestiModel:
 
         assert result1.response["model_used"] == "gpt-4.1-mini"
         assert result2.response["model_used"] == "gpt-4o"
+
+    def test_imodel_custom_id_with_id_get_id(self):
+        """Test iModel initialization with custom ID using ID.get_id."""
+        from uuid import uuid4
+
+        custom_id = uuid4()
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            id=custom_id,
+        )
+
+        assert imodel.id == custom_id
+
+    def test_imodel_custom_id_as_string(self):
+        """Test iModel initialization with ID as UUID string."""
+        from uuid import uuid4
+
+        custom_id = str(uuid4())
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            id=custom_id,
+        )
+
+        # ID.get_id should handle UUID string conversion
+        assert str(imodel.id) == custom_id
+
+    def test_imodel_invalid_created_at_type(self):
+        """Test iModel initialization with invalid created_at type."""
+        with pytest.raises(
+            ValueError, match="created_at must be a float timestamp"
+        ):
+            iModel(
+                provider="openai",
+                model="gpt-4.1-mini",
+                api_key="test-key",
+                created_at="not-a-float",
+            )
+
+    def test_imodel_with_endpoint_object(self):
+        """Test iModel initialization with Endpoint object passed directly."""
+        from lionagi.service.connections.endpoint import Endpoint
+        from lionagi.service.connections.match_endpoint import match_endpoint
+
+        # Create an endpoint object
+        endpoint = match_endpoint(
+            provider="openai",
+            endpoint="chat",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+        )
+
+        # Pass endpoint object directly
+        imodel = iModel(endpoint=endpoint, api_key="test-key")
+
+        assert imodel.endpoint == endpoint
+        assert imodel.endpoint.config.provider == "openai"
+
+    def test_imodel_hook_registry_as_dict(self):
+        """Test iModel initialization with hook_registry as dict."""
+        from lionagi.service.hooks import HookRegistry
+
+        hook_registry_dict = {}
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            hook_registry=hook_registry_dict,
+        )
+
+        assert isinstance(imodel.hook_registry, HookRegistry)
+
+    def test_imodel_claude_code_auto_resume(self):
+        """Test auto-injection of resume parameter for claude_code provider."""
+        imodel = iModel(
+            provider="claude_code",
+            model="claude-3-5-sonnet-20241022",
+            api_key="test-key",
+        )
+
+        # Set session_id in provider_metadata
+        imodel.provider_metadata["session_id"] = "test-session-123"
+
+        # Create API calling without explicit resume parameter
+        api_call = imodel.create_api_calling(
+            messages=[{"role": "user", "content": "Hello"}]
+        )
+
+        # Check that resume was auto-injected (in the request object for claude_code)
+        assert api_call.payload["request"].resume == "test-session-123"
+
+    def test_imodel_claude_code_no_auto_resume_if_explicit(self):
+        """Test that explicit resume parameter is not overridden."""
+        imodel = iModel(
+            provider="claude_code",
+            model="claude-3-5-sonnet-20241022",
+            api_key="test-key",
+        )
+
+        # Set session_id in provider_metadata
+        imodel.provider_metadata["session_id"] = "test-session-123"
+
+        # Create API calling WITH explicit resume parameter
+        api_call = imodel.create_api_calling(
+            messages=[{"role": "user", "content": "Hello"}],
+            resume="explicit-session",
+        )
+
+        # Check that explicit resume was used (in the request object for claude_code)
+        assert api_call.payload["request"].resume == "explicit-session"
+
+    @pytest.mark.asyncio
+    async def test_imodel_streaming_with_async_process_func(self):
+        """Test streaming with async streaming_process_func."""
+
+        async def async_process(chunk):
+            """Async processing function."""
+            await asyncio.sleep(0.001)
+            if hasattr(chunk, "get") and chunk.get("choices"):
+                return (
+                    f"Async: {chunk['choices'][0]['delta'].get('content', '')}"
+                )
+            return None
+
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            streaming_process_func=async_process,
+        )
+
+        async def mock_stream():
+            chunks = [
+                {"choices": [{"delta": {"content": "Hello"}}]},
+                {"choices": [{"delta": {"content": " world"}}]},
+            ]
+            for chunk in chunks:
+                yield chunk
+
+        with patch.object(
+            imodel.endpoint, "stream", return_value=mock_stream()
+        ):
+            chunks = []
+            async for chunk in imodel.stream(
+                messages=[{"role": "user", "content": "Hello"}]
+            ):
+                if chunk and not isinstance(chunk, APICalling):
+                    chunks.append(chunk)
+
+        assert len(chunks) >= 2
+        assert any("Async:" in str(chunk) for chunk in chunks)
+
+    @pytest.mark.asyncio
+    async def test_imodel_claude_code_session_id_storage(self, mock_response):
+        """Test that session_id is stored in provider_metadata after invoke."""
+        imodel = iModel(
+            provider="claude_code",
+            model="claude-3-5-sonnet-20241022",
+            api_key="test-key",
+        )
+
+        # Mock response with session_id
+        async def mock_request_with_session(
+            request, cache_control=False, **kwargs
+        ):
+            return {"session_id": "new-session-456", "response": "test"}
+
+        with patch.object(
+            imodel.endpoint, "call", side_effect=mock_request_with_session
+        ):
+            result = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
+
+        # Check that session_id was stored
+        assert imodel.provider_metadata.get("session_id") == "new-session-456"
+
+    def test_imodel_to_dict(self):
+        """Test iModel to_dict serialization."""
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            limit_requests=10,
+        )
+
+        data = imodel.to_dict()
+
+        assert "id" in data
+        assert "created_at" in data
+        assert "endpoint" in data
+        assert "processor_config" in data
+        assert "provider_metadata" in data
+        assert data["processor_config"]["limit_requests"] == 10
+
+    def test_imodel_from_dict(self):
+        """Test iModel from_dict deserialization."""
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            limit_requests=10,
+        )
+
+        data = imodel.to_dict()
+        restored = iModel.from_dict(data)
+
+        assert restored.id == imodel.id
+        assert restored.created_at == imodel.created_at
+        assert restored.endpoint.config.provider == "openai"
+        assert restored.executor.config["limit_requests"] == 10
+
+    def test_imodel_from_dict_with_match_endpoint(self):
+        """Test from_dict uses match_endpoint for endpoint reconstruction."""
+        # Create initial iModel
+        imodel = iModel(
+            provider="anthropic",
+            model="claude-3-5-sonnet-20241022",
+            api_key="test-key",
+        )
+
+        # Serialize and deserialize
+        data = imodel.to_dict()
+        restored = iModel.from_dict(data)
+
+        # Check that match_endpoint was used to properly reconstruct
+        assert restored.endpoint.config.provider == "anthropic"
+        assert (
+            restored.endpoint.config.kwargs["model"]
+            == "claude-3-5-sonnet-20241022"
+        )
+
+    @pytest.mark.asyncio
+    async def test_imodel_unsupported_event_type(self):
+        """Test that unsupported event types raise ValueError."""
+        from lionagi.protocols.types import Event
+
+        imodel = iModel(
+            provider="openai", model="gpt-4.1-mini", api_key="test-key"
+        )
+
+        # Create a custom event type that's not APICalling
+        class CustomEvent(Event):
+            pass
+
+        with pytest.raises(
+            ValueError,
+            match="Unsupported event type.*Only APICalling is supported",
+        ):
+            await imodel.create_event(create_event_type=CustomEvent)
+
+    @pytest.mark.asyncio
+    async def test_imodel_invoke_with_concurrency_limit(self, mock_response):
+        """Test invoke with concurrency limit set."""
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            concurrency_limit=2,
+        )
+
+        with patch.object(
+            imodel.endpoint,
+            "call",
+            return_value=mock_response.json.return_value,
+        ):
+            result = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
+
+        assert isinstance(result, APICalling)
+        assert result.status == EventStatus.COMPLETED
