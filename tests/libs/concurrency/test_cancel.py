@@ -190,3 +190,47 @@ async def test_move_on_at_none_still_cancellable(anyio_backend):
         tg.cancel_scope.cancel()
 
     assert cancelled is True
+
+
+@pytest.mark.anyio
+async def test_fail_after_none_completes_successfully(anyio_backend):
+    """Test that fail_after(None) completes successfully without timeout."""
+    completed = False
+    with fail_after(None) as scope:
+        await anyio.sleep(0.001)
+        completed = True
+    assert completed is True
+    assert scope is not None
+
+
+@pytest.mark.anyio
+async def test_move_on_after_none_completes_successfully(anyio_backend):
+    """Test that move_on_after(None) completes successfully without timeout."""
+    completed = False
+    with move_on_after(None) as scope:
+        await anyio.sleep(0.001)
+        completed = True
+    assert completed is True
+    assert scope.cancelled_caught is False
+
+
+@pytest.mark.anyio
+async def test_fail_at_none_completes_successfully(anyio_backend):
+    """Test that fail_at(None) completes successfully without deadline."""
+    completed = False
+    with fail_at(None) as scope:
+        await anyio.sleep(0.001)
+        completed = True
+    assert completed is True
+    assert scope is not None
+
+
+@pytest.mark.anyio
+async def test_move_on_at_none_completes_successfully(anyio_backend):
+    """Test that move_on_at(None) completes successfully without deadline."""
+    completed = False
+    with move_on_at(None) as scope:
+        await anyio.sleep(0.001)
+        completed = True
+    assert completed is True
+    assert scope.cancelled_caught is False

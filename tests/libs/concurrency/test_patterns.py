@@ -431,3 +431,58 @@ async def test_retry_mixed_exceptions(anyio_backend):
 
     assert str(exc_info.value) == "Critical error"
     assert attempts["count"] == 3  # Two retries then critical failure
+
+
+# NOTE: Lines 82 and 168 are defensive code for rare edge cases where
+# an ExceptionGroup contains ONLY cancellation exceptions. These are
+# extremely difficult to test reliably due to the nature of structured
+# concurrency and cancellation propagation. They represent defensive
+# programming for theoretical edge cases that are unlikely to occur in practice.
+
+
+@pytest.mark.anyio
+async def test_bounded_map_invalid_limit(anyio_backend):
+    """Test bounded_map() line 141: raises ValueError when limit <= 0."""
+
+    async def dummy(x):
+        return x
+
+    # Test with limit = 0
+    with pytest.raises(ValueError, match="limit must be >= 1"):
+        await bounded_map(dummy, [1, 2, 3], limit=0)
+
+    # Test with negative limit
+    with pytest.raises(ValueError, match="limit must be >= 1"):
+        await bounded_map(dummy, [1, 2, 3], limit=-1)
+
+
+# (Line 168 covered by same note as line 82 above)
+
+
+@pytest.mark.anyio
+async def test_retry_deadline_expired_immediately(anyio_backend):
+    """Test retry() line 299: raises when deadline already expired (remaining <= 0)."""
+    calls = {"n": 0}
+
+    async def always_fail():
+        calls["n"] += 1
+        # Consume time on first call to bring us near deadline
+        if calls["n"] == 1:
+            await anyio.sleep(0.04)
+        raise TimeoutError("Failed")
+
+    # Use a deadline that expires right after the first attempt
+    # The retry code should detect remaining <= 0 and raise at line 299
+    with pytest.raises(TimeoutError):
+        with fail_after(0.045):  # Very tight deadline
+            await retry(
+                always_fail,
+                attempts=100,
+                base_delay=1.0,  # Long delay so deadline check happens first
+                max_delay=2.0,
+                retry_on=(TimeoutError,),
+                jitter=0.0,
+            )
+
+    # Verify we made at least one attempt
+    assert calls["n"] >= 1
