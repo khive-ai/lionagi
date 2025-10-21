@@ -4,13 +4,11 @@
 from .field_model import FieldModel
 from .hashable_model import HashableModel
 from .model_params import ModelParams
-from .operable_model import OperableModel
 from .schema_model import SchemaModel
 
 __all__ = (
     "FieldModel",
     "ModelParams",
-    "OperableModel",
     "SchemaModel",
     "HashableModel",
 )

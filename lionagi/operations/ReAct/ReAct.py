@@ -14,6 +14,7 @@ from lionagi.libs.validate.common_field_validators import (
     validate_model_to_type,
 )
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
+from lionagi.ln.types import Spec
 from lionagi.models.field_model import FieldModel
 from lionagi.service.imodel import iModel
 
@@ -169,7 +170,7 @@ async def ReAct_v1(
     resp_ctx: dict | None = None,
     reasoning_effort: Literal["low", "medium", "high"] | None = None,
     reason: bool = False,
-    field_models: list[FieldModel] | None = None,
+    field_models: list[FieldModel | Spec] | None = None,
     handle_validation: HandleValidation = "raise",
     invoke_actions: bool = True,
     clear_messages=False,
@@ -278,7 +279,7 @@ async def handle_instruction_interpretation(
 
 
 def handle_field_models(
-    field_models: list[FieldModel] | None,
+    field_models: list[FieldModel | Spec] | None,
     intermediate_response_options: B | list[B] = None,
     intermediate_listable: bool = False,
     intermediate_nullable: bool = False,
@@ -289,26 +290,28 @@ def handle_field_models(
     if intermediate_response_options:
 
         def create_intermediate_response_field_model():
-            from lionagi.models import OperableModel
+            from typing import Optional
+
+            from pydantic import Field, create_model
 
             _iro = intermediate_response_options
             iro = [_iro] if not isinstance(_iro, list) else _iro
-            opm = OperableModel()
 
+            # Build fields dict for create_model
+            fields = {}
             for i in iro:
                 type_ = validate_model_to_type(None, i)
-                opm.add_field(
-                    str(type_.__name__).lower(),
-                    annotation=type_ | None,
-                    # Remove lambda validator to avoid Pydantic serialization errors
-                )
+                field_name = str(type_.__name__).lower()
+                # Make each field optional
+                fields[field_name] = (Optional[type_], Field(default=None))
 
-            m_ = opm.new_model(name="IntermediateResponseOptions")
+            # Create the dynamic model using Pydantic's create_model
+            m_ = create_model("IntermediateResponseOptions", **fields)
+
             irfm = FieldModel(
                 name="intermediate_response_options",
                 base_type=m_,
                 description="Intermediate deliverable outputs. fill as needed ",
-                # Remove lambda validator to avoid Pydantic serialization errors
             )
 
             if intermediate_listable:
@@ -335,7 +338,7 @@ async def ReActStream(
     resp_ctx: dict | None = None,
     reasoning_effort: Literal["low", "medium", "high"] | None = None,
     reason: bool = False,
-    field_models: list[FieldModel] | None = None,
+    field_models: list[FieldModel | Spec] | None = None,
     handle_validation: HandleValidation = "raise",
     invoke_actions: bool = True,
     clear_messages=False,

@@ -6,10 +6,8 @@ complex integrations that may be broken due to API changes.
 """
 
 import pytest
-from pydantic import BaseModel
-from pydantic.fields import FieldInfo
 
-from lionagi.models import FieldModel, ModelParams
+from lionagi.ln.types import Spec
 from lionagi.operations.operate.step import Operative, Step
 
 
@@ -25,7 +23,7 @@ class TestStepBasicFunctionality:
 
     def test_request_operative_with_name(self):
         """Test request operative with custom name."""
-        operative = Step.request_operative(operative_name="test_name")
+        operative = Step.request_operative(name="test_name")
 
         assert operative.name == "test_name"
 
@@ -47,135 +45,95 @@ class TestStepBasicFunctionality:
 
         assert operative.auto_retry_parse is True
 
-    def test_request_operative_with_parse_kwargs(self):
-        """Test request operative with parse kwargs."""
-        parse_kwargs = {"strict": True}
-        operative = Step.request_operative(parse_kwargs=parse_kwargs)
-
-        assert operative.parse_kwargs == parse_kwargs
-
     def test_request_operative_with_reason_field(self):
         """Test request operative with reason field enabled."""
         operative = Step.request_operative(reason=True)
 
         assert isinstance(operative, Operative)
+        # Verify reason field was added
+        assert operative.operable.get("reason") is not None
 
     def test_request_operative_with_actions_field(self):
         """Test request operative with actions field enabled."""
         operative = Step.request_operative(actions=True)
 
         assert isinstance(operative, Operative)
+        # Verify action fields were added
+        assert operative.operable.get("action_required") is not None
+        assert operative.operable.get("action_requests") is not None
 
     def test_request_operative_with_reason_and_actions(self):
         """Test request operative with both reason and actions."""
         operative = Step.request_operative(reason=True, actions=True)
 
         assert isinstance(operative, Operative)
+        assert operative.operable.get("reason") is not None
+        assert operative.operable.get("action_required") is not None
 
-    def test_request_operative_with_field_models(self):
-        """Test request operative with custom field models."""
-        field_model = FieldModel(field="test_field", description="Test")
-        operative = Step.request_operative(field_models=[field_model])
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_exclude_fields(self):
-        """Test request operative with exclude fields."""
-        operative = Step.request_operative(exclude_fields=["field1", "field2"])
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_field_descriptions(self):
-        """Test request operative with field descriptions."""
-        descriptions = {"field1": "Description 1"}
-        operative = Step.request_operative(field_descriptions=descriptions)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_base_type(self):
-        """Test request operative with custom base type."""
-
-        class CustomBase(BaseModel):
-            test_field: str = "test"
-
-        operative = Step.request_operative(base_type=CustomBase)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_inherit_base_false(self):
-        """Test request operative with inherit_base disabled."""
-        operative = Step.request_operative(inherit_base=False)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_config_dict(self):
-        """Test request operative with config dict."""
-        config = {"extra": "forbid"}
-        operative = Step.request_operative(config_dict=config)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_doc(self):
-        """Test request operative with documentation."""
-        operative = Step.request_operative(doc="Test documentation")
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_frozen(self):
-        """Test request operative with frozen model."""
-        operative = Step.request_operative(frozen=True)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_new_model_name(self):
-        """Test request operative with custom model name."""
-        operative = Step.request_operative(new_model_name="CustomModel")
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_with_parameter_fields(self):
-        """Test request operative with parameter fields."""
-        param_fields = {"param1": FieldInfo(description="Parameter 1")}
-        operative = Step.request_operative(parameter_fields=param_fields)
-
-        assert isinstance(operative, Operative)
-
-
-class TestStepParameterProcessing:
-    """Test parameter processing edge cases."""
-
-    def test_request_operative_none_field_models(self):
-        """Test that None field_models is handled."""
-        operative = Step.request_operative(field_models=None)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_none_exclude_fields(self):
-        """Test that None exclude_fields is handled."""
-        operative = Step.request_operative(exclude_fields=None)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_none_field_descriptions(self):
-        """Test that None field_descriptions is handled."""
-        operative = Step.request_operative(field_descriptions=None)
-
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_empty_lists(self):
-        """Test request operative with empty lists."""
+    def test_request_operative_with_custom_fields(self):
+        """Test request operative with custom field specs."""
+        custom_spec = Spec(str, name="custom_field", description="Test field")
         operative = Step.request_operative(
-            field_models=[],
-            exclude_fields=[],
+            fields={"custom_field": custom_spec}
         )
 
         assert isinstance(operative, Operative)
+        assert operative.operable.get("custom_field") is not None
 
-    def test_request_operative_none_request_params(self):
-        """Test that None request_params is handled."""
-        operative = Step.request_operative(request_params=None)
+    def test_request_operative_with_adapter(self):
+        """Test request operative with specific adapter."""
+        operative = Step.request_operative(adapter="pydantic")
 
-        assert isinstance(operative, Operative)
+        assert operative.adapter == "pydantic"
+
+
+class TestStepRespondOperative:
+    """Test respond_operative functionality."""
+
+    def test_respond_operative_basic(self):
+        """Test basic respond operative."""
+        req_op = Step.request_operative(reason=True)
+        resp_op = Step.respond_operative(req_op)
+
+        assert isinstance(resp_op, Operative)
+        assert resp_op._response_model_cls is not None
+
+    def test_respond_operative_with_actions(self):
+        """Test respond operative with action responses."""
+        req_op = Step.request_operative(actions=True)
+        resp_op = Step.respond_operative(req_op)
+
+        assert isinstance(resp_op, Operative)
+        # Should have action_responses field
+        assert resp_op.operable.get("action_responses") is not None
+
+    def test_respond_operative_with_additional_fields(self):
+        """Test respond operative with additional fields."""
+        req_op = Step.request_operative(reason=True)
+        result_spec = Spec(str, name="result", description="Result")
+        resp_op = Step.respond_operative(
+            req_op, additional_fields={"result": result_spec}
+        )
+
+        assert isinstance(resp_op, Operative)
+        assert resp_op.operable.get("result") is not None
+
+    def test_respond_operative_with_exclude_fields(self):
+        """Test respond operative excluding specific fields."""
+        req_op = Step.request_operative(reason=True, actions=True)
+        # Note: exclude_fields is no longer supported in respond_operative
+        # The exclusion is handled at the request_operative level via request_exclude
+        resp_op = Step.respond_operative(req_op)
+
+        assert isinstance(resp_op, Operative)
+
+    def test_respond_operative_no_inheritance(self):
+        """Test respond operative without inheriting base fields."""
+        req_op = Step.request_operative(reason=True)
+        # Note: inherit_base is no longer supported - response always inherits from request
+        resp_op = Step.respond_operative(req_op)
+
+        assert isinstance(resp_op, Operative)
 
 
 class TestStepUtilityMethods:
@@ -191,39 +149,45 @@ class TestStepUtilityMethods:
         """Test that Step static methods are callable."""
         assert callable(Step.request_operative)
         assert callable(Step.respond_operative)
-        assert callable(Step._create_response_type)
 
 
 class TestStepEdgeCases:
     """Test edge cases and error conditions."""
 
-    def test_request_operative_single_field_model(self):
-        """Test request operative with single field model."""
-        field1 = FieldModel(field="unique_field", description="Single Field")
-
-        operative = Step.request_operative(field_models=[field1])
+    def test_request_operative_empty_fields(self):
+        """Test request operative with empty custom fields dict."""
+        operative = Step.request_operative(fields={})
 
         assert isinstance(operative, Operative)
 
-    def test_request_operative_reason_already_in_field_models(self):
-        """Test adding reason when it's already in field_models."""
-        from lionagi.fields import REASON_FIELD
+    def test_request_operative_none_fields(self):
+        """Test request operative with None custom fields."""
+        operative = Step.request_operative(fields=None)
 
-        operative = Step.request_operative(
-            field_models=[REASON_FIELD], reason=True
+        assert isinstance(operative, Operative)
+
+    def test_request_operative_multiple_custom_fields(self):
+        """Test request operative with multiple custom fields."""
+        fields = {
+            "field1": Spec(str, name="field1", description="First field"),
+            "field2": Spec(int, name="field2", description="Second field"),
+        }
+        operative = Step.request_operative(fields=fields)
+
+        assert isinstance(operative, Operative)
+        assert operative.operable.get("field1") is not None
+        assert operative.operable.get("field2") is not None
+
+    def test_respond_operative_with_all_options(self):
+        """Test respond operative with all optional parameters."""
+        req_op = Step.request_operative(reason=True, actions=True)
+        result_spec = Spec(str, name="result", description="Result")
+
+        resp_op = Step.respond_operative(
+            req_op, additional_fields={"result": result_spec}
         )
 
-        assert isinstance(operative, Operative)
-
-    def test_request_operative_actions_already_in_field_models(self):
-        """Test adding actions when already in field_models."""
-        from lionagi.fields import ACTION_REQUESTS_FIELD
-
-        operative = Step.request_operative(
-            field_models=[ACTION_REQUESTS_FIELD], actions=True
-        )
-
-        assert isinstance(operative, Operative)
+        assert isinstance(resp_op, Operative)
 
 
 if __name__ == "__main__":

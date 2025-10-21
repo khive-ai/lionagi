@@ -1,222 +1,182 @@
-# Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
-# SPDX-License-Identifier: Apache-2.0
+"""Step factory methods for creating configured Operative instances.
 
-from pydantic import BaseModel
-from pydantic.fields import FieldInfo
+This module provides convenient factory methods for common operation patterns,
+particularly for ReAct and multi-step workflows.
+"""
 
-from lionagi.models import FieldModel, ModelParams
+from typing import TYPE_CHECKING, Literal
+
+from lionagi.ln.types import Spec
 
 from ..fields import get_default_field
 from .operative import Operative
 
+if TYPE_CHECKING:
+    from pydantic import BaseModel
+
 
 class Step:
-    """Utility class providing methods to create and manage Operative instances for steps."""
+    """Factory methods for common Operative patterns.
+
+    Provides convenient methods to create Operative instances with
+    pre-configured field specifications for common patterns like ReAct,
+    question-answering, and task execution.
+
+    Example:
+        >>> # Create ReAct operative
+        >>> op = Step.request_operative(
+        ...     name="ReActStep",
+        ...     reason=True,
+        ...     actions=True,
+        ...     fields={
+        ...         "observation": Spec(str, description="Environment state")
+        ...     }
+        ... )
+        >>>
+        >>> # Validate response
+        >>> response = op.validate_response('{"reason": "...", "action_required": true}')
+    """
 
     @staticmethod
     def request_operative(
         *,
-        operative: Operative = None,
-        operative_name: str | None = None,
+        name: str | None = None,
+        adapter: Literal["pydantic"] = "pydantic",
         reason: bool = False,
         actions: bool = False,
-        request_params: ModelParams | None = None,
-        parameter_fields: dict[str, FieldInfo] | None = None,
-        base_type: type[BaseModel] | None = None,
-        field_models: list[FieldModel] | None = None,
-        exclude_fields: list[str] | None = None,
-        new_model_name: str | None = None,
-        field_descriptions: dict[str, str] | None = None,
-        inherit_base: bool = True,
-        config_dict: dict | None = None,
-        doc: str | None = None,
-        frozen: bool = False,
-        max_retries: int = None,
+        fields: dict[str, Spec] | None = None,
+        max_retries: int = 3,
         auto_retry_parse: bool = True,
-        parse_kwargs: dict | None = None,
+        base_type: type["BaseModel"] | None = None,
     ) -> Operative:
-        """Creates an Operative instance configured for request handling.
+        """Create request-configured Operative with common field patterns.
 
         Args:
-            operative_name (str, optional): Name of the operative.
-            reason (bool, optional): Whether to include reason field.
-            actions (bool, optional): Whether to include action fields.
-            request_params (ModelParams, optional): Parameters for the new model.
-            parameter_fields (dict[str, FieldInfo], optional): Parameter fields for the model.
-            base_type (type[BaseModel], optional): Base type for the model.
-            field_models (list[FieldModel], optional): List of field models.
-            exclude_fields (list[str], optional): List of fields to exclude.
-            new_model_name (str | None, optional): Name of the new model.
-            field_descriptions (dict[str, str], optional): Descriptions for the fields.
-            inherit_base (bool, optional): Whether to inherit base.
-            config_dict (dict | None, optional): Configuration dictionary.
-            doc (str | None, optional): Documentation string.
-            frozen (bool, optional): Whether the model is frozen.
-            max_retries (int, optional): Maximum number of retries.
+            name: Operative name
+            adapter: Validation framework to use
+            reason: Add reasoning trace field
+            actions: Add action request/response fields
+            fields: Additional custom field specs
+            max_retries: Max validation retries
+            auto_retry_parse: Auto-retry on parse failure
+            base_type: Base Pydantic model to extend
 
         Returns:
-            Operative: The configured operative instance.
+            Configured Operative instance
+
+        Example:
+            >>> op = Step.request_operative(
+            ...     name="ReActStep",
+            ...     reason=True,
+            ...     actions=True,
+            ...     fields={
+            ...         "observation": Spec(str, description="Environment state"),
+            ...         "confidence": Spec(float, ge=0.0, le=1.0),
+            ...     }
+            ... )
         """
+        from lionagi.ln.types import Operable
 
-        params = {}
-        if operative:
-            params = operative.model_dump()
-            request_params = operative.request_params.model_dump()
-            field_models = request_params.field_models
+        # Build fields list upfront
+        all_fields = []
 
-        field_models = field_models or []
-        exclude_fields = exclude_fields or []
-        field_descriptions = field_descriptions or {}
-        if reason and (fm := get_default_field("reason")) not in field_models:
-            field_models.append(fm)
-        if (
-            actions
-            and (fm := get_default_field("action_requests"))
-            not in field_models
-        ):
-            fm2 = get_default_field("action_required")
-            field_models.extend([fm, fm2])
-        if isinstance(request_params, ModelParams):
-            request_params = request_params.to_dict()
+        # Add common fields
+        if reason:
+            all_fields.append(get_default_field("reason"))
 
-        request_params = request_params or {}
-        request_params_fields = {
-            "parameter_fields": parameter_fields,
-            "field_models": field_models,
-            "exclude_fields": exclude_fields,
-            "field_descriptions": field_descriptions,
-            "inherit_base": inherit_base,
-            "config_dict": config_dict,
-            "doc": doc,
-            "frozen": frozen,
-            "base_type": base_type,
-            "name": new_model_name,
-        }
-        request_params.update(
-            {k: v for k, v in request_params_fields.items() if v is not None}
+        if actions:
+            all_fields.append(get_default_field("action_required"))
+            all_fields.append(get_default_field("action_requests"))
+            all_fields.append(
+                get_default_field("action_responses")
+            )  # Add response field too
+
+        # Add custom fields
+        if fields:
+            for field_name, spec in fields.items():
+                # Ensure spec has name
+                if not hasattr(spec, "name") or not spec.name:
+                    spec = (
+                        spec.with_updates(name=field_name)
+                        if hasattr(spec, "with_updates")
+                        else spec
+                    )
+                all_fields.append(spec)
+
+        # Create single Operable with all fields
+        operable = Operable(
+            __op_fields__=frozenset(all_fields),
+            name=name or (base_type.__name__ if base_type else "Operative"),
         )
-        request_params = ModelParams(**request_params)
-        if max_retries:
-            params["max_retries"] = max_retries
-        if operative_name:
-            params["name"] = operative_name
-        if isinstance(auto_retry_parse, bool):
-            params["auto_retry_parse"] = auto_retry_parse
-        if parse_kwargs:
-            params["parse_kwargs"] = parse_kwargs
-        params["request_params"] = request_params
-        return Operative(**params)
+
+        # Create Operative with the Operable
+        # Request will exclude action_responses
+        request_exclude = {"action_responses"} if actions else set()
+
+        return Operative(
+            name=name,
+            adapter=adapter,
+            max_retries=max_retries,
+            auto_retry_parse=auto_retry_parse,
+            base_type=base_type,
+            operable=operable,
+            request_exclude=request_exclude,
+        )
 
     @staticmethod
     def respond_operative(
-        *,
         operative: Operative,
-        additional_data: dict | None = None,
-        response_params: ModelParams | None = None,
-        field_models: list[FieldModel] | None = None,
-        frozen_response: bool = False,
-        response_config_dict: dict | None = None,
-        response_doc: str | None = None,
-        exclude_fields: list[str] | None = None,
+        additional_fields: dict[str, Spec] | None = None,
     ) -> Operative:
-        """Updates the operative with response parameters and data.
+        """Create response type from operative.
 
         Args:
-            operative (Operative): The operative instance to update.
-            additional_data (dict | None, optional): Additional data to include in the response.
-            response_params (ModelParams | None, optional): Parameters for the response model.
-            field_models (list[FieldModel] | None, optional): List of field models.
-            frozen_response (bool, optional): Whether the response model is frozen.
-            response_config_dict (dict | None, optional): Configuration dictionary for the response.
-            response_doc (str | None, optional): Documentation string for the response.
-            exclude_fields (list[str] | None, optional): List of fields to exclude.
+            operative: Source operative with all fields
+            additional_fields: Extra fields for response (not commonly used)
 
         Returns:
-            Operative: The updated operative instance.
+            Operative with response type configured
+
+        Example:
+            >>> op = Step.request_operative(reason=True, actions=True)
+            >>> op = Step.respond_operative(op)
         """
+        # If additional fields provided, we need to create a new Operative
+        if additional_fields:
+            from lionagi.ln.types import Operable
 
-        additional_data = additional_data or {}
-        field_models = field_models or []
-        if hasattr(operative.response_model, "action_required"):
-            for i in {
-                "action_requests",
-                "action_required",
-                "action_responses",
-            }:
-                fm = get_default_field(i)
-                if fm not in field_models:
-                    field_models.append(fm)
+            # Get existing fields
+            existing_fields = list(operative.operable.__op_fields__)
 
-        if "reason" in type(operative.response_model).model_fields:
-            field_models.append(get_default_field("reason"))
+            # Add new fields
+            for field_name, spec in additional_fields.items():
+                if not hasattr(spec, "name") or not spec.name:
+                    spec = (
+                        spec.with_updates(name=field_name)
+                        if hasattr(spec, "with_updates")
+                        else spec
+                    )
+                existing_fields.append(spec)
 
-        operative = Step._create_response_type(
-            operative=operative,
-            response_params=response_params,
-            field_models=field_models,
-            frozen_response=frozen_response,
-            response_config_dict=response_config_dict,
-            response_doc=response_doc,
-            exclude_fields=exclude_fields,
-        )
+            # Create new Operable with all fields
+            new_operable = Operable(
+                __op_fields__=frozenset(existing_fields), name=operative.name
+            )
 
-        data = operative.response_model.model_dump()
-        data.update(additional_data or {})
-        operative.response_model = operative.response_type.model_validate(data)
+            # Create new Operative
+            return Operative(
+                name=operative.name,
+                adapter=operative.adapter,
+                max_retries=operative.max_retries,
+                auto_retry_parse=operative.auto_retry_parse,
+                base_type=operative.base_type,
+                operable=new_operable,
+                request_exclude=operative.request_exclude,
+            )
+
+        # Otherwise just create response model on existing operative
+        operative.create_response_model()
         return operative
 
-    @staticmethod
-    def _create_response_type(
-        operative: Operative,
-        response_params: ModelParams | None = None,
-        response_validators: dict | None = None,
-        frozen_response: bool = False,
-        response_config_dict: dict | None = None,
-        response_doc: str | None = None,
-        field_models: list[FieldModel] | None = None,
-        exclude_fields: list[str] | None = None,
-    ) -> Operative:
-        """Internal method to create a response type for the operative.
 
-        Args:
-            operative (Operative): The operative instance.
-            response_params (ModelParams | None, optional): Parameters for the response model.
-            response_validators (dict | None, optional): Validators for the response model.
-            frozen_response (bool, optional): Whether the response model is frozen.
-            response_config_dict (dict | None, optional): Configuration dictionary for the response.
-            response_doc (str | None, optional): Documentation string for the response.
-            field_models (list[FieldModel] | None, optional): List of field models.
-            exclude_fields (list[str] | None, optional): List of fields to exclude.
-
-        Returns:
-            Operative: The operative instance with updated response type.
-        """
-
-        field_models = field_models or []
-
-        if (
-            hasattr(operative.request_type, "action_required")
-            and operative.response_model.action_required
-        ):
-            for i in {
-                "action_requests",
-                "action_required",
-                "action_responses",
-            }:
-                fm = get_default_field(i)
-                if fm not in field_models:
-                    field_models.append(fm)
-
-        if hasattr(operative.request_type, "reason"):
-            field_models.append(get_default_field("reason"))
-
-        operative.create_response_type(
-            response_params=response_params,
-            field_models=field_models,
-            exclude_fields=exclude_fields or [],
-            doc=response_doc,
-            config_dict=response_config_dict,
-            frozen=frozen_response,
-            validators=response_validators,
-        )
-        return operative
+__all__ = ("Step",)

@@ -21,7 +21,8 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
 
-from lionagi.ln.types import Params
+from lionagi.ln.types import Params, Spec
+from lionagi.ln.types._sentinel import Unset
 from lionagi.utils import copy
 
 from .field_model import FieldModel
@@ -90,7 +91,7 @@ class ModelParams(Params):
     name: str | None
     parameter_fields: dict[str, FieldInfo]
     base_type: type[BaseModel]
-    field_models: list[FieldModel]
+    field_models: list[FieldModel | Spec]
     exclude_fields: list[str]
     field_descriptions: dict[str, str]
     inherit_base: bool
@@ -171,39 +172,91 @@ class ModelParams(Params):
 
         # Process field_models
         if not self._is_sentinel(self.field_models):
-            # Coerce to list if single FieldModel instance
+            # Coerce to list if single FieldModel or Spec instance
             field_models_list = (
                 [self.field_models]
-                if isinstance(self.field_models, FieldModel)
+                if isinstance(self.field_models, (FieldModel, Spec))
                 else self.field_models
             )
 
             for fm in field_models_list:
-                if not isinstance(fm, FieldModel):
+                if not isinstance(fm, (FieldModel, Spec)):
                     raise ValueError(
-                        f"field_models must contain FieldModel instances, got {type(fm)}"
+                        f"field_models must contain FieldModel or Spec instances, got {type(fm)}"
                     )
 
             # Apply descriptions first
             field_models = field_models_list
             if not self._is_sentinel(self.field_descriptions):
-                field_models = [
-                    (
-                        fm.with_description(self.field_descriptions[fm.name])
-                        if fm.name in self.field_descriptions
-                        else fm
-                    )
-                    for fm in field_models
-                ]
+                updated_models = []
+                for fm in field_models:
+                    if isinstance(fm, FieldModel):
+                        # FieldModel has with_description method
+                        if fm.name in self.field_descriptions:
+                            updated_models.append(
+                                fm.with_description(
+                                    self.field_descriptions[fm.name]
+                                )
+                            )
+                        else:
+                            updated_models.append(fm)
+                    else:  # Spec
+                        # For Spec, create a new one with updated description
+                        if fm.name in self.field_descriptions:
+                            # Use to_dict() method if available, otherwise create manually
+                            if hasattr(fm, "to_dict"):
+                                spec_dict = fm.to_dict()
+                            else:
+                                # Manually extract relevant fields from Spec
+                                spec_dict = {
+                                    "base_type": fm.base_type,
+                                    "name": fm.name,
+                                }
+                                # Add other fields if they exist
+                                for key in [
+                                    "default",
+                                    "default_factory",
+                                    "nullable",
+                                    "validator",
+                                    "field",
+                                ]:
+                                    if (v := fm.get(key, Unset)) is not Unset:
+                                        spec_dict[key] = v
+                            spec_dict["description"] = self.field_descriptions[
+                                fm.name
+                            ]
+                            updated_models.append(
+                                Spec(
+                                    fm.base_type,
+                                    **{
+                                        k: v
+                                        for k, v in spec_dict.items()
+                                        if k != "base_type"
+                                    },
+                                )
+                            )
+                        else:
+                            updated_models.append(fm)
+                field_models = updated_models
 
             # Extract fields and validators using public interface
             for fm in field_models:
-                fields[fm.name] = fm.create_field()
-                fields[fm.name].annotation = fm.annotation
-
-                # Use the public field_validator property
-                if fm.field_validator:
-                    validators.update(fm.field_validator)
+                if isinstance(fm, FieldModel):
+                    # Use FieldModel's methods
+                    fields[fm.name] = fm.create_field()
+                    fields[fm.name].annotation = fm.annotation
+                    # Use the public field_validator property
+                    if fm.field_validator:
+                        validators.update(fm.field_validator)
+                else:  # Spec
+                    # Convert Spec to FieldModel for compatibility
+                    field_model = FieldModel.from_spec(fm)
+                    fields[field_model.name] = field_model.create_field()
+                    fields[field_model.name].annotation = (
+                        field_model.annotation
+                    )
+                    if field_model.field_validator:
+                        validators.update(field_model.field_validator)
 
         # Store computed state
         object.__setattr__(self, "_final_fields", fields)

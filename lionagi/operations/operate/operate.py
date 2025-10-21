@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import warnings
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 
 from pydantic import BaseModel, JsonValue
 
 from lionagi.ln import AlcallParams
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
+from lionagi.ln.types import Spec
 from lionagi.models import FieldModel, ModelParams
 from lionagi.protocols.generic import Progression
 from lionagi.protocols.messages import Instruction, SenderRecipient
@@ -48,7 +49,7 @@ def prepare_operate_kw(
     call_params: AlcallParams = None,
     action_strategy: Literal["sequential", "concurrent"] = "concurrent",
     verbose_action: bool = False,
-    field_models: list[FieldModel] = None,
+    field_models: list[FieldModel | Spec] = None,
     exclude_fields: list | dict | None = None,
     request_params: ModelParams = None,
     request_param_kwargs: dict = None,
@@ -106,21 +107,23 @@ def prepare_operate_kw(
         if action_strategy:
             instruct.action_strategy = action_strategy
 
-    # Build the Operative - always create it for backwards compatibility
-    from .step import Step
+    # Build response format from base model + field_models/reason/actions
+    final_response_format = response_format
 
-    operative = Step.request_operative(
-        request_params=request_params,
-        reason=instruct.reason,
-        actions=instruct.actions or actions,
-        exclude_fields=exclude_fields,
-        base_type=response_format,
-        field_models=field_models,
-        **(request_param_kwargs or {}),
-    )
-    # Use the operative's request_type which is a proper Pydantic model
-    # created from field_models if provided
-    final_response_format = operative.request_type
+    # Build operative if we need to add reason/actions fields
+    operative = None
+    if instruct.reason or instruct.actions or actions:
+        from .step import Step
+
+        operative = Step.request_operative(
+            base_type=response_format,  # Use response_format as base
+            reason=instruct.reason,
+            actions=instruct.actions or actions,
+        )
+
+        # Create response model with action_responses field
+        operative = Step.respond_operative(operative)
+        final_response_format = operative.response_type
 
     # Build contexts
     chat_param = ChatParam(
@@ -175,6 +178,7 @@ def prepare_operate_kw(
         "invoke_actions": invoke_actions,
         "skip_validation": skip_validation,
         "clear_messages": clear_messages,
+        "operative": operative,  # Pass the operative if created
     }
 
 
@@ -189,7 +193,8 @@ async def operate(
     skip_validation: bool = False,
     clear_messages: bool = False,
     reason: bool = False,
-    field_models: list[FieldModel] | None = None,
+    field_models: list[FieldModel | Spec] | None = None,
+    operative: Optional["Operative"] = None,
 ) -> BaseModel | dict | str | None:
 
     # 1. communicate chat context building to avoid changing parameters
@@ -228,20 +233,65 @@ async def operate(
         return fms
 
     fms = normalize_field_model(field_models)
-    operative = None
 
-    if model_class:
+    # Use operative passed from prepare_operate_kw if available
+    if operative:
+        # Operative was already created with proper fields
+        response_fmt = (
+            operative.response_type or operative.request_type or model_class
+        )
+        if response_fmt:
+            _cctx = _cctx.with_updates(response_format=response_fmt)
+            _pctx = _pctx.with_updates(response_format=response_fmt)
+    elif model_class or action_param:
+        # Create operative if we have a model class OR if action_param is provided
+        # (action_param means we need action fields even without explicit model)
         from .step import Step
 
+        # Convert field_models to fields dict if provided
+        fields_dict = None
+        if fms:
+            from lionagi.ln.types import Spec
+            from lionagi.models import FieldModel
+
+            fields_dict = {}
+            for fm in fms:
+                # Convert FieldModel to Spec
+                if isinstance(fm, FieldModel):
+                    spec = fm.to_spec()
+                elif isinstance(fm, Spec):
+                    spec = fm
+                else:
+                    raise TypeError(
+                        f"Expected FieldModel or Spec, got {type(fm)}"
+                    )
+
+                # Get the field name from the spec
+                field_name = (
+                    spec.name if hasattr(spec, "name") else spec.get("name")
+                )
+                if field_name:
+                    fields_dict[field_name] = spec
+
         operative = Step.request_operative(
+            base_type=model_class,  # Use model_class as base if available
             reason=reason,
-            actions=bool(action_param is not None),
-            base_type=model_class,
-            field_models=fms,
+            actions=bool(
+                action_param is not None
+            ),  # Add action fields if action_param exists
+            fields=fields_dict,
         )
+
+        # Create response model with action_responses field
+        operative = Step.respond_operative(operative)
+
         # Update contexts with new response format
-        _cctx = _cctx.with_updates(response_format=operative.request_type)
-        _pctx = _pctx.with_updates(response_format=operative.request_type)
+        response_fmt = (
+            operative.response_type or operative.request_type or model_class
+        )
+        if response_fmt:
+            _cctx = _cctx.with_updates(response_format=response_fmt)
+            _pctx = _pctx.with_updates(response_format=response_fmt)
     elif field_models:
         dict_ = {}
         for fm in fms:
@@ -308,11 +358,32 @@ async def operate(
         result.update({"action_responses": action_response_models})
         return result
 
-    from .step import Step
+    # If we have an operative, update its response model with action responses
+    if operative:
+        operative.response_model = result
 
-    operative.response_model = result
-    operative = Step.respond_operative(
-        operative=operative,
-        additional_data={"action_responses": action_response_models},
-    )
-    return operative.response_model
+        # If operative needs response type created, create it
+        if not operative._response_model_cls:
+            from .step import Step
+
+            operative = Step.respond_operative(operative=operative)
+
+        # Update the response model with action responses data
+        if operative._response_model_cls:
+            # Convert result to dict if it's a BaseModel
+            if isinstance(result, BaseModel):
+                result_dict = result.model_dump()
+            else:
+                result_dict = result
+            result_dict["action_responses"] = action_response_models
+            operative.response_model = (
+                operative._response_model_cls.model_validate(result_dict)
+            )
+
+        return operative.response_model
+    else:
+        # No operative, just add action_responses to the result
+        if isinstance(result, BaseModel):
+            # Try to add action_responses field dynamically if possible
+            setattr(result, "action_responses", action_response_models)
+        return result

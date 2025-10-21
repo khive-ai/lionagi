@@ -1,5 +1,6 @@
 import logging
-from typing import Literal
+import os
+from typing import Any, Literal
 
 from dotenv import load_dotenv
 from khivemcp import ServiceGroup, operation
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 PROVIDERS = Literal["exa", "perplexity"]
 
 
+SearchRequestSchema = ExaSearchRequest | PerplexityChatRequest
+
+
 class SearchServiceGroup(ServiceGroup):
     def __init__(self, config: dict | None = None):
         """
@@ -21,15 +25,46 @@ class SearchServiceGroup(ServiceGroup):
         """
         load_dotenv()
         super().__init__(config=config)
-        logger.info(
-            f"[LLMServiceGroup] Initialized.",
-        )
+        self._pplx_available = bool(os.getenv("PERPLEXITY_API_KEY", False))
+        self._exa_available = bool(os.getenv("EXA_API_KEY", False))
+        logger.info("[LLMServiceGroup] Initialized.")
         self.imodels = {}
 
-    @operation(name="exa_search", schema=ExaSearchRequest)
-    async def exa_search(self, request: ExaSearchRequest):
-        """Performs a search using Exa's search endpoint."""
-        if not "exa_search" in self.imodels:
+    @operation(
+        name="search",
+        schema=SearchRequestSchema,
+        accepts_context=True,
+        parallelizable=True,
+    )
+    async def search(
+        self, ctx, request: ExaSearchRequest | PerplexityChatRequest
+    ):
+        """Execute search queries using various backends (Perplexity, Exa). Supports parallel batch execution.
+
+        Context provides access to:
+        - ctx.request_id: Unique request identifier
+        - ctx.meta: Request metadata
+        - ctx.access_token: Auth token (if auth enabled)
+        """
+        # Example: Log request metadata
+        logger.info(
+            f"Search request from context: {getattr(ctx, 'request_id', 'unknown')}"
+        )
+
+        # Type-based routing: check which schema was validated
+        if isinstance(request, ExaSearchRequest):
+            return await self._exa_search_impl(request)
+        elif isinstance(request, PerplexityChatRequest):
+            return await self._perplexity_search_impl(request)
+        else:
+            raise ValueError(f"Unexpected request type: {type(request)}")
+
+    async def _exa_search_impl(self, request: ExaSearchRequest):
+        """Internal implementation for Exa search."""
+        if not self._exa_available:
+            raise RuntimeError("Exa API key not configured")
+
+        if "exa_search" not in self.imodels:
             self.imodels["exa_search"] = iModel(
                 provider="exa",
                 endpoint="search",
@@ -52,17 +87,19 @@ class SearchServiceGroup(ServiceGroup):
             "error": result.execution.error,
         }
 
-    @operation(name="perplexity_search", schema=PerplexityChatRequest)
-    async def perplexity_search(self, request: PerplexityChatRequest):
-        """Performs a search using Perplexity's chat completion endpoint."""
-        if not "perplexity_search" in self.imodels:
+    async def _perplexity_search_impl(self, request: PerplexityChatRequest):
+        """Internal implementation for Perplexity search."""
+        if not self._pplx_available:
+            raise RuntimeError("Perplexity API key not configured")
+
+        if "perplexity_search" not in self.imodels:
             self.imodels["perplexity_search"] = iModel(
                 provider="perplexity",
                 endpoint="chat",
-                interval=60,
-                limit_tokens=20000,
+                interval=1,  # 1 second window
+                limit_tokens=100000,  # Higher token limit
                 api_key="PERPLEXITY_API_KEY",
-                limit_requests=10,
+                limit_requests=100,  # Allow many concurrent requests
             )
 
         imodel = self.imodels["perplexity_search"]

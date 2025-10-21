@@ -285,13 +285,28 @@ def get_default_field(
     default: Any = Unset,
     nullable: bool = True,
     listable: bool = None,
+    as_spec: bool = True,
 ):
+    """Get default field as Spec or legacy FieldModel.
+
+    Args:
+        kind: Field type identifier
+        default: Default value
+        nullable: Whether field is nullable
+        listable: Whether field is a list
+        as_spec: If True, return Spec; if False, return FieldModel (deprecated)
+
+    Returns:
+        Spec instance by default, or FieldModel if as_spec=False
+    """
     global _DEFAULT_FIELDS
-    key = (kind, str(default), nullable, listable)
+    key = (kind, str(default), nullable, listable, as_spec)
     if key not in _DEFAULT_FIELDS:
-        _DEFAULT_FIELDS[key] = _get_default_fields(
-            kind, default=default, nullable=nullable, listable=listable
-        )
+        field_model = _get_default_fields(kind, default, nullable, listable)
+        if as_spec:
+            _DEFAULT_FIELDS[key] = field_model.to_spec()
+        else:
+            _DEFAULT_FIELDS[key] = field_model
     return _DEFAULT_FIELDS[key]
 
 

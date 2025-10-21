@@ -16,7 +16,7 @@ from typing import Annotated, Any, ClassVar
 from typing_extensions import Self, override
 
 from .._errors import ValidationError
-from ..ln.types import Meta, Params
+from ..ln.types import Meta, Params, Spec
 
 # Cache of valid Pydantic Field parameters
 _PYDANTIC_FIELD_PARAMS: set[str] | None = None
@@ -87,12 +87,26 @@ class FieldModel(Params):
     def __init__(self, base_type: type[Any] = None, **kwargs: Any) -> None:
         """Initialize FieldModel with legacy compatibility.
 
+        .. deprecated:: 0.18.2
+            FieldModel is deprecated. Use :class:`lionagi.ln.types.Spec` instead.
+            Use :meth:`to_spec` to convert existing FieldModel instances.
+
         Handles backward compatibility by converting old-style kwargs to the new
         Params-based format.
 
         Args:
             **kwargs: Arbitrary keyword arguments, including legacy ones
         """
+        import warnings
+
+        warnings.warn(
+            "FieldModel is deprecated and will be removed in a future version. "
+            "Use lionagi.ln.types.Spec instead. "
+            "You can convert existing FieldModel instances using .to_spec() method.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         # Convert legacy kwargs to proper format
         if base_type is not None:
             kwargs["base_type"] = base_type
@@ -803,6 +817,88 @@ class FieldModel(Params):
                     result[meta.key] = meta.value
 
         return result
+
+    def to_spec(self) -> Spec:
+        """Convert this FieldModel to the new Spec type.
+
+        This method provides a migration path from the deprecated FieldModel
+        to the new Spec system. The conversion is lossless since both use
+        the same underlying data structure (base_type + metadata tuple).
+
+        Returns:
+            Spec: A new Spec instance with the same base_type and metadata
+
+        Example:
+            >>> field = FieldModel(base_type=str, name="username", nullable=True)
+            >>> spec = field.to_spec()
+            >>> # Now use spec with the new API
+            >>> pydantic_field = spec.create_field(adapter="pydantic")
+        """
+        # Direct conversion - both use base_type and metadata
+        return Spec(
+            base_type=self.base_type,
+            metadata=(
+                self.metadata if not self._is_sentinel(self.metadata) else None
+            ),
+        )
+
+    @classmethod
+    def from_spec(cls, spec: Spec) -> Self:
+        """Create a FieldModel from a Spec (for backwards compatibility).
+
+        Args:
+            spec: The Spec instance to convert
+
+        Returns:
+            FieldModel: A new FieldModel instance with the same configuration
+
+        Example:
+            >>> spec = Spec(str, name="username", nullable=True)
+            >>> field = FieldModel.from_spec(spec)
+        """
+        from lionagi.ln.types._sentinel import Unset
+
+        # Extract values from Spec using its public interface
+        kwargs = {}
+
+        # Get base type (annotation)
+        if spec.annotation is not None:
+            kwargs["annotation"] = spec.annotation
+        elif spec.base_type is not None:
+            kwargs["annotation"] = spec.base_type
+
+        # Get name
+        if spec.name:
+            kwargs["name"] = spec.name
+
+        # Get default value - use get() method with Unset sentinel
+        default = spec.get("default", Unset)
+        if default is not Unset:
+            kwargs["default"] = default
+        else:
+            default_factory = spec.get("default_factory", Unset)
+            if default_factory is not Unset:
+                kwargs["default_factory"] = default_factory
+
+        # Get other common fields using get() method
+        description = spec.get("description", Unset)
+        if description is not Unset:
+            kwargs["description"] = description
+
+        validator = spec.get("validator", Unset)
+        if validator is not Unset:
+            kwargs["validator"] = validator
+
+        nullable = spec.get("nullable", Unset)
+        if nullable is not Unset:
+            kwargs["nullable"] = nullable
+
+        field = spec.get("field", Unset)
+        if field is not Unset:
+            kwargs["field"] = field
+
+        # Create new instance with the extracted values
+        return cls(**kwargs)
 
 
 __all__ = ("FieldModel",)

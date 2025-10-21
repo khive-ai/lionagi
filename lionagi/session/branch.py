@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, JsonValue, PrivateAttr, field_serializer
 
 from lionagi.config import settings
 from lionagi.ln import AlcallParams
-from lionagi.ln.types import Unset
+from lionagi.ln.types import Spec, Unset
 from lionagi.models.field_model import FieldModel
 from lionagi.operations.fields import Instruct
 from lionagi.operations.manager import OperationManager
@@ -753,7 +753,7 @@ class Branch(Element, Relational):
         call_params: AlcallParams = None,
         action_strategy: Literal["sequential", "concurrent"] = "concurrent",
         verbose_action: bool = False,
-        field_models: list[FieldModel] = None,
+        field_models: list[FieldModel | Spec] = None,
         exclude_fields: list | dict | None = None,
         handle_validation: Literal[
             "raise", "return_value", "return_none"
@@ -821,7 +821,7 @@ class Branch(Element, Relational):
                 The strategy for invoking tools (default: "concurrent").
             verbose_action (bool, optional):
                 If `True`, logs detailed information about tool invocation.
-            field_models (list[FieldModel] | None, optional):
+            field_models (list[FieldModel | Spec] | None, optional):
                 Field-level definitions or overrides for the model schema.
             exclude_fields (list|dict|None, optional):
                 Which fields to exclude from final validation or model building.
