@@ -109,8 +109,6 @@ class Params:
         - Enum values if use_enum_values is True
         - Can be extended for other transformations
         """
-        from enum import Enum as _Enum
-
         if cls._config.use_enum_values and isinstance(value, _Enum):
             return value.value
         return value
