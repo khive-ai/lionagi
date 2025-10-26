@@ -20,6 +20,8 @@ from .base import (
     ModelConfig,
     Params,
 )
+from .operable import Operable
+from .spec import CommonMeta, Spec
 
 __all__ = (
     # Sentinel types
@@ -42,4 +44,8 @@ __all__ = (
     "KeysDict",
     "KeysLike",
     "T",
+    # Spec system
+    "Spec",
+    "CommonMeta",
+    "Operable",
 )
