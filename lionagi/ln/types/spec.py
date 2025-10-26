@@ -131,7 +131,6 @@ class Spec:
     Attributes:
         base_type: The base Python type for this field
         metadata: Tuple of metadata objects attached to this spec
-        sha256: Optional content hash for spec identity
 
     Example:
         >>> spec = Spec(str, name="username", nullable=False)
@@ -143,7 +142,6 @@ class Spec:
 
     base_type: type
     metadata: tuple[Meta, ...]
-    sha256: str | None
 
     def __init__(
         self,
@@ -189,7 +187,6 @@ class Spec:
 
         object.__setattr__(self, "base_type", base_type)
         object.__setattr__(self, "metadata", metas)
-        object.__setattr__(self, "sha256", None)
 
     def __getitem__(self, key: str) -> Any:
         """Get metadata value by key.

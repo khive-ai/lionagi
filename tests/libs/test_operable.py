@@ -156,8 +156,14 @@ class TestOperable:
         with pytest.raises(Exception):  # FrozenInstanceError or similar
             operable.name = "new_name"
 
-    def test_sha256_field(self):
-        """Test sha256 field can be set."""
+    def test_type_validation(self):
+        """Test that non-Spec objects are rejected."""
+        with pytest.raises(TypeError, match="All specs must be Spec objects"):
+            Operable(("not_a_spec",))
+
+    def test_duplicate_name_detection(self):
+        """Test that duplicate field names are detected."""
         spec1 = Spec(str, name="field1")
-        operable = Operable((spec1,), sha256="abc123")
-        assert operable.sha256 == "abc123"
+        spec2 = Spec(int, name="field1")  # Duplicate name
+        with pytest.raises(ValueError, match="Duplicate field names found"):
+            Operable((spec1, spec2))

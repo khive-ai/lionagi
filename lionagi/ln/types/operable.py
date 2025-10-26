@@ -27,7 +27,6 @@ class Operable:
     Attributes:
         __op_fields__: Ordered tuple of Spec objects
         name: Optional name for this operable
-        sha256: Optional content hash for identity
 
     Example:
         >>> from lionagi.ln.types import Spec, Operable
@@ -41,29 +40,53 @@ class Operable:
 
     __op_fields__: tuple[Spec, ...]
     name: str | None
-    sha256: str | None
 
     def __init__(
         self,
         specs: tuple[Spec, ...] | list[Spec] = (),
         *,
         name: str | None = None,
-        sha256: str | None = None,
     ):
         """Initialize Operable with specs.
 
         Args:
             specs: Tuple or list of Spec objects
             name: Optional name for this operable
-            sha256: Optional content hash for identity
+
+        Raises:
+            TypeError: If specs contains non-Spec objects
+            ValueError: If specs contains duplicate field names
         """
+        # Import here to avoid circular import
+        from .spec import Spec
+
         # Convert to tuple if list
         if isinstance(specs, list):
             specs = tuple(specs)
 
+        # Validate all items are Spec objects
+        for i, item in enumerate(specs):
+            if not isinstance(item, Spec):
+                raise TypeError(
+                    f"All specs must be Spec objects, got {type(item).__name__} "
+                    f"at index {i}"
+                )
+
+        # Check for duplicate names
+        names = [s.name for s in specs if s.name is not None]
+        if len(names) != len(set(names)):
+            from collections import Counter
+
+            duplicates = [
+                name for name, count in Counter(names).items() if count > 1
+            ]
+            raise ValueError(
+                f"Duplicate field names found: {duplicates}. "
+                "Each spec must have a unique name."
+            )
+
         object.__setattr__(self, "__op_fields__", specs)
         object.__setattr__(self, "name", name)
-        object.__setattr__(self, "sha256", sha256)
 
     def allowed(self) -> set[str]:
         """Get set of allowed field names.
