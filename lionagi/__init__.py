@@ -5,94 +5,127 @@ import logging
 from typing import TYPE_CHECKING
 
 from . import ln as ln
+from .ln.types import DataClass, Params, Undefined, Unset
 from .version import __version__
 
 if TYPE_CHECKING:
     from pydantic import BaseModel, Field
 
     from . import _types as types
+    from .models.field_model import FieldModel
+    from .models.operable_model import OperableModel
     from .operations.builder import OperationGraphBuilder as Builder
     from .operations.node import Operation
     from .protocols.action.manager import load_mcp_tools
+    from .protocols.types import Edge, Element, Event, Graph, Node, Pile, Progression
+    from .service.broadcaster import Broadcaster
+    from .service.hooks import HookedEvent, HookRegistry
     from .service.imodel import iModel
     from .session.session import Branch, Session
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Module-level lazy loading cache
 _lazy_imports = {}
 
 
+def _get_obj(name: str, module: str):
+    global _lazy_imports
+    from lionagi.ln import import_module
+
+    obj_ = import_module("lionagi", module_name=module, import_name=name)
+
+    _lazy_imports[name] = obj_
+    return obj_
+
+
 def __getattr__(name: str):
-    """Lazy loading for expensive imports."""
+    global _lazy_imports
     if name in _lazy_imports:
         return _lazy_imports[name]
 
-    # Lazy load core components
-    if name == "Session":
-        from .session.session import Session
+    match name:
+        case "Session":
+            return _get_obj("Session", "session.session")
+        case "Branch":
+            return _get_obj("Branch", "session.branch")
+        case "iModel":
+            return _get_obj("iModel", "service.imodel")
+        case "Builder":
+            return _get_obj("OperationGraphBuilder", "operations.builder")
+        case "Operation":
+            return _get_obj("Operation", "operations.node")
+        case "load_mcp_tools":
+            return _get_obj("load_mcp_tools", "protocols.action.manager")
+        case "FieldModel":
+            return _get_obj("FieldModel", "models.field_model")
+        case "OperableModel":
+            return _get_obj("OperableModel", "models.operable_model")
+        case "Element":
+            return _get_obj("Element", "protocols.generic.element")
+        case "Pile":
+            return _get_obj("Pile", "protocols.generic.pile")
+        case "Progression":
+            return _get_obj("Progression", "protocols.generic.progression")
+        case "Node":
+            return _get_obj("Node", "protocols.graph.node")
+        case "Edge":
+            return _get_obj("Edge", "protocols.graph.edge")
+        case "Graph":
+            return _get_obj("Graph", "protocols.graph.graph")
+        case "Event":
+            return _get_obj("Event", "protocols.generic.event")
+        case "HookRegistry":
+            return _get_obj("HookRegistry", "service.hooks.hook_registry")
+        case "HookedEvent":
+            return _get_obj("HookedEvent", "service.hooks.hooked_event")
+        case "Broadcaster":
+            return _get_obj("Broadcaster", "service.broadcaster")
+        case "BaseModel":
+            from pydantic import BaseModel
 
-        _lazy_imports[name] = Session
-        return Session
-    elif name == "Branch":
-        from .session.session import Branch
+            _lazy_imports["BaseModel"] = BaseModel
+            return BaseModel
+        case "Field":
+            from pydantic import Field
 
-        _lazy_imports[name] = Branch
-        return Branch
-    # Lazy load Pydantic components
-    elif name == "BaseModel":
-        from pydantic import BaseModel
+            _lazy_imports["Field"] = Field
+            return Field
+        case "types":
+            from . import _types as types
 
-        _lazy_imports[name] = BaseModel
-        return BaseModel
-    elif name == "Field":
-        from pydantic import Field
-
-        _lazy_imports[name] = Field
-        return Field
-    # Lazy load operations
-    elif name == "Operation":
-        from .operations.node import Operation
-
-        _lazy_imports[name] = Operation
-        return Operation
-    elif name == "iModel":
-        from .service.imodel import iModel
-
-        _lazy_imports[name] = iModel
-        return iModel
-    elif name == "types":
-        from . import _types as types
-
-        _lazy_imports["types"] = types
-        return types
-    elif name == "Builder":
-        from .operations.builder import OperationGraphBuilder as Builder
-
-        _lazy_imports["Builder"] = Builder
-        return Builder
-    elif name == "load_mcp_tools":
-        from .protocols.action.manager import load_mcp_tools
-
-        _lazy_imports["load_mcp_tools"] = load_mcp_tools
-        return load_mcp_tools
-
+            _lazy_imports["types"] = types
+            return types
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
 __all__ = (
-    "Session",
-    "Branch",
-    "iModel",
-    "types",
     "__version__",
     "BaseModel",
-    "Field",
-    "logger",
+    "Branch",
+    "Broadcaster",
     "Builder",
+    "DataClass",
+    "Edge",
+    "Element",
+    "Event",
+    "Field",
+    "FieldModel",
+    "Graph",
+    "HookRegistry",
+    "HookedEvent",
+    "Node",
+    "OperableModel",
     "Operation",
-    "load_mcp_tools",
+    "Params",
+    "Pile",
+    "Progression",
+    "Session",
+    "Undefined",
+    "Unset",
+    "iModel",
     "ln",
+    "load_mcp_tools",
+    "logger",
+    "types",
 )
