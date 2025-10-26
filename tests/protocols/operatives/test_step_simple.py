@@ -47,13 +47,6 @@ class TestStepBasicFunctionality:
 
         assert operative.auto_retry_parse is True
 
-    def test_request_operative_with_parse_kwargs(self):
-        """Test request operative with parse kwargs."""
-        parse_kwargs = {"strict": True}
-        operative = Step.request_operative(parse_kwargs=parse_kwargs)
-
-        assert operative.parse_kwargs == parse_kwargs
-
     def test_request_operative_with_reason_field(self):
         """Test request operative with reason field enabled."""
         operative = Step.request_operative(reason=True)
@@ -191,7 +184,6 @@ class TestStepUtilityMethods:
         """Test that Step static methods are callable."""
         assert callable(Step.request_operative)
         assert callable(Step.respond_operative)
-        assert callable(Step._create_response_type)
 
 
 class TestStepEdgeCases:

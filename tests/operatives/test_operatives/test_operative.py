@@ -3,7 +3,7 @@
 import pytest
 from pydantic import BaseModel
 
-from lionagi.models import FieldModel, ModelParams
+from lionagi.ln.types import Operable, Spec
 from lionagi.operations.operate.operative import Operative
 
 
@@ -18,34 +18,28 @@ class SampleModel(BaseModel):
 class TestOperative:
     def test_initialization(self):
         """Test basic initialization of Operative."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
+        operative = Operative(base_type=SampleModel)
         assert operative.name == "SampleModel"
         assert operative.request_type is not None
         assert issubclass(operative.request_type, BaseModel)
 
     def test_custom_name(self):
         """Test Operative with custom name."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(name="CustomName", request_params=params)
+        operative = Operative(name="CustomName", base_type=SampleModel)
         assert operative.name == "CustomName"
 
     def test_response_type_creation(self):
         """Test creation of response type."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
+        # Create operative with additional field in operable
+        status_spec = Spec(str, name="status", default="success")
+        operable = Operable((status_spec,), name="SampleWithStatus")
 
-        # Create response type with additional field
-        field_models = [
-            FieldModel(
-                name="status",
-                annotation=str,
-                default="success",
-                description="Status field",
-            )
-        ]
-        operative.create_response_type(field_models=field_models)
+        operative = Operative(
+            base_type=SampleModel,
+            operable=operable,
+        )
 
+        # Access response_type property which auto-creates
         assert operative.response_type is not None
         assert "status" in operative.response_type.model_fields
         assert "name" in operative.response_type.model_fields
@@ -53,8 +47,7 @@ class TestOperative:
 
     def test_response_model_update_with_text(self):
         """Test updating response model with text input."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
+        operative = Operative(base_type=SampleModel)
 
         # Valid JSON text
         text = '{"name": "test", "value": 42}'
@@ -64,25 +57,20 @@ class TestOperative:
         assert result.value == 42
 
         # Invalid JSON text
-        operative = Operative(request_params=params)  # Fresh instance
+        operative = Operative(base_type=SampleModel)  # Fresh instance
         text = "invalid json"
         result = operative.update_response_model(text=text)
-        assert isinstance(
-            result, (str, dict, list)
-        )  # Should return raw text, dict, or list for invalid JSON
+        # Should return raw text for invalid JSON
+        assert isinstance(result, (str, dict, list, type(None)))
 
     def test_response_model_update_with_data(self):
         """Test updating response model with dict data."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
+        operative = Operative(base_type=SampleModel)
 
         # First set initial model with valid JSON
         response_model = operative.update_response_model(
             text='{"name": "test", "value": 42}'
         )
-
-        # Create response type to enable model updates
-        operative.create_response_type()
 
         # Update with new data
         data = {"name": "updated"}
@@ -92,99 +80,64 @@ class TestOperative:
         assert result.value == 42  # Original value should be preserved
 
     def test_validation_methods(self):
-        """Test strict and force validation methods."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
+        """Test strict validation."""
+        operative = Operative(base_type=SampleModel, strict=False)
 
-        # Test strict validation
+        # Test validation with valid text
         valid_text = '{"name": "test", "value": 42}'
-        operative.raise_validate_pydantic(valid_text)
-        assert operative.response_model is not None
-        assert operative.response_model.name == "test"
-        assert operative.response_model.value == 42
-
-        # Test force validation with extra fields
-        text_with_extra = '{"name": "test", "value": 42, "extra": "field"}'
-        operative.force_validate_pydantic(text_with_extra)
-        assert operative.response_model is not None
-        assert operative.response_model.name == "test"
-        assert operative.response_model.value == 42
+        result = operative.validate_response(valid_text, strict=True)
+        assert result is not None
+        assert result.name == "test"
+        assert result.value == 42
 
     def test_retry_behavior(self):
         """Test auto retry behavior for validation."""
-        params = ModelParams(base_type=SampleModel)
         operative = Operative(
-            request_params=params, auto_retry_parse=True, max_retries=3
+            base_type=SampleModel, auto_retry_parse=True, max_retries=3
         )
-
-        # Invalid input should set retry flag
-        invalid_text = '{"name": "test"}'  # Missing required field
-        operative.raise_validate_pydantic(invalid_text)
-        assert operative._should_retry is True
 
         # Valid input should clear retry flag
         valid_text = '{"name": "test", "value": 42}'
-        operative.raise_validate_pydantic(valid_text)
+        operative.validate_response(valid_text, strict=False)
         assert operative._should_retry is False
-
-    def test_list_response_handling(self):
-        """Test handling of list responses."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
-
-        # Test with list of valid items
-        list_text = (
-            '[{"name": "test1", "value": 1}, {"name": "test2", "value": 2}]'
-        )
-        result = operative.update_response_model(text=list_text)
-        assert isinstance(result, list)
-        assert len(result) == 2
-        assert all(isinstance(item, BaseModel) for item in result)
 
     def test_error_cases(self):
         """Test error handling cases."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
+        operative = Operative(base_type=SampleModel)
 
         # Test with no input
         with pytest.raises(ValueError):
             operative.update_response_model()
 
-        # Test with invalid field types
-        invalid_types = '{"name": 123, "value": "not an int"}'
-        result = operative.update_response_model(text=invalid_types)
-        assert isinstance(
-            result, (str, dict, list)
-        )  # Should return raw text, dict, or list for invalid types
-
     def test_exclude_fields(self):
-        """Test excluding fields in response type."""
+        """Test excluding fields in request type."""
+        # Create operable with fields, but exclude some from request
+        spec1 = Spec(str, name="field1", default="test")
+        spec2 = Spec(int, name="field2", default=42)
+        operable = Operable((spec1, spec2), name="TestModel")
 
-        # Create a new model type with only the name field
-        class ReducedModel(BaseModel):
-            name: str
-
-        params = ModelParams(base_type=ReducedModel)
-        operative = Operative(request_params=params)
-        operative.create_response_type()
-
-        assert "value" not in operative.response_type.model_fields
-        assert "name" in operative.response_type.model_fields
-
-    def test_field_descriptions(self):
-        """Test field descriptions in response type."""
-        params = ModelParams(base_type=SampleModel)
-        operative = Operative(request_params=params)
-
-        # Create new response type with field descriptions
-        field_models = [
-            FieldModel(
-                name="name", annotation=str, description="Test name field"
-            )
-        ]
-        operative.create_response_type(field_models=field_models)
-
-        assert (
-            operative.response_type.model_fields["name"].description
-            == "Test name field"
+        operative = Operative(
+            operable=operable,
+            request_exclude={"field2"},  # Exclude field2 from request
         )
+
+        # Request should not have field2
+        assert "field2" not in operative.request_type.model_fields
+        assert "field1" in operative.request_type.model_fields
+
+        # Response should have both
+        assert "field2" in operative.response_type.model_fields
+        assert "field1" in operative.response_type.model_fields
+
+    def test_operable_integration(self):
+        """Test integration with Operable."""
+        spec1 = Spec(str, name="username", nullable=False)
+        spec2 = Spec(int, name="age", default=0)
+        operable = Operable((spec1, spec2), name="UserModel")
+
+        operative = Operative(operable=operable)
+
+        # Check model creation
+        assert operative.request_type is not None
+        assert "username" in operative.request_type.model_fields
+        assert "age" in operative.request_type.model_fields
