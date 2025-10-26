@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import warnings
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Union
 
 from pydantic import BaseModel, JsonValue
 
 from lionagi.ln import AlcallParams
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
-from lionagi.models import FieldModel, ModelParams
+from lionagi.ln.types import Spec
+from lionagi.models import FieldModel
 from lionagi.protocols.generic import Progression
 from lionagi.protocols.messages import Instruction, SenderRecipient
 
@@ -32,7 +33,7 @@ def prepare_operate_kw(
     sender: SenderRecipient = None,
     recipient: SenderRecipient = None,
     progression: Progression = None,
-    imodel: "iModel" = None,  # deprecated, alias of chat_model
+    imodel: "iModel" = None,  # deprecated
     chat_model: "iModel" = None,
     invoke_actions: bool = True,
     tool_schemas: list[dict] = None,
@@ -40,35 +41,32 @@ def prepare_operate_kw(
     image_detail: Literal["low", "high", "auto"] = None,
     parse_model: "iModel" = None,
     skip_validation: bool = False,
+    handle_validation: HandleValidation = "return_value",
     tools: "ToolRef" = None,
     operative: "Operative" = None,
-    response_format: type[BaseModel] = None,  # alias of operative.request_type
+    response_format: type[BaseModel] = None,
     actions: bool = False,
     reason: bool = False,
     call_params: AlcallParams = None,
     action_strategy: Literal["sequential", "concurrent"] = "concurrent",
     verbose_action: bool = False,
-    field_models: list[FieldModel] = None,
-    exclude_fields: list | dict | None = None,
-    request_params: ModelParams = None,
-    request_param_kwargs: dict = None,
-    handle_validation: HandleValidation = "return_value",
-    operative_model: type[BaseModel] = None,
-    request_model: type[BaseModel] = None,
+    field_models: list[FieldModel | Spec] = None,
+    operative_model: type[BaseModel] = None,  # deprecated
+    request_model: type[BaseModel] = None,  # deprecated
     include_token_usage_to_model: bool = False,
     clear_messages: bool = False,
     **kwargs,
-) -> list | BaseModel | None | dict | str:
+) -> dict:
     # Handle deprecated parameters
     if operative_model:
         warnings.warn(
-            "Parameter 'operative_model' is deprecated. Use 'response_format' instead.",
+            "Parameter 'operative_model' is deprecated. Use 'response_format'.",
             DeprecationWarning,
             stacklevel=2,
         )
     if imodel:
         warnings.warn(
-            "Parameter 'imodel' is deprecated. Use 'chat_model' instead.",
+            "Parameter 'imodel' is deprecated. Use 'chat_model'.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -79,26 +77,23 @@ def prepare_operate_kw(
         or (response_format and request_model)
     ):
         raise ValueError(
-            "Cannot specify both `operative_model` and `response_format` (or `request_model`) "
-            "as they are aliases of each other."
+            "Cannot specify multiple of: operative_model, response_format, request_model"
         )
 
     response_format = response_format or operative_model or request_model
     chat_model = chat_model or imodel or branch.chat_model
     parse_model = parse_model or chat_model
 
-    # Convert dict-based instructions to Instruct if needed
+    # Convert dict-based instructions
     if isinstance(instruct, dict):
         instruct = Instruct(**instruct)
 
-    # Or create a new Instruct if not provided
     instruct = instruct or Instruct(
         instruction=instruction,
         guidance=guidance,
         context=context,
     )
 
-    # If reason or actions are requested, apply them to instruct
     if reason:
         instruct.reason = True
     if actions:
@@ -106,21 +101,40 @@ def prepare_operate_kw(
         if action_strategy:
             instruct.action_strategy = action_strategy
 
-    # Build the Operative - always create it for backwards compatibility
-    from .step import Step
+    # Convert field_models to Spec if needed
+    fields_dict = None
+    if field_models:
+        fields_dict = {}
+        for fm in field_models:
+            # Convert FieldModel to Spec
+            if isinstance(fm, FieldModel):
+                spec = fm.to_spec()
+            elif isinstance(fm, Spec):
+                spec = fm
+            else:
+                raise TypeError(f"Expected FieldModel or Spec, got {type(fm)}")
 
-    operative = Step.request_operative(
-        request_params=request_params,
-        reason=instruct.reason,
-        actions=instruct.actions or actions,
-        exclude_fields=exclude_fields,
-        base_type=response_format,
-        field_models=field_models,
-        **(request_param_kwargs or {}),
+            if spec.name:
+                fields_dict[spec.name] = spec
+
+    # Build Operative if needed
+    operative = None
+    if instruct.reason or instruct.actions or response_format or fields_dict:
+        from .step import Step
+
+        operative = Step.request_operative(
+            base_type=response_format,
+            reason=instruct.reason,
+            actions=instruct.actions or actions,
+            fields=fields_dict,
+        )
+
+        # Create response model
+        operative = Step.respond_operative(operative)
+
+    final_response_format = (
+        operative.response_type if operative else response_format
     )
-    # Use the operative's request_type which is a proper Pydantic model
-    # created from field_models if provided
-    final_response_format = operative.request_type
 
     # Build contexts
     chat_param = ChatParam(
@@ -146,7 +160,7 @@ def prepare_operate_kw(
         parse_param = ParseParam(
             response_format=final_response_format,
             fuzzy_match_params=FuzzyMatchKeysParams(),
-            handle_validation="return_value",
+            handle_validation=handle_validation,
             alcall_params=get_default_call(),
             imodel=parse_model,
             imodel_kw={},
@@ -175,25 +189,43 @@ def prepare_operate_kw(
         "invoke_actions": invoke_actions,
         "skip_validation": skip_validation,
         "clear_messages": clear_messages,
+        "operative": operative,
     }
 
 
 async def operate(
     branch: "Branch",
-    instruction: JsonValue | Instruction,
+    instruction: Union[JsonValue, Instruction],
     chat_param: ChatParam,
-    action_param: ActionParam | None = None,
-    parse_param: ParseParam | None = None,
+    action_param: Union[ActionParam, None] = None,
+    parse_param: Union[ParseParam, None] = None,
     handle_validation: HandleValidation = "return_value",
     invoke_actions: bool = True,
     skip_validation: bool = False,
     clear_messages: bool = False,
     reason: bool = False,
-    field_models: list[FieldModel] | None = None,
-) -> BaseModel | dict | str | None:
+    field_models: Union[list[Union[FieldModel, Spec]], None] = None,
+    operative: Union["Operative", None] = None,
+) -> Union[BaseModel, dict, str, None]:
+    """Execute operation with optional action handling.
 
-    # 1. communicate chat context building to avoid changing parameters
-    # Start with base chat param
+    Args:
+        branch: Branch instance
+        instruction: Instruction or JSON value
+        chat_param: Chat parameters
+        action_param: Action parameters
+        parse_param: Parse parameters
+        handle_validation: Validation handling strategy
+        invoke_actions: Whether to invoke actions
+        skip_validation: Whether to skip validation
+        clear_messages: Whether to clear messages
+        reason: Whether to include reasoning
+        field_models: List of FieldModel or Spec objects
+        operative: Operative instance
+
+    Returns:
+        Result of operation
+    """
     _cctx = chat_param
     _pctx = (
         parse_param.with_updates(handle_validation="return_value")
@@ -205,12 +237,12 @@ async def operate(
         )
     )
 
-    # Update tool schemas if needed
+    # Update tool schemas
     if tools := (action_param.tools or True) if action_param else None:
         tool_schemas = branch.acts.get_tool_schema(tools=tools)
         _cctx = _cctx.with_updates(tool_schemas=tool_schemas)
 
-    # Extract model class from response_format (can be class, instance, or dict)
+    # Extract model class
     model_class = None
     if chat_param.response_format is not None:
         if isinstance(chat_param.response_format, type) and issubclass(
@@ -220,36 +252,38 @@ async def operate(
         elif isinstance(chat_param.response_format, BaseModel):
             model_class = type(chat_param.response_format)
 
-    def normalize_field_model(fms):
-        if not fms:
-            return []
-        if not isinstance(fms, list):
-            return [fms]
-        return fms
+    # Convert field_models to fields dict
+    fields_dict = None
+    if field_models:
+        fields_dict = {}
+        for fm in field_models:
+            if isinstance(fm, FieldModel):
+                spec = fm.to_spec()
+            elif isinstance(fm, Spec):
+                spec = fm
+            else:
+                raise TypeError(f"Expected FieldModel or Spec, got {type(fm)}")
 
-    fms = normalize_field_model(field_models)
-    operative = None
+            if spec.name:
+                fields_dict[spec.name] = spec
 
-    if model_class:
+    # Create operative if needed
+    if not operative and (model_class or action_param or fields_dict):
         from .step import Step
 
         operative = Step.request_operative(
-            reason=reason,
-            actions=bool(action_param is not None),
             base_type=model_class,
-            field_models=fms,
+            reason=reason,
+            actions=bool(action_param),
+            fields=fields_dict,
         )
-        # Update contexts with new response format
-        _cctx = _cctx.with_updates(response_format=operative.request_type)
-        _pctx = _pctx.with_updates(response_format=operative.request_type)
-    elif field_models:
-        dict_ = {}
-        for fm in fms:
-            if fm.name:
-                dict_[fm.name] = str(fm.annotated())
-        # Update contexts with dict format
-        _cctx = _cctx.with_updates(response_format=dict_)
-        _pctx = _pctx.with_updates(response_format=dict_)
+        operative = Step.respond_operative(operative)
+
+        # Update contexts
+        response_fmt = operative.response_type or model_class
+        if response_fmt:
+            _cctx = _cctx.with_updates(response_format=response_fmt)
+            _pctx = _pctx.with_updates(response_format=response_fmt)
 
     from ..communicate.communicate import communicate
 
@@ -262,8 +296,10 @@ async def operate(
         skip_validation=skip_validation,
         request_fields=None,
     )
+
     if skip_validation:
         return result
+
     if model_class and not isinstance(result, model_class):
         match handle_validation:
             case "return_value":
@@ -271,12 +307,12 @@ async def operate(
             case "return_none":
                 return None
             case "raise":
-                raise ValueError(
-                    "Failed to parse the LLM response into the requested format."
-                )
+                raise ValueError("Failed to parse LLM response.")
+
     if not invoke_actions:
         return result
 
+    # Handle actions
     requests = (
         getattr(result, "action_requests", None)
         if model_class
@@ -287,32 +323,25 @@ async def operate(
     if action_param and requests is not None:
         from ..act.act import act
 
-        action_response_models = await act(
-            branch,
-            requests,
-            action_param,
-        )
+        action_response_models = await act(branch, requests, action_param)
 
     if not action_response_models:
         return result
 
-    # Filter out None values from action responses
+    # Filter None values
     action_response_models = [
         r for r in action_response_models if r is not None
     ]
 
-    if not action_response_models:  # All were None
+    if not action_response_models:
         return result
 
     if not model_class:  # Dict response
         result.update({"action_responses": action_response_models})
         return result
 
-    from .step import Step
-
-    operative.response_model = result
-    operative = Step.respond_operative(
-        operative=operative,
-        additional_data={"action_responses": action_response_models},
+    # If we have model_class, we must have operative (created at line 268)
+    operative.update_response_model(
+        data={"action_responses": action_response_models}
     )
     return operative.response_model

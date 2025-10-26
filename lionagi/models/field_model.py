@@ -16,7 +16,7 @@ from typing import Annotated, Any, ClassVar
 from typing_extensions import Self, override
 
 from .._errors import ValidationError
-from ..ln.types import Meta, ModelConfig, Params
+from ..ln.types import Meta, ModelConfig, Params, Spec
 
 # Cache of valid Pydantic Field parameters
 _PYDANTIC_FIELD_PARAMS: set[str] | None = None
@@ -782,6 +782,59 @@ class FieldModel(Params):
                 "annotation",
             ]
         )
+
+    def to_spec(self) -> "Spec":
+        """Convert FieldModel to Spec.
+
+        Returns:
+            Spec object with equivalent configuration
+        """
+        from ..ln.types import Spec
+
+        # Build kwargs for Spec constructor
+        kwargs = {}
+
+        # Extract name from metadata
+        name = self.extract_metadata("name")
+        if name:
+            kwargs["name"] = name
+
+        # Add nullable/listable flags using properties
+        kwargs["nullable"] = self.is_nullable
+        kwargs["listable"] = self.is_listable
+
+        # Extract default/default_factory
+        default = self.extract_metadata("default")
+        if default is not None:
+            kwargs["default"] = default
+
+        default_factory = self.extract_metadata("default_factory")
+        if default_factory is not None:
+            kwargs["default_factory"] = default_factory
+
+        # Extract validator
+        validator = self.extract_metadata("validator")
+        if validator is not None:
+            kwargs["validator"] = validator
+
+        # Extract description
+        description = self.extract_metadata("description")
+        if description:
+            kwargs["description"] = description
+
+        # Extract other common metadata
+        for key in ["title", "alias", "frozen", "exclude"]:
+            val = self.extract_metadata(key)
+            if val is not None:
+                kwargs[key] = val
+
+        # Extract json_schema_extra
+        json_schema_extra = self.extract_metadata("json_schema_extra")
+        if json_schema_extra:
+            for k, v in json_schema_extra.items():
+                kwargs[k] = v
+
+        return Spec(self.base_type, **kwargs)
 
     def metadata_dict(
         self, exclude: list[str] | None = None
