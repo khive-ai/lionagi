@@ -95,19 +95,20 @@ class Step:
                 if spec.name:
                     fields[spec.name] = spec
 
-        # Build fields list
-        all_fields = []
+        # Build fields dict to avoid duplicates (dict preserves insertion order in Python 3.7+)
+        fields_dict = {}
 
         # Add common fields (convert FieldModel to Spec)
         if reason:
-            all_fields.append(get_default_field("reason").to_spec())
+            reason_spec = get_default_field("reason").to_spec()
+            fields_dict["reason"] = reason_spec
 
         if actions:
-            all_fields.append(get_default_field("action_required").to_spec())
-            all_fields.append(get_default_field("action_requests").to_spec())
-            all_fields.append(get_default_field("action_responses").to_spec())
+            fields_dict["action_required"] = get_default_field("action_required").to_spec()
+            fields_dict["action_requests"] = get_default_field("action_requests").to_spec()
+            fields_dict["action_responses"] = get_default_field("action_responses").to_spec()
 
-        # Add custom fields
+        # Add custom fields (will override defaults if same name)
         if fields:
             for field_name, spec in fields.items():
                 # Ensure spec has name
@@ -118,7 +119,10 @@ class Step:
                         name=field_name,
                         metadata=spec.metadata,
                     )
-                all_fields.append(spec)
+                fields_dict[spec.name] = spec
+
+        # Convert to list
+        all_fields = list(fields_dict.values())
 
         # Create Operable with all fields
         operable = Operable(
