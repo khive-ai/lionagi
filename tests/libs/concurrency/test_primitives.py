@@ -517,8 +517,8 @@ async def test_condition_statistics(anyio_backend):
         for _ in range(2):
             tg.start_soon(waiter)
 
-        # Give waiters time to start waiting
-        await anyio.sleep(0.01)
+        # Give waiters time to start waiting (increased for slow CI)
+        await anyio.sleep(0.1)
 
         # Check statistics while tasks are waiting
         stats = condition.statistics()
