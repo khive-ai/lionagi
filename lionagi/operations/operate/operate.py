@@ -341,6 +341,9 @@ async def operate(
         return result
 
     # If we have model_class, we must have operative (created at line 268)
+    # First set the response_model to the existing result
+    operative.response_model = result
+    # Then update it with action_responses
     operative.update_response_model(
         data={"action_responses": action_response_models}
     )
