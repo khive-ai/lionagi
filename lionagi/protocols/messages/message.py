@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 
 from pydantic import field_serializer, field_validator
 
-from lionagi.ln.types import DataClass
+from lionagi.ln.types import DataClass, ModelConfig
 
 from .._concepts import Sendable
 from ..graph.node import Node
@@ -22,7 +22,7 @@ from .base import (
 class MessageContent(DataClass):
     """A base class for message content structures."""
 
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
 
     @property
     def rendered(self) -> str:

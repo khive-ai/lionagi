@@ -16,7 +16,7 @@ from typing import Annotated, Any, ClassVar
 from typing_extensions import Self, override
 
 from .._errors import ValidationError
-from ..ln.types import Meta, Params
+from ..ln.types import Meta, ModelConfig, Params
 
 # Cache of valid Pydantic Field parameters
 _PYDANTIC_FIELD_PARAMS: set[str] | None = None
@@ -77,8 +77,9 @@ class FieldModel(Params):
     """
 
     # Class configuration - let Params handle Unset population
-    _prefill_unset: ClassVar[bool] = True
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(
+        prefill_unset=True, none_as_sentinel=True
+    )
 
     # Public fields (all start as Unset when not provided)
     base_type: type[Any]

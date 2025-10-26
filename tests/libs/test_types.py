@@ -4,12 +4,14 @@ Target: Cover easy missing lines (154, 188, 197, 214, etc.)
 """
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 import pytest
 
 from lionagi.ln.types import (
     DataClass,
     Enum,
+    ModelConfig,
     Params,
     Undefined,
     Unset,
@@ -81,7 +83,7 @@ def test_params_allowed():
 class MyParamsNoneSentinel(Params):
     """Test params class with None as sentinel"""
 
-    _none_as_sentinel = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
     field1: str = Unset
 
 
@@ -107,7 +109,7 @@ def test_params_is_sentinel_default():
 class MyParamsStrict(Params):
     """Test params class with strict mode"""
 
-    _strict = True
+    _config: ClassVar[ModelConfig] = ModelConfig(strict=True)
     field1: str = Unset
     field2: int = Unset
 
@@ -150,7 +152,7 @@ def test_dataclass_allowed():
 class MyDataClassStrict(DataClass):
     """Test data class with strict mode"""
 
-    _strict = True
+    _config: ClassVar[ModelConfig] = ModelConfig(strict=True)
     field1: str = Unset
 
 
@@ -164,7 +166,7 @@ def test_dataclass_strict_mode():
 class MyDataClassPrefillUnset(DataClass):
     """Test data class with prefill_unset"""
 
-    _prefill_unset = True
+    _config: ClassVar[ModelConfig] = ModelConfig(prefill_unset=True)
     field1: str = field(default=Undefined)
 
 
@@ -179,7 +181,7 @@ def test_dataclass_prefill_unset():
 class MyDataClassNoneSentinel(DataClass):
     """Test data class with None as sentinel"""
 
-    _none_as_sentinel = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
     field1: str = None
 
 

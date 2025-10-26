@@ -39,23 +39,23 @@ class NestedModel(BaseModel):
 class ListModel(BaseModel):
     """Model with list of basic types."""
 
-    items: List[str]
-    numbers: List[int]
+    items: list[str]
+    numbers: list[int]
 
 
 class ListOfModelsModel(BaseModel):
     """Model with list of Pydantic models."""
 
-    models: List[SimpleModel]
+    models: list[SimpleModel]
 
 
 class ComplexModel(BaseModel):
     """Model with complex nested structures."""
 
     nested: NestedModel
-    list_models: List[SimpleModel]
-    optional: Optional[str]
-    union: Union[str, int]
+    list_models: list[SimpleModel]
+    optional: str | None
+    union: str | int
     any_type: Any
 
 
@@ -306,8 +306,8 @@ class TestEdgeCases:
             field2: int
             field3: bool
             field4: float
-            field5: List[str]
-            field6: Optional[int]
+            field5: list[str]
+            field6: int | None
             field7: Any
 
         result = breakdown_pydantic_annotation(ManyFieldsModel)
@@ -337,7 +337,7 @@ class TestEdgeCases:
         """Test list field in nested model."""
 
         class NestedWithList(BaseModel):
-            items: List[str]
+            items: list[str]
 
         class ParentModel(BaseModel):
             nested: NestedWithList
@@ -388,8 +388,8 @@ class TestAnnotationPreservation:
         """Test that generic types are preserved."""
 
         class GenericTypes(BaseModel):
-            list_int: List[int]
-            list_str: List[str]
+            list_int: list[int]
+            list_str: list[str]
 
         result = breakdown_pydantic_annotation(GenericTypes)
 
@@ -400,7 +400,7 @@ class TestAnnotationPreservation:
         """Test list with Any type argument."""
 
         class ListAny(BaseModel):
-            items: List[Any]
+            items: list[Any]
 
         result = breakdown_pydantic_annotation(ListAny)
 
@@ -446,7 +446,7 @@ class TestRecursionBehavior:
             nested: DeepNested2
 
         class ListOfDeep(BaseModel):
-            items: List[DeepInList]
+            items: list[DeepInList]
 
         # Should handle depth correctly when recursing into list elements
         # ListOfDeep (depth 0) -> DeepInList (depth 1) -> DeepNested2 (depth 2) -> DeepNested1 (depth 3)

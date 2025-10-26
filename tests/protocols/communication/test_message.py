@@ -148,8 +148,8 @@ def test_message_content_to_dict():
 
 
 def test_message_content_none_as_sentinel():
-    """Test MessageContent._none_as_sentinel ClassVar."""
-    assert MessageContent._none_as_sentinel is True
+    """Test MessageContent._config.none_as_sentinel."""
+    assert MessageContent._config.none_as_sentinel is True
 
 
 # ============================================================================

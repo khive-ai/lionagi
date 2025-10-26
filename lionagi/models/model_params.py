@@ -21,7 +21,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
 
-from lionagi.ln.types import Params
+from lionagi.ln.types import ModelConfig, Params
 from lionagi.utils import copy
 
 from .field_model import FieldModel
@@ -83,8 +83,9 @@ class ModelParams(Params):
     """
 
     # Class configuration - let Params handle Unset population
-    _prefill_unset: ClassVar[bool] = True
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(
+        prefill_unset=True, none_as_sentinel=True
+    )
 
     # Public fields (all start as Unset when not provided)
     name: str | None

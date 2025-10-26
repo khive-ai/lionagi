@@ -15,7 +15,7 @@ from .concurrency import (
     is_coro_func,
     move_on_after,
 )
-from .types import Params, T, Unset, not_sentinel
+from .types import ModelConfig, Params, T, Unset, not_sentinel
 
 _INITIALIZED = False
 _MODEL_LIKE = None
@@ -262,7 +262,7 @@ async def bcall(
 @dataclass(slots=True, init=False, frozen=True)
 class AlcallParams(Params):
     # ClassVar attributes
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
     _func: ClassVar[Any] = alcall
 
     # input processing

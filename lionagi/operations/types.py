@@ -9,7 +9,7 @@ from pydantic import BaseModel, JsonValue
 
 from lionagi.ln import AlcallParams
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
-from lionagi.ln.types import Params
+from lionagi.ln.types import ModelConfig, Params
 from lionagi.protocols.action.tool import ToolRef
 from lionagi.protocols.types import ID, SenderRecipient
 from lionagi.service.imodel import iModel
@@ -43,7 +43,7 @@ class MorphParam(Params):
     transformations between message states with well-defined parameters.
     """
 
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
 
 
 @dataclass(slots=True, frozen=True, init=False)
@@ -57,7 +57,7 @@ class ChatParam(MorphParam):
     This gets mapped to InstructionContent.prompt_context during message creation.
     """
 
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
     guidance: JsonValue = None
     context: JsonValue = None
     sender: SenderRecipient = None
@@ -81,7 +81,7 @@ class InterpretParam(MorphParam):
     transforming content according to specified guidelines.
     """
 
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
     domain: str = None
     style: str = None
     sample_writing: str = None
@@ -97,7 +97,7 @@ class ParseParam(MorphParam):
     fuzzy matching, and error handling strategies.
     """
 
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
     response_format: type[BaseModel] | dict = None
     fuzzy_match_params: FuzzyMatchKeysParams | dict = None
     handle_validation: HandleValidation = "raise"
@@ -114,7 +114,7 @@ class ActionParam(MorphParam):
     for action-based operations.
     """
 
-    _none_as_sentinel: ClassVar[bool] = True
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
     action_call_params: AlcallParams = None
     tools: ToolRef = None
     strategy: Literal["concurrent", "sequential"] = "concurrent"
