@@ -3,152 +3,26 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum as _Enum
-from typing import Any, ClassVar, Final, Literal, TypeVar, Union
+from typing import Any, ClassVar
 
 from typing_extensions import TypedDict, override
 
+from ._sentinel import Undefined, Unset, is_sentinel
+
 __all__ = (
-    "Undefined",
-    "Unset",
-    "MaybeUndefined",
-    "MaybeUnset",
-    "MaybeSentinel",
-    "SingletonType",
-    "UndefinedType",
-    "UnsetType",
-    "KeysDict",
-    "T",
     "Enum",
-    "is_sentinel",
-    "not_sentinel",
+    "ModelConfig",
     "Params",
     "DataClass",
-    "KeysLike",
     "Meta",
+    "KeysDict",
+    "KeysLike",
 )
-
-T = TypeVar("T")
-
-
-class _SingletonMeta(type):
-    """Metaclass that guarantees exactly one instance per subclass.
-
-    This ensures that sentinel values maintain identity across the entire application,
-    allowing safe identity checks with 'is' operator.
-    """
-
-    _cache: dict[type, SingletonType] = {}
-
-    def __call__(cls, *a, **kw):
-        if cls not in cls._cache:
-            cls._cache[cls] = super().__call__(*a, **kw)
-        return cls._cache[cls]
-
-
-class SingletonType(metaclass=_SingletonMeta):
-    """Base class for singleton sentinel types.
-
-    Provides consistent interface for sentinel values with:
-    - Identity preservation across deepcopy
-    - Falsy boolean evaluation
-    - Clear string representation
-    """
-
-    __slots__: tuple[str, ...] = ()
-
-    def __deepcopy__(self, memo):  # copy & deepcopy both noop
-        return self
-
-    def __copy__(self):
-        return self
-
-    # concrete classes *must* override the two methods below
-    def __bool__(self) -> bool: ...
-    def __repr__(self) -> str: ...
-
-
-class UndefinedType(SingletonType):
-    """Sentinel for a key or field entirely missing from a namespace.
-
-    Use this when:
-    - A field has never been set
-    - A key doesn't exist in a mapping
-    - A value is conceptually undefined (not just unset)
-
-    Example:
-        >>> d = {"a": 1}
-        >>> d.get("b", Undefined) is Undefined
-        True
-    """
-
-    __slots__ = ()
-
-    def __bool__(self) -> Literal[False]:
-        return False
-
-    def __repr__(self) -> Literal["Undefined"]:
-        return "Undefined"
-
-    def __str__(self) -> Literal["Undefined"]:
-        return "Undefined"
-
-    def __reduce__(self):
-        """Ensure pickle preservation of singleton identity."""
-        return "Undefined"
-
-
-class UnsetType(SingletonType):
-    """Sentinel for a key present but value not yet provided.
-
-    Use this when:
-    - A parameter exists but hasn't been given a value
-    - Distinguishing between None and "not provided"
-    - API parameters that are optional but need explicit handling
-
-    Example:
-        >>> def func(param=Unset):
-        ...     if param is not Unset:
-        ...         # param was explicitly provided
-        ...         process(param)
-    """
-
-    __slots__ = ()
-
-    def __bool__(self) -> Literal[False]:
-        return False
-
-    def __repr__(self) -> Literal["Unset"]:
-        return "Unset"
-
-    def __str__(self) -> Literal["Unset"]:
-        return "Unset"
-
-    def __reduce__(self):
-        """Ensure pickle preservation of singleton identity."""
-        return "Unset"
-
-
-Undefined: Final = UndefinedType()
-"""A key or field entirely missing from a namespace"""
-Unset: Final = UnsetType()
-"""A key present but value not yet provided."""
-
-MaybeUndefined = Union[T, UndefinedType]
-MaybeUnset = Union[T, UnsetType]
-MaybeSentinel = Union[T, UndefinedType, UnsetType]
-
-
-def is_sentinel(value: Any) -> bool:
-    """Check if a value is any sentinel (Undefined or Unset)."""
-    return value is Undefined or value is Unset
-
-
-def not_sentinel(value: Any) -> bool:
-    """Check if a value is NOT a sentinel. Useful for filtering operations."""
-    return value is not Undefined and value is not Unset
 
 
 class Enum(_Enum):
+    """Enhanced Enum with allowed() classmethod."""
+
     @classmethod
     def allowed(cls) -> tuple[str, ...]:
         return tuple(e.value for e in cls)
@@ -160,18 +34,46 @@ class KeysDict(TypedDict, total=False):
     key: Any  # Represents any key-type pair
 
 
+@dataclass(slots=True, frozen=True)
+class ModelConfig:
+    """Configuration for Params and DataClass behavior.
+
+    Attributes:
+        none_as_sentinel: If True, None is treated as a sentinel value (excluded from to_dict).
+        empty_as_sentinel: If True, empty collections are treated as sentinels (excluded from to_dict).
+        strict: If True, no sentinels allowed (all fields must have values).
+        prefill_unset: If True, unset fields are prefilled with Unset.
+        use_enum_values: If True, use enum values instead of enum instances in to_dict().
+    """
+
+    # Sentinel handling (controls what gets excluded from to_dict)
+    none_as_sentinel: bool = False
+    empty_as_sentinel: bool = False
+
+    # Validation
+    strict: bool = False
+    prefill_unset: bool = True
+
+    # Serialization
+    use_enum_values: bool = False
+
+
 @dataclass(slots=True, frozen=True, init=False)
 class Params:
-    """Base class for parameters used in various functions."""
+    """Base class for parameters used in various functions.
 
-    _none_as_sentinel: ClassVar[bool] = False
-    """If True, None is treated as a sentinel value."""
+    Use the ModelConfig class attribute to customize behavior:
 
-    _strict: ClassVar[bool] = False
-    """No sentinels allowed if strict is True."""
+    Example:
+        @dataclass(slots=True, frozen=True, init=False)
+        class MyParams(Params):
+            _config: ClassVar[ModelConfig] = ModelConfig(strict=True)
+            param1: str
+            param2: int
+    """
 
-    _prefill_unset: ClassVar[bool] = True
-    """If True, unset fields are prefilled with Unset."""
+    _config: ClassVar[ModelConfig] = ModelConfig()
+    """Configuration for this Params class."""
 
     _allowed_keys: ClassVar[set[str]] = field(
         default=set(), init=False, repr=False
@@ -193,9 +95,25 @@ class Params:
     @classmethod
     def _is_sentinel(cls, value: Any) -> bool:
         """Check if a value is a sentinel (Undefined or Unset)."""
-        if value is None and cls._none_as_sentinel:
-            return True
-        return is_sentinel(value)
+        return is_sentinel(
+            value,
+            none_as_sentinel=cls._config.none_as_sentinel,
+            empty_as_sentinel=cls._config.empty_as_sentinel,
+        )
+
+    @classmethod
+    def _normalize_value(cls, value: Any) -> Any:
+        """Normalize a value for serialization.
+
+        Handles:
+        - Enum values if use_enum_values is True
+        - Can be extended for other transformations
+        """
+        from enum import Enum as _Enum
+
+        if cls._config.use_enum_values and isinstance(value, _Enum):
+            return value.value
+        return value
 
     @classmethod
     def allowed(cls) -> set[str]:
@@ -210,10 +128,12 @@ class Params:
     @override
     def _validate(self) -> None:
         def _validate_strict(k):
-            if self._strict and self._is_sentinel(getattr(self, k, Unset)):
+            if self._config.strict and self._is_sentinel(
+                getattr(self, k, Unset)
+            ):
                 raise ValueError(f"Missing required parameter: {k}")
             if (
-                self._prefill_unset
+                self._config.prefill_unset
                 and getattr(self, k, Undefined) is Undefined
             ):
                 object.__setattr__(self, k, Unset)
@@ -236,14 +156,14 @@ class Params:
         data = {}
         exclude = exclude or set()
         for k in self.allowed():
-            if k not in exclude and not self._is_sentinel(
-                v := getattr(self, k, Undefined)
-            ):
-                data[k] = v
+            if k not in exclude:
+                v = getattr(self, k, Undefined)
+                if not self._is_sentinel(v):
+                    data[k] = self._normalize_value(v)
         return data
 
     def __hash__(self) -> int:
-        from ._hash import hash_dict
+        from .._hash import hash_dict
 
         return hash_dict(self.to_dict())
 
@@ -261,16 +181,20 @@ class Params:
 
 @dataclass(slots=True)
 class DataClass:
-    """A base class for data classes with strict parameter handling."""
+    """A base class for data classes with strict parameter handling.
 
-    _none_as_sentinel: ClassVar[bool] = False
-    """If True, None is treated as a sentinel value."""
+    Use the ModelConfig class attribute to customize behavior:
 
-    _strict: ClassVar[bool] = False
-    """No sentinels allowed if strict is True."""
+    Example:
+        @dataclass(slots=True)
+        class MyDataClass(DataClass):
+            _config: ClassVar[ModelConfig] = ModelConfig(strict=True, prefill_unset=False)
+            field1: str
+            field2: int
+    """
 
-    _prefill_unset: ClassVar[bool] = True
-    """If True, unset fields are prefilled with Unset."""
+    _config: ClassVar[ModelConfig] = ModelConfig()
+    """Configuration for this DataClass."""
 
     _allowed_keys: ClassVar[set[str]] = field(
         default=set(), init=False, repr=False
@@ -294,10 +218,12 @@ class DataClass:
     @override
     def _validate(self) -> None:
         def _validate_strict(k):
-            if self._strict and self._is_sentinel(getattr(self, k, Unset)):
+            if self._config.strict and self._is_sentinel(
+                getattr(self, k, Unset)
+            ):
                 raise ValueError(f"Missing required parameter: {k}")
             if (
-                self._prefill_unset
+                self._config.prefill_unset
                 and getattr(self, k, Undefined) is Undefined
             ):
                 self.__setattr__(k, Unset)
@@ -309,18 +235,34 @@ class DataClass:
         data = {}
         exclude = exclude or set()
         for k in type(self).allowed():
-            if k not in exclude and not self._is_sentinel(
-                v := getattr(self, k)
-            ):
-                data[k] = v
+            if k not in exclude:
+                v = getattr(self, k)
+                if not self._is_sentinel(v):
+                    data[k] = self._normalize_value(v)
         return data
 
     @classmethod
     def _is_sentinel(cls, value: Any) -> bool:
         """Check if a value is a sentinel (Undefined or Unset)."""
-        if value is None and cls._none_as_sentinel:
-            return True
-        return is_sentinel(value)
+        return is_sentinel(
+            value,
+            none_as_sentinel=cls._config.none_as_sentinel,
+            empty_as_sentinel=cls._config.empty_as_sentinel,
+        )
+
+    @classmethod
+    def _normalize_value(cls, value: Any) -> Any:
+        """Normalize a value for serialization.
+
+        Handles:
+        - Enum values if use_enum_values is True
+        - Can be extended for other transformations
+        """
+        from enum import Enum as _Enum
+
+        if cls._config.use_enum_values and isinstance(value, _Enum):
+            return value.value
+        return value
 
     def with_updates(self, **kwargs: Any) -> DataClass:
         """Return a new instance with updated fields."""
@@ -329,7 +271,7 @@ class DataClass:
         return type(self)(**dict_)
 
     def __hash__(self) -> int:
-        from ._hash import hash_dict
+        from .._hash import hash_dict
 
         return hash_dict(self.to_dict())
 

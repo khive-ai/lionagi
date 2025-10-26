@@ -5,10 +5,7 @@
 
 import pytest
 
-from lionagi.operations.builder import (
-    ExpansionStrategy,
-    OperationGraphBuilder,
-)
+from lionagi.operations.builder import ExpansionStrategy, OperationGraphBuilder
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.edge import Edge
 

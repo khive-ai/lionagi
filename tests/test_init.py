@@ -56,8 +56,12 @@ class TestMainImports:
         then regular names are sorted alphabetically.
         """
         # Separate dunder names from regular names
-        dunder_names = [name for name in lionagi.__all__ if name.startswith("__")]
-        regular_names = [name for name in lionagi.__all__ if not name.startswith("__")]
+        dunder_names = [
+            name for name in lionagi.__all__ if name.startswith("__")
+        ]
+        regular_names = [
+            name for name in lionagi.__all__ if not name.startswith("__")
+        ]
 
         # Check dunder names are sorted
         assert tuple(dunder_names) == tuple(sorted(dunder_names))
@@ -66,7 +70,9 @@ class TestMainImports:
         assert tuple(regular_names) == tuple(sorted(regular_names))
 
         # Check dunder names come before regular names
-        expected_exports = tuple(sorted(dunder_names)) + tuple(sorted(regular_names))
+        expected_exports = tuple(sorted(dunder_names)) + tuple(
+            sorted(regular_names)
+        )
         assert lionagi.__all__ == expected_exports
 
     @pytest.mark.parametrize("export_name", EXPECTED_EXPORTS)
@@ -161,7 +167,15 @@ class TestLazyLoadingBehavior:
 
     def test_all_protocol_types_importable(self):
         """Test that all protocol types are importable."""
-        from lionagi import Edge, Element, Event, Graph, Node, Pile, Progression
+        from lionagi import (
+            Edge,
+            Element,
+            Event,
+            Graph,
+            Node,
+            Pile,
+            Progression,
+        )
 
         assert Element is not None
         assert Pile is not None

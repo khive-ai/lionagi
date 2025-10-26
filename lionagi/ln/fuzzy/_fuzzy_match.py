@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
-from ..types import KeysLike, Params, Unset
+from ..types import KeysLike, ModelConfig, Params, Unset
 from ._string_similarity import (
     SIMILARITY_ALGO_MAP,
     SIMILARITY_TYPE,
@@ -152,7 +152,7 @@ def fuzzy_match_keys(
 
 @dataclass(slots=True, init=False, frozen=True)
 class FuzzyMatchKeysParams(Params):
-    _none_as_sentinel: ClassVar[bool] = False
+    _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=False)
     _func: ClassVar[Any] = fuzzy_match_keys
 
     similarity_algo: SIMILARITY_TYPE | SimilarityFunc = "jaro_winkler"

@@ -17,7 +17,15 @@ if TYPE_CHECKING:
     from .operations.builder import OperationGraphBuilder as Builder
     from .operations.node import Operation
     from .protocols.action.manager import load_mcp_tools
-    from .protocols.types import Edge, Element, Event, Graph, Node, Pile, Progression
+    from .protocols.types import (
+        Edge,
+        Element,
+        Event,
+        Graph,
+        Node,
+        Pile,
+        Progression,
+    )
     from .service.broadcaster import Broadcaster
     from .service.hooks import HookedEvent, HookRegistry
     from .service.imodel import iModel
