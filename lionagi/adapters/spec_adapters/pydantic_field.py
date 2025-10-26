@@ -1,5 +1,6 @@
 """Pydantic adapter for Spec system."""
 
+import functools
 from typing import TYPE_CHECKING, Any
 
 from lionagi.ln.types import Unset, is_sentinel
@@ -13,22 +14,16 @@ if TYPE_CHECKING:
     from lionagi.ln.types import Operable, Spec
 
 
-_PYDANTIC_FIELD_PARAMS = None
-
-
+@functools.lru_cache(maxsize=1)
 def _get_pydantic_field_params() -> set[str]:
-    """Get valid Pydantic Field parameters (cached)."""
-    global _PYDANTIC_FIELD_PARAMS
-    if _PYDANTIC_FIELD_PARAMS is None:
-        import inspect
+    """Get valid Pydantic Field parameters (cached, thread-safe)."""
+    import inspect
 
-        from pydantic import Field as PydanticField
+    from pydantic import Field as PydanticField
 
-        _PYDANTIC_FIELD_PARAMS = set(
-            inspect.signature(PydanticField).parameters.keys()
-        )
-        _PYDANTIC_FIELD_PARAMS.discard("kwargs")
-    return _PYDANTIC_FIELD_PARAMS
+    params = set(inspect.signature(PydanticField).parameters.keys())
+    params.discard("kwargs")
+    return params
 
 
 class PydanticSpecAdapter(SpecAdapter):
@@ -123,6 +118,32 @@ class PydanticSpecAdapter(SpecAdapter):
 
         model_cls.model_rebuild()
         return model_cls
+
+    @classmethod
+    def fuzzy_match_fields(
+        cls, data: dict, model_cls: type["BaseModel"], strict: bool = False
+    ) -> dict:
+        """Match data keys to Pydantic model fields with fuzzy matching.
+
+        Args:
+            data: Raw data dictionary
+            model_cls: Pydantic model class
+            strict: If True, raise on unmatched; if False, force coercion
+
+        Returns:
+            Dictionary with keys matched to model fields
+        """
+        from lionagi.ln import fuzzy_match_keys
+        from lionagi.ln.types import Undefined
+
+        handle_mode = "raise" if strict else "force"
+
+        matched = fuzzy_match_keys(
+            data, model_cls.model_fields, handle_unmatched=handle_mode
+        )
+
+        # Filter out undefined values
+        return {k: v for k, v in matched.items() if v != Undefined}
 
     @classmethod
     def validate_model(

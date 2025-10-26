@@ -145,10 +145,14 @@ class SpecAdapter(ABC):
         return data
 
     @classmethod
+    @abstractmethod
     def fuzzy_match_fields(
         cls, data: dict, model_cls: type, strict: bool = False
     ) -> dict:
         """Match data keys to model fields with fuzzy matching.
+
+        Framework-specific method - each adapter must implement based on how
+        their framework exposes field definitions.
 
         Args:
             data: Raw data dictionary
@@ -158,17 +162,7 @@ class SpecAdapter(ABC):
         Returns:
             Dictionary with keys matched to model fields
         """
-        from lionagi.ln import fuzzy_match_keys
-        from lionagi.ln.types import Undefined
-
-        handle_mode = "raise" if strict else "force"
-
-        matched = fuzzy_match_keys(
-            data, model_cls.model_fields, handle_unmatched=handle_mode
-        )
-
-        # Filter out undefined values
-        return {k: v for k, v in matched.items() if v != Undefined}
+        ...
 
     @classmethod
     def validate_response(
@@ -205,7 +199,12 @@ class SpecAdapter(ABC):
 
             return instance
 
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, AttributeError) as e:
+            # Catch validation-related exceptions only
+            # ValueError: JSON/parsing errors, validation failures
+            # TypeError: Type mismatches during validation
+            # KeyError: Missing required fields
+            # AttributeError: Field access errors
             if strict:
                 raise
             return None
