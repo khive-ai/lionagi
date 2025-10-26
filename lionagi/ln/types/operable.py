@@ -77,7 +77,9 @@ class Operable:
         if len(names) != len(set(names)):
             from collections import Counter
 
-            duplicates = [name for name, count in Counter(names).items() if count > 1]
+            duplicates = [
+                name for name, count in Counter(names).items() if count > 1
+            ]
             raise ValueError(
                 f"Duplicate field names found: {duplicates}. "
                 "Each spec must have a unique name."
