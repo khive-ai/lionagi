@@ -77,3 +77,82 @@ async def test_operate_with_validation():
     )
     assert final.foo == "mocked_response_string"
     assert len(branch.messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_operate_with_actions_preserves_response_data():
+    """
+    Regression test: when operate() returns a structured response with actions,
+    the action_responses should be merged with the original response data.
+
+    Previously, only action_responses were returned, losing original data.
+    """
+
+    class ResponseModel(BaseModel):
+        answer: str
+        confidence: float
+
+    # Mock branch with response that includes action requests
+    branch = Branch(user="tester", name="ActionTest")
+
+    async def _fake_invoke_with_actions(**kwargs):
+        config = _get_oai_config(
+            name="oai_chat",
+            endpoint="chat/completions",
+            request_options=OpenAIChatCompletionsRequest,
+            kwargs={"model": "gpt-4.1-mini"},
+        )
+        endpoint = Endpoint(config=config)
+        fake_call = APICalling(
+            payload={"model": "gpt-4.1-mini", "messages": []},
+            headers={"Authorization": "Bearer test"},
+            endpoint=endpoint,
+        )
+        # Response with both data AND action requests
+        fake_call.execution.response = """{
+            "answer": "42",
+            "confidence": 0.95,
+            "action_required": true,
+            "action_requests": [
+                {"function": "add", "arguments": {"a": 1, "b": 2}}
+            ]
+        }"""
+        fake_call.execution.status = EventStatus.COMPLETED
+        return fake_call
+
+    mock_invoke = AsyncMock(side_effect=_fake_invoke_with_actions)
+    mock_chat_model = iModel(
+        provider="openai", model="gpt-4.1-mini", api_key="test_key"
+    )
+    mock_chat_model.invoke = mock_invoke
+    branch.chat_model = mock_chat_model
+
+    # Register a simple tool
+    def add(a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+
+    branch.register_tools([add])
+
+    # Execute with actions=True
+    result = await branch.operate(
+        instruction="Calculate something",
+        response_format=ResponseModel,
+        actions=True,
+        invoke_actions=True,
+    )
+
+    # CRITICAL: Result should have BOTH original response data AND action_responses
+    assert hasattr(result, "answer"), "Original 'answer' field missing"
+    assert hasattr(result, "confidence"), "Original 'confidence' field missing"
+    assert hasattr(
+        result, "action_responses"
+    ), "action_responses field missing"
+
+    # Verify original data is preserved
+    assert result.answer == "42"
+    assert result.confidence == 0.95
+
+    # Verify action_responses were added
+    assert len(result.action_responses) == 1
+    assert result.action_responses[0].function == "add"
