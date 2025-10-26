@@ -5,7 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from . import ln as ln
-from .ln.types import DataClass, Params, Undefined, Unset
+from .ln.types import DataClass, Operable, Params, Spec, Undefined, Unset
 from .version import __version__
 
 if TYPE_CHECKING:
@@ -123,12 +123,14 @@ __all__ = (
     "HookRegistry",
     "HookedEvent",
     "Node",
+    "Operable",
     "OperableModel",
     "Operation",
     "Params",
     "Pile",
     "Progression",
     "Session",
+    "Spec",
     "Undefined",
     "Unset",
     "iModel",
