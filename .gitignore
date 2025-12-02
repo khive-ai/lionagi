@@ -176,3 +176,5 @@ cython_debug/
 *logs/
 
 performance_results.json
+
+AGENTS.md
