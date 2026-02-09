@@ -1,15 +1,12 @@
 import re
 from typing import Any
 
-import msgspec
+import orjson
 
-from ._fuzzy_json import fuzzy_json
+from ._fuzzy_json import MAX_JSON_INPUT_SIZE, fuzzy_json
 
 # Precompile the regex for extracting JSON code blocks
 _JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
-
-# Initialize a decoder for efficiency
-_decoder = msgspec.json.Decoder(type=Any)
 
 
 def extract_json(
@@ -18,6 +15,7 @@ def extract_json(
     *,
     fuzzy_parse: bool = False,
     return_one_if_single: bool = True,
+    max_size: int = MAX_JSON_INPUT_SIZE,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Extract and parse JSON content from a string or markdown code blocks.
     Attempts direct JSON parsing first. If that fails, looks for JSON content
@@ -28,7 +26,17 @@ def extract_json(
         fuzzy_parse (bool): If True, attempts fuzzy JSON parsing on failed attempts.
         return_one_if_single (bool): If True and only one JSON object is found,
             returns a dict instead of a list with one dict.
+        max_size (int): Maximum input size in bytes (default: 10MB). DoS protection.
+
+    Raises:
+        ValueError: If input exceeds max_size.
     """
+    if isinstance(input_data, list):
+        for item in input_data:
+            if len(item) > max_size:
+                raise ValueError(
+                    f"Input size ({len(item)} bytes) exceeds maximum ({max_size} bytes)"
+                )
 
     # If input_data is a list, join into a single string
     if isinstance(input_data, list):
@@ -36,11 +44,16 @@ def extract_json(
     else:
         input_str = input_data
 
+    if len(input_str) > max_size:
+        raise ValueError(
+            f"Input size ({len(input_str)} bytes) exceeds maximum ({max_size} bytes)"
+        )
+
     # 1. Try direct parsing
     try:
         if fuzzy_parse:
             return fuzzy_json(input_str)
-        return _decoder.decode(input_str.encode("utf-8"))
+        return orjson.loads(input_str)
     except Exception:
         pass
 
@@ -55,7 +68,7 @@ def extract_json(
         try:
             if fuzzy_parse:
                 return fuzzy_json(data_str)
-            return _decoder.decode(data_str.encode("utf-8"))
+            return orjson.loads(data_str)
         except Exception:
             return []
 
@@ -66,7 +79,7 @@ def extract_json(
             if fuzzy_parse:
                 results.append(fuzzy_json(m))
             else:
-                results.append(_decoder.decode(m.encode("utf-8")))
+                results.append(orjson.loads(m))
         except Exception:
             # Skip invalid JSON blocks
             continue

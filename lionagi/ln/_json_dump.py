@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+"""JSON serialization utilities built on orjson.
+
+Provides flexible serialization with:
+- Configurable type handling (Decimal, Enum, datetime, sets)
+- Safe fallback mode for logging non-serializable objects
+- NDJSON streaming for iterables
+- Caching of default handlers for performance
+"""
+
+import contextlib
 import datetime as dt
 import decimal
 import re
@@ -24,6 +34,7 @@ __all__ = [
 # Types orjson already serializes natively at C/Rust speed.
 # (We only route them through default() when passthrough is requested.)
 _NATIVE = (dt.datetime, dt.date, dt.time, UUID)
+_SERIALIZATION_METHODS = ("model_dump", "to_dict", "dict")
 
 # --------- helpers ------------------------------------------------------------
 
@@ -146,18 +157,11 @@ def get_orjson_default(
                         break
             else:
                 # Duck-typed support for common data holders
-                md = getattr(obj, "model_dump", None)
-                if callable(md):
-                    try:
-                        return md()
-                    except Exception:
-                        pass
-                dd = getattr(obj, "dict", None)
-                if callable(dd):
-                    try:
-                        return dd()
-                    except Exception:
-                        pass
+                for m in _SERIALIZATION_METHODS:
+                    md = getattr(obj, m, None)
+                    if callable(md):
+                        with contextlib.suppress(Exception):
+                            return md()
                 if safe_fallback:
                     if isinstance(obj, Exception):
                         return _safe_exception_payload(obj)
@@ -281,13 +285,29 @@ def json_dumps(
     /,
     *,
     decode: bool = True,
+    as_loaded: bool = False,
     **kwargs: Any,
-) -> str | bytes:
+) -> str | bytes | Any:
+    """Serialize to JSON with flexible output format.
+
+    Args:
+        obj: Object to serialize.
+        decode: Return str instead of bytes (default True).
+        as_loaded: Parse output back to dict/list (requires decode=True).
+        **kwargs: Passed to json_dumpb.
+
+    Returns:
+        str (default), bytes (decode=False), or dict/list (as_loaded=True).
+
+    Raises:
+        ValueError: If as_loaded=True without decode=True.
     """
-    Serialize to str by default (decode=True), or bytes if decode=False.
-    """
+    if as_loaded and not decode:
+        raise ValueError("as_loaded=True requires decode=True")
     out = json_dumpb(obj, **kwargs)
-    return out.decode("utf-8") if decode else out
+    if not decode:
+        return out
+    return orjson.loads(out) if as_loaded else out.decode("utf-8")
 
 
 # --------- streaming for very large outputs ----------------------------------
