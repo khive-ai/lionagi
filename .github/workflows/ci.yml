@@ -3,8 +3,12 @@ name: Continuous Integration
 on:
   push:
     branches: [ main, develop ]
+    paths-ignore:
+      - '**/*.ipynb'
   pull_request:
     branches: [ main, develop ]
+    paths-ignore:
+      - '**/*.ipynb'
 
 permissions:
   contents: read
