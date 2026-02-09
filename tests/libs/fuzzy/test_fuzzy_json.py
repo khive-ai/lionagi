@@ -1,13 +1,17 @@
 """Tests for lionagi/ln/fuzzy/_fuzzy_json.py
 
 Target: Cover lines 88-89 (escaped character handling in fix_json_string)
++ security/robustness enhancements (max_size, return type validation, state-machine cleaner)
 """
 
 import pytest
 
 from lionagi.ln.fuzzy._fuzzy_json import (
+    MAX_JSON_INPUT_SIZE,
     _check_valid_str,
     _clean_json_string,
+    _clean_json_string_safe,
+    _validate_return_type,
     fix_json_string,
     fuzzy_json,
 )
@@ -241,3 +245,169 @@ def test_fix_json_string_nested_with_escapes():
     # Should add two closing brackets and preserve escapes
     assert result.count("}") == 2
     assert "path" in result
+
+
+# ============================================================================
+# Test MAX_JSON_INPUT_SIZE and max_size enforcement
+# ============================================================================
+
+
+def test_max_json_input_size_constant():
+    """Test MAX_JSON_INPUT_SIZE is 10 MB"""
+    assert MAX_JSON_INPUT_SIZE == 10 * 1024 * 1024
+
+
+def test_check_valid_str_exceeds_max_size():
+    """Test _check_valid_str rejects input exceeding max_size"""
+    with pytest.raises(ValueError, match="exceeds maximum"):
+        _check_valid_str("x" * 100, max_size=50)
+
+
+def test_check_valid_str_at_max_size():
+    """Test _check_valid_str accepts input at exactly max_size"""
+    _check_valid_str("x" * 50, max_size=50)  # Should not raise
+
+
+def test_fuzzy_json_max_size_enforcement():
+    """Test fuzzy_json respects max_size parameter"""
+    with pytest.raises(ValueError, match="exceeds maximum"):
+        fuzzy_json('{"key": "value"}', max_size=5)
+
+
+def test_fuzzy_json_max_size_default_accepts_normal():
+    """Test fuzzy_json accepts normal-sized input with default max_size"""
+    result = fuzzy_json('{"key": "value"}')
+    assert result == {"key": "value"}
+
+
+# ============================================================================
+# Test _validate_return_type
+# ============================================================================
+
+
+def test_validate_return_type_dict():
+    """Test _validate_return_type accepts dict"""
+    result = _validate_return_type({"key": "value"})
+    assert result == {"key": "value"}
+
+
+def test_validate_return_type_list_of_dicts():
+    """Test _validate_return_type accepts list of dicts"""
+    data = [{"a": 1}, {"b": 2}]
+    result = _validate_return_type(data)
+    assert result == data
+
+
+def test_validate_return_type_empty_list():
+    """Test _validate_return_type accepts empty list"""
+    result = _validate_return_type([])
+    assert result == []
+
+
+def test_validate_return_type_rejects_primitive_string():
+    """Test _validate_return_type rejects string"""
+    with pytest.raises(TypeError, match="primitive type: str"):
+        _validate_return_type("hello")
+
+
+def test_validate_return_type_rejects_primitive_int():
+    """Test _validate_return_type rejects int"""
+    with pytest.raises(TypeError, match="primitive type: int"):
+        _validate_return_type(42)
+
+
+def test_validate_return_type_rejects_primitive_none():
+    """Test _validate_return_type rejects None"""
+    with pytest.raises(TypeError, match="primitive type: NoneType"):
+        _validate_return_type(None)
+
+
+def test_validate_return_type_accepts_list_of_non_dicts():
+    """Test _validate_return_type accepts list with mixed elements"""
+    result = _validate_return_type([{"a": 1}, "not a dict"])
+    assert result == [{"a": 1}, "not a dict"]
+
+
+def test_validate_return_type_accepts_list_of_primitives():
+    """Test _validate_return_type accepts list of ints"""
+    result = _validate_return_type([1, 2, 3])
+    assert result == [1, 2, 3]
+
+
+def test_fuzzy_json_rejects_primitive_json():
+    """Test fuzzy_json rejects valid JSON that decodes to a primitive"""
+    with pytest.raises(TypeError, match="primitive type"):
+        fuzzy_json('"just a string"')
+
+
+def test_fuzzy_json_rejects_json_number():
+    """Test fuzzy_json rejects valid JSON that decodes to a number"""
+    with pytest.raises(TypeError, match="primitive type"):
+        fuzzy_json("42")
+
+
+# ============================================================================
+# Test _clean_json_string_safe (state-machine cleaner)
+# ============================================================================
+
+
+def test_clean_json_string_safe_single_quotes():
+    """Test state-machine cleaner converts single quotes to double"""
+    result = _clean_json_string_safe("{'key': 'value'}")
+    assert result == '{"key": "value"}'
+
+
+def test_clean_json_string_safe_trailing_comma():
+    """Test state-machine cleaner removes trailing commas"""
+    result = _clean_json_string_safe('{"key": "value",}')
+    assert result == '{"key": "value"}'
+
+
+def test_clean_json_string_safe_unquoted_keys():
+    """Test state-machine cleaner quotes unquoted keys"""
+    result = _clean_json_string_safe('{key: "value"}')
+    assert '"key"' in result
+
+
+def test_clean_json_string_safe_preserves_double_quoted():
+    """Test state-machine cleaner preserves double-quoted strings"""
+    result = _clean_json_string_safe('{"key": "value with spaces"}')
+    assert result == '{"key": "value with spaces"}'
+
+
+def test_clean_json_string_safe_escapes_inner_double_quotes():
+    """Test state-machine cleaner escapes double quotes inside single-quoted strings"""
+    result = _clean_json_string_safe("{'key': 'value with \"quotes\"'}")
+    assert '\\"quotes\\"' in result
+
+
+def test_clean_json_string_safe_handles_escaped_single_quote():
+    """Test state-machine cleaner handles escaped single quotes"""
+    result = _clean_json_string_safe("{'key': 'it\\'s a test'}")
+    assert "'s a test" in result
+
+
+def test_clean_json_string_safe_preserves_escape_sequences():
+    """Test state-machine cleaner preserves escape sequences in double-quoted strings"""
+    input_str = r'{"path": "C:\\Users\\file.txt"}'
+    result = _clean_json_string_safe(input_str)
+    assert result == input_str
+
+
+def test_clean_json_string_safe_trailing_comma_in_array():
+    """Test state-machine cleaner removes trailing comma in arrays"""
+    result = _clean_json_string_safe('["a", "b",]')
+    assert result == '["a", "b"]'
+
+
+def test_clean_json_string_safe_mixed_fixes():
+    """Test state-machine cleaner handles multiple issues at once"""
+    result = _clean_json_string_safe("{key: 'value',}")
+    # Should quote key, convert single quotes, remove trailing comma
+    assert '"key"' in result
+    assert "'" not in result or "'" in result  # Just check it parses
+    # The ultimate test: can we parse it?
+    import msgspec
+
+    parsed = msgspec.json.decode(result.encode("utf-8"))
+    assert parsed == {"key": "value"}

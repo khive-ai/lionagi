@@ -1,6 +1,5 @@
 """Test suite for JSON utilities (fuzzy_json, extract_json) - TDD Specification Implementation."""
 
-import msgspec
 import pytest
 
 from lionagi.ln.fuzzy._extract_json import extract_json

@@ -1,5 +1,13 @@
 from ._async_call import AlcallParams, BcallParams, alcall, bcall
-from ._hash import hash_dict
+from ._hash import (
+    GENESIS_HASH,
+    MAX_HASH_INPUT_BYTES,
+    HashAlgorithm,
+    compute_chain_hash,
+    compute_hash,
+    hash_dict,
+    hash_obj,
+)
 from ._json_dump import (
     get_orjson_default,
     json_dumpb,
@@ -8,13 +16,20 @@ from ._json_dump import (
     make_options,
 )
 from ._list_call import lcall
-from ._to_list import to_list
+from ._to_list import ToListParams, to_list
 from ._utils import (
     acreate_path,
+    async_synchronized,
+    coerce_created_at,
+    extract_types,
     get_bins,
     import_module,
     is_import_installed,
+    load_type_from_string,
     now_utc,
+    register_type_prefix,
+    synchronized,
+    to_uuid,
 )
 from .concurrency import (
     bounded_map,
@@ -31,6 +46,7 @@ from .concurrency import (
     retry,
 )
 from .fuzzy import (
+    MAX_JSON_INPUT_SIZE,
     SIMILARITY_TYPE,
     extract_json,
     fuzzy_json,
@@ -45,7 +61,13 @@ from .types import is_sentinel, not_sentinel
 __all__ = (
     "alcall",
     "bcall",
+    "GENESIS_HASH",
+    "HashAlgorithm",
+    "MAX_HASH_INPUT_BYTES",
+    "compute_chain_hash",
+    "compute_hash",
     "hash_dict",
+    "hash_obj",
     "get_orjson_default",
     "json_dumps",
     "make_options",
@@ -54,10 +76,17 @@ __all__ = (
     "lcall",
     "to_list",
     "acreate_path",
+    "async_synchronized",
+    "coerce_created_at",
+    "extract_types",
     "get_bins",
     "import_module",
     "is_import_installed",
+    "load_type_from_string",
     "now_utc",
+    "register_type_prefix",
+    "synchronized",
+    "to_uuid",
     "bounded_map",
     "create_task_group",
     "fail_after",
@@ -82,4 +111,6 @@ __all__ = (
     "fuzzy_validate_mapping",
     "AlcallParams",
     "BcallParams",
+    "ToListParams",
+    "MAX_JSON_INPUT_SIZE",
 )

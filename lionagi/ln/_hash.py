@@ -1,14 +1,49 @@
+# Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
+import contextlib
 import copy
+import hashlib
+from enum import Enum
+from typing import TYPE_CHECKING, Any
 
-import msgspec
+from ._json_dump import json_dumpb
+from ._lazy_init import LazyInit
 
-__all__ = ("hash_dict",)
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from hashlib import _Hash
 
-# Global initialization state
-_INITIALIZED = False
+try:
+    import msgspec as _msgspec
+    from msgspec import Struct as _MsgspecStruct
+except ImportError:
+    _MsgspecStruct = None
+    _msgspec = None
+
+__all__ = (
+    "GENESIS_HASH",
+    "HashAlgorithm",
+    "MAX_HASH_INPUT_BYTES",
+    "compute_chain_hash",
+    "compute_hash",
+    "hash_dict",
+    "hash_obj",
+)
+
+_lazy = LazyInit()
 PydanticBaseModel = None
+
+
+def _do_init() -> None:
+    """Lazy-initialize Pydantic BaseModel reference."""
+    global PydanticBaseModel
+    from pydantic import BaseModel
+
+    PydanticBaseModel = BaseModel
+
 
 # --- Canonical Representation Generator ---
 _PRIMITIVE_TYPES = (str, int, float, bool, type(None))
@@ -21,33 +56,29 @@ _TYPE_MARKER_PYDANTIC = 5  # Distinguishes dumped Pydantic models
 _TYPE_MARKER_MSGSPEC = 6  # Distinguishes msgspec Structs
 
 
-def _generate_hashable_representation(item: any) -> any:
-    """
-    Recursively converts a Python object into a stable, hashable representation.
-    This ensures that logically identical but structurally different inputs
-    (e.g., dicts with different key orders) produce the same representation.
+def _generate_hashable_representation(item: Any) -> Any:
+    """Convert object to stable, order-independent hashable representation.
+
+    Recursively transforms dicts/sets into sorted tuples with type markers
+    to ensure consistent hashing regardless of insertion order.
     """
     if isinstance(item, _PRIMITIVE_TYPES):
         return item
 
-    # Handle msgspec Structs
-    if isinstance(item, msgspec.Struct):
-        # Use msgspec.to_builtins for efficient conversion to built-in types
+    # Handle msgspec Structs (optional dependency)
+    if _MsgspecStruct is not None and isinstance(item, _MsgspecStruct):
         return (
             _TYPE_MARKER_MSGSPEC,
-            _generate_hashable_representation(msgspec.to_builtins(item)),
+            _generate_hashable_representation(_msgspec.to_builtins(item)),
         )
 
     if PydanticBaseModel and isinstance(item, PydanticBaseModel):
-        # Process the Pydantic model by first dumping it to a dict, then processing that dict.
-        # The type marker distinguishes this from a regular dictionary.
         return (
             _TYPE_MARKER_PYDANTIC,
             _generate_hashable_representation(item.model_dump()),
         )
 
     if isinstance(item, dict):
-        # Sort dictionary items by key (stringified) for order-insensitivity.
         return (
             _TYPE_MARKER_DICT,
             tuple(
@@ -70,18 +101,12 @@ def _generate_hashable_representation(item: any) -> any:
 
     # frozenset must be checked before set
     if isinstance(item, frozenset):
-        try:  # Attempt direct sort for comparable elements
-            sorted_elements = sorted(list(item))
-        except TypeError:  # Fallback for unorderable mixed types
-
-            def sort_key(x):
-                # Deterministic ordering across mixed, unorderable types
-                # Sort strictly by textual type then textual value.
-                # This also naturally places bool before int because
-                # "<class 'bool'>" < "<class 'int'>" lexicographically.
-                return (str(type(x)), str(x))
-
-            sorted_elements = sorted(list(item), key=sort_key)
+        try:
+            sorted_elements = sorted(item)
+        except TypeError:
+            sorted_elements = sorted(
+                item, key=lambda x: (str(type(x)), str(x))
+            )
         return (
             _TYPE_MARKER_FROZENSET,
             tuple(
@@ -92,14 +117,11 @@ def _generate_hashable_representation(item: any) -> any:
 
     if isinstance(item, set):
         try:
-            sorted_elements = sorted(list(item))
+            sorted_elements = sorted(item)
         except TypeError:
-            # For mixed types, use a deterministic, portable sort key
-            def sort_key(x):
-                # Sort by textual type then textual value for stability.
-                return (str(type(x)), str(x))
-
-            sorted_elements = sorted(list(item), key=sort_key)
+            sorted_elements = sorted(
+                item, key=lambda x: (str(type(x)), str(x))
+            )
         return (
             _TYPE_MARKER_SET,
             tuple(
@@ -108,24 +130,32 @@ def _generate_hashable_representation(item: any) -> any:
             ),
         )
 
-    # Fallback for other types (e.g., custom objects not derived from the above)
-    try:
+    # Fallback for other types
+    with contextlib.suppress(Exception):
         return str(item)
-    except Exception:
-        try:
-            return repr(item)
-        except Exception:
-            # If both str() and repr() fail, return a stable fallback based on type and id
-            return f"<unhashable:{type(item).__name__}:{id(item)}>"
+    with contextlib.suppress(Exception):
+        return repr(item)
+
+    return f"<unhashable:{type(item).__name__}:{id(item)}>"
 
 
-def hash_dict(data: any, strict: bool = False) -> int:
-    global _INITIALIZED, PydanticBaseModel
-    if _INITIALIZED is False:
-        from pydantic import BaseModel
+def hash_obj(data: Any, strict: bool = False) -> int:
+    """Generate stable int hash for Python __hash__() protocol.
 
-        PydanticBaseModel = BaseModel
-        _INITIALIZED = True
+    Use for: set/dict membership, deduplication, __hash__ implementations.
+    NOT for: cryptographic integrity, content verification (use compute_hash).
+
+    Args:
+        data: Any data structure (dicts, lists, Pydantic models, nested).
+        strict: Deep-copy data before hashing to prevent mutation effects.
+
+    Returns:
+        Stable int hash suitable for hash-based collections.
+
+    Raises:
+        TypeError: If generated representation is not hashable.
+    """
+    _lazy.ensure(_do_init)
 
     data_to_process = data
     if strict:
@@ -138,6 +168,96 @@ def hash_dict(data: any, strict: bool = False) -> int:
     except TypeError as e:
         raise TypeError(
             f"The generated representation for the input data was not hashable. "
-            f"Input type: {type(data).__name__}, Representation type: {type(hashable_repr).__name__}. "
+            f"Input type: {type(data).__name__}, "
+            f"Representation type: {type(hashable_repr).__name__}. "
             f"Original error: {e}"
+        ) from e
+
+
+# Backward-compatible alias
+hash_dict = hash_obj
+
+
+MAX_HASH_INPUT_BYTES = 10 * 1024 * 1024
+"""Max hash input (10MB). DoS prevention."""
+
+GENESIS_HASH: str = "GENESIS"
+"""Sentinel for first entry in hash chain."""
+
+
+class HashAlgorithm(Enum):
+    """NIST FIPS 180-4 compliant hash algorithms for cryptographic integrity."""
+
+    SHA256 = "sha256"
+    SHA384 = "sha384"
+    SHA512 = "sha512"
+
+    def get_hasher(self) -> Callable[..., _Hash]:
+        """Return hashlib constructor for this algorithm."""
+        return getattr(hashlib, self.value)
+
+    @property
+    def digest_size(self) -> int:
+        """Digest size in bytes (32/48/64 for SHA256/384/512)."""
+        return self.get_hasher()(b"").digest_size
+
+
+def compute_hash(
+    obj: Any,
+    algorithm: HashAlgorithm = HashAlgorithm.SHA256,
+    none_as_valid: bool = False,
+) -> str:
+    """Compute cryptographic hash for content integrity verification.
+
+    Use for: content integrity, tamper detection, evidence chains.
+    NOT for: __hash__ protocol, set/dict membership (use hash_obj).
+
+    Args:
+        obj: Data to hash (dict, str, bytes, or JSON-serializable).
+        algorithm: Hash algorithm (default SHA-256).
+        none_as_valid: Treat None as valid input (hashes as "null").
+
+    Returns:
+        Hex-encoded hash digest string.
+
+    Raises:
+        ValueError: If payload exceeds MAX_HASH_INPUT_BYTES (10MB).
+    """
+    payload: bytes
+    if none_as_valid and obj is None:
+        payload = b"null"
+    elif isinstance(obj, bytes):
+        payload = obj
+    elif isinstance(obj, str):
+        payload = obj.encode()
+    else:
+        payload = json_dumpb(obj, sort_keys=True, deterministic_sets=True)
+
+    if len(payload) > MAX_HASH_INPUT_BYTES:
+        raise ValueError(
+            f"Payload {len(payload):,}B > {MAX_HASH_INPUT_BYTES:,}B limit"
         )
+
+    hasher = algorithm.get_hasher()
+    return hasher(payload).hexdigest()
+
+
+def compute_chain_hash(
+    payload_hash: str,
+    previous_hash: str | None = None,
+    algorithm: HashAlgorithm = HashAlgorithm.SHA256,
+) -> str:
+    """Compute chain hash linking current entry to previous.
+
+    Formula: HASH("{payload_hash}:{previous_hash or 'GENESIS'}")
+
+    Args:
+        payload_hash: Hash of current entry's payload.
+        previous_hash: Hash of previous entry (None for genesis entry).
+        algorithm: Hash algorithm to use.
+
+    Returns:
+        Hex-encoded chain hash for tamper-evident linking.
+    """
+    chain_input = f"{payload_hash}:{previous_hash or GENESIS_HASH}"
+    return compute_hash(chain_input, algorithm)

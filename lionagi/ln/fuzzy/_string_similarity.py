@@ -8,6 +8,14 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+try:
+    from rapidfuzz import distance as _rf_distance
+
+    _HAS_RAPIDFUZZ = True
+except ImportError:
+    _rf_distance = None  # type: ignore[assignment]
+    _HAS_RAPIDFUZZ = False
+
 
 __all__ = ("string_similarity",)
 
@@ -133,6 +141,9 @@ def jaro_winkler_similarity(s: str, t: str, scaling: float = 0.1) -> float:
     if not 0 <= scaling <= 0.25:
         raise ValueError("Scaling factor must be between 0 and 0.25")
 
+    if _HAS_RAPIDFUZZ:
+        return _rf_distance.JaroWinkler.similarity(s, t, prefix_weight=scaling)
+
     jaro_sim = jaro_distance(s, t)
 
     # Find length of common prefix (up to 4 chars)
@@ -196,6 +207,9 @@ def levenshtein_similarity(s1: str, s2: str) -> float:
     Returns:
         float: Levenshtein similarity score between 0 and 1
     """
+    if _HAS_RAPIDFUZZ:
+        return _rf_distance.Levenshtein.normalized_similarity(s1, s2)
+
     if not s1 and not s2:
         return 1.0
     if not s1 or not s2:
