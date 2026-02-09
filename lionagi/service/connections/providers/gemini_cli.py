@@ -16,9 +16,7 @@ from ...third_party.gemini_models import (
     GeminiSession,
 )
 from ...third_party.gemini_models import log as gemini_log
-from ...third_party.gemini_models import (
-    stream_gemini_cli,
-)
+from ...third_party.gemini_models import stream_gemini_cli
 
 _get_config = lambda: EndpointConfig(
     name="gemini_cli",
@@ -107,13 +105,26 @@ class GeminiCLIEndpoint(Endpoint):
         gemini_log.info(
             f"Session {session.session_id} finished with {len(responses)} chunks"
         )
-        texts = []
+
+        # Accumulate text from chunks, concatenating delta fragments
+        parts = []
+        current_delta: list[str] = []
         for i in session.chunks:
             if i.text is not None:
-                texts.append(i.text)
+                if i.is_delta:
+                    current_delta.append(i.text)
+                else:
+                    if current_delta:
+                        parts.append("".join(current_delta))
+                        current_delta = []
+                    parts.append(i.text)
+        if current_delta:
+            parts.append("".join(current_delta))
 
-        texts.append(session.result)
-        session.result = "\n".join(texts)
+        # Use chunk text if available, fall back to session.result
+        if parts:
+            session.result = "\n".join(parts)
+        # else: keep session.result from the "result" event as-is
         if request.cli_include_summary:
             session.populate_summary()
 

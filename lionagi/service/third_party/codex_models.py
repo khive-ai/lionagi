@@ -250,7 +250,11 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
     """Extract summary from session data."""
     tool_counts: dict[str, int] = {}
     tool_details: list[dict[str, Any]] = []
-    file_operations: dict[str, list[str]] = {"reads": [], "writes": [], "edits": []}
+    file_operations: dict[str, list[str]] = {
+        "reads": [],
+        "writes": [],
+        "edits": [],
+    }
     key_actions: list[str] = []
 
     for tool_use in session.tool_uses:
@@ -259,26 +263,42 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
         tool_id = tool_use.get("id", "")
 
         tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
-        tool_details.append({"tool": tool_name, "id": tool_id, "input": tool_input})
+        tool_details.append(
+            {"tool": tool_name, "id": tool_id, "input": tool_input}
+        )
 
         if tool_name in ("read_file", "Read", "read"):
-            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
+            file_path = tool_input.get(
+                "path", tool_input.get("file_path", "unknown")
+            )
             file_operations["reads"].append(file_path)
             key_actions.append(f"Read {file_path}")
 
         elif tool_name in ("write_file", "create_file", "Write", "write"):
-            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
+            file_path = tool_input.get(
+                "path", tool_input.get("file_path", "unknown")
+            )
             file_operations["writes"].append(file_path)
             key_actions.append(f"Wrote {file_path}")
 
         elif tool_name in ("edit_file", "patch", "Edit", "edit"):
-            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
+            file_path = tool_input.get(
+                "path", tool_input.get("file_path", "unknown")
+            )
             file_operations["edits"].append(file_path)
             key_actions.append(f"Edited {file_path}")
 
-        elif tool_name in ("shell", "terminal", "run_shell_command", "Bash", "bash"):
+        elif tool_name in (
+            "shell",
+            "terminal",
+            "run_shell_command",
+            "Bash",
+            "bash",
+        ):
             command = tool_input.get("command", tool_input.get("cmd", ""))
-            command_summary = command[:50] + "..." if len(command) > 50 else command
+            command_summary = (
+                command[:50] + "..." if len(command) > 50 else command
+            )
             key_actions.append(f"Ran: {command_summary}")
 
         elif tool_name.startswith("mcp_") or tool_name.startswith("mcp__"):
@@ -289,14 +309,20 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
             key_actions.append(f"Used {tool_name}")
 
     key_actions = (
-        list(dict.fromkeys(key_actions)) if key_actions else ["No specific actions"]
+        list(dict.fromkeys(key_actions))
+        if key_actions
+        else ["No specific actions"]
     )
 
     for op_type in file_operations:
-        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
+        file_operations[op_type] = list(
+            dict.fromkeys(file_operations[op_type])
+        )
 
     result_summary = (
-        (session.result[:200] + "...") if len(session.result) > 200 else session.result
+        (session.result[:200] + "...")
+        if len(session.result) > 200
+        else session.result
     )
 
     return {
@@ -568,7 +594,9 @@ async def stream_codex_cli(
             session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
             session.num_turns = obj.get("num_turns", obj.get("turns"))
             session.duration_ms = obj.get("duration_ms", obj.get("duration"))
-            session.is_error = obj.get("is_error", obj.get("error") is not None)
+            session.is_error = obj.get(
+                "is_error", obj.get("error") is not None
+            )
 
         elif typ == "done":
             break

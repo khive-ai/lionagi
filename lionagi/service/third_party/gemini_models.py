@@ -189,6 +189,7 @@ class GeminiChunk:
     text: str | None = None
     tool_use: dict[str, Any] | None = None
     tool_result: dict[str, Any] | None = None
+    is_delta: bool = False
 
 
 @dataclass
@@ -223,7 +224,11 @@ def _extract_summary(session: GeminiSession) -> dict[str, Any]:
     """Extract summary from session data."""
     tool_counts: dict[str, int] = {}
     tool_details: list[dict[str, Any]] = []
-    file_operations: dict[str, list[str]] = {"reads": [], "writes": [], "edits": []}
+    file_operations: dict[str, list[str]] = {
+        "reads": [],
+        "writes": [],
+        "edits": [],
+    }
     key_actions = []
 
     for tool_use in session.tool_uses:
@@ -232,26 +237,36 @@ def _extract_summary(session: GeminiSession) -> dict[str, Any]:
         tool_id = tool_use.get("id", "")
 
         tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
-        tool_details.append({"tool": tool_name, "id": tool_id, "input": tool_input})
+        tool_details.append(
+            {"tool": tool_name, "id": tool_id, "input": tool_input}
+        )
 
         if tool_name in ["read_file", "Read"]:
-            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
+            file_path = tool_input.get(
+                "path", tool_input.get("file_path", "unknown")
+            )
             file_operations["reads"].append(file_path)
             key_actions.append(f"Read {file_path}")
 
         elif tool_name in ["write_file", "Write"]:
-            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
+            file_path = tool_input.get(
+                "path", tool_input.get("file_path", "unknown")
+            )
             file_operations["writes"].append(file_path)
             key_actions.append(f"Wrote {file_path}")
 
         elif tool_name in ["edit_file", "Edit"]:
-            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
+            file_path = tool_input.get(
+                "path", tool_input.get("file_path", "unknown")
+            )
             file_operations["edits"].append(file_path)
             key_actions.append(f"Edited {file_path}")
 
         elif tool_name in ["run_shell_command", "shell", "Bash"]:
             command = tool_input.get("command", "")
-            command_summary = command[:50] + "..." if len(command) > 50 else command
+            command_summary = (
+                command[:50] + "..." if len(command) > 50 else command
+            )
             key_actions.append(f"Ran: {command_summary}")
 
         elif tool_name.startswith("mcp_"):
@@ -262,14 +277,20 @@ def _extract_summary(session: GeminiSession) -> dict[str, Any]:
             key_actions.append(f"Used {tool_name}")
 
     key_actions = (
-        list(dict.fromkeys(key_actions)) if key_actions else ["No specific actions"]
+        list(dict.fromkeys(key_actions))
+        if key_actions
+        else ["No specific actions"]
     )
 
     for op_type in file_operations:
-        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
+        file_operations[op_type] = list(
+            dict.fromkeys(file_operations[op_type])
+        )
 
     result_summary = (
-        (session.result[:200] + "...") if len(session.result) > 200 else session.result
+        (session.result[:200] + "...")
+        if len(session.result) > 200
+        else session.result
     )
 
     return {
@@ -295,7 +316,9 @@ async def _ndjson_from_cli(request: GeminiCodeRequest):
     Robust against UTF-8 splits and uses json.JSONDecoder.raw_decode.
     """
     if GEMINI_CLI is None:
-        raise RuntimeError("Gemini CLI not found. Please install the gemini CLI tool.")
+        raise RuntimeError(
+            "Gemini CLI not found. Please install the gemini CLI tool."
+        )
 
     workspace = request.cwd()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -358,7 +381,9 @@ async def _ndjson_from_cli(request: GeminiCodeRequest):
 async def stream_gemini_cli_events(request: GeminiCodeRequest):
     """Stream events from Gemini CLI."""
     if not GEMINI_CLI:
-        raise RuntimeError("Gemini CLI not found (npm i -g @google/gemini-cli)")
+        raise RuntimeError(
+            "Gemini CLI not found (npm i -g @google/gemini-cli)"
+        )
     async for obj in _ndjson_from_cli(request):
         yield obj
     yield {"type": "done"}
@@ -427,6 +452,7 @@ async def stream_gemini_cli(
         elif typ in ("message", "assistant"):
             msg = obj.get("message", obj)
             session.messages.append(msg)
+            chunk.is_delta = bool(obj.get("delta"))
 
             content = msg.get("content", "")
             if isinstance(content, str):
@@ -489,11 +515,15 @@ async def stream_gemini_cli(
             session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
             session.num_turns = obj.get("num_turns", obj.get("turns"))
             session.duration_ms = obj.get("duration_ms", obj.get("duration"))
-            session.is_error = obj.get("is_error", obj.get("error") is not None)
+            session.is_error = obj.get(
+                "is_error", obj.get("error") is not None
+            )
 
         elif typ == "error":
             session.is_error = True
-            session.result = obj.get("message", obj.get("error", "Unknown error"))
+            session.result = obj.get(
+                "message", obj.get("error", "Unknown error")
+            )
 
         elif typ == "done":
             break
