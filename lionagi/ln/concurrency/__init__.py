@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
 from ._compat import ExceptionGroup
 from .cancel import (
     CancelScope,
@@ -7,7 +10,13 @@ from .cancel import (
     move_on_after,
     move_on_at,
 )
-from .errors import get_cancelled_exc_class, is_cancelled, shield
+from .errors import (
+    get_cancelled_exc_class,
+    is_cancelled,
+    non_cancel_subgroup,
+    shield,
+    split_cancellation,
+)
 from .patterns import CompletionStream, bounded_map, gather, race, retry
 from .primitives import (
     CapacityLimiter,
@@ -24,7 +33,7 @@ from .resource_tracker import (
     untrack_resource,
 )
 from .task import TaskGroup, create_task_group
-from .utils import is_coro_func
+from .utils import current_time, is_coro_func, run_async, run_sync, sleep
 
 ConcurrencyEvent = Event
 
@@ -37,7 +46,9 @@ __all__ = (
     "effective_deadline",
     "get_cancelled_exc_class",
     "is_cancelled",
+    "non_cancel_subgroup",
     "shield",
+    "split_cancellation",
     "TaskGroup",
     "create_task_group",
     "Lock",
@@ -58,4 +69,8 @@ __all__ = (
     "is_coro_func",
     "ConcurrencyEvent",
     "ExceptionGroup",
+    "run_async",
+    "run_sync",
+    "current_time",
+    "sleep",
 )
