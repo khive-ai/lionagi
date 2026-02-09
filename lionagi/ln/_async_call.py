@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 
 from ._to_list import to_list
 from .concurrency import (
-    ExceptionGroup,
+    BaseExceptionGroup,
     Semaphore,
     create_task_group,
     get_cancelled_exc_class,
@@ -297,7 +297,7 @@ async def alcall(
                 tg.start_soon(task_wrapper, item, idx)
                 if throttle_delay and idx < n_items - 1:
                     await sleep(throttle_delay)
-    except ExceptionGroup as eg:
+    except BaseExceptionGroup as eg:
         if not return_exceptions:
             rest = non_cancel_subgroup(eg)
             if rest is not None:
@@ -370,6 +370,7 @@ class AlcallParams(Params):
     # concurrency and throttling
     max_concurrent: int
     throttle_period: float
+    return_exceptions: bool
 
     kw: dict[str, Any] = Unset
 

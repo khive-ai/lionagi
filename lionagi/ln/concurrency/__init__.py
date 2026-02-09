@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from ._compat import ExceptionGroup
+from ._compat import BaseExceptionGroup, ExceptionGroup
 from .cancel import (
     CancelScope,
     effective_deadline,
@@ -68,6 +68,7 @@ __all__ = (
     "LeakTracker",
     "is_coro_func",
     "ConcurrencyEvent",
+    "BaseExceptionGroup",
     "ExceptionGroup",
     "run_async",
     "run_sync",
