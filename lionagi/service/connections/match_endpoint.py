@@ -59,6 +59,14 @@ def match_endpoint(
         from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
 
         return ClaudeCodeCLIEndpoint(None, **kwargs)
+    if provider == "gemini_code":
+        from .providers.gemini_cli import GeminiCLIEndpoint
+
+        return GeminiCLIEndpoint(None, **kwargs)
+    if provider == "codex":
+        from .providers.codex_cli import CodexCLIEndpoint
+
+        return CodexCLIEndpoint(None, **kwargs)
 
     from .providers.oai_ import OpenaiChatEndpoint
 
