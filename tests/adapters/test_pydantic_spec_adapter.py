@@ -217,8 +217,8 @@ class TestEndToEnd:
         from typing import Dict, List
 
         specs = [
-            Spec(Dict[str, int], name="scores"),
-            Spec(List[str], name="tags"),
+            Spec(dict[str, int], name="scores"),
+            Spec(list[str], name="tags"),
         ]
         operable = Operable(specs)
 

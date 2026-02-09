@@ -783,7 +783,7 @@ class FieldModel(Params):
             ]
         )
 
-    def to_spec(self) -> "Spec":
+    def to_spec(self) -> Spec:
         """Convert FieldModel to Spec.
 
         Returns:
