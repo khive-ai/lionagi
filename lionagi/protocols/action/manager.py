@@ -335,7 +335,6 @@ class ActionManager(Manager):
 
             # Register each discovered tool with qualified name
             for tool in tools:
-
                 # Store original tool name in config for MCP calls
                 config_with_metadata = dict(server_config)
                 config_with_metadata["_original_tool_name"] = tool.name

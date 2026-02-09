@@ -49,11 +49,7 @@ def _install_fake_generator(module):
         target_python_version,
         base_class,
     ):
-        code = (
-            "from pydantic import BaseModel\n"
-            "class Model(BaseModel):\n"
-            "    value: int\n"
-        )
+        code = "from pydantic import BaseModel\nclass Model(BaseModel):\n    value: int\n"
         Path(output).write_text(code, encoding="utf-8")
 
     module._HAS_DATAMODEL_CODE_GENERATOR = True

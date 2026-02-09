@@ -843,7 +843,7 @@ async def test_react_with_many_extensions():
         for i in range(10):
             rounds.append(
                 ReActAnalysis(
-                    analysis=f"Round {i+1}",
+                    analysis=f"Round {i + 1}",
                     planned_actions=[],
                     extension_needed=(
                         True if i < 9 else False

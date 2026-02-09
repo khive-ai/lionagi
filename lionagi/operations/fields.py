@@ -198,7 +198,6 @@ class ActionRequestModel(HashableModel):
         """
 
         def parse_action_request(content: str | dict) -> list[dict]:
-
             json_blocks = []
 
             if isinstance(content, BaseModel):
@@ -312,7 +311,6 @@ def _get_default_fields(
     fm = None
 
     match kind:
-
         case "instruct":
             fm = FieldModel(Instruct, name="instruct_model")
 

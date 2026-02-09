@@ -48,7 +48,6 @@ def prepare_parse_kws(
     return_res_message: bool = False,
     **kw,
 ):
-
     if suppress_conversion_errors:
         warnings.warn(
             "Parameter 'suppress_conversion_errors' is deprecated and no longer used. "
@@ -97,7 +96,6 @@ async def parse(
     parse_param: ParseParam,
     return_res_message: bool = False,
 ) -> Any | tuple[Any, AssistantResponse | None]:
-
     # Try direct validation first
     with contextlib.suppress(Exception):
         result = _validate_dict_or_model(

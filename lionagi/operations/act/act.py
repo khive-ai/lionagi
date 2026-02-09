@@ -24,7 +24,6 @@ async def _act(
     suppress_errors: bool = False,
     verbose_action: bool = False,
 ):
-
     _request = action_request
     if isinstance(action_request, ActionRequest):
         _request = {
@@ -114,7 +113,6 @@ def prepare_act_kw(
     suppress_errors: bool = True,
     call_params: AlcallParams = None,
 ):
-
     action_param = ActionParam(
         action_call_params=call_params or _get_default_call_params(),
         tools=None,  # Not used in this context

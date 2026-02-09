@@ -579,9 +579,7 @@ class TestReturnExceptions:
                 raise RuntimeError(f"err-{x}")
             return x
 
-        results = await alcall(
-            [1, 2, 3, 4, 5], flaky, return_exceptions=True
-        )
+        results = await alcall([1, 2, 3, 4, 5], flaky, return_exceptions=True)
         assert results[0] == 1
         assert isinstance(results[1], RuntimeError)
         assert results[2] == 3
@@ -601,7 +599,5 @@ class TestReturnExceptions:
     @pytest.mark.anyio
     async def test_return_exceptions_all_succeed(self):
         """When all succeed, return_exceptions has no effect."""
-        results = await alcall(
-            [1, 2, 3], async_func, return_exceptions=True
-        )
+        results = await alcall([1, 2, 3], async_func, return_exceptions=True)
         assert results == [1, 2, 3]

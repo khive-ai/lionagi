@@ -256,7 +256,10 @@ class TestStreamHandlerIntegration:
         registry = HookRegistry(stream_handlers={"test": handler})
 
         result = await registry._call_stream_handler(
-            "test", "chunk_data", None, custom_param="value"  # ev
+            "test",
+            "chunk_data",
+            None,
+            custom_param="value",  # ev
         )
 
         assert result == "internal_call"

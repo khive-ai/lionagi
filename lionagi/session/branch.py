@@ -951,7 +951,6 @@ class Branch(Element, Relational):
         suppress_errors: bool = True,
         call_params: AlcallParams = None,
     ) -> list[ActionResponse]:
-
         _pms = {
             k: v
             for k, v in locals().items()

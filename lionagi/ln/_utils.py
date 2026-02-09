@@ -261,8 +261,7 @@ def load_type_from_string(type_str: str) -> type:
         type_str.startswith(prefix) for prefix in _ALLOWED_MODULE_PREFIXES
     ):
         raise ValueError(
-            f"Module '{type_str}' not in allowed prefixes: "
-            f"{sorted(_ALLOWED_MODULE_PREFIXES)}"
+            f"Module '{type_str}' not in allowed prefixes: {sorted(_ALLOWED_MODULE_PREFIXES)}"
         )
 
     try:

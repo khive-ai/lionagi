@@ -8,6 +8,7 @@ Reads benchmark CSV/JSON and generates a comprehensive Markdown report with:
 - LionAGI vs #2 advantage callouts
 - Feature parity matrix with documentation sources
 """
+
 import argparse
 import csv
 import glob
@@ -373,9 +374,9 @@ def main():
     if meta:
         md = meta.get("metadata", {})
         out.append(
-            f"- Python: {md.get('python_version','?')}  |  Runs per case: {md.get('runs','?')}"
+            f"- Python: {md.get('python_version', '?')}  |  Runs per case: {md.get('runs', '?')}"
         )
-        out.append(f"- Harness: {md.get('description','')}")
+        out.append(f"- Harness: {md.get('description', '')}")
     out.append("")
 
     # For each category and mode, rank by median_ms and compute % deltas

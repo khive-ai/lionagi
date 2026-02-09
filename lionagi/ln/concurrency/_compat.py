@@ -38,7 +38,8 @@ else:
                 )
 
             def split(
-                self, condition: type | tuple[type, ...],
+                self,
+                condition: type | tuple[type, ...],
             ) -> tuple[BaseExceptionGroup | None, BaseExceptionGroup | None]:
                 """Partition exceptions by condition type."""
                 match, rest = [], []

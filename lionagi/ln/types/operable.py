@@ -68,8 +68,7 @@ class Operable:
         for i, item in enumerate(specs):
             if not isinstance(item, Spec):
                 raise TypeError(
-                    f"All specs must be Spec objects, got {type(item).__name__} "
-                    f"at index {i}"
+                    f"All specs must be Spec objects, got {type(item).__name__} at index {i}"
                 )
 
         # Check for duplicate names
@@ -81,8 +80,7 @@ class Operable:
                 name for name, count in Counter(names).items() if count > 1
             ]
             raise ValueError(
-                f"Duplicate field names found: {duplicates}. "
-                "Each spec must have a unique name."
+                f"Duplicate field names found: {duplicates}. Each spec must have a unique name."
             )
 
         object.__setattr__(self, "__op_fields__", specs)
@@ -113,8 +111,7 @@ class Operable:
             if as_boolean:
                 return False
             raise ValueError(
-                "Some specified fields are not allowed: "
-                f"{set(args).difference(self.allowed())}"
+                f"Some specified fields are not allowed: {set(args).difference(self.allowed())}"
             )
         return True
 
@@ -206,8 +203,7 @@ class Operable:
                     )
                 except ImportError as e:
                     raise ImportError(
-                        "PydanticSpecAdapter requires Pydantic. "
-                        "Install with: pip install pydantic"
+                        "PydanticSpecAdapter requires Pydantic. Install with: pip install pydantic"
                     ) from e
 
                 kws = {

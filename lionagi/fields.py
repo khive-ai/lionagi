@@ -43,7 +43,6 @@ def __getattr__(name: str):
     from .operations.fields import get_default_field
 
     if name == "get_default_field":
-
         _lazy_imports[name] = get_default_field
         return get_default_field
 

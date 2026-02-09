@@ -3,7 +3,6 @@
 
 """Test fixtures and scaffolding for hook system tests."""
 
-
 import pytest
 
 from lionagi.protocols.types import Event
