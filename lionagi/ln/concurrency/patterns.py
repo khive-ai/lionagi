@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
 """Lion Async Concurrency Patterns - Structured concurrency coordination utilities.
 
 This module provides async coordination patterns built on AnyIO's structured
@@ -19,16 +22,19 @@ See individual function docstrings for details.
 
 from __future__ import annotations
 
+import random
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import TypeVar
 
 import anyio
+import anyio.abc
 
-from ._compat import ExceptionGroup
-from .cancel import effective_deadline
-from .errors import is_cancelled
+from ._compat import BaseExceptionGroup, ExceptionGroup
+from .cancel import effective_deadline, move_on_at
+from .errors import non_cancel_subgroup
 from .primitives import CapacityLimiter
 from .task import create_task_group
+from .utils import current_time
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -73,13 +79,14 @@ async def gather(
         async with create_task_group() as tg:
             for i, aw in enumerate(aws):
                 tg.start_soon(_runner, i, aw)
-    except ExceptionGroup as eg:
+    except BaseExceptionGroup as eg:
         if not return_exceptions:
-            # Find the first "real" exception and raise it.
-            non_cancel_excs = [e for e in eg.exceptions if not is_cancelled(e)]
-            if non_cancel_excs:
-                raise non_cancel_excs[0]
-            raise  # Re-raise group if all were cancellations
+            rest = non_cancel_subgroup(eg)
+            if rest is not None:
+                if len(rest.exceptions) == 1:
+                    raise rest.exceptions[0] from rest
+                raise rest
+            raise
 
     return results  # type: ignore
 
@@ -96,7 +103,7 @@ async def race(*aws: Awaitable[T]) -> T:
     """
     if not aws:
         raise ValueError("race() requires at least one awaitable")
-    send, recv = anyio.create_memory_object_stream(0)
+    send, recv = anyio.create_memory_object_stream(1)
 
     async def _runner(aw: Awaitable[T]) -> None:
         try:
@@ -160,37 +167,49 @@ async def bounded_map(
         async with create_task_group() as tg:
             for i, x in enumerate(seq):
                 tg.start_soon(_runner, i, x)
-    except ExceptionGroup as eg:
+    except BaseExceptionGroup as eg:
         if not return_exceptions:
-            non_cancel_excs = [e for e in eg.exceptions if not is_cancelled(e)]
-            if non_cancel_excs:
-                raise non_cancel_excs[0]
+            rest = non_cancel_subgroup(eg)
+            if rest is not None:
+                if len(rest.exceptions) == 1:
+                    raise rest.exceptions[0] from rest
+                raise rest
             raise
 
     return out  # type: ignore
 
 
 class CompletionStream:
-    """Structured-concurrency-safe completion stream with explicit lifecycle management.
+    """Iterate async results as they complete (first-finished order).
 
-    This provides a safer alternative to as_completed() that allows explicit cancellation
-    of remaining tasks when early termination is needed.
+    Provides structured concurrency with optional concurrency limiting.
+    Must be used as an async context manager.
 
-    Usage:
-        async with CompletionStream(awaitables, limit=10) as stream:
-            async for index, result in stream:
-                if some_condition:
-                    break  # Remaining tasks are automatically cancelled
+    Args:
+        aws: Sequence of awaitables to execute.
+        limit: Max concurrent executions (None = unlimited).
+        return_exceptions: If True, exceptions are yielded as results.
+            If False (default), exceptions propagate and terminate iteration.
+
+    Example:
+        >>> async with CompletionStream(tasks, limit=5) as stream:
+        ...     async for idx, result in stream:
+        ...         print(f"Task {idx} completed: {result}")
     """
 
     def __init__(
-        self, aws: Sequence[Awaitable[T]], *, limit: int | None = None
+        self,
+        aws: Sequence[Awaitable[T]],
+        *,
+        limit: int | None = None,
+        return_exceptions: bool = False,
     ):
         self.aws = aws
         self.limit = limit
-        self._task_group = None
-        self._send = None
-        self._recv = None
+        self.return_exceptions = return_exceptions
+        self._task_group: anyio.abc.TaskGroup | None = None
+        self._send: anyio.abc.ObjectSendStream[tuple[int, T]] | None = None
+        self._recv: anyio.abc.ObjectReceiveStream[tuple[int, T]] | None = None
         self._completed_count = 0
         self._total_count = len(aws)
 
@@ -206,26 +225,36 @@ class CompletionStream:
             if limiter:
                 await limiter.acquire()
             try:
-                res = await aw
-                await self._send.send((i, res))
+                try:
+                    res = await aw
+                except BaseException as exc:
+                    if self.return_exceptions:
+                        res = exc  # type: ignore[assignment]
+                    else:
+                        raise
+                try:
+                    assert self._send is not None
+                    await self._send.send((i, res))  # type: ignore[arg-type]
+                except anyio.ClosedResourceError:
+                    pass
             finally:
                 if limiter:
                     limiter.release()
 
-        # Start all tasks
         for i, aw in enumerate(self.aws):
             self._task_group.start_soon(_runner, i, aw)
 
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Cancel remaining tasks and clean up
-        if self._task_group:
-            await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
-        if self._send:
-            await self._send.aclose()
-        if self._recv:
-            await self._recv.aclose()
+        try:
+            if self._task_group:
+                await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        finally:
+            if self._send:
+                await self._send.aclose()
+            if self._recv:
+                await self._recv.aclose()
         return False
 
     def __aiter__(self):
@@ -256,47 +285,62 @@ async def retry(
     retry_on: tuple[type[BaseException], ...] = (Exception,),
     jitter: float = 0.1,
 ) -> T:
-    """Deadline-aware exponential backoff retry.
+    """Retry async function with exponential backoff and deadline awareness.
 
-    If an ambient effective deadline exists, cap each sleep so the retry loop
-    never outlives its parent scope.
+    Respects structured concurrency: cancellation is never retried.
+    Automatically caps delays to any ambient deadline from parent scope.
 
     Args:
-        fn: Async function to retry (takes no args)
-        attempts: Maximum retry attempts
-        base_delay: Initial delay between retries
-        max_delay: Maximum delay between retries
-        retry_on: Exception types that trigger retry
-        jitter: Random jitter added to delay (0.0 to 1.0)
+        fn: Zero-argument async callable to retry.
+        attempts: Maximum attempts (>= 1).
+        base_delay: Initial delay in seconds (> 0).
+        max_delay: Maximum delay cap in seconds (>= 0).
+        retry_on: Exception types to retry on (must not include CancelledError).
+        jitter: Random jitter factor (0.1 = up to 10% extra delay).
 
     Returns:
-        Result of successful function call
+        Result of successful fn() call.
 
     Raises:
-        Last exception if all attempts fail
+        ValueError: If parameters are invalid or retry_on includes cancellation.
+        BaseException: Last exception after exhausting attempts.
     """
+    if attempts < 1:
+        raise ValueError("attempts must be >= 1")
+    if base_delay <= 0:
+        raise ValueError("base_delay must be > 0")
+    if max_delay < 0:
+        raise ValueError("max_delay must be >= 0")
+    if jitter < 0:
+        raise ValueError("jitter must be >= 0")
+
+    cancelled_exc = anyio.get_cancelled_exc_class()
+    if any(issubclass(cancelled_exc, t) for t in retry_on):
+        raise ValueError(
+            "retry_on must not include the cancellation exception type"
+        )
+
     attempt = 0
     deadline = effective_deadline()
     while True:
         try:
             return await fn()
-        except retry_on as exc:
+        except retry_on:
             attempt += 1
             if attempt >= attempts:
                 raise
 
             delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
             if jitter:
-                import random
-
                 delay *= 1 + random.random() * jitter
 
-            # Cap by ambient deadline if one exists
             if deadline is not None:
-                remaining = deadline - anyio.current_time()
+                remaining = deadline - current_time()
                 if remaining <= 0:
-                    # Out of time; surface the last error
                     raise
-                delay = min(delay, remaining)
-
-            await anyio.sleep(delay)
+                with move_on_at(deadline):
+                    await anyio.sleep(delay)
+                if current_time() >= deadline:
+                    raise
+            else:
+                await anyio.sleep(delay)

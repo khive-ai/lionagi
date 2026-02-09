@@ -546,3 +546,62 @@ class TestEdgeCases:
             throttle_period=0.01,
         )
         assert results == [1, 2, 3, 4, 5]
+
+
+# =============================================================================
+# Test return_exceptions parameter
+# =============================================================================
+
+
+class TestReturnExceptions:
+    """Test alcall return_exceptions behavior."""
+
+    @pytest.mark.anyio
+    async def test_return_exceptions_collects_errors(self):
+        """Exceptions are returned in output list instead of raised."""
+
+        async def maybe_fail(x: int) -> int:
+            if x == 2:
+                raise ValueError("fail on 2")
+            return x * 10
+
+        results = await alcall([1, 2, 3], maybe_fail, return_exceptions=True)
+        assert results[0] == 10
+        assert isinstance(results[1], ValueError)
+        assert results[2] == 30
+
+    @pytest.mark.anyio
+    async def test_return_exceptions_preserves_order(self):
+        """Results maintain input ordering even with failures."""
+
+        async def flaky(x: int) -> int:
+            if x % 2 == 0:
+                raise RuntimeError(f"err-{x}")
+            return x
+
+        results = await alcall(
+            [1, 2, 3, 4, 5], flaky, return_exceptions=True
+        )
+        assert results[0] == 1
+        assert isinstance(results[1], RuntimeError)
+        assert results[2] == 3
+        assert isinstance(results[3], RuntimeError)
+        assert results[4] == 5
+
+    @pytest.mark.anyio
+    async def test_return_exceptions_false_raises(self):
+        """Without return_exceptions, exception propagates directly."""
+
+        async def fail(x: int) -> int:
+            raise ValueError("boom")
+
+        with pytest.raises(ValueError, match="boom"):
+            await alcall([1], fail, return_exceptions=False)
+
+    @pytest.mark.anyio
+    async def test_return_exceptions_all_succeed(self):
+        """When all succeed, return_exceptions has no effect."""
+        results = await alcall(
+            [1, 2, 3], async_func, return_exceptions=True
+        )
+        assert results == [1, 2, 3]

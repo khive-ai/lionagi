@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
 """Cancellation helpers for structured concurrency (anyio-backed)."""
 
 from __future__ import annotations
@@ -112,6 +115,14 @@ def move_on_at(deadline: float | None) -> Iterator[CancelScope]:
 
 
 def effective_deadline() -> float | None:
-    """Return the ambient effective deadline, or None if unlimited."""
+    """Return current effective deadline from enclosing cancel scopes.
+
+    Returns:
+        Absolute deadline time, -inf if already cancelled, or None if unlimited.
+
+    Note:
+        AnyIO uses +inf for "no deadline" and -inf for "already cancelled".
+        This function returns None for +inf but preserves -inf for detection.
+    """
     d = anyio.current_effective_deadline()
     return None if d == _INF else d
