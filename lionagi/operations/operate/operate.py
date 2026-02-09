@@ -195,18 +195,18 @@ def prepare_operate_kw(
 
 async def operate(
     branch: "Branch",
-    instruction: Union[JsonValue, Instruction],
+    instruction: JsonValue | Instruction,
     chat_param: ChatParam,
-    action_param: Union[ActionParam, None] = None,
-    parse_param: Union[ParseParam, None] = None,
+    action_param: ActionParam | None = None,
+    parse_param: ParseParam | None = None,
     handle_validation: HandleValidation = "return_value",
     invoke_actions: bool = True,
     skip_validation: bool = False,
     clear_messages: bool = False,
     reason: bool = False,
-    field_models: Union[list[Union[FieldModel, Spec]], None] = None,
+    field_models: list[FieldModel | Spec] | None = None,
     operative: Union["Operative", None] = None,
-) -> Union[BaseModel, dict, str, None]:
+) -> BaseModel | dict | str | None:
     """Execute operation with optional action handling.
 
     Args:

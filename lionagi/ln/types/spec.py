@@ -10,11 +10,11 @@ import contextlib
 import inspect
 import os
 import threading
+from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
-
-from typing_extensions import Annotated, OrderedDict
+from typing import Annotated, Any
 
 from lionagi.ln.concurrency.utils import is_coro_func
 
