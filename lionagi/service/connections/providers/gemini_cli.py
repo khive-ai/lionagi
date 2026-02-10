@@ -16,7 +16,9 @@ from ...third_party.gemini_models import (
     GeminiSession,
 )
 from ...third_party.gemini_models import log as gemini_log
-from ...third_party.gemini_models import stream_gemini_cli
+from ...third_party.gemini_models import (
+    stream_gemini_cli,
+)
 
 _get_config = lambda: EndpointConfig(
     name="gemini_cli",
