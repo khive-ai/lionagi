@@ -21,17 +21,14 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-
-from lionagi.service.connections.providers.codex_cli import (
-    CodexCLIEndpoint,
-)
-from lionagi.service.third_party.codex_models import (
-    CodexCodeRequest,
-    HAS_CODEX_CLI,
-    CODEX_CLI,
-)
-
 from loguru import logger
+
+from lionagi.service.connections.providers.codex_cli import CodexCLIEndpoint
+from lionagi.service.third_party.codex_models import (
+    CODEX_CLI,
+    HAS_CODEX_CLI,
+    CodexCodeRequest,
+)
 
 logger.remove()
 logger.add(sys.stderr, level="INFO")
@@ -97,8 +94,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Codex CLI Proxy API Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=8001, help="Port to bind to")
-    parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
+    parser.add_argument(
+        "--port", type=int, default=8001, help="Port to bind to"
+    )
+    parser.add_argument(
+        "--reload", action="store_true", help="Enable auto-reload"
+    )
     args = parser.parse_args()
 
     uvicorn.run(
