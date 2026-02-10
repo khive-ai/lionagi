@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import MutableMapping, MutableSequence, MutableSet, Sequence
+from collections.abc import (
+    MutableMapping,
+    MutableSequence,
+    MutableSet,
+    Sequence,
+)
 from dataclasses import dataclass, field, fields
 from enum import Enum as _Enum
 from typing import Any, ClassVar, Literal
@@ -115,9 +120,9 @@ class _SentinelMixin:
         """Return set of valid field names (excludes private/ClassVar)."""
         if cls._allowed_keys:
             return cls._allowed_keys
-        cls._allowed_keys = set(
+        cls._allowed_keys = {
             f.name for f in fields(cls) if not f.name.startswith("_")
-        )
+        }
         return cls._allowed_keys
 
     @classmethod
@@ -136,7 +141,9 @@ class _SentinelMixin:
         """Validate fields per _config. Raises ValueError if strict violations."""
         missing: list[str] = []
         for k in self.allowed():
-            if self._config.strict and self._is_sentinel(getattr(self, k, Unset)):
+            if self._config.strict and self._is_sentinel(
+                getattr(self, k, Unset)
+            ):
                 missing.append(k)
             if self._config.prefill_unset and is_undefined(
                 getattr(self, k, Undefined)
