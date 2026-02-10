@@ -114,7 +114,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
 
     @field_serializer("content")
     def _serialize_content(self, value: Any) -> Any:
-        if isinstance(value, Element):
+        if hasattr(value, "to_dict"):
             return value.to_dict()
         if isinstance(value, BaseModel):
             return value.model_dump()

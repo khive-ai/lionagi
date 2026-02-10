@@ -116,6 +116,11 @@ class InstructionContent(MessageContent):
         )
         object.__setattr__(self, "image_detail", image_detail)
 
+    def to_dict(self, exclude: set[str] = None) -> dict[str, Any]:
+        """Serialize, excluding runtime-only fields."""
+        exclude = (exclude or set()) | {"response_format"}
+        return MessageContent.to_dict(self, exclude=exclude)
+
     @property
     def context(self) -> list[Any]:
         """Backwards compatibility accessor for prompt_context."""

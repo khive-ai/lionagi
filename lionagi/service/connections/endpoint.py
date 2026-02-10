@@ -399,7 +399,9 @@ class Endpoint:
                 if self.circuit_breaker
                 else None
             ),
-            "config": self.config.model_dump(exclude_none=True),
+            "config": self.config.model_dump(
+                exclude_none=True, exclude={"request_options"}
+            ),
         }
 
     @classmethod
