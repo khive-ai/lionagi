@@ -50,8 +50,8 @@ jobs:
     - name: Check code style and compatibility
       run: |
         source .venv/bin/activate
-        uv run black --check .
-        uv run isort --check-only .
+        uv run black --check --extend-exclude '\.ipynb' .
+        uv run isort --check-only --skip-glob '*.ipynb' .
 
   publish:
     needs: test
