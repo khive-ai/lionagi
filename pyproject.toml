@@ -80,7 +80,7 @@ ollama = [
 ]
 
 mcp = [
-    "fastmcp>=2.10.5",
+    "fastmcp>=2.14.0",
 ]
 
 rich = [
