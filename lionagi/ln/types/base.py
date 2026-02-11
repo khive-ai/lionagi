@@ -49,12 +49,15 @@ class ModelConfig:
         strict: If True, no sentinels allowed (all fields must have values).
         prefill_unset: If True, unset fields are prefilled with Unset.
         use_enum_values: If True, use enum values instead of enum instances in to_dict().
+        serialize_exclude: Field names to exclude when serializing (mode != "python").
+            Use for fields that are runtime-only and not JSON-safe (e.g., type classes).
     """
 
     sentinel_additions: frozenset[str] = field(default_factory=frozenset)
     strict: bool = False
     prefill_unset: bool = True
     use_enum_values: bool = False
+    serialize_exclude: frozenset[str] = field(default_factory=frozenset)
 
     def __init__(
         self,
@@ -66,6 +69,7 @@ class ModelConfig:
         strict: bool = False,
         prefill_unset: bool = True,
         use_enum_values: bool = False,
+        serialize_exclude: frozenset[str] | set[str] | None = None,
     ):
         additions = set(sentinel_additions) if sentinel_additions else set()
         if none_as_sentinel:
@@ -76,6 +80,11 @@ class ModelConfig:
         object.__setattr__(self, "strict", strict)
         object.__setattr__(self, "prefill_unset", prefill_unset)
         object.__setattr__(self, "use_enum_values", use_enum_values)
+        object.__setattr__(
+            self,
+            "serialize_exclude",
+            frozenset(serialize_exclude) if serialize_exclude else frozenset(),
+        )
 
     @property
     def none_as_sentinel(self) -> bool:
@@ -168,6 +177,8 @@ class _SentinelMixin:
         """
         data = {}
         exclude = exclude or set()
+        if mode != "python":
+            exclude = exclude | self._config.serialize_exclude
         for k in type(self).allowed():
             if k not in exclude:
                 v = getattr(self, k, Undefined)
