@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import orjson
 from pydantic import BaseModel, field_validator
+
+from lionagi.ln.types import ModelConfig
 
 from .message import MessageContent, MessageRole, RoledMessage
 
@@ -25,6 +27,11 @@ class InstructionContent(MessageContent):
         _schema_dict: Extracted dict for prompting/schema
         _model_class: Extracted Pydantic class for validation
     """
+
+    _config: ClassVar[ModelConfig] = ModelConfig(
+        none_as_sentinel=True,
+        serialize_exclude=frozenset({"response_format"}),
+    )
 
     instruction: str | None = None
     guidance: str | None = None
@@ -115,11 +122,6 @@ class InstructionContent(MessageContent):
             self, "images", images if images is not None else []
         )
         object.__setattr__(self, "image_detail", image_detail)
-
-    def to_dict(self, exclude: set[str] = None) -> dict[str, Any]:
-        """Serialize, excluding runtime-only fields."""
-        exclude = (exclude or set()) | {"response_format"}
-        return MessageContent.to_dict(self, exclude=exclude)
 
     @property
     def context(self) -> list[Any]:

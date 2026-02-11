@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.18.5"
+version = "0.18.6"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -80,7 +80,7 @@ ollama = [
 ]
 
 mcp = [
-    "fastmcp>=2.10.5",
+    "fastmcp>=2.14.0",
 ]
 
 rich = [

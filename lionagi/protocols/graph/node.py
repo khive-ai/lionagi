@@ -10,6 +10,7 @@ from pydantic import BaseModel, field_serializer, field_validator
 from pydapter import Adaptable, AsyncAdaptable
 
 from lionagi._class_registry import LION_CLASS_REGISTRY
+from lionagi.ln.types import DataClass
 
 from .._concepts import Relational
 from ..generic.element import Element
@@ -114,10 +115,14 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
 
     @field_serializer("content")
     def _serialize_content(self, value: Any) -> Any:
-        if hasattr(value, "to_dict"):
+        if isinstance(value, Element):
             return value.to_dict()
         if isinstance(value, BaseModel):
             return value.model_dump()
+        if isinstance(value, DataClass):
+            return value.to_dict(
+                exclude=value._config.serialize_exclude or None
+            )
         return value
 
     @field_validator("content", mode="before")

@@ -1,30 +1,30 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any, Final, Literal, TypeVar, Union
 
 __all__ = (
-    "AdditionalSentinels",
-    "MaybeSentinel",
+    "Undefined",
+    "Unset",
     "MaybeUndefined",
     "MaybeUnset",
+    "MaybeSentinel",
     "SingletonType",
-    "T",
-    "Undefined",
     "UndefinedType",
-    "Unset",
     "UnsetType",
     "is_sentinel",
-    "is_undefined",
-    "is_unset",
     "not_sentinel",
+    "T",
 )
 
 T = TypeVar("T")
 
 
 class _SingletonMeta(type):
-    """Metaclass that guarantees exactly one instance per subclass."""
+    """Metaclass that guarantees exactly one instance per subclass.
+
+    This ensures that sentinel values maintain identity across the entire application,
+    allowing safe identity checks with 'is' operator.
+    """
 
     _cache: dict[type, SingletonType] = {}
 
@@ -45,7 +45,7 @@ class SingletonType(metaclass=_SingletonMeta):
 
     __slots__: tuple[str, ...] = ()
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo):  # copy & deepcopy both noop
         return self
 
     def __copy__(self):
@@ -126,106 +126,29 @@ MaybeUndefined = Union[T, UndefinedType]
 MaybeUnset = Union[T, UnsetType]
 MaybeSentinel = Union[T, UndefinedType, UnsetType]
 
-AdditionalSentinels = Literal["none", "empty", "pydantic", "dataclass"]
-
 _EMPTY_TUPLE = (tuple(), set(), frozenset(), dict(), list(), "")
-
-
-def _is_builtin_sentinel(value: Any) -> bool:
-    return isinstance(value, (UndefinedType, UnsetType))
-
-
-def _is_none(value: Any) -> bool:
-    return value is None
-
-
-def _is_empty(value: Any) -> bool:
-    return value in _EMPTY_TUPLE
-
-
-def _is_pydantic_sentinel(value: Any) -> bool:
-    from pydantic_core import PydanticUndefinedType
-
-    return isinstance(value, PydanticUndefinedType)
-
-
-def _is_dataclass_missing(value: Any) -> bool:
-    from dataclasses import MISSING
-
-    return value is MISSING
-
-
-SENTINEL_HANDLERS: dict[str, Callable[[Any], bool]] = {
-    "none": _is_none,
-    "empty": _is_empty,
-    "pydantic": _is_pydantic_sentinel,
-    "dataclass": _is_dataclass_missing,
-}
-
-_HANDLE_SEQUENCE: tuple[str, ...] = ("none", "empty", "pydantic", "dataclass")
 
 
 def is_sentinel(
     value: Any,
-    additions: frozenset[str] | set[str] | bool = frozenset(),
     *,
-    # backwards compat — will be removed in future
     none_as_sentinel: bool = False,
     empty_as_sentinel: bool = False,
 ) -> bool:
-    """Check if a value is any sentinel (Undefined or Unset).
-
-    Args:
-        value: Any value to check.
-        additions: Extra categories to treat as sentinel:
-            "none" — treat None as sentinel
-            "empty" — treat empty containers/strings as sentinel
-            "pydantic" — treat PydanticUndefined as sentinel
-            "dataclass" — treat dataclasses.MISSING as sentinel
-        none_as_sentinel: Deprecated. Use additions={"none"}.
-        empty_as_sentinel: Deprecated. Use additions={"empty"}.
-    """
-    if _is_builtin_sentinel(value):
+    """Check if a value is any sentinel (Undefined or Unset)."""
+    if none_as_sentinel and value is None:
         return True
-    # backwards compat: bool positional was old none_as_sentinel
-    if isinstance(additions, bool):
-        none_as_sentinel = additions
-        additions = frozenset()
-    # backwards compat: convert bools to additions
-    if none_as_sentinel or empty_as_sentinel:
-        merged = set(additions) if additions else set()
-        if none_as_sentinel:
-            merged.add("none")
-        if empty_as_sentinel:
-            merged.add("empty")
-        additions = frozenset(merged)
-    for key in _HANDLE_SEQUENCE:
-        if key in additions and SENTINEL_HANDLERS[key](value):
-            return True
-    return False
-
-
-def is_undefined(value: Any) -> bool:
-    """Check if value is the Undefined sentinel."""
-    return isinstance(value, UndefinedType)
-
-
-def is_unset(value: Any) -> bool:
-    """Check if value is the Unset sentinel."""
-    return isinstance(value, UnsetType)
+    if empty_as_sentinel and value in _EMPTY_TUPLE:
+        return True
+    return value is Undefined or value is Unset
 
 
 def not_sentinel(
-    value: Any,
-    additions: frozenset[str] | set[str] | bool = frozenset(),
-    *,
-    none_as_sentinel: bool = False,
-    empty_as_sentinel: bool = False,
+    value: Any, none_as_sentinel: bool = False, empty_as_sentinel: bool = False
 ) -> bool:
     """Check if a value is NOT a sentinel. Useful for filtering operations."""
     return not is_sentinel(
         value,
-        additions,
         none_as_sentinel=none_as_sentinel,
         empty_as_sentinel=empty_as_sentinel,
     )
