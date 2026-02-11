@@ -9,6 +9,10 @@ import pytest
 
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.service.connections.match_endpoint import match_endpoint
+from lionagi.service.connections.providers.oai_ import (
+    GeminiChatEndpoint,
+    _get_gemini_config,
+)
 from lionagi.service.imodel import iModel
 
 
@@ -389,3 +393,132 @@ class TestOpenAIIntegration:
         assert "top_p" in standard_payload
 
         # Note: Reasoning model parameter filtering may not be implemented
+
+
+class TestGeminiIntegration:
+    """Integration tests for Gemini endpoint (OpenAI-compatible)."""
+
+    @pytest.fixture
+    def gemini_imodel(self):
+        """Create an iModel instance for Gemini."""
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-gemini-key"}):
+            return iModel(provider="gemini", model="gemini-2.5-flash")
+
+    def test_gemini_endpoint_configuration(self, gemini_imodel):
+        """Test that Gemini endpoint is configured correctly."""
+        assert gemini_imodel.endpoint.config.provider == "gemini"
+        assert (
+            "generativelanguage.googleapis.com"
+            in gemini_imodel.endpoint.config.base_url
+        )
+
+    def test_gemini_config_defaults(self):
+        """Test _get_gemini_config returns correct defaults."""
+        config = _get_gemini_config()
+        assert config.provider == "gemini"
+        assert config.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
+        assert config.endpoint == "chat/completions"
+        assert config.auth_type == "bearer"
+        assert config.method == "POST"
+
+    def test_gemini_config_override(self):
+        """Test _get_gemini_config respects overrides."""
+        config = _get_gemini_config(
+            kwargs={"model": "gemini-2.5-pro"},
+        )
+        assert config.kwargs["model"] == "gemini-2.5-pro"
+
+    def test_gemini_headers_creation(self, gemini_imodel):
+        """Test that Gemini headers use Bearer auth."""
+        payload, headers = gemini_imodel.endpoint.create_payload(
+            {
+                "messages": [{"role": "user", "content": "Hello"}],
+                "model": "gemini-2.5-flash",
+                "temperature": 0.7,
+                "api_key": "test-gemini-key",
+            }
+        )
+
+        assert "Authorization" in headers
+        assert headers["Authorization"].startswith("Bearer ")
+        assert headers["Content-Type"] == "application/json"
+        assert "api_key" not in payload
+
+    def test_gemini_payload_creation(self, gemini_imodel):
+        """Test Gemini payload for standard chat request."""
+        payload, headers = gemini_imodel.endpoint.create_payload(
+            {
+                "messages": [{"role": "user", "content": "Hello"}],
+                "model": "gemini-2.5-flash",
+                "temperature": 0.7,
+                "max_tokens": 100,
+            }
+        )
+
+        assert payload["model"] == "gemini-2.5-flash"
+        assert payload["messages"][0]["content"] == "Hello"
+        assert payload["temperature"] == 0.7
+        assert payload["max_tokens"] == 100
+
+    def test_gemini_match_endpoint_routing(self):
+        """Test that match_endpoint routes 'gemini' + 'chat' correctly."""
+        endpoint = match_endpoint(
+            provider="gemini", endpoint="chat", model="gemini-2.5-flash"
+        )
+        assert isinstance(endpoint, GeminiChatEndpoint)
+        assert endpoint.config.provider == "gemini"
+
+    def test_gemini_url_construction(self):
+        """Test Gemini URL construction."""
+        endpoint = match_endpoint(
+            provider="gemini", endpoint="chat", model="gemini-2.5-flash"
+        )
+        url = endpoint.config.full_url
+        assert "generativelanguage.googleapis.com" in url
+        assert "chat/completions" in url
+
+    def test_gemini_imodel_construction_explicit(self):
+        """Test iModel construction with explicit provider='gemini'."""
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}):
+            model = iModel(provider="gemini", model="gemini-2.5-flash")
+        assert model.endpoint.config.provider == "gemini"
+
+    def test_gemini_imodel_construction_prefix(self):
+        """Test iModel construction with 'gemini/' model prefix."""
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}):
+            model = iModel(model="gemini/gemini-2.5-flash")
+        assert model.endpoint.config.provider == "gemini"
+
+    @pytest.mark.asyncio
+    async def test_gemini_api_calling_creation(
+        self, gemini_imodel, mock_response
+    ):
+        """Test creating APICalling for Gemini."""
+        api_call = gemini_imodel.create_api_calling(
+            messages=[{"role": "user", "content": "Hello, Gemini!"}],
+            temperature=0.7,
+            max_tokens=100,
+        )
+
+        assert api_call.payload["model"] == "gemini-2.5-flash"
+        assert api_call.payload["messages"][0]["content"] == "Hello, Gemini!"
+        assert api_call.payload["temperature"] == 0.7
+        assert api_call.payload["max_tokens"] == 100
+
+    @pytest.mark.asyncio
+    async def test_gemini_successful_invoke(
+        self, gemini_imodel, mock_response
+    ):
+        """Test successful Gemini API invocation."""
+        with patch.object(
+            gemini_imodel.endpoint,
+            "call",
+            return_value=mock_response.json.return_value,
+        ):
+            result = await gemini_imodel.invoke(
+                messages=[{"role": "user", "content": "Hello, Gemini!"}],
+                temperature=0.7,
+            )
+
+        assert result is not None
+        assert result.response["choices"][0]["message"]["role"] == "assistant"

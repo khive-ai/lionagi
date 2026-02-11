@@ -8,6 +8,7 @@ This module provides endpoint configurations for:
 - OpenAI (chat, response, embedding)
 - OpenRouter (OpenAI-compatible)
 - Groq (OpenAI-compatible)
+- Gemini (OpenAI-compatible)
 
 Each provider has a helper function (_get_*_config) that creates
 configurations with sensible defaults that can be overridden.
@@ -120,6 +121,30 @@ class OpenrouterChatEndpoint(Endpoint):
 class GroqChatEndpoint(Endpoint):
     def __init__(self, config=None, **kwargs):
         config = config or _get_groq_config()
+        super().__init__(config, **kwargs)
+
+
+def _get_gemini_config(**kwargs):
+    """Create Gemini endpoint configuration with defaults."""
+    config = dict(
+        name="gemini_chat",
+        provider="gemini",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        endpoint="chat/completions",
+        kwargs={"model": "gemini-2.5-flash"},
+        api_key=settings.GEMINI_API_KEY or "dummy-key-for-testing",
+        auth_type="bearer",
+        content_type="application/json",
+        method="POST",
+        request_options=OpenAIChatCompletionsRequest,
+    )
+    config.update(kwargs)
+    return EndpointConfig(**config)
+
+
+class GeminiChatEndpoint(Endpoint):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_gemini_config()
         super().__init__(config, **kwargs)
 
 
