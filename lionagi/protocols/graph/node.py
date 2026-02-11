@@ -120,7 +120,9 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         if isinstance(value, BaseModel):
             return value.model_dump()
         if isinstance(value, DataClass):
-            return value.to_dict(exclude=value._config.serialize_exclude or None)
+            return value.to_dict(
+                exclude=value._config.serialize_exclude or None
+            )
         return value
 
     @field_validator("content", mode="before")
