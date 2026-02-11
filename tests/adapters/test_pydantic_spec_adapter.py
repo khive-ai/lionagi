@@ -78,7 +78,9 @@ class TestCreateModel:
         ]
         operable = Operable(specs, name="User")
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelBasic")
+        UserModel = PydanticSpecAdapter.create_model(
+            operable, "UserModelBasic"
+        )
 
         assert issubclass(UserModel, BaseModel)
         assert "username" in UserModel.model_fields
@@ -92,7 +94,9 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelDefaults")
+        UserModel = PydanticSpecAdapter.create_model(
+            operable, "UserModelDefaults"
+        )
         instance = UserModel()
 
         assert instance.username == "anonymous"
@@ -106,7 +110,9 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelNullable")
+        UserModel = PydanticSpecAdapter.create_model(
+            operable, "UserModelNullable"
+        )
         instance = UserModel(username="alice")
 
         assert instance.username == "alice"
@@ -120,7 +126,9 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelValidation")
+        UserModel = PydanticSpecAdapter.create_model(
+            operable, "UserModelValidation"
+        )
 
         # Valid data
         user = UserModel(username="alice", age=30)
@@ -258,7 +266,9 @@ and more text"""
         """Test fuzzy field matching."""
         specs = [Spec(str, name="user_name"), Spec(int, name="user_age")]
         operable = Operable(specs)
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelFuzzy")
+        UserModel = PydanticSpecAdapter.create_model(
+            operable, "UserModelFuzzy"
+        )
 
         # Data with slightly different keys
         data = {"username": "Alice", "age": 30}
