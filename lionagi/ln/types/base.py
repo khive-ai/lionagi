@@ -56,6 +56,7 @@ class ModelConfig:
 
     # Serialization
     use_enum_values: bool = False
+    serialize_exclude: frozenset[str] = frozenset()
 
 
 @dataclass(slots=True, frozen=True, init=False)

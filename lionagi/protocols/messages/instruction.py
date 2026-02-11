@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import orjson
 from pydantic import BaseModel, field_validator
+
+from lionagi.ln.types import ModelConfig
 
 from .message import MessageContent, MessageRole, RoledMessage
 
@@ -25,6 +27,11 @@ class InstructionContent(MessageContent):
         _schema_dict: Extracted dict for prompting/schema
         _model_class: Extracted Pydantic class for validation
     """
+
+    _config: ClassVar[ModelConfig] = ModelConfig(
+        none_as_sentinel=True,
+        serialize_exclude=frozenset({"response_format"}),
+    )
 
     instruction: str | None = None
     guidance: str | None = None
