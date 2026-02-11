@@ -1,27 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import (
-    MutableMapping,
-    MutableSequence,
-    MutableSet,
-    Sequence,
-)
-from dataclasses import dataclass, field, fields
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from enum import Enum as _Enum
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 
-from typing_extensions import Self, TypedDict, override
+from typing_extensions import TypedDict, override
 
-from ._sentinel import Undefined, Unset, is_sentinel, is_undefined
+from ._sentinel import Undefined, Unset, is_sentinel
 
 __all__ = (
-    "DataClass",
     "Enum",
-    "KeysDict",
-    "KeysLike",
-    "Meta",
     "ModelConfig",
     "Params",
+    "DataClass",
+    "Meta",
+    "KeysDict",
+    "KeysLike",
 )
 
 
@@ -34,342 +29,298 @@ class Enum(_Enum):
 
 
 class KeysDict(TypedDict, total=False):
-    """TypedDict for flexible key-type mappings."""
+    """TypedDict for keys dictionary."""
 
-    key: Any
+    key: Any  # Represents any key-type pair
 
 
-@dataclass(slots=True, frozen=True, init=False)
+@dataclass(slots=True, frozen=True)
 class ModelConfig:
     """Configuration for Params and DataClass behavior.
 
     Attributes:
-        sentinel_additions: Additional sentinel categories beyond Undefined/Unset.
-            Valid values: "none", "empty", "pydantic", "dataclass".
+        none_as_sentinel: If True, None is treated as a sentinel value (excluded from to_dict).
+        empty_as_sentinel: If True, empty collections are treated as sentinels (excluded from to_dict).
         strict: If True, no sentinels allowed (all fields must have values).
         prefill_unset: If True, unset fields are prefilled with Unset.
         use_enum_values: If True, use enum values instead of enum instances in to_dict().
-        serialize_exclude: Field names to exclude when serializing (mode != "python").
-            Use for fields that are runtime-only and not JSON-safe (e.g., type classes).
     """
 
-    sentinel_additions: frozenset[str] = field(default_factory=frozenset)
+    # Sentinel handling (controls what gets excluded from to_dict)
+    none_as_sentinel: bool = False
+    empty_as_sentinel: bool = False
+
+    # Validation
     strict: bool = False
     prefill_unset: bool = True
+
+    # Serialization
     use_enum_values: bool = False
-    serialize_exclude: frozenset[str] = field(default_factory=frozenset)
-
-    def __init__(
-        self,
-        *,
-        sentinel_additions: frozenset[str] | set[str] | None = None,
-        # backwards compat
-        none_as_sentinel: bool = False,
-        empty_as_sentinel: bool = False,
-        strict: bool = False,
-        prefill_unset: bool = True,
-        use_enum_values: bool = False,
-        serialize_exclude: frozenset[str] | set[str] | None = None,
-    ):
-        additions = set(sentinel_additions) if sentinel_additions else set()
-        if none_as_sentinel:
-            additions.add("none")
-        if empty_as_sentinel:
-            additions.add("empty")
-        object.__setattr__(self, "sentinel_additions", frozenset(additions))
-        object.__setattr__(self, "strict", strict)
-        object.__setattr__(self, "prefill_unset", prefill_unset)
-        object.__setattr__(self, "use_enum_values", use_enum_values)
-        object.__setattr__(
-            self,
-            "serialize_exclude",
-            frozenset(serialize_exclude) if serialize_exclude else frozenset(),
-        )
-
-    @property
-    def none_as_sentinel(self) -> bool:
-        """Backwards compat: True if "none" in sentinel_additions."""
-        return "none" in self.sentinel_additions
-
-    @property
-    def empty_as_sentinel(self) -> bool:
-        """Backwards compat: True if "empty" in sentinel_additions."""
-        return "empty" in self.sentinel_additions
-
-    def is_sentinel(self, value: Any) -> bool:
-        """Check if value is sentinel per this config."""
-        return is_sentinel(value, self.sentinel_additions)
-
-    def is_sentinel_field(self, obj: Any, field_name: str) -> bool:
-        """Check if a field holds a sentinel value on the given object.
-
-        Raises:
-            ValueError: If field_name not in allowed().
-        """
-        if hasattr(obj, "allowed") and field_name not in obj.allowed():
-            raise ValueError(f"Invalid field name: {field_name}")
-        return self.is_sentinel(getattr(obj, field_name, Undefined))
-
-
-class _SentinelMixin:
-    """Shared sentinel-aware serialization logic for Params and DataClass.
-
-    Provides: allowed(), _is_sentinel(), _normalize_value(), _validate(),
-    to_dict(), with_updates(), is_sentinel_field(), __hash__().
-
-    Subclasses must define:
-        _config: ClassVar[ModelConfig]
-        _allowed_keys: ClassVar[set[str]]
-    """
-
-    __slots__ = ()
-
-    @classmethod
-    def allowed(cls) -> set[str]:
-        """Return set of valid field names (excludes private/ClassVar)."""
-        if cls._allowed_keys:
-            return cls._allowed_keys
-        cls._allowed_keys = {
-            f.name for f in fields(cls) if not f.name.startswith("_")
-        }
-        return cls._allowed_keys
-
-    @classmethod
-    def _is_sentinel(cls, value: Any) -> bool:
-        """Check if value is sentinel per _config settings."""
-        return is_sentinel(value, cls._config.sentinel_additions)
-
-    @classmethod
-    def _normalize_value(cls, value: Any) -> Any:
-        """Normalize value for serialization (enum to value if configured)."""
-        if cls._config.use_enum_values and isinstance(value, _Enum):
-            return value.value
-        return value
-
-    def _validate(self) -> None:
-        """Validate fields per _config. Raises ValueError if strict violations."""
-        missing: list[str] = []
-        for k in self.allowed():
-            if self._config.strict and self._is_sentinel(
-                getattr(self, k, Unset)
-            ):
-                missing.append(k)
-            if self._config.prefill_unset and is_undefined(
-                getattr(self, k, Undefined)
-            ):
-                object.__setattr__(self, k, Unset)
-        if missing:
-            raise ValueError(
-                f"Missing required parameters: {', '.join(missing)}"
-            )
-
-    def to_dict(
-        self,
-        mode: Literal["python", "json"] = "python",
-        exclude: set[str] | None = None,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        """Serialize to dict, excluding sentinel values.
-
-        Args:
-            mode: "python" returns Python objects, "json" returns JSON-safe dict.
-            exclude: Field names to skip.
-        """
-        data = {}
-        exclude = exclude or set()
-        if mode != "python":
-            exclude = exclude | self._config.serialize_exclude
-        for k in type(self).allowed():
-            if k not in exclude:
-                v = getattr(self, k, Undefined)
-                if not self._is_sentinel(v):
-                    data[k] = self._normalize_value(v)
-        if mode == "json":
-            from .._json_dump import json_dumps
-
-            return json_dumps(data, as_loaded=True, **kwargs)
-        return data
-
-    def with_updates(
-        self,
-        copy_containers: Literal["shallow", "deep"] | None = None,
-        **kwargs: Any,
-    ) -> Self:
-        """Return new instance with updated fields.
-
-        Args:
-            copy_containers: "shallow", "deep", or None (share references).
-            **kwargs: Field values to update.
-        """
-        dict_ = self.to_dict()
-
-        def _out(d: dict):
-            d.update(kwargs)
-            return type(self)(**d)
-
-        if copy_containers is None:
-            return _out(dict_)
-
-        if copy_containers == "shallow":
-            for k, v in dict_.items():
-                if k not in kwargs and isinstance(
-                    v, (MutableSequence, MutableMapping, MutableSet)
-                ):
-                    dict_[k] = v.copy() if hasattr(v, "copy") else list(v)
-            return _out(dict_)
-
-        if copy_containers == "deep":
-            import copy
-
-            for k, v in dict_.items():
-                if k not in kwargs and isinstance(
-                    v, (MutableSequence, MutableMapping, MutableSet)
-                ):
-                    dict_[k] = copy.deepcopy(v)
-            return _out(dict_)
-
-        raise ValueError(
-            f"Invalid copy_containers: {copy_containers!r}. "
-            "Must be 'shallow', 'deep', or None."
-        )
-
-    def is_sentinel_field(self, field_name: str) -> bool:
-        """Check if field holds a sentinel value.
-
-        Raises:
-            ValueError: If field_name not in allowed().
-        """
-        if field_name not in self.allowed():
-            raise ValueError(f"Invalid field name: {field_name}")
-        return self._is_sentinel(getattr(self, field_name, Undefined))
-
-    def __hash__(self) -> int:
-        """Hash based on serialized dict contents."""
-        from .._hash import hash_obj
-
-        return hash_obj(self.to_dict())
 
 
 @dataclass(slots=True, frozen=True, init=False)
-class Params(_SentinelMixin):
-    """Immutable parameter container with sentinel-aware serialization.
+class Params:
+    """Base class for parameters used in various functions.
 
-    Frozen dataclass with custom __init__ for sentinel support.
-    Subclass and override _config for custom behavior.
+    Use the ModelConfig class attribute to customize behavior:
 
     Example:
-        >>> @dataclass(slots=True, frozen=True, init=False)
-        ... class MyParams(Params):
-        ...     _config: ClassVar[ModelConfig] = ModelConfig(strict=True)
-        ...     param1: str
-        ...     param2: int
+        @dataclass(slots=True, frozen=True, init=False)
+        class MyParams(Params):
+            _config: ClassVar[ModelConfig] = ModelConfig(strict=True)
+            param1: str
+            param2: int
     """
 
     _config: ClassVar[ModelConfig] = ModelConfig()
-    _allowed_keys: ClassVar[set[str]] = set()
+    """Configuration for this Params class."""
+
+    _allowed_keys: ClassVar[set[str]] = field(
+        default=set(), init=False, repr=False
+    )
+    """Class variable cache to store allowed keys for parameters."""
 
     def __init__(self, **kwargs: Any):
-        """Initialize from kwargs with validation.
-
-        Raises:
-            ValueError: If kwargs contains invalid field names or strict mode and required fields missing.
-        """
-        for f in fields(self):
-            if f.name.startswith("_"):
-                continue
-            if f.name not in kwargs:
-                from dataclasses import MISSING as _MISSING
-
-                if f.default is not _MISSING:
-                    object.__setattr__(self, f.name, f.default)
-                elif f.default_factory is not _MISSING:
-                    object.__setattr__(self, f.name, f.default_factory())
-
+        """Initialize the Params object with keyword arguments."""
+        # Set all attributes from kwargs, allowing for sentinel values
         for k, v in kwargs.items():
             if k in self.allowed():
                 object.__setattr__(self, k, v)
             else:
                 raise ValueError(f"Invalid parameter: {k}")
 
+        # Validate after setting all attributes
         self._validate()
 
+    @classmethod
+    def _is_sentinel(cls, value: Any) -> bool:
+        """Check if a value is a sentinel (Undefined or Unset)."""
+        return is_sentinel(
+            value,
+            none_as_sentinel=cls._config.none_as_sentinel,
+            empty_as_sentinel=cls._config.empty_as_sentinel,
+        )
+
+    @classmethod
+    def _normalize_value(cls, value: Any) -> Any:
+        """Normalize a value for serialization.
+
+        Handles:
+        - Enum values if use_enum_values is True
+        - Can be extended for other transformations
+        """
+        if cls._config.use_enum_values and isinstance(value, _Enum):
+            return value.value
+        return value
+
+    @classmethod
+    def allowed(cls) -> set[str]:
+        """Return the keys of the parameters."""
+        if cls._allowed_keys:
+            return cls._allowed_keys
+        cls._allowed_keys = {
+            i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")
+        }
+        return cls._allowed_keys
+
+    @override
+    def _validate(self) -> None:
+        def _validate_strict(k):
+            if self._config.strict and self._is_sentinel(
+                getattr(self, k, Unset)
+            ):
+                raise ValueError(f"Missing required parameter: {k}")
+            if (
+                self._config.prefill_unset
+                and getattr(self, k, Undefined) is Undefined
+            ):
+                object.__setattr__(self, k, Unset)
+
+        for k in self.allowed():
+            _validate_strict(k)
+
     def default_kw(self) -> Any:
-        """Return dict with kwargs/kw fields merged into top level."""
+        # create a partial function with the current parameters
         dict_ = self.to_dict()
+
+        # handle kwargs if present, handle both 'kwargs' and 'kw'
         kw_ = {}
         kw_.update(dict_.pop("kwargs", {}))
         kw_.update(dict_.pop("kw", {}))
         dict_.update(kw_)
         return dict_
 
-    def __eq__(self, other: object) -> bool:
-        """Equality via hash. Returns NotImplemented for incompatible types."""
+    def to_dict(self, exclude: set[str] = None) -> dict[str, str]:
+        data = {}
+        exclude = exclude or set()
+        for k in self.allowed():
+            if k not in exclude:
+                v = getattr(self, k, Undefined)
+                if not self._is_sentinel(v):
+                    data[k] = self._normalize_value(v)
+        return data
+
+    def __hash__(self) -> int:
+        from .._hash import hash_dict
+
+        return hash_dict(self.to_dict())
+
+    def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Params):
-            return NotImplemented
+            return False
         return hash(self) == hash(other)
+
+    def with_updates(self, **kwargs: Any) -> DataClass:
+        """Return a new instance with updated fields."""
+        dict_ = self.to_dict()
+        dict_.update(kwargs)
+        return type(self)(**dict_)
 
 
 @dataclass(slots=True)
-class DataClass(_SentinelMixin):
-    """Mutable dataclass with sentinel-aware serialization.
+class DataClass:
+    """A base class for data classes with strict parameter handling.
 
-    Like Params but mutable (not frozen). Validates on __post_init__.
-    Subclass and override _config for custom behavior.
+    Use the ModelConfig class attribute to customize behavior:
 
     Example:
-        >>> @dataclass(slots=True)
-        ... class MyDataClass(DataClass):
-        ...     _config: ClassVar[ModelConfig] = ModelConfig(strict=True, prefill_unset=False)
-        ...     field1: str
-        ...     field2: int
+        @dataclass(slots=True)
+        class MyDataClass(DataClass):
+            _config: ClassVar[ModelConfig] = ModelConfig(strict=True, prefill_unset=False)
+            field1: str
+            field2: int
     """
 
     _config: ClassVar[ModelConfig] = ModelConfig()
-    _allowed_keys: ClassVar[set[str]] = set()
+    """Configuration for this DataClass."""
+
+    _allowed_keys: ClassVar[set[str]] = field(
+        default=set(), init=False, repr=False
+    )
+    """Class variable cache to store allowed keys for parameters."""
 
     def __post_init__(self):
-        """Validate fields after initialization."""
+        """Post-initialization to ensure all fields are set."""
         self._validate()
 
-    def __eq__(self, other: object) -> bool:
-        """Equality via hash. Returns NotImplemented for incompatible types."""
+    @classmethod
+    def allowed(cls) -> set[str]:
+        """Return the keys of the parameters."""
+        if cls._allowed_keys:
+            return cls._allowed_keys
+        cls._allowed_keys = {
+            i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")
+        }
+        return cls._allowed_keys
+
+    @override
+    def _validate(self) -> None:
+        def _validate_strict(k):
+            if self._config.strict and self._is_sentinel(
+                getattr(self, k, Unset)
+            ):
+                raise ValueError(f"Missing required parameter: {k}")
+            if (
+                self._config.prefill_unset
+                and getattr(self, k, Undefined) is Undefined
+            ):
+                self.__setattr__(k, Unset)
+
+        for k in self.allowed():
+            _validate_strict(k)
+
+    def to_dict(self, exclude: set[str] = None) -> dict[str, str]:
+        data = {}
+        exclude = exclude or set()
+        for k in type(self).allowed():
+            if k not in exclude:
+                v = getattr(self, k)
+                if not self._is_sentinel(v):
+                    data[k] = self._normalize_value(v)
+        return data
+
+    @classmethod
+    def _is_sentinel(cls, value: Any) -> bool:
+        """Check if a value is a sentinel (Undefined or Unset)."""
+        return is_sentinel(
+            value,
+            none_as_sentinel=cls._config.none_as_sentinel,
+            empty_as_sentinel=cls._config.empty_as_sentinel,
+        )
+
+    @classmethod
+    def _normalize_value(cls, value: Any) -> Any:
+        """Normalize a value for serialization.
+
+        Handles:
+        - Enum values if use_enum_values is True
+        - Can be extended for other transformations
+        """
+        from enum import Enum as _Enum
+
+        if cls._config.use_enum_values and isinstance(value, _Enum):
+            return value.value
+        return value
+
+    def with_updates(self, **kwargs: Any) -> DataClass:
+        """Return a new instance with updated fields."""
+        dict_ = self.to_dict()
+        dict_.update(kwargs)
+        return type(self)(**dict_)
+
+    def __hash__(self) -> int:
+        from .._hash import hash_dict
+
+        return hash_dict(self.to_dict())
+
+    def __eq__(self, other: Any) -> bool:
         if not isinstance(other, DataClass):
-            return NotImplemented
+            return False
         return hash(self) == hash(other)
 
 
 KeysLike = Sequence[str] | KeysDict
-"""Type alias for key specifications: sequence of names or KeysDict."""
 
 
 @dataclass(slots=True, frozen=True)
 class Meta:
-    """Immutable key-value metadata container.
-
-    Hashable for use in sets/dicts. Special handling for callables
-    (hashed by id for identity semantics).
-    """
+    """Immutable metadata container for field templates and other configurations."""
 
     key: str
     value: Any
 
     @override
     def __hash__(self) -> int:
-        """Hash by (key, value). Callables use id(), unhashables use str()."""
+        """Make metadata hashable for caching.
+
+        Note: For callables, we hash by id to maintain identity semantics.
+        """
+        # For callables, use their id
         if callable(self.value):
             return hash((self.key, id(self.value)))
+        # For other values, try to hash directly
         try:
             return hash((self.key, self.value))
         except TypeError:
+            # Fallback for unhashable types
             return hash((self.key, str(self.value)))
 
     @override
     def __eq__(self, other: object) -> bool:
-        """Equality by key then value. Callables compared by id."""
+        """Compare metadata for equality.
+
+        For callables, compare by id to increase cache hits when the same
+        validator instance is reused. For other values, use standard equality.
+        """
         if not isinstance(other, Meta):
             return NotImplemented
+
         if self.key != other.key:
             return False
+
+        # For callables, compare by identity
         if callable(self.value) and callable(other.value):
             return id(self.value) == id(other.value)
+
+        # For other values, use standard equality
         return bool(self.value == other.value)

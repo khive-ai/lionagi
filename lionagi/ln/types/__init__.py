@@ -1,5 +1,4 @@
 from ._sentinel import (
-    AdditionalSentinels,
     MaybeSentinel,
     MaybeUndefined,
     MaybeUnset,
@@ -10,8 +9,6 @@ from ._sentinel import (
     Unset,
     UnsetType,
     is_sentinel,
-    is_undefined,
-    is_unset,
     not_sentinel,
 )
 from .base import (
@@ -36,10 +33,7 @@ __all__ = (
     "SingletonType",
     "UndefinedType",
     "UnsetType",
-    "AdditionalSentinels",
     "is_sentinel",
-    "is_undefined",
-    "is_unset",
     "not_sentinel",
     # Base classes
     "ModelConfig",

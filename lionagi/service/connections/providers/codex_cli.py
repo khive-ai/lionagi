@@ -16,9 +16,7 @@ from ...third_party.codex_models import (
     CodexSession,
 )
 from ...third_party.codex_models import log as codex_log
-from ...third_party.codex_models import (
-    stream_codex_cli,
-)
+from ...third_party.codex_models import stream_codex_cli
 
 _get_config = lambda: EndpointConfig(
     name="codex_cli",

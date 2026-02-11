@@ -16,9 +16,7 @@ from ...third_party.claude_code import (
     ClaudeSession,
 )
 from ...third_party.claude_code import log as cc_log
-from ...third_party.claude_code import (
-    stream_claude_code_cli,
-)
+from ...third_party.claude_code import stream_claude_code_cli
 
 _get_config = lambda: EndpointConfig(
     name="claude_code_cli",
