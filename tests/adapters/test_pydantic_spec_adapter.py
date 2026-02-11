@@ -78,7 +78,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs, name="User")
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModel")
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelBasic")
 
         assert issubclass(UserModel, BaseModel)
         assert "username" in UserModel.model_fields
@@ -92,7 +92,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModel")
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelDefaults")
         instance = UserModel()
 
         assert instance.username == "anonymous"
@@ -106,7 +106,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModel")
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelNullable")
         instance = UserModel(username="alice")
 
         assert instance.username == "alice"
@@ -120,7 +120,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModel")
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelValidation")
 
         # Valid data
         user = UserModel(username="alice", age=30)
@@ -141,7 +141,7 @@ class TestCreateModel:
         operable = Operable(specs)
 
         UserModel = PydanticSpecAdapter.create_model(
-            operable, "UserModel", include={"username", "age"}
+            operable, "UserModelInclude", include={"username", "age"}
         )
 
         assert "username" in UserModel.model_fields
@@ -158,7 +158,7 @@ class TestCreateModel:
         operable = Operable(specs)
 
         UserModel = PydanticSpecAdapter.create_model(
-            operable, "UserModel", exclude={"password"}
+            operable, "UserModelExclude", exclude={"password"}
         )
 
         assert "username" in UserModel.model_fields
@@ -258,7 +258,7 @@ and more text"""
         """Test fuzzy field matching."""
         specs = [Spec(str, name="user_name"), Spec(int, name="user_age")]
         operable = Operable(specs)
-        UserModel = PydanticSpecAdapter.create_model(operable, "UserModel")
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelFuzzy")
 
         # Data with slightly different keys
         data = {"username": "Alice", "age": 30}
