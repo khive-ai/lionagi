@@ -416,7 +416,10 @@ class TestGeminiIntegration:
         """Test _get_gemini_config returns correct defaults."""
         config = _get_gemini_config()
         assert config.provider == "gemini"
-        assert config.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
+        assert (
+            config.base_url
+            == "https://generativelanguage.googleapis.com/v1beta/openai"
+        )
         assert config.endpoint == "chat/completions"
         assert config.auth_type == "bearer"
         assert config.method == "POST"
