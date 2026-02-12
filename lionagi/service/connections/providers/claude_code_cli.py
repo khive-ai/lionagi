@@ -7,7 +7,8 @@ from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
 
-from lionagi.service.connections.endpoint import Endpoint, EndpointConfig
+from lionagi.service.connections.cli_endpoint import CLIEndpoint
+from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.utils import to_dict
 
 from ...third_party.claude_code import (
@@ -53,7 +54,7 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
             )
 
 
-class ClaudeCodeCLIEndpoint(Endpoint):
+class ClaudeCodeCLIEndpoint(CLIEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
         config = config or _get_config()
         super().__init__(config=config, **kwargs)

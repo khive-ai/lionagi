@@ -383,8 +383,8 @@ class TestiModel:
             api_key="test-key",
         )
 
-        # Set session_id in provider_metadata
-        imodel.provider_metadata["session_id"] = "test-session-123"
+        # Set session_id on the CLI endpoint
+        imodel.endpoint.session_id = "test-session-123"
 
         # Create API calling without explicit resume parameter
         api_call = imodel.create_api_calling(
@@ -402,8 +402,8 @@ class TestiModel:
             api_key="test-key",
         )
 
-        # Set session_id in provider_metadata
-        imodel.provider_metadata["session_id"] = "test-session-123"
+        # Set session_id on the CLI endpoint
+        imodel.endpoint.session_id = "test-session-123"
 
         # Create API calling WITH explicit resume parameter
         api_call = imodel.create_api_calling(
@@ -457,7 +457,7 @@ class TestiModel:
 
     @pytest.mark.asyncio
     async def test_imodel_claude_code_session_id_storage(self, mock_response):
-        """Test that session_id is stored in provider_metadata after invoke."""
+        """Test that session_id is stored on endpoint after invoke."""
         imodel = iModel(
             provider="claude_code",
             model="claude-3-5-sonnet-20241022",
@@ -477,8 +477,8 @@ class TestiModel:
                 messages=[{"role": "user", "content": "Hello"}]
             )
 
-        # Check that session_id was stored
-        assert imodel.provider_metadata.get("session_id") == "new-session-456"
+        # Check that session_id was stored on the CLI endpoint
+        assert imodel.endpoint.session_id == "new-session-456"
 
     def test_imodel_to_dict(self):
         """Test iModel to_dict serialization."""
@@ -815,7 +815,7 @@ class TestiModelEdgeCases:
 
     @pytest.mark.asyncio
     async def test_provider_metadata_persistence(self, mock_response):
-        """Test provider_metadata persists across multiple calls."""
+        """Test session_id persists on CLI endpoint across multiple calls."""
         imodel = iModel(
             provider="claude_code",
             model="claude-3-5-sonnet-20241022",
@@ -830,7 +830,7 @@ class TestiModelEdgeCases:
             result1 = await imodel.invoke(
                 messages=[{"role": "user", "content": "Hello"}]
             )
-            assert imodel.provider_metadata.get("session_id") == "session-123"
+            assert imodel.endpoint.session_id == "session-123"
 
         # Second call uses stored session_id
         async def second_call(*args, **kwargs):
@@ -1179,15 +1179,16 @@ class TestiModelProviderSpecificEdgeCases:
         )
         assert imodel.endpoint.config.provider == "ollama"
 
-    def test_claude_code_provider_metadata_initialization(self):
-        """Test Claude Code provider_metadata initialization."""
+    def test_claude_code_session_id_initialization(self):
+        """Test Claude Code session_id on CLI endpoint."""
         imodel = iModel(
             provider="claude_code",
             model="claude-3-5-sonnet-20241022",
             api_key="test-key",
-            provider_metadata={"session_id": "initial-session"},
         )
-        assert imodel.provider_metadata["session_id"] == "initial-session"
+        # Set session_id on the CLI endpoint directly
+        imodel.endpoint.session_id = "initial-session"
+        assert imodel.endpoint.session_id == "initial-session"
 
     def test_openrouter_model_path_parsing(self):
         """Test OpenRouter model path parsing."""
