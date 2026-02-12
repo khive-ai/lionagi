@@ -60,12 +60,11 @@ class EndpointConfig(BaseModel):
             if isinstance(self.api_key, SecretStr):
                 self._api_key = self.api_key.get_secret_value()
             elif isinstance(self.api_key, str):
-                # Skip settings lookup for ollama special case
+                # Skip settings lookup for special cases
                 if self.provider == "ollama" and self.api_key == "ollama_key":
                     self._api_key = "ollama_key"
-                if self.provider == "claude_code":
-                    self._api_key = "dummy"
-
+                elif self.api_key == "dummy-key":
+                    self._api_key = "dummy-key"
                 else:
                     from lionagi.config import settings
 

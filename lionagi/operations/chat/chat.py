@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from pydantic import JsonValue
 
 from lionagi.ln._to_list import to_list
+from lionagi.protocols.generic import EventStatus
 from lionagi.protocols.messages import (
     ActionResponse,
     AssistantResponse,
@@ -175,6 +176,12 @@ async def chat(
     api_call = await meth(**kw)
 
     branch._log_manager.log(api_call)
+
+    # Surface API errors before trying to parse a null response
+    if api_call.status == EventStatus.FAILED:
+        raise RuntimeError(
+            f"API call failed: {api_call.execution.error}"
+        )
 
     if return_ins_res_message:
         # Wrap result in `AssistantResponse` and return

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from lionagi.fields import ActionRequestModel
+from lionagi.operations.fields import ActionRequestModel
 from lionagi.protocols.action.manager import ActionManager, load_mcp_tools
 from lionagi.protocols.action.tool import Tool
 from lionagi.protocols.messages.action_request import ActionRequest

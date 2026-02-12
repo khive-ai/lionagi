@@ -1,7 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
-from lionagi.fields import ActionResponseModel, Instruct
+from lionagi.operations.fields import ActionResponseModel, Instruct
 from lionagi.operations.operate.operative import Operative
 from lionagi.protocols.types import (
     ActionRequest,

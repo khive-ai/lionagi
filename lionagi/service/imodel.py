@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from lionagi.ln import is_coro_func, now_utc
 from lionagi.protocols.generic import ID, Event, EventStatus, Log
 
-from .connections import APICalling, Endpoint, match_endpoint
+from .connections import APICalling, CLIEndpoint, Endpoint, match_endpoint
 from .hooks import (
     HookedEvent,
     HookEvent,
@@ -45,7 +45,7 @@ class iModel:
         base_url: str = None,
         endpoint: str | Endpoint = "chat",
         api_key: str = None,
-        queue_capacity: int = 100,
+        queue_capacity: int | None = None,
         capacity_refresh_time: float = 60,
         interval: float | None = None,
         limit_requests: int = None,
@@ -138,6 +138,16 @@ class iModel:
             self.endpoint.config.base_url = base_url
 
         # 3. Configure executor ---------------------------------------------
+        # Resolve defaults based on endpoint type
+        if queue_capacity is None:
+            queue_capacity = (
+                self.endpoint.DEFAULT_QUEUE_CAPACITY
+                if self.endpoint.is_cli
+                else 100
+            )
+        if concurrency_limit is None and self.endpoint.is_cli:
+            concurrency_limit = self.endpoint.DEFAULT_CONCURRENCY_LIMIT
+
         self.executor = RateLimitedAPIExecutor(
             queue_capacity=queue_capacity,
             capacity_refresh_time=capacity_refresh_time,
@@ -250,14 +260,14 @@ class iModel:
                 An `APICalling` instance with the constructed payload,
                 headers, and the selected endpoint.
         """
-        # For Claude Code, auto-inject session_id for resume if available and not explicitly provided
+        # For CLI endpoints, auto-inject session_id for resume if available
         if (
-            self.endpoint.config.provider == "claude_code"
+            isinstance(self.endpoint, CLIEndpoint)
             and "resume" not in kwargs
             and "session_id" not in kwargs
-            and self.provider_metadata.get("session_id")
+            and self.endpoint.session_id
         ):
-            kwargs["resume"] = self.provider_metadata["session_id"]
+            kwargs["resume"] = self.endpoint.session_id
 
         # The new Endpoint.create_payload returns (payload, headers)
         payload, headers = self.endpoint.create_payload(request=kwargs)
@@ -377,21 +387,24 @@ class iModel:
             # Get the completed API call
             completed_call = self.executor.pile.pop(api_call.id)
 
-            # Store session_id for Claude Code provider
+            # Store session_id for CLI endpoints
             if (
-                self.endpoint.config.provider == "claude_code"
+                isinstance(self.endpoint, CLIEndpoint)
                 and completed_call
                 and completed_call.response
             ):
                 response = completed_call.response
                 if isinstance(response, dict) and "session_id" in response:
-                    self.provider_metadata["session_id"] = response[
-                        "session_id"
-                    ]
+                    self.endpoint.session_id = response["session_id"]
 
             return completed_call
         except Exception as e:
             raise ValueError(f"Failed to invoke API call: {e}")
+
+    @property
+    def is_cli(self) -> bool:
+        """Whether this model uses a CLI-based endpoint."""
+        return self.endpoint.is_cli
 
     @property
     def model_name(self) -> str:
@@ -410,6 +423,42 @@ class iModel:
             The request options model if available; otherwise, None.
         """
         return self.endpoint.request_options
+
+    async def __aenter__(self) -> "iModel":
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Stop the executor and release resources."""
+        await self.executor.stop()
+
+    def copy(self, share_session: bool = False) -> "iModel":
+        """Create a new iModel with the same configuration but a fresh ID and executor.
+
+        Args:
+            share_session: If True, carry over the CLI session_id for resume.
+                Defaults to False (fresh instance, no session state).
+        """
+        endpoint_cls = type(self.endpoint)
+        new_endpoint = endpoint_cls(
+            config=self.endpoint.config.model_copy(deep=True),
+            circuit_breaker=self.endpoint.circuit_breaker,
+            retry_config=self.endpoint.retry_config,
+        )
+        if share_session and isinstance(new_endpoint, CLIEndpoint) and isinstance(
+            self.endpoint, CLIEndpoint
+        ):
+            new_endpoint.session_id = self.endpoint.session_id
+        return iModel(
+            endpoint=new_endpoint,
+            provider_metadata=self.provider_metadata.copy(),
+            streaming_process_func=self.streaming_process_func,
+            hook_registry=self.hook_registry,
+            exit_hook=self.exit_hook,
+            **self.executor.config,
+        )
 
     def to_dict(self):
         return {

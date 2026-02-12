@@ -346,11 +346,25 @@ class Branch(Element, Relational):
             if self._action_manager.registry
             else None
         )
+        # Transfer iModels: CLI endpoints get a fresh copy, API endpoints share
+        chat_model = (
+            self.chat_model.copy()
+            if self.chat_model.is_cli
+            else self.chat_model
+        )
+        parse_model = (
+            self.parse_model.copy()
+            if self.parse_model.is_cli
+            else self.parse_model
+        )
+
         branch_clone = Branch(
             system=system,
             user=self.user,
             messages=[msg.clone() for msg in self.msgs.messages],
             tools=tools,
+            chat_model=chat_model,
+            parse_model=parse_model,
             metadata={"clone_from": self},
         )
         for message in branch_clone.msgs.messages:
@@ -564,6 +578,12 @@ class Branch(Element, Relational):
         Asynchronously dumps the log to a file or clears it.
         """
         await self._log_manager.adump(clear=clear, persist_path=persist_path)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._log_manager.adump(clear=True)
 
     # -------------------------------------------------------------------------
     # Asynchronous Operations (chat, parse, operate, etc.)

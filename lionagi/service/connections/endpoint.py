@@ -3,6 +3,7 @@
 
 import asyncio
 import logging
+from typing import ClassVar
 
 from pydantic import BaseModel
 
@@ -19,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class Endpoint:
+    is_cli: ClassVar[bool] = False
+
     def __init__(
         self,
         config: dict | EndpointConfig,

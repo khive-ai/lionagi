@@ -5,20 +5,6 @@ from pydantic import BaseModel, Field
 
 
 class PerplexityModels(str, Enum):
-    """
-    Models available in Perplexity's API (as of 2025).
-
-    sonar: Lightweight, cost-effective search model built on Llama 3.3 70B,
-        designed for quick, grounded answers. F-score: 0.773 on SimpleQA.
-    sonar-pro: Advanced search model optimized for complex queries with double
-        the citations and larger context window. F-score: 0.858 on SimpleQA.
-    sonar-reasoning: Quick problem-solving and reasoning model for evaluating
-        complex queries.
-    sonar-reasoning-pro: Advanced reasoning model with enhanced capabilities.
-    sonar-deep-research: Best suited for exhaustive research, generating detailed
-        reports and in-depth insights.
-    """
-
     SONAR = "sonar"
     SONAR_PRO = "sonar-pro"
     SONAR_REASONING = "sonar-reasoning"
@@ -27,138 +13,45 @@ class PerplexityModels(str, Enum):
 
 
 class PerplexityMessage(BaseModel):
-    """A single message in the conversation."""
-
-    role: Literal["system", "user", "assistant"] = Field(
-        ...,
-        description="The role of the speaker. Must be system, user, or assistant.",
-    )
-    content: str = Field(
-        ...,
-        description="The contents of the message in this turn of conversation",
-    )
+    role: Literal["system", "user", "assistant"]
+    content: str
 
 
 class WebSearchOptions(BaseModel):
     search_context_size: Literal["low", "medium", "high"] = Field(
         default="low",
-        description="Determines how much search context is retrieved for the model. "
-        "Options are: low (minimizes context for cost savings but less comprehensive "
-        "answers), medium (balanced approach suitable for most queries), and high "
-        "(maximizes context for comprehensive answers but at higher cost).",
+        description="How much search context to retrieve: low (cheaper), "
+        "medium (balanced), high (comprehensive).",
     )
 
 
 class PerplexityChatRequest(BaseModel):
-    """
-    Represents the request body for Perplexity's Chat Completions endpoint.
-    Endpoint: POST https://api.perplexity.ai/chat/completions
-    Updated: 2025 - Added search_mode and new model options
-    """
+    """Request body for Perplexity Chat Completions API."""
 
-    model: PerplexityModels = Field(
-        PerplexityModels.SONAR,
-        description="The model name. Options: sonar, sonar-pro, sonar-reasoning, "
-        "sonar-reasoning-pro, sonar-deep-research. Default: sonar.",
-    )
+    model: PerplexityModels = Field(default=PerplexityModels.SONAR)
     messages: list[PerplexityMessage] = Field(
-        ..., description="A list of messages forming the conversation so far."
+        ..., description="Conversation messages."
     )
-
-    # Optional parameters
     search_mode: Literal["default", "academic"] | None = Field(
         default=None,
-        description="Search mode to use. 'academic' filters results to academic and "
-        "scholarly sources. Default: 'default' (general web search).",
+        description="'academic' restricts to scholarly sources.",
     )
     frequency_penalty: float | None = Field(
-        default=1,
-        ge=0,
-        le=2.0,
-        description=(
-            "Decreases likelihood of repetition based on prior frequency. Applies a "
-            "penalty to tokens based on how frequently they've appeared in the text "
-            "so far. Values typically range from 0 (no penalty) to 2.0 (strong "
-            "penalty). Higher values (e.g., 1.5) reduce repetition of the same words"
-            " and phrases. Useful for preventing the model from getting stuck in loops"
-        ),
+        default=1, ge=0, le=2.0
     )
     presence_penalty: float | None = Field(
-        default=None,
-        ge=0,
-        le=2.0,
-        description=(
-            "Positive values increase the likelihood of discussing new topics. Applies "
-            "a penalty to tokens that have already appeared in the text, encouraging "
-            "the model to talk about new concepts. Values typically range from 0 (no"
-            " penalty) to 2.0 (strong penalty). Higher values reduce repetition but "
-            "may lead to more off-topic text."
-        ),
+        default=None, ge=0, le=2.0
     )
-    max_tokens: int | None = Field(
-        default=None,
-        description=(
-            "The maximum number of completion tokens returned by the API. Controls the "
-            "length of the model's response. If the response would exceed this limit, "
-            "it will be truncated. "
-        ),
-    )
-    return_related_questions: bool | None = Field(
-        default=False,
-        description="Determines whether related questions should be returned.",
-    )
+    max_tokens: int | None = Field(default=None)
+    return_related_questions: bool | None = Field(default=False)
     search_domain_filter: list[Any] | None = Field(
         default=None,
-        description="A list of domains to limit search results to. Currently limited "
-        "to 10 domains for Allowlisting and Denylisting. For Denylisting, add a - at "
-        "the beginning of the domain string. for more info, "
-        "see: https://docs.perplexity.ai/guides/search-domain-filters",
-        examples=[
-            "nasa.gov",
-            "wikipedia.org",
-            "-example.com",
-            "-facebook.com",
-        ],
+        description="Domains to include or exclude (prefix with '-'). Max 10.",
     )
     search_recency_filter: str | None = Field(
         default=None,
-        description=(
-            "Returns search results within a specified time interval: 'month', 'week', "
-            "'day', or 'hour'."
-        ),
+        description="Time filter: 'month', 'week', 'day', or 'hour'.",
     )
-    temperature: float | None = Field(
-        default=None,
-        ge=0.0,
-        lt=2.0,
-        description=(
-            "The amount of randomness in the response, valued between 0 and 2. Lower "
-            "values (e.g., 0.1) make the output more focused, deterministic, and less "
-            "creative. Higher values (e.g., 1.5) make the output more random and "
-            "creative. Use lower values for factual/information retrieval tasks and "
-            "higher values for creative applications."
-        ),
-    )
-    top_k: int | None = Field(
-        default=None,
-        ge=0,
-        le=2048,
-        description=(
-            "Top-K filtering. 0 disables top-k filtering. If set, only the top K "
-            "tokens are considered. We recommend altering either top_k or top_p, "
-            "but not both."
-        ),
-    )
-    top_p: float | None = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "The nucleus sampling threshold, valued between 0 and 1. Controls the "
-            "diversity of generated text by considering only the tokens whose "
-            "cumulative probability exceeds the top_p value. Lower values (e.g., 0.5) "
-            "make the output more focused and deterministic, while higher values "
-            "(e.g., 0.95) allow for more diverse outputs. Often used as an alternative"
-            " to temperature."
-        ),
-    )
+    temperature: float | None = Field(default=None, ge=0.0, lt=2.0)
+    top_k: int | None = Field(default=None, ge=0, le=2048)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)

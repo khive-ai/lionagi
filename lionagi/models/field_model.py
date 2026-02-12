@@ -16,24 +16,29 @@ from typing import Annotated, Any, ClassVar
 from typing_extensions import Self, override
 
 from .._errors import ValidationError
+from ..ln._lazy_init import LazyInit
 from ..ln.types import Meta, ModelConfig, Params, Spec
 
 # Cache of valid Pydantic Field parameters
-_PYDANTIC_FIELD_PARAMS: set[str] | None = None
+_lazy_field_params = LazyInit()
+_PYDANTIC_FIELD_PARAMS: set[str] = set()
+
+
+def _init_pydantic_field_params() -> None:
+    global _PYDANTIC_FIELD_PARAMS
+    import inspect
+
+    from pydantic import Field as PydanticField
+
+    _PYDANTIC_FIELD_PARAMS = set(
+        inspect.signature(PydanticField).parameters.keys()
+    )
+    _PYDANTIC_FIELD_PARAMS.discard("kwargs")
 
 
 def _get_pydantic_field_params() -> set[str]:
-    """Get valid Pydantic Field parameters (cached)."""
-    global _PYDANTIC_FIELD_PARAMS
-    if _PYDANTIC_FIELD_PARAMS is None:
-        import inspect
-
-        from pydantic import Field as PydanticField
-
-        _PYDANTIC_FIELD_PARAMS = set(
-            inspect.signature(PydanticField).parameters.keys()
-        )
-        _PYDANTIC_FIELD_PARAMS.discard("kwargs")
+    """Get valid Pydantic Field parameters (cached, thread-safe)."""
+    _lazy_field_params.ensure(_init_pydantic_field_params)
     return _PYDANTIC_FIELD_PARAMS
 
 
