@@ -1,30 +1,12 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Build & Development Commands
-
-```bash
-uv sync --all-extras              # Install all dependencies (NEVER use pip)
-uv run pytest                     # Run all tests (parallel, -n auto)
-uv run pytest tests/path.py -v    # Run specific test file
-uv run pytest tests/path.py::test_func -v  # Run specific test
-uv run pytest -m unit             # By marker: unit, integration, slow, asyncio, performance
-uv run pytest -n0 -s tests/path.py  # Debug: no parallelism, show stdout
-uv run pytest --cov=lionagi       # With coverage
-uv run ruff check lionagi/ --fix  # Lint + autofix
-uv run ruff format lionagi/       # Format
-pre-commit run -a                 # All pre-commit hooks (black, isort, pyupgrade)
-uv build                          # Build wheel
-```
-
-Pytest defaults: `-n auto --dist loadfile --maxfail=5 --tb=short`, async mode auto-detected.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. Read AGENT.md first — it covers commands, workflow, and coding standards. This file adds architecture depth.
 
 ## Architecture
 
 **lionagi** is a provider-agnostic LLM orchestration SDK. The core abstraction flow:
 
-```
+```text
 Session (multi-branch orchestrator)
   └─ Branch (single conversation thread)
        ├─ MessageManager  → Pile[RoledMessage] + Progression (message history)
@@ -48,7 +30,7 @@ iModel (unified provider interface)
 
 ### Message Hierarchy (`protocols/messages/`)
 
-```
+```text
 RoledMessage (base)
 ├── System, Instruction, AssistantResponse
 ├── ActionRequest (tool call from LLM)
@@ -95,9 +77,3 @@ Tool schemas auto-generate from function signatures via `function_to_schema()`. 
 - **Pile + Progression separation**: Storage (dict) and ordering (deque) are independent. Multiple Progressions can index the same Pile.
 - **Observable protocol** (`protocols/contracts.py`): Structural typing (V1) — Element auto-satisfies without explicit protocol inheritance.
 - **Adaptive serialization**: `element.to_dict(mode="python"|"json"|"db")` handles different output contexts.
-
-## Code Style
-
-- Line length: 79 chars (black, isort, ruff all configured to this)
-- Pre-commit enforces: black (formatting), isort (imports, black profile), pyupgrade (3.10+ syntax)
-- Async test functions are auto-detected (no `@pytest.mark.asyncio` needed)
