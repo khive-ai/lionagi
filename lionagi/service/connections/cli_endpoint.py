@@ -4,6 +4,7 @@
 from typing import ClassVar
 
 from .endpoint import Endpoint
+from .endpoint_config import EndpointConfig
 
 
 class CLIEndpoint(Endpoint):
@@ -23,14 +24,18 @@ class CLIEndpoint(Endpoint):
     DEFAULT_CONCURRENCY_LIMIT: ClassVar[int] = 3
     DEFAULT_QUEUE_CAPACITY: ClassVar[int] = 10
 
+    def __init__(self, config: dict | EndpointConfig = None, **kwargs):
+        super().__init__(config=config, **kwargs)
+        self._session_id: str | None = None
+
     @property
     def session_id(self) -> str | None:
         """Current session ID for resume, if any."""
-        return self.config.kwargs.get("_session_id")
+        return self._session_id
 
     @session_id.setter
     def session_id(self, value: str | None):
-        self.config.kwargs["_session_id"] = value
+        self._session_id = value
 
     def _create_http_session(self):
         raise NotImplementedError("CLI endpoints do not use HTTP sessions")

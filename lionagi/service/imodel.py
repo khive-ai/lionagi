@@ -45,7 +45,7 @@ class iModel:
         base_url: str = None,
         endpoint: str | Endpoint = "chat",
         api_key: str = None,
-        queue_capacity: int = 100,
+        queue_capacity: int | None = None,
         capacity_refresh_time: float = 60,
         interval: float | None = None,
         limit_requests: int = None,
@@ -138,12 +138,15 @@ class iModel:
             self.endpoint.config.base_url = base_url
 
         # 3. Configure executor ---------------------------------------------
-        # Apply conservative defaults for CLI endpoints
-        if self.endpoint.is_cli:
-            if concurrency_limit is None:
-                concurrency_limit = self.endpoint.DEFAULT_CONCURRENCY_LIMIT
-            if queue_capacity == 100:  # default unchanged by caller
-                queue_capacity = self.endpoint.DEFAULT_QUEUE_CAPACITY
+        # Resolve defaults based on endpoint type
+        if queue_capacity is None:
+            queue_capacity = (
+                self.endpoint.DEFAULT_QUEUE_CAPACITY
+                if self.endpoint.is_cli
+                else 100
+            )
+        if concurrency_limit is None and self.endpoint.is_cli:
+            concurrency_limit = self.endpoint.DEFAULT_CONCURRENCY_LIMIT
 
         self.executor = RateLimitedAPIExecutor(
             queue_capacity=queue_capacity,
@@ -431,14 +434,23 @@ class iModel:
         """Stop the executor and release resources."""
         await self.executor.stop()
 
-    def copy(self) -> "iModel":
-        """Create a new iModel with the same configuration but a fresh ID and executor."""
+    def copy(self, share_session: bool = False) -> "iModel":
+        """Create a new iModel with the same configuration but a fresh ID and executor.
+
+        Args:
+            share_session: If True, carry over the CLI session_id for resume.
+                Defaults to False (fresh instance, no session state).
+        """
         endpoint_cls = type(self.endpoint)
         new_endpoint = endpoint_cls(
             config=self.endpoint.config.model_copy(deep=True),
             circuit_breaker=self.endpoint.circuit_breaker,
             retry_config=self.endpoint.retry_config,
         )
+        if share_session and isinstance(new_endpoint, CLIEndpoint) and isinstance(
+            self.endpoint, CLIEndpoint
+        ):
+            new_endpoint.session_id = self.endpoint.session_id
         return iModel(
             endpoint=new_endpoint,
             provider_metadata=self.provider_metadata.copy(),
