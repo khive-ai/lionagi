@@ -77,7 +77,7 @@ class RateLimitedAPIProcessor(Processor):
                         self._token_limiter.total_tokens = self.limit_tokens
 
         except asyncio.CancelledError:
-            logging.info("Rate limit replenisher task cancelled.")
+            logging.debug("Rate limit replenisher task cancelled.")
         except Exception as e:
             logging.error(f"Error in rate limit replenisher: {e}")
 
