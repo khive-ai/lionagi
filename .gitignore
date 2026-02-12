@@ -3,9 +3,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Development notes
-CLAUDE.md
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -176,5 +173,3 @@ cython_debug/
 *logs/
 
 performance_results.json
-
-AGENTS.md
