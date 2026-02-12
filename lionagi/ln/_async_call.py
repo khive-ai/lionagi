@@ -25,9 +25,10 @@ from .concurrency import (
     run_sync,
     sleep,
 )
+from ._lazy_init import LazyInit
 from .types import ModelConfig, Params, T, Unset, not_sentinel
 
-_INITIALIZED = False
+_lazy = LazyInit()
 _MODEL_LIKE = None
 
 
@@ -39,19 +40,17 @@ __all__ = (
 )
 
 
-def _ensure_initialized() -> None:
-    """Trigger lazy initialization on first use."""
-    global _INITIALIZED, _MODEL_LIKE
-    if _INITIALIZED is False:
-        from pydantic import BaseModel
+def _do_init() -> None:
+    global _MODEL_LIKE
+    from pydantic import BaseModel
 
-        try:
-            from msgspec import Struct
+    try:
+        from msgspec import Struct
 
-            _MODEL_LIKE = (BaseModel, Struct)
-        except ImportError:
-            _MODEL_LIKE = (BaseModel,)
-        _INITIALIZED = True
+        _MODEL_LIKE = (BaseModel, Struct)
+    except ImportError:
+        _MODEL_LIKE = (BaseModel,)
+
 
 
 def _validate_func(func: Any) -> Callable:
@@ -236,7 +235,7 @@ async def alcall(
     Returns:
         List of results in input order. May include exceptions if return_exceptions=True.
     """
-    _ensure_initialized()
+    _lazy.ensure(_do_init)
 
     func = _validate_func(func)
     input_ = _normalize_input(

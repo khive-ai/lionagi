@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel
 
-from lionagi.fields import ActionResponseModel
+from lionagi.operations.fields import ActionResponseModel
 from lionagi.operations.ReAct.utils import ReActAnalysis
 from lionagi.session.branch import Branch
 

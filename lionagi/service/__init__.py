@@ -1,6 +1,8 @@
 # Eager imports for core functionality
 from typing import TYPE_CHECKING
 
+from lionagi.ln._lazy_init import lazy_import
+
 from .hooks import (
     AssosiatedEventInfo,
     HookDict,
@@ -20,80 +22,39 @@ if TYPE_CHECKING:
     from .rate_limited_processor import RateLimitedAPIExecutor
     from .token_calculator import TokenCalculator
 
-
-_lazy_imports = {}
+_LAZY_MAP: dict[str, tuple[str, str | None]] = {
+    "RateLimitedAPIExecutor": (
+        "rate_limited_processor",
+        "RateLimitedAPIExecutor",
+    ),
+    "Endpoint": ("connections.endpoint", "Endpoint"),
+    "EndpointConfig": ("connections.endpoint", "EndpointConfig"),
+    "iModelManager": ("manager", "iModelManager"),
+    "iModel": ("imodel", "iModel"),
+    "APICalling": ("connections.api_calling", "APICalling"),
+    "TokenCalculator": ("token_calculator", "TokenCalculator"),
+    "Broadcaster": ("broadcaster", "Broadcaster"),
+}
 
 
 def __getattr__(name: str):
-    """Lazy loading for heavy service imports."""
-    if name in _lazy_imports:
-        return _lazy_imports[name]
-
-    if name == "RateLimitedAPIExecutor":
-        from .rate_limited_processor import RateLimitedAPIExecutor
-
-        _lazy_imports["RateLimitedAPIExecutor"] = RateLimitedAPIExecutor
-        return RateLimitedAPIExecutor
-
-    if name in ("Endpoint", "EndpointConfig"):
-        from .connections.endpoint import Endpoint, EndpointConfig
-
-        _lazy_imports["Endpoint"] = Endpoint
-        _lazy_imports["EndpointConfig"] = EndpointConfig
-        return Endpoint if name == "Endpoint" else EndpointConfig
-
-    if name == "iModelManager":
-        from .manager import iModelManager
-
-        _lazy_imports["iModelManager"] = iModelManager
-        return iModelManager
-
-    if name == "iModel":
-        from .imodel import iModel
-
-        _lazy_imports["iModel"] = iModel
-        return iModel
-
-    if name == "APICalling":
-        from .connections.api_calling import APICalling
-
-        _lazy_imports["APICalling"] = APICalling
-        return APICalling
-
-    if name == "TokenCalculator":
-        from .token_calculator import TokenCalculator
-
-        _lazy_imports["TokenCalculator"] = TokenCalculator
-        return TokenCalculator
-
-    if name == "Broadcaster":
-        from .broadcaster import Broadcaster
-
-        _lazy_imports["Broadcaster"] = Broadcaster
-        return Broadcaster
-
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    return lazy_import(name, _LAZY_MAP, __name__, globals())
 
 
 __all__ = (
     "APICalling",
+    "AssosiatedEventInfo",
+    "Broadcaster",
     "Endpoint",
     "EndpointConfig",
+    "HookDict",
+    "HookEvent",
+    "HookEventTypes",
+    "HookRegistry",
+    "HookedEvent",
     "RateLimitedAPIExecutor",
     "TokenCalculator",
+    "global_hook_logger",
     "iModel",
     "iModelManager",
-    "HookEventTypes",
-    "HookDict",
-    "AssosiatedEventInfo",
-    "HookEvent",
-    "HookRegistry",
-    "Broadcaster",
-    "HookEventTypes",
-    "HookDict",
-    "AssosiatedEventInfo",
-    "HookEvent",
-    "HookRegistry",
-    "global_hook_logger",
-    "HookedEvent",
 )

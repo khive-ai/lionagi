@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import BaseModel
 
-from lionagi.fields import ActionResponseModel
+from lionagi.operations.fields import ActionResponseModel
 from lionagi.operations.ReAct.utils import (
     Analysis,
     PlannedAction,

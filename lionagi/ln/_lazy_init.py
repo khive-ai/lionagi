@@ -6,7 +6,7 @@
 import threading
 from collections.abc import Callable
 
-__all__ = ("LazyInit",)
+__all__ = ("LazyInit", "lazy_import")
 
 
 class LazyInit:
@@ -61,3 +61,56 @@ class LazyInit:
                 return
             init_func()
             self._initialized = True
+
+
+def lazy_import(
+    name: str,
+    module_map: dict[str, tuple[str, str | None]],
+    package: str,
+    globs: dict,
+) -> object:
+    """Registry-based lazy import for module ``__getattr__``.
+
+    Looks up *name* in *module_map*, imports the object, and caches it
+    in *globs* so that subsequent access bypasses ``__getattr__``
+    entirely.
+
+    Args:
+        name: Attribute name being looked up.
+        module_map: ``{attr: (dotted_module, import_name | None)}``.
+            When *import_name* is ``None``, the whole module is
+            imported and *name* is taken from it via ``getattr``.
+        package: The package name (``__name__`` of the caller).
+        globs: The caller's ``globals()`` dict for caching.
+
+    Returns:
+        The imported object.
+
+    Raises:
+        AttributeError: If *name* is not in *module_map*.
+
+    Example::
+
+        _MAP = {
+            "Session": ("session.session", "Session"),
+            "iModel":  ("service.imodel", "iModel"),
+        }
+
+        def __getattr__(name: str):
+            return lazy_import(name, _MAP, __name__, globals())
+    """
+    if name not in module_map:
+        raise AttributeError(
+            f"module '{package}' has no attribute '{name}'"
+        )
+    module_path, import_name = module_map[name]
+    import importlib
+
+    # Resolve the parent package for relative imports.
+    # If *package* is "lionagi.operations.fields" (a module, not a package),
+    # we need "lionagi" as the anchor for relative resolution.
+    pkg = globs.get("__package__") or package.rpartition(".")[0]
+    mod = importlib.import_module(f".{module_path}", pkg)
+    obj = getattr(mod, import_name or name)
+    globs[name] = obj
+    return obj

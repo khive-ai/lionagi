@@ -376,3 +376,38 @@ def _get_default_fields(
         )
 
     return fm
+
+
+# Lazily-generated field constants
+_FIELD_CONSTANTS = {
+    "ACTION_REQUESTS_FIELD": ("action_requests", {}),
+    "ACTION_RESPONSES_FIELD": ("action_responses", {}),
+    "ACTION_REQUIRED_FIELD": ("action_required", {}),
+    "INSTRUCT_FIELD": ("instruct", {}),
+    "LIST_INSTRUCT_FIELD_MODEL": ("instruct", {"listable": True}),
+    "REASON_FIELD": ("reason", {}),
+}
+
+
+def __getattr__(name: str):
+    if name in _FIELD_CONSTANTS:
+        field_name, kwargs = _FIELD_CONSTANTS[name]
+        return get_default_field(field_name, **kwargs)
+    raise AttributeError(
+        f"module '{__name__}' has no attribute '{name}'"
+    )
+
+
+__all__ = (
+    "ACTION_REQUESTS_FIELD",
+    "ACTION_RESPONSES_FIELD",
+    "ACTION_REQUIRED_FIELD",
+    "INSTRUCT_FIELD",
+    "LIST_INSTRUCT_FIELD_MODEL",
+    "REASON_FIELD",
+    "ActionRequestModel",
+    "ActionResponseModel",
+    "Instruct",
+    "Reason",
+    "get_default_field",
+)

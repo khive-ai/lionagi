@@ -199,7 +199,7 @@ class TestStepEdgeCases:
 
     def test_request_operative_reason_already_in_field_models(self):
         """Test adding reason when it's already in field_models."""
-        from lionagi.fields import REASON_FIELD
+        from lionagi.operations.fields import REASON_FIELD
 
         operative = Step.request_operative(
             field_models=[REASON_FIELD], reason=True
@@ -209,7 +209,7 @@ class TestStepEdgeCases:
 
     def test_request_operative_actions_already_in_field_models(self):
         """Test adding actions when already in field_models."""
-        from lionagi.fields import ACTION_REQUESTS_FIELD
+        from lionagi.operations.fields import ACTION_REQUESTS_FIELD
 
         operative = Step.request_operative(
             field_models=[ACTION_REQUESTS_FIELD], actions=True

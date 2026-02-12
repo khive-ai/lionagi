@@ -1,5 +1,5 @@
 from lionagi import Branch, Builder, Operation, Session, iModel
-from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
+from lionagi.operations.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
 from lionagi.protocols.types import AssistantResponse
 
 CC_WORKSPACE = ".khive/workspace"

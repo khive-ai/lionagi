@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SearchCategory(str, Enum):
@@ -27,139 +27,106 @@ class SearchType(str, Enum):
     auto = "auto"
 
 
-class ContentsText(BaseModel):
-    includeHtmlTags: bool | None = Field(
-        default=False,
-        description="Whether to include HTML tags in the text. Set to True if you want"
-        " to retain HTML structure for the LLM to interpret.",
-    )
-    maxCharacters: int | None = Field(
-        default=None,
-        description="The maximum number of characters to return from the webpage text",
+class _ExaBase(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
     )
 
 
-class ContentsHighlights(BaseModel):
-    highlightsPerUrl: int | None = Field(
-        default=1,
-        description="The number of highlight snippets you want per page.",
+class ContentsText(_ExaBase):
+    include_html_tags: bool | None = Field(
+        default=False, alias="includeHtmlTags"
     )
-    numSentences: int | None = Field(
-        default=5,
-        description="Number of sentences to return in each highlight snippet.",
-    )
-    query: None | str = Field(
-        default=None,
-        description="A specific query used to generate the highlight snippets.",
+    max_characters: int | None = Field(
+        default=None, alias="maxCharacters"
     )
 
 
-class ContentsSummary(BaseModel):
-    query: None | str = Field(
-        default=None,
-        description="A specific query used to generate a summary of the webpage.",
+class ContentsHighlights(_ExaBase):
+    highlights_per_url: int | None = Field(
+        default=1, alias="highlightsPerUrl"
+    )
+    num_sentences: int | None = Field(
+        default=5, alias="numSentences"
+    )
+    query: None | str = Field(default=None)
+
+
+class ContentsSummary(_ExaBase):
+    query: None | str = Field(default=None)
+
+
+class ContentsExtras(_ExaBase):
+    links: int | None = Field(default=None)
+    image_links: int | None = Field(
+        default=None, alias="imageLinks"
     )
 
 
-class ContentsExtras(BaseModel):
-    links: int | None = Field(
-        default=None, description="Number of links to return from each page."
-    )
-    imageLinks: int | None = Field(
-        default=None, description="Number of images to return for each result."
-    )
-
-
-class Contents(BaseModel):
-    text: None | ContentsText = Field(
-        default=None,
-        description="Return full or partial text for each page, with optional HTML "
-        "structure or size limit.",
-    )
-    highlights: None | ContentsHighlights = Field(
-        default=None, description="Return snippet highlights for each page."
-    )
-    summary: None | ContentsSummary = Field(
-        default=None, description="Return a short summary of each page."
-    )
+class Contents(_ExaBase):
+    text: None | ContentsText = Field(default=None)
+    highlights: None | ContentsHighlights = Field(default=None)
+    summary: None | ContentsSummary = Field(default=None)
     livecrawl: None | LivecrawlType = Field(
-        default=LivecrawlType.never,
-        description="Livecrawling setting for each page. Options: never, fallback, always.",
+        default=LivecrawlType.never
     )
-    livecrawlTimeout: int | None = Field(
+    livecrawl_timeout: int | None = Field(
         default=10000,
-        description="Timeout in milliseconds for livecrawling. Default 10000.",
+        alias="livecrawlTimeout",
+        description="Timeout in ms for livecrawling.",
     )
-    subpages: int | None = Field(
+    subpages: int | None = Field(default=None)
+    subpage_target: None | str | list[str] = Field(
         default=None,
-        description="Number of subpages to crawl within each URL.",
+        alias="subpageTarget",
+        description="Target subpage(s) to crawl, e.g. 'cited papers'.",
     )
-    subpageTarget: None | str | list[str] = Field(
-        default=None,
-        description="A target subpage or multiple subpages (list) to crawl, e.g. 'cited papers'.",
-    )
-    extras: None | ContentsExtras = Field(
-        default=None,
-        description="Additional extras like links or images to return for each page.",
-    )
+    extras: None | ContentsExtras = Field(default=None)
 
 
-class ExaSearchRequest(BaseModel):
+class ExaSearchRequest(_ExaBase):
     query: str = Field(
-        ...,
-        description="The main query string describing what you're looking for.",
+        ..., description="What to search for."
     )
-    category: None | SearchCategory = Field(
-        default=None,
-        description="A data category to focus on, such as 'company', 'research paper', 'news', etc.",
-    )
-    type: None | SearchType = Field(
-        default=None,
-        description="The type of search to run. Can be 'auto', 'keyword', or 'neural'.",
-    )
-    useAutoprompt: None | bool = Field(
+    category: None | SearchCategory = Field(default=None)
+    type: None | SearchType = Field(default=None)
+    use_autoprompt: None | bool = Field(
         default=False,
-        description="If True, Exa auto-optimizes your query for best results (neural or auto search only).",
+        alias="useAutoprompt",
+        description="Auto-optimize query (neural/auto search only).",
     )
-    numResults: int | None = Field(
-        default=10, description="Number of results to return. Default is 10."
+    num_results: int | None = Field(
+        default=10, alias="numResults"
     )
-    includeDomains: None | list[str] = Field(
+    include_domains: None | list[str] = Field(
+        default=None, alias="includeDomains"
+    )
+    exclude_domains: None | list[str] = Field(
+        default=None, alias="excludeDomains"
+    )
+    start_crawl_date: None | str = Field(
         default=None,
-        description="List of domains you want to include exclusively.",
+        alias="startCrawlDate",
+        description="ISO date, e.g. '2023-01-01T00:00:00.000Z'.",
     )
-    excludeDomains: None | list[str] = Field(
+    end_crawl_date: None | str = Field(
+        default=None, alias="endCrawlDate"
+    )
+    start_published_date: None | str = Field(
+        default=None, alias="startPublishedDate"
+    )
+    end_published_date: None | str = Field(
+        default=None, alias="endPublishedDate"
+    )
+    include_text: None | list[str] = Field(
         default=None,
-        description="List of domains you do NOT want to see in the results.",
+        alias="includeText",
+        description="Strings that must appear in results. One string, max 5 words.",
     )
-    startCrawlDate: None | str = Field(
+    exclude_text: None | list[str] = Field(
         default=None,
-        description="Include results crawled after this ISO date (e.g., '2023-01-01T00:00:00.000Z').",
+        alias="excludeText",
+        description="Strings that must NOT appear. One string, max 5 words.",
     )
-    endCrawlDate: None | str = Field(
-        default=None,
-        description="Include results crawled before this ISO date.",
-    )
-    startPublishedDate: None | str = Field(
-        default=None,
-        description="Only return results published after this ISO date.",
-    )
-    endPublishedDate: None | str = Field(
-        default=None,
-        description="Only return results published before this ISO date.",
-    )
-    includeText: None | list[str] = Field(
-        default=None,
-        description="Strings that must appear in the webpage text. Only a single string up to "
-        "5 words is currently supported.",
-    )
-    excludeText: None | list[str] = Field(
-        default=None,
-        description="Strings that must NOT appear in the webpage text. Only a single string up to "
-        "5 words is currently supported.",
-    )
-    contents: None | Contents = Field(
-        default=None,
-        description="Dict defining the different ways you want to retrieve webpage contents, "
-        "including text, highlights, or summaries.",
-    )
+    contents: None | Contents = Field(default=None)

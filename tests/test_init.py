@@ -157,8 +157,8 @@ class TestLazyLoadingBehavior:
         # Access a lazy-loaded object
         branch = lionagi.Branch
         assert branch is not None
-        # Should now be in lazy imports cache
-        assert "Branch" in lionagi._lazy_imports
+        # Should now be cached in module globals
+        assert "Branch" in vars(lionagi)
 
     def test_multiple_imports_same_object(self):
         """Test that multiple imports return same cached object."""

@@ -384,7 +384,7 @@ class TestSelectV1InstructHandling:
     @pytest.mark.asyncio
     async def test_select_v1_with_instruct_object(self):
         """Test with Instruct object."""
-        from lionagi.fields import Instruct
+        from lionagi.operations.fields import Instruct
 
         instruct = Instruct(
             instruction="Choose the best", context={"data": "value"}

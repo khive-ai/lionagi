@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from . import ln as ln
+from .ln._lazy_init import lazy_import
 from .ln.types import DataClass, Operable, Params, Spec, Undefined, Unset
 from .version import __version__
 
@@ -34,77 +35,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-_lazy_imports = {}
-
-
-def _get_obj(name: str, module: str):
-    global _lazy_imports
-    from lionagi.ln import import_module
-
-    obj_ = import_module("lionagi", module_name=module, import_name=name)
-
-    _lazy_imports[name] = obj_
-    return obj_
+_LAZY_MAP: dict[str, tuple[str, str | None]] = {
+    "Session": ("session.session", "Session"),
+    "Branch": ("session.branch", "Branch"),
+    "iModel": ("service.imodel", "iModel"),
+    "Builder": ("operations.builder", "OperationGraphBuilder"),
+    "Operation": ("operations.node", "Operation"),
+    "load_mcp_tools": ("protocols.action.manager", "load_mcp_tools"),
+    "FieldModel": ("models.field_model", "FieldModel"),
+    "OperableModel": ("models.operable_model", "OperableModel"),
+    "Element": ("protocols.generic.element", "Element"),
+    "Pile": ("protocols.generic.pile", "Pile"),
+    "Progression": ("protocols.generic.progression", "Progression"),
+    "Node": ("protocols.graph.node", "Node"),
+    "Edge": ("protocols.graph.edge", "Edge"),
+    "Graph": ("protocols.graph.graph", "Graph"),
+    "Event": ("protocols.generic.event", "Event"),
+    "HookRegistry": ("service.hooks.hook_registry", "HookRegistry"),
+    "HookedEvent": ("service.hooks.hooked_event", "HookedEvent"),
+    "Broadcaster": ("service.broadcaster", "Broadcaster"),
+}
 
 
 def __getattr__(name: str):
-    global _lazy_imports
-    if name in _lazy_imports:
-        return _lazy_imports[name]
+    if name in ("BaseModel", "Field"):
+        from pydantic import BaseModel, Field
 
-    match name:
-        case "Session":
-            return _get_obj("Session", "session.session")
-        case "Branch":
-            return _get_obj("Branch", "session.branch")
-        case "iModel":
-            return _get_obj("iModel", "service.imodel")
-        case "Builder":
-            return _get_obj("OperationGraphBuilder", "operations.builder")
-        case "Operation":
-            return _get_obj("Operation", "operations.node")
-        case "load_mcp_tools":
-            return _get_obj("load_mcp_tools", "protocols.action.manager")
-        case "FieldModel":
-            return _get_obj("FieldModel", "models.field_model")
-        case "OperableModel":
-            return _get_obj("OperableModel", "models.operable_model")
-        case "Element":
-            return _get_obj("Element", "protocols.generic.element")
-        case "Pile":
-            return _get_obj("Pile", "protocols.generic.pile")
-        case "Progression":
-            return _get_obj("Progression", "protocols.generic.progression")
-        case "Node":
-            return _get_obj("Node", "protocols.graph.node")
-        case "Edge":
-            return _get_obj("Edge", "protocols.graph.edge")
-        case "Graph":
-            return _get_obj("Graph", "protocols.graph.graph")
-        case "Event":
-            return _get_obj("Event", "protocols.generic.event")
-        case "HookRegistry":
-            return _get_obj("HookRegistry", "service.hooks.hook_registry")
-        case "HookedEvent":
-            return _get_obj("HookedEvent", "service.hooks.hooked_event")
-        case "Broadcaster":
-            return _get_obj("Broadcaster", "service.broadcaster")
-        case "BaseModel":
-            from pydantic import BaseModel
+        globals()["BaseModel"] = BaseModel
+        globals()["Field"] = Field
+        return BaseModel if name == "BaseModel" else Field
+    if name == "types":
+        from . import _types as types
 
-            _lazy_imports["BaseModel"] = BaseModel
-            return BaseModel
-        case "Field":
-            from pydantic import Field
-
-            _lazy_imports["Field"] = Field
-            return Field
-        case "types":
-            from . import _types as types
-
-            _lazy_imports["types"] = types
-            return types
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+        globals()["types"] = types
+        return types
+    return lazy_import(name, _LAZY_MAP, __name__, globals())
 
 
 __all__ = (

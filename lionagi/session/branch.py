@@ -565,6 +565,12 @@ class Branch(Element, Relational):
         """
         await self._log_manager.adump(clear=clear, persist_path=persist_path)
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._log_manager.adump(clear=True)
+
     # -------------------------------------------------------------------------
     # Asynchronous Operations (chat, parse, operate, etc.)
     # -------------------------------------------------------------------------
