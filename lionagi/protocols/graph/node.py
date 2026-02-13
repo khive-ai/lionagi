@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, ClassVar
 
 import orjson
 from pydantic import BaseModel, field_serializer, field_validator
@@ -25,7 +26,14 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
       - Metadata as a dict
       - An optional numeric embedding (list of floats)
       - Automatic subclass registration
+
+    Lifecycle methods (touch, soft_delete, restore, rehash) are
+    available when ``node_config`` is set on a subclass. They are
+    no-ops when ``node_config`` is None (the default), preserving
+    backwards compatibility for all existing Node subclasses.
     """
+
+    node_config: ClassVar[Any] = None
 
     content: Any = None
     embedding: list[float] | None = None
@@ -37,9 +45,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         LION_CLASS_REGISTRY[cls.class_name(full=True)] = cls
 
     @field_validator("embedding", mode="before")
-    def _parse_embedding(
-        cls, value: list[float] | str | None
-    ) -> list[float] | None:
+    def _parse_embedding(cls, value: list[float] | str | None) -> list[float] | None:
         if value is None:
             return None
         if isinstance(value, str):
@@ -55,22 +61,16 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
                 return [float(x) for x in value]
             except Exception as e:
                 raise ValueError("Invalid embedding list.") from e
-        raise ValueError(
-            "Invalid embedding type; must be list or JSON-encoded string."
-        )
+        raise ValueError("Invalid embedding type; must be list or JSON-encoded string.")
 
-    async def adapt_to_async(
-        self, obj_key: str, many=False, **kwargs: Any
-    ) -> Any:
+    async def adapt_to_async(self, obj_key: str, many=False, **kwargs: Any) -> Any:
         # Only register postgres adapter if this specific operation needs it
         if obj_key == "lionagi_async_pg":
             _ensure_postgres_adapter()
 
         kwargs["adapt_meth"] = "to_dict"
         kwargs["adapt_kw"] = {"mode": "db"}
-        return await super().adapt_to_async(
-            obj_key=obj_key, many=many, **kwargs
-        )
+        return await super().adapt_to_async(obj_key=obj_key, many=many, **kwargs)
 
     @classmethod
     async def adapt_from_async(
@@ -85,9 +85,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             _ensure_postgres_adapter()
 
         kwargs["adapt_meth"] = "from_dict"
-        return await super().adapt_from_async(
-            obj, obj_key=obj_key, many=many, **kwargs
-        )
+        return await super().adapt_from_async(obj, obj_key=obj_key, many=many, **kwargs)
 
     def adapt_to(self, obj_key: str, many=False, **kwargs: Any) -> Any:
         """
@@ -120,18 +118,98 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         if isinstance(value, BaseModel):
             return value.model_dump()
         if isinstance(value, DataClass):
-            return value.to_dict(
-                exclude=value._config.serialize_exclude or None
-            )
+            return value.to_dict(exclude=value._config.serialize_exclude or None)
         return value
 
     @field_validator("content", mode="before")
     def _validate_content(cls, value: Any) -> Any:
-        if isinstance(value, dict) and "lion_class" in value.get(
-            "metadata", {}
-        ):
+        if isinstance(value, dict) and "lion_class" in value.get("metadata", {}):
             return Element.from_dict(value)
         return value
+
+    # ==================== Lifecycle Methods ====================
+
+    def touch(self, by: str | None = None) -> None:
+        """Update timestamps, increment version, and rehash per config.
+
+        No-op if ``node_config`` is None. Stores audit fields in
+        metadata to avoid requiring model field declarations.
+
+        Args:
+            by: Actor identifier for updated_by tracking.
+        """
+        config = self.node_config
+        if config is None:
+            return
+
+        if config.track_updated_at:
+            self.metadata["updated_at"] = datetime.now(timezone.utc).isoformat()  # noqa: UP017
+        if by is not None:
+            self.metadata["updated_by"] = str(by)
+        if config.versioning:
+            self.metadata["version"] = self.metadata.get("version", 0) + 1
+        if config.content_hashing:
+            self.rehash()
+
+    def soft_delete(self, by: str | None = None) -> None:
+        """Mark as deleted (reversible). Requires soft_delete in config.
+
+        Args:
+            by: Actor identifier for deleted_by tracking.
+
+        Raises:
+            RuntimeError: If soft_delete not enabled in config.
+        """
+        config = self.node_config
+        if config is None or not config.soft_delete:
+            raise RuntimeError(
+                f"{self.__class__.__name__} does not support soft_delete. "
+                "Enable with NodeConfig(soft_delete=True)."
+            )
+
+        self.metadata["is_deleted"] = True
+        self.metadata["deleted_at"] = datetime.now(timezone.utc).isoformat()  # noqa: UP017
+        if by is not None:
+            self.metadata["deleted_by"] = str(by)
+        self.touch(by)
+
+    def restore(self, by: str | None = None) -> None:
+        """Undelete a soft-deleted node. Requires soft_delete in config.
+
+        Args:
+            by: Actor identifier for updated_by tracking.
+
+        Raises:
+            RuntimeError: If soft_delete not enabled in config.
+        """
+        config = self.node_config
+        if config is None or not config.soft_delete:
+            raise RuntimeError(
+                f"{self.__class__.__name__} does not support restore. "
+                "Enable with NodeConfig(soft_delete=True)."
+            )
+
+        self.metadata["is_deleted"] = False
+        self.metadata.pop("deleted_at", None)
+        self.metadata.pop("deleted_by", None)
+        self.touch(by)
+
+    def rehash(self) -> str | None:
+        """Recompute and store content_hash. Returns hash or None if disabled.
+
+        Returns:
+            Hex-encoded SHA-256 hash of content, or None if content_hashing
+            is not enabled.
+        """
+        config = self.node_config
+        if config is None or not config.content_hashing:
+            return None
+
+        from .node_factory import compute_content_hash
+
+        new_hash = compute_content_hash(self.content)
+        self.metadata["content_hash"] = new_hash
+        return new_hash
 
 
 def _ensure_postgres_adapter():

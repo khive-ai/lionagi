@@ -4,5 +4,13 @@
 from .edge import Edge, EdgeCondition
 from .graph import Graph
 from .node import Node
+from .node_factory import NodeConfig, create_node
 
-__all__ = ["Edge", "EdgeCondition", "Graph", "Node"]
+__all__ = [
+    "Edge",
+    "EdgeCondition",
+    "Graph",
+    "Node",
+    "NodeConfig",
+    "create_node",
+]
