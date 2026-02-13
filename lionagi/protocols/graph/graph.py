@@ -65,9 +65,7 @@ class Graph(Element, Relational, Generic[T]):
     def add_node(self, node: Relational) -> None:
         """Add a node to the graph."""
         if not isinstance(node, Relational):
-            raise RelationError(
-                "Failed to add node: Invalid node type: not a <Relational> entity."
-            )
+            raise RelationError("Failed to add node: Invalid node type: not a <Relational> entity.")
         _id = ID.get_id(node)
         try:
             self.internal_nodes.insert(len(self.internal_nodes), node)
@@ -79,10 +77,7 @@ class Graph(Element, Relational, Generic[T]):
         """Add an edge to the graph, linking two existing nodes."""
         if not isinstance(edge, Edge):
             raise RelationError("Failed to add edge: Invalid edge type.")
-        if (
-            edge.head not in self.internal_nodes
-            or edge.tail not in self.internal_nodes
-        ):
+        if edge.head not in self.internal_nodes or edge.tail not in self.internal_nodes:
             raise RelationError(
                 "Failed to add edge: Either edge head or tail node does not exist in the graph."
             )
@@ -312,6 +307,106 @@ class Graph(Element, Relational, Generic[T]):
             if not visit(key):
                 return False
         return True
+
+    def get_tails(self) -> Pile[Node]:
+        """Return nodes with no outgoing edges (tail/sink nodes)."""
+        result = []
+        for node_id in self.node_edge_mapping:
+            if self.node_edge_mapping[node_id]["out"] == {}:
+                result.append(self.internal_nodes[node_id])
+        return Pile(result, item_type={Node}, strict_type=False)
+
+    def topological_sort(self) -> list[Node]:
+        """Topological sort via Kahn's algorithm.
+
+        Returns:
+            list[Node]: Nodes in topological order.
+
+        Raises:
+            ValueError: If graph contains cycles.
+        """
+        if not self.is_acyclic():
+            raise ValueError("Cannot topologically sort graph with cycles")
+
+        in_degree = {}
+        for node_id in self.node_edge_mapping:
+            in_degree[node_id] = len(self.node_edge_mapping[node_id]["in"])
+
+        queue = deque([nid for nid, deg in in_degree.items() if deg == 0])
+        result: list[Node] = []
+
+        while queue:
+            node_id = queue.popleft()
+            result.append(self.internal_nodes[node_id])
+
+            for edge_id in self.node_edge_mapping[node_id]["out"]:
+                edge: Edge = self.internal_edges[edge_id]
+                neighbor_id = edge.tail
+                in_degree[neighbor_id] -= 1
+                if in_degree[neighbor_id] == 0:
+                    queue.append(neighbor_id)
+
+        return result
+
+    async def find_path(
+        self,
+        start: Any,
+        end: Any,
+        check_conditions: bool = False,
+    ) -> list[Edge] | None:
+        """Find path between two nodes via BFS.
+
+        Args:
+            start: Source node or node ID.
+            end: Target node or node ID.
+            check_conditions: If True, respect edge conditions during traversal.
+
+        Returns:
+            list[Edge] if path exists, None otherwise.
+
+        Raises:
+            RelationError: If start or end node not in graph.
+        """
+        start_id = ID.get_id(start)
+        end_id = ID.get_id(end)
+
+        if start_id not in self.internal_nodes:
+            raise RelationError(f"Start node {start_id} not found in graph")
+        if end_id not in self.internal_nodes:
+            raise RelationError(f"End node {end_id} not found in graph")
+
+        if start_id == end_id:
+            return []
+
+        queue: deque = deque([start_id])
+        parent: dict = {}  # node_id -> (parent_node_id, edge_id)
+        visited = {start_id}
+
+        while queue:
+            current_id = queue.popleft()
+
+            for edge_id in self.node_edge_mapping[current_id]["out"]:
+                edge: Edge = self.internal_edges[edge_id]
+                neighbor_id = edge.tail
+
+                if neighbor_id not in visited:
+                    if check_conditions and not await edge.check_condition():
+                        continue
+                    visited.add(neighbor_id)
+                    parent[neighbor_id] = (current_id, edge_id)
+                    queue.append(neighbor_id)
+
+                    if neighbor_id == end_id:
+                        # Reconstruct path
+                        path = []
+                        node_id = end_id
+                        while node_id in parent:
+                            parent_id, eid = parent[node_id]
+                            path.append(self.internal_edges[eid])
+                            node_id = parent_id
+                        return list(reversed(path))
+
+        return None
 
     def __contains__(self, item: object) -> bool:
         return item in self.internal_nodes or item in self.internal_edges
