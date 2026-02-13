@@ -130,15 +130,38 @@ iModel(
 )
 ```
 
-## Session Management
+## Context Management
 
-CLI providers maintain session state via `session_id`. lionagi handles this
-automatically:
+**CLI providers manage their own context.** Unlike API providers where Branch's
+MessageManager controls what the LLM sees via `progression=`, CLI agents
+(Claude Code, Gemini CLI, Codex) maintain their own conversation history
+internally through session resume. This is a fundamental architectural
+difference:
 
-1. First call creates a new session.
-2. Subsequent calls on the same iModel resume the session.
-3. `Branch.clone()` creates a fresh copy with no shared session state.
-4. `iModel.copy(share_session=True)` carries over the session ID.
+| Aspect | API Providers | CLI Providers |
+|--------|--------------|---------------|
+| Context owner | Branch (MessageManager + Progression) | The CLI agent itself |
+| History mechanism | Messages stored in Pile, windowed via `progression=` | Session resume via `--resume` flag |
+| Compression | Narrow the Progression (sliding window) | Agent handles its own context management |
+| State across calls | Controlled by Branch | Controlled by session_id |
+
+**Do not use `progression=` windowing with CLI providers** -- the agent already
+manages its own conversation context. Branch still records messages for logging
+and inspection, but the CLI agent's session is the source of truth for what
+context it sees.
+
+### Session Lifecycle
+
+CLI session state is managed automatically via `session_id`:
+
+1. First call creates a new session. The CLI returns a `session_id` in the
+   `system` event.
+2. lionagi stores the `session_id` on the endpoint.
+3. Subsequent calls on the same iModel pass `--resume` with that ID.
+4. If the resumed session gets a new ID (the CLI may reassign), lionagi
+   updates to the new ID automatically.
+5. `Branch.clone()` creates a fresh copy with no shared session state.
+6. `iModel.copy(share_session=True)` carries over the session ID.
 
 ```python
 # Fresh copy, independent session
@@ -277,9 +300,11 @@ except ValueError as e:
 | Aspect | API Providers | CLI Providers |
 |--------|--------------|---------------|
 | Auth | API key required | CLI tool handles auth |
+| Context owner | Branch (MessageManager + Progression) | The CLI agent itself (session resume) |
 | Latency | Low (HTTP) | Higher (subprocess) |
-| Session state | Stateless | Persistent session_id |
+| Session state | Stateless | Persistent session_id (auto-updated) |
 | Concurrency | High (100 queue capacity) | Low (default 3) |
 | Clone behavior | Shared endpoint | Fresh endpoint copy |
 | Timeout | Provider default | 18000s (5 hours) |
 | Tool calling | Via function schemas | Via CLI tool's built-in tools |
+| `progression=` | Controls LLM context window | Not applicable (agent manages own context) |
