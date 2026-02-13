@@ -61,7 +61,7 @@ class FunctionSchema(SchemaModel):
             model_type = validate_model_to_type(cls, v)
             return model_type.model_json_schema()
         except Exception:
-            raise ValueError(f"Invalid model type: {v}")
+            raise ValueError(f"Invalid model type: {v}") from None
 
     def to_dict(self):
         dict_ = super().to_dict()

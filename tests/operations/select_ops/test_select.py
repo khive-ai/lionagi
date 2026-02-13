@@ -108,7 +108,7 @@ class TestSelectBasic:
         assert len(result) == 2
 
     @pytest.mark.asyncio
-    async def test_select_verbose_mode(self, capsys):
+    async def test_select_verbose_mode(self, caplog):
         """Test select with verbose output."""
         branch = MagicMock(spec=Branch)
 
@@ -117,15 +117,15 @@ class TestSelectBasic:
 
         branch.operate = AsyncMock(side_effect=mock_operate)
 
-        await select(
-            branch=branch,
-            instruct={"instruction": "Choose"},
-            choices=["option1", "option2"],
-            verbose=True,
-        )
+        with caplog.at_level("DEBUG", logger="lionagi.operations.select.select"):
+            await select(
+                branch=branch,
+                instruct={"instruction": "Choose"},
+                choices=["option1", "option2"],
+                verbose=True,
+            )
 
-        captured = capsys.readouterr()
-        assert "Starting selection" in captured.out
+        assert "Starting selection" in caplog.text
 
 
 class TestSelectV1StringChoices:
@@ -179,7 +179,7 @@ class TestSelectV1StringChoices:
         assert "banana" in result.selected
 
     @pytest.mark.asyncio
-    async def test_select_v1_verbose_mode(self, capsys):
+    async def test_select_v1_verbose_mode(self, caplog):
         """Test select_v1 with verbose output."""
         branch = MagicMock(spec=Branch)
 
@@ -188,15 +188,15 @@ class TestSelectV1StringChoices:
 
         branch.operate = AsyncMock(side_effect=mock_operate)
 
-        await select_v1(
-            branch=branch,
-            instruct={"instruction": "Select"},
-            choices=["choice1", "choice2"],
-            verbose=True,
-        )
+        with caplog.at_level("DEBUG", logger="lionagi.operations.select.select"):
+            await select_v1(
+                branch=branch,
+                instruct={"instruction": "Select"},
+                choices=["choice1", "choice2"],
+                verbose=True,
+            )
 
-        captured = capsys.readouterr()
-        assert "Received selection" in captured.out
+        assert "Received selection" in caplog.text
 
 
 class TestSelectV1EnumChoices:

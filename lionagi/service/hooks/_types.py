@@ -17,7 +17,8 @@ __all__ = (
     "ALLOWED_HOOKS_TYPES",
     "HookDict",
     "StreamHandlers",
-    "AssosiatedEventInfo",
+    "AssociatedEventInfo",
+    "AssosiatedEventInfo",  # deprecated alias
 )
 
 
@@ -40,7 +41,7 @@ StreamHandlers = dict[str, Callable[[SC], Awaitable[None]]]
 """Mapping of chunk type names to their respective asynchronous handler functions."""
 
 
-class AssosiatedEventInfo(TypedDict, total=False):
+class AssociatedEventInfo(TypedDict, total=False):
     """Information about the event associated with the hook."""
 
     lion_class: str
@@ -51,3 +52,7 @@ class AssosiatedEventInfo(TypedDict, total=False):
 
     event_created_at: float
     """Creation timestamp of the event."""
+
+
+# Deprecated alias — will be removed in a future version.
+AssosiatedEventInfo = AssociatedEventInfo

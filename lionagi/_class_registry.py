@@ -102,4 +102,4 @@ def get_class(class_name: str) -> type:
         found_class_dict = get_class_objects(found_class_filepath)
         return found_class_dict[class_name]
     except Exception as e:
-        raise ValueError(f"Unable to find class {class_name}: {e}")
+        raise ValueError(f"Unable to find class {class_name}: {e}") from e

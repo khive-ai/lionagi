@@ -65,7 +65,7 @@ class ActionRequestContent(MessageContent):
                 if isinstance(arguments, list | tuple) and len(arguments) > 0:
                     arguments = arguments[0]
             except Exception:
-                raise ValueError("Arguments must be a dictionary")
+                raise ValueError("Arguments must be a dictionary") from None
 
         action_response_id = data.get("action_response_id")
         if action_response_id:

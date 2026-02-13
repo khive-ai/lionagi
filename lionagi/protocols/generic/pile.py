@@ -503,7 +503,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         try:
             return next(iter(self))
         except StopIteration:
-            raise StopIteration("End of pile")
+            raise StopIteration("End of pile") from None
 
     def __getitem__(self, key: ID.Ref | ID.RefSeq | int | slice) -> Any | list | T:
         """Get item(s) by key.
@@ -746,7 +746,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         try:
             return await anext(self.AsyncPileIterator(self))
         except StopAsyncIteration:
-            raise StopAsyncIteration("End of pile")
+            raise StopAsyncIteration("End of pile") from None
 
     def filter(self, predicate: Callable[[T], bool]) -> Pile[T]:
         """Return a new Pile containing items matching the predicate.
@@ -796,13 +796,13 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                     result.append(self.collections[i])
                 return result[0] if len(result) == 1 else result
             except Exception as e:
-                raise ItemNotFoundError(f"index {key}. Error: {e}")
+                raise ItemNotFoundError(f"index {key}. Error: {e}") from e
 
         elif isinstance(key, UUID):
             try:
                 return self.collections[key]
             except Exception as e:
-                raise ItemNotFoundError(f"key {key}. Error: {e}")
+                raise ItemNotFoundError(f"key {key}. Error: {e}") from e
 
         else:
             key = to_list_type(key)
@@ -818,7 +818,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                     return result[0]
                 return result
             except Exception as e:
-                raise ItemNotFoundError(f"Key {key}. Error:{e}")
+                raise ItemNotFoundError(f"Key {key}. Error:{e}") from e
 
     def _setitem(
         self,
@@ -844,7 +844,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                     self.collections.pop(i)
                 self.collections.update(item_dict)
             except Exception as e:
-                raise ValueError(f"Failed to set pile. Error: {e}")
+                raise ValueError(f"Failed to set pile. Error: {e}") from e
         else:
             key = to_list_type(key)
             if isinstance(key[0], list):
@@ -868,7 +868,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 return self[key]
             except Exception as e:
                 if default is UNDEFINED:
-                    raise ItemNotFoundError(f"Item not found. Error: {e}")
+                    raise ItemNotFoundError(f"Item not found. Error: {e}") from e
                 return default
         else:
             check = None
@@ -892,7 +892,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
             except Exception as e:
                 if default is UNDEFINED:
-                    raise ItemNotFoundError(f"Item not found. Error: {e}")
+                    raise ItemNotFoundError(f"Item not found. Error: {e}") from e
                 return default
 
     def _pop(
@@ -914,7 +914,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 return result
             except Exception as e:
                 if default is UNDEFINED:
-                    raise ItemNotFoundError(f"Item not found. Error: {e}")
+                    raise ItemNotFoundError(f"Item not found. Error: {e}") from e
                 return default
         else:
             try:
@@ -928,7 +928,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 return result
             except Exception as e:
                 if default is UNDEFINED:
-                    raise ItemNotFoundError(f"Item not found. Error: {e}")
+                    raise ItemNotFoundError(f"Item not found. Error: {e}") from e
                 return default
 
     def _clear(self) -> None:

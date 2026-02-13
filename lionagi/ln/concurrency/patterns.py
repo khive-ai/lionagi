@@ -83,7 +83,7 @@ async def gather(*aws: Awaitable[T], return_exceptions: bool = False) -> list[T 
             if rest is not None:
                 if len(rest.exceptions) == 1:
                     raise rest.exceptions[0] from rest
-                raise rest
+                raise rest from eg
             raise
 
     return results  # type: ignore
@@ -171,7 +171,7 @@ async def bounded_map(
             if rest is not None:
                 if len(rest.exceptions) == 1:
                     raise rest.exceptions[0] from rest
-                raise rest
+                raise rest from eg
             raise
 
     return out  # type: ignore
@@ -269,7 +269,7 @@ class CompletionStream:
             self._completed_count += 1
             return result
         except anyio.EndOfStream:
-            raise StopAsyncIteration
+            raise StopAsyncIteration from None
 
 
 async def retry(

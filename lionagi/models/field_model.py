@@ -638,7 +638,7 @@ class FieldModel(Params):
                                 field_name=field_name,
                                 value=value,
                                 validator_name=validator_name,
-                            )
+                            ) from None
                     except Exception:
                         # If validator raises any other exception, let it propagate
                         raise

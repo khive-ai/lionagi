@@ -161,7 +161,7 @@ class Element(BaseModel, Observable):
             returns only the class name.
         """
         if full:
-            return str(cls).split("'")[1]
+            return f"{cls.__module__}.{cls.__qualname__}"
         return cls.__name__
 
     def _to_dict(self, **kw) -> dict:

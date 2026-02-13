@@ -106,8 +106,8 @@ def to_num(
 
         except Exception as e:
             if len(type_and_value) == 2:
-                raise type(e)(f"Error processing {type_and_value[1]}: {str(e)}")
-            raise type(e)(f"Error processing {type_and_value}: {str(e)}")
+                raise type(e)(f"Error processing {type_and_value[1]}: {str(e)}") from e
+            raise type(e)(f"Error processing {type_and_value}: {str(e)}") from e
 
     if results and num_count == 1:
         return results[0]
@@ -369,4 +369,4 @@ def parse_number(type_and_value: tuple[str, str]) -> float | complex:
         raise ValueError(f"Unknown number type: {num_type}")
     except Exception as e:
         # Preserve the specific error type but wrap with more context
-        raise type(e)(f"Failed to parse {value} as {num_type}: {str(e)}")
+        raise type(e)(f"Failed to parse {value} as {num_type}: {str(e)}") from e

@@ -146,7 +146,7 @@ class GeminiCodeRequest(BaseModel):
             raise ValueError(
                 f"Workspace path escapes repository bounds. "
                 f"Repository: {repo_resolved}, Workspace: {result}"
-            )
+            ) from None
 
         return result
 

@@ -39,7 +39,7 @@ def chunk_by_chars(
         else:
             return _chunk_multiple_parts(text, chunk_size, overlap_size, n_chunks, threshold)
     except Exception as e:
-        raise ValueError(f"An error occurred while chunking the text: {e}")
+        raise ValueError(f"An error occurred while chunking the text: {e}") from e
 
 
 def _chunk_two_parts(text: str, chunk_size: int, overlap_size: int, threshold: int) -> list[str]:
@@ -129,7 +129,7 @@ def chunk_by_tokens(
                 return_tokens,
             )
     except Exception as e:
-        raise ValueError(f"An error occurred while chunking the tokens: {e}")
+        raise ValueError(f"An error occurred while chunking the tokens: {e}") from e
 
 
 def _process_single_chunk(tokens: list[str], return_tokens: bool) -> list[str | list[str]]:

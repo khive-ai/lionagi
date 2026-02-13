@@ -191,7 +191,7 @@ class HookRegistry:
         if hook_type is None and chunk_type is None:
             raise ValueError("Either method or chunk_type must be provided")
         if hook_type:
-            # Align with AssosiatedEventInfo
+            # Align with AssociatedEventInfo
             meta = {"lion_class": event_like.class_name(full=True)}
             match hook_type:
                 case HookEventTypes.PreEventCreate:

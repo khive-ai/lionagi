@@ -12,6 +12,8 @@ from lionagi.protocols.messages import ActionRequest, ActionResponse
 from ..fields import ActionResponseModel
 from ..types import ActionParam
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
@@ -47,11 +49,11 @@ async def _act(
         if verbose_action:
             args_ = str(_request["arguments"])
             args_ = args_[:50] + "..." if len(args_) > 50 else args_
-            print(f"Invoking action {_request['function']} with {args_}.")
+            logger.debug("Invoking action %s with %s.", _request["function"], args_)
 
         func_call = await branch._action_manager.invoke(_request)
         if verbose_action:
-            print(f"Action {_request['function']} invoked, status: {func_call.status}.")
+            logger.debug("Action %s invoked, status: %s.", _request["function"], func_call.status)
 
     except Exception as e:
         content = {
@@ -62,7 +64,7 @@ async def _act(
         }
         branch._log_manager.log(content)
         if verbose_action:
-            print(f"Action {_request['function']} failed, error: {str(e)}.")
+            logger.error("Action %s failed, error: %s.", _request["function"], e)
         if suppress_errors:
             error_msg = f"Error invoking action '{_request['function']}': {e}"
             logging.error(error_msg)

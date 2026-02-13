@@ -145,7 +145,7 @@ class Progression(Element, Ordering[T], Generic[T]):
             else:
                 return a
         except IndexError:
-            raise ItemNotFoundError(f"index {key} item not found")
+            raise ItemNotFoundError(f"index {key} item not found") from None
 
     def __setitem__(self, key: int | slice, value: Any) -> None:
         """Sets items by index or slice.
@@ -204,7 +204,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         try:
             return next(iter(self.order))
         except StopIteration:
-            raise StopIteration("No more items in the progression")
+            raise StopIteration("No more items in the progression") from None
 
     def __list__(self) -> list[UUID]:
         """Returns a copy of all IDs in the progression.
