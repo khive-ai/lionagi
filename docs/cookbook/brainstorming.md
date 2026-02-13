@@ -13,22 +13,22 @@ builder = Builder("brainstorming")
 
 # Create diverse creative agents
 innovator = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Innovative thinker generating bold, unconventional ideas."
 )
 
 pragmatist = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Focus on practical, implementable solutions."
 )
 
 contrarian = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Challenge assumptions and think from opposite perspectives."
 )
 
 synthesizer = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Combine and refine ideas into coherent solutions."
 )
 
@@ -108,19 +108,23 @@ creative_director = Branch(system="Focus on innovative user experiences")
 challenge = "Design mobile app for sustainable living"
 
 # Parallel perspective generation
-import lionagi as ln
+import asyncio
 
-results = {}
+perspectives = {
+    "user_advocate": user_advocate,
+    "tech_expert": tech_expert,
+    "business_analyst": business_analyst,
+    "creative_director": creative_director,
+}
 
 async def get_perspective(name, agent):
     prompt = f"From {name} perspective, 3 key ideas for: {challenge}"
-    results[name] = await agent.communicate(prompt)
+    return name, await agent.communicate(prompt)
 
-async with ln.create_task_group() as tg:
-    tg.start_soon(get_perspective, "user_advocate", user_advocate)
-    tg.start_soon(get_perspective, "tech_expert", tech_expert)
-    tg.start_soon(get_perspective, "business_analyst", business_analyst)
-    tg.start_soon(get_perspective, "creative_director", creative_director)
+pairs = await asyncio.gather(*[
+    get_perspective(name, agent) for name, agent in perspectives.items()
+])
+results = dict(pairs)
 
 # Synthesize perspectives
 synthesizer = Branch(system="Synthesize diverse perspectives into solutions")
@@ -142,15 +146,11 @@ generators = [
 topic = "Make coding accessible to beginners"
 
 # Parallel rapid generation
-all_ideas = []
+import asyncio
 
-async def quick_ideas(generator):
-    ideas = await generator.communicate(f"5 quick ideas: {topic}")
-    all_ideas.append(ideas)
-
-async with ln.create_task_group() as tg:
-    for generator in generators:
-        tg.start_soon(quick_ideas, generator)
+all_ideas = await asyncio.gather(*[
+    gen.communicate(f"5 quick ideas: {topic}") for gen in generators
+])
 
 # Curate best ideas
 curator = Branch(system="Identify and combine best ideas")

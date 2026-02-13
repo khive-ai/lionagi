@@ -1,118 +1,191 @@
 # Flow Composition
 
-Building complex multi-phase workflows with LionAGI.
+`OperationGraphBuilder` (imported as `Builder`) lets you define directed
+acyclic graphs of Branch operations. `Session.flow()` executes them with
+dependency-aware scheduling and configurable concurrency.
+
+## Core Concepts
+
+A flow is a DAG where each node is an **Operation** (a Branch method call
+with parameters) and edges encode execution order. The executor:
+
+1. Topologically sorts the graph.
+2. Runs independent operations concurrently (up to `max_concurrent`).
+3. Passes predecessor results as `context` to dependent operations.
+4. Returns a dict with `completed_operations`, `operation_results`,
+   `skipped_operations`, and `final_context`.
 
 ## Sequential Flows
 
-Chain operations with dependencies:
+Chain operations with `depends_on`:
 
 ```python
 from lionagi import Session, Builder, Branch, iModel
 
 session = Session()
-builder = Builder("sequential_analysis")
+branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
+    system="You are a research analyst.",
+)
+session.include_branches(branch)
 
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-session.include_branches([branch])
+builder = Builder("sequential")
 
-# Sequential steps
 research = builder.add_operation(
     "communicate",
     branch=branch,
-    instruction="Research AI market trends"
+    instruction="Research AI market trends for 2025",
 )
 
 analysis = builder.add_operation(
-    "communicate", 
-    branch=branch,
-    instruction="Analyze the research findings",
-    depends_on=[research]
-)
-
-recommendations = builder.add_operation(
     "communicate",
     branch=branch,
-    instruction="Provide recommendations",
-    depends_on=[analysis]
+    instruction="Analyze the research findings and identify opportunities",
+    depends_on=[research],
+)
+
+report = builder.add_operation(
+    "communicate",
+    branch=branch,
+    instruction="Write an executive summary with recommendations",
+    depends_on=[analysis],
 )
 
 result = await session.flow(builder.get_graph())
 ```
 
+When `depends_on` is omitted, `add_operation` automatically links the new
+node to the previous one (sequential by default).
+
 ## Parallel Flows
 
-Execute independent operations simultaneously:
+Operations without dependency relationships run concurrently:
 
 ```python
-session = Session()
 builder = Builder("parallel_analysis")
 
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-session.include_branches([branch])
-
-# Parallel operations
-market_op = builder.add_operation(
+# These three operations have no dependencies on each other
+market = builder.add_operation(
     "communicate",
     branch=branch,
-    instruction="Analyze market conditions"
+    instruction="Analyze market conditions",
 )
 
-competitor_op = builder.add_operation(
-    "communicate",
-    branch=branch, 
-    instruction="Analyze competitors"
-)
-
-tech_op = builder.add_operation(
+competitor = builder.add_operation(
     "communicate",
     branch=branch,
-    instruction="Analyze technology trends"
+    instruction="Analyze top 3 competitors",
+    depends_on=[],  # Explicitly no dependencies
 )
 
-# Aggregate results
+tech = builder.add_operation(
+    "communicate",
+    branch=branch,
+    instruction="Analyze technology trends",
+    depends_on=[],
+)
+
+# Aggregate all three into a synthesis
 synthesis = builder.add_aggregation(
     "communicate",
     branch=branch,
-    source_node_ids=[market_op, competitor_op, tech_op],
-    instruction="Synthesize all analyses"
+    source_node_ids=[market, competitor, tech],
+    instruction="Synthesize all analyses into a strategic brief",
 )
 
 result = await session.flow(builder.get_graph(), max_concurrent=3)
 ```
 
-## Multi-Phase Workflows
+## Fan-Out with expand_from_result
 
-Mix sequential and parallel patterns:
+After executing a graph, you can expand it dynamically based on results
+and continue execution:
 
 ```python
-# Phase 1: Initial research
-initial_research = builder.add_operation(
-    "communicate",
+from lionagi.operations.builder import ExpansionStrategy
+
+builder = Builder("dynamic_expansion")
+
+# Step 1: generate sub-tasks
+generate = builder.add_operation(
+    "operate",
     branch=branch,
-    instruction="Initial market research"
+    instruction="List 3 research questions about renewable energy",
+    response_format=ResearchQuestions,  # a Pydantic model
 )
 
-# Phase 2: Parallel analysis (depends on Phase 1)
-financial_analysis = builder.add_operation(
+# Execute step 1
+result = await session.flow(builder.get_graph())
+
+# Step 2: expand -- create one operation per question
+questions = result["operation_results"][generate]
+if hasattr(questions, "questions"):
+    builder.expand_from_result(
+        items=questions.questions,
+        source_node_id=generate,
+        operation="communicate",
+        strategy=ExpansionStrategy.CONCURRENT,
+        instruction="Answer this research question in detail",
+    )
+
+# Step 3: aggregate expanded results
+builder.add_aggregation(
     "communicate",
     branch=branch,
-    instruction="Financial analysis based on research",
-    depends_on=[initial_research]
+    instruction="Combine all answers into a report",
 )
 
-market_analysis = builder.add_operation(
-    "communicate", 
-    branch=branch,
-    instruction="Market analysis based on research",
-    depends_on=[initial_research]
-)
+# Execute the expanded graph
+final = await session.flow(builder.get_graph())
+```
 
-# Phase 3: Synthesis (depends on Phase 2)
-final_report = builder.add_aggregation(
+`ExpansionStrategy` options:
+
+- `CONCURRENT` -- all expanded operations run in parallel (default).
+- `SEQUENTIAL` -- expanded operations run one after another.
+- `SEQUENTIAL_CONCURRENT_CHUNK` -- sequential groups of concurrent ops.
+- `CONCURRENT_SEQUENTIAL_CHUNK` -- concurrent groups of sequential ops.
+
+## Multi-Branch Flows
+
+Assign different branches (with different models or system prompts) to
+different operations:
+
+```python
+researcher = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
+    system="You are a thorough researcher.",
+)
+analyst = Branch(
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
+    system="You are a critical data analyst.",
+)
+writer = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
+    system="You are a concise report writer.",
+)
+session.include_branches([researcher, analyst, writer])
+
+builder = Builder("multi_branch")
+
+step1 = builder.add_operation(
     "communicate",
-    branch=branch,
-    source_node_ids=[financial_analysis, market_analysis],
-    instruction="Create comprehensive report"
+    branch=researcher,
+    instruction="Research quantum computing advances",
+)
+
+step2 = builder.add_operation(
+    "communicate",
+    branch=analyst,
+    instruction="Critically evaluate the research",
+    depends_on=[step1],
+)
+
+step3 = builder.add_operation(
+    "communicate",
+    branch=writer,
+    instruction="Write a two-paragraph summary",
+    depends_on=[step2],
 )
 
 result = await session.flow(builder.get_graph())
@@ -120,105 +193,88 @@ result = await session.flow(builder.get_graph())
 
 ## Context Inheritance
 
-Pass context between operations:
+When `inherit_context=True`, a dependent operation clones the conversation
+history from its primary dependency (the first ID in `depends_on`). This
+means the downstream Branch sees all the messages from the upstream Branch:
 
 ```python
-# Parent operation
-parent_op = builder.add_operation(
+parent = builder.add_operation(
     "communicate",
     branch=branch,
-    instruction="Analyze business requirements"
+    instruction="Analyze business requirements",
 )
 
-# Child operation inherits context
-child_op = builder.add_operation(
+child = builder.add_operation(
     "communicate",
     branch=branch,
-    instruction="Provide implementation recommendations",
-    depends_on=[parent_op],
-    inherit_context=True
+    instruction="Based on the analysis, suggest an architecture",
+    depends_on=[parent],
+    inherit_context=True,
 )
-
-result = await session.flow(builder.get_graph())
 ```
 
-## Multi-Branch Flows
+Without `inherit_context`, each operation gets a fresh branch clone.
+Predecessor results are still passed as `context` data, but the
+conversation history does not carry over.
 
-Use specialized branches for different tasks:
+## Conditional Branching
+
+`add_conditional_branch` creates a condition-check node with true/false
+paths:
 
 ```python
-# Specialized branches
-researcher = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
-    system="Research specialist"
+nodes = builder.add_conditional_branch(
+    condition_check_op="communicate",
+    true_op="communicate",
+    false_op="communicate",
+    instruction="Is the dataset large enough for ML? Answer yes or no.",
 )
-
-analyst = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
-    system="Data analyst"
-)
-
-writer = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
-    system="Report writer"
-)
-
-session.include_branches([researcher, analyst, writer])
-
-# Sequential workflow with different branches
-research_op = builder.add_operation(
-    "communicate",
-    branch=researcher,
-    instruction="Research market trends"
-)
-
-analysis_op = builder.add_operation(
-    "communicate",
-    branch=analyst,
-    instruction="Analyze research data",
-    depends_on=[research_op]
-)
-
-report_op = builder.add_operation(
-    "communicate",
-    branch=writer,
-    instruction="Write executive summary",
-    depends_on=[analysis_op]
-)
-
-result = await session.flow(builder.get_graph())
+# nodes = {"check": id, "true": id, "false": id}
 ```
 
-## Best Practices
+Edge conditions on the graph control which path executes at runtime.
 
-**Start simple** with linear flows before adding complexity:
+## Controlling Concurrency
+
+`Session.flow()` accepts `max_concurrent` to limit how many operations
+run simultaneously:
 
 ```python
-# Good: Clear progression
-research -> analysis -> report
+# Conservative: 2 concurrent API calls
+result = await session.flow(builder.get_graph(), max_concurrent=2)
 
-# Avoid: Over-complex initial design
-research -> [analysis1, analysis2, analysis3] -> synthesis -> validation -> report
+# Aggressive: 10 concurrent calls (watch your rate limits)
+result = await session.flow(builder.get_graph(), max_concurrent=10)
+
+# Sequential execution
+result = await session.flow(builder.get_graph(), parallel=False)
 ```
 
-**Use aggregation** to combine parallel results:
+The default is `max_concurrent=5`. Set `parallel=False` to force
+`max_concurrent=1`.
+
+## Inspecting Results
+
+`Session.flow()` returns a dict:
 
 ```python
-synthesis = builder.add_aggregation(
-    "communicate",
-    source_node_ids=[op1, op2, op3],
-    instruction="Combine all results"
-)
+result = await session.flow(builder.get_graph(), verbose=True)
+
+print(result["completed_operations"])   # list of operation IDs
+print(result["skipped_operations"])     # list of skipped operation IDs
+print(result["operation_results"])      # {op_id: response} mapping
+print(result["final_context"])          # accumulated context dict
 ```
 
-**Control concurrency** to manage resource usage:
+Use `verbose=True` during development to see execution order, dependency
+waits, and timing.
 
-```python
-result = await session.flow(
-    builder.get_graph(),
-    max_concurrent=3
-)
-```
+## Guidelines
 
-Flow composition enables sophisticated workflows by combining sequential
-dependencies, parallel execution, and multi-branch coordination.
+- Start with linear flows. Add parallelism only when you have independent
+  operations that benefit from concurrent execution.
+- Use `add_aggregation` to merge parallel results into a single downstream
+  operation.
+- Keep `max_concurrent` at or below your API provider's rate limit.
+- Use multi-branch flows when operations need different models or system
+  prompts, not just different instructions.

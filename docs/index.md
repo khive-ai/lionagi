@@ -1,176 +1,205 @@
 # LionAGI
 
-**Build AI workflows you can trust by coordinating multiple agents**
+**Provider-agnostic LLM orchestration for structured, multi-step AI workflows.**
 
-## The Problem
+LionAGI gives you typed, observable control over LLM calls. Instead of dumping a prompt into a black-box chain, you build explicit workflows from `Branch` (a single conversation thread), `iModel` (any provider behind a uniform interface), and `Session` (multi-branch orchestration with graph-based execution). Every call is async, every response can be parsed into Pydantic models, and every tool invocation is logged.
 
-AI reasoning is a black box, but AI workflows don't have to be.
+---
 
-When you ask an AI agent a complex question, you get one answer. But how do you know it's right? How do you know it considered all angles? Those "reasoning traces" you see? They're just generated text, not actual thinking.
+## Why LionAGI
 
-LionAGI solves this by making AI workflows **observable**. Instead of trusting what one model tells you about its thinking, you orchestrate multiple specialists and see exactly what each one does.
+- **One interface, any provider.** Switch between OpenAI, Anthropic, Gemini, Ollama, NVIDIA NIM, Groq, Perplexity, and OpenRouter without changing your workflow code. Bring your own OpenAI-compatible endpoint if none of these fit.
+- **Structured output by default.** `communicate()` and `operate()` parse LLM responses directly into Pydantic models. No regex, no fragile string extraction.
+- **Tool calling built in.** Register Python functions as tools, and `operate()` handles schema generation, LLM function-call requests, invocation, and result injection automatically.
+- **Graph-based workflows.** `Builder` composes operations into a DAG. `Session.flow()` executes it across branches with dependency tracking and parallel execution.
 
-[Read our full problem statement →](problem-statement.md)
+---
 
 ## Installation
 
+=== "pip"
+
+    ```bash
+    pip install lionagi
+    ```
+
+=== "uv"
+
+    ```bash
+    uv add lionagi
+    ```
+
+Set your API key (at minimum, one provider):
+
 ```bash
-pip install lionagi
+export OPENAI_API_KEY=sk-...
 ```
 
-Set your API keys (use any or all):
-```bash
-# OpenAI for GPT models
-export OPENAI_API_KEY=your-key
+LionAGI defaults to `openai` with `gpt-4.1-mini`. See [Installation](quickstart/installation.md) for all providers and optional extras.
 
-# NVIDIA NIM for Llama, Mistral (1000 free credits)
-export NVIDIA_NIM_API_KEY=nvapi-your-key  # Get at build.nvidia.com
+---
 
-# Claude Code for workspace-aware agents
-# Configured via Claude Code desktop app
-```
-
-## Your First Observable Workflow
-
-Here's the simplest example - getting multiple perspectives using different providers:
+## Hello World
 
 ```python
-from lionagi import Branch, iModel
 import asyncio
+from lionagi import Branch
 
 async def main():
-    # Use different models for different strengths
-    
-    # OpenAI GPT-4.1 for analysis (1M token context)
-    analyst = Branch(
-        system="You analyze business opportunities",
-        chat_model=iModel(provider="openai", model="gpt-4.1")
-    )
-    
-    # NVIDIA NIM with DeepSeek V3.1 for risk assessment (latest preview model)
-    critic = Branch(
-        system="You identify risks and challenges",
-        chat_model=iModel(provider="nvidia_nim", model="deepseek-ai/deepseek-v3.1")
-    )
-    
-    # Claude Code for implementation planning (workspace-aware)
-    planner = Branch(
-        system="You create actionable implementation plans",
-        chat_model=iModel(provider="claude_code", endpoint="query_cli")
-    )
-    
-    # Ask all three about the same decision
-    question = "Should our startup expand to Europe?"
-
-    # Parallel execution - all models work simultaneously
-    analysis, risks, plan = await asyncio.gather(
-        analyst.chat(question),
-        critic.chat(question),
-        planner.chat(question)
-    )
-    
-    print("Analysis (GPT-4.1):", analysis)
-    print("Risks (DeepSeek V3.1):", risks)
-    print("Plan (Claude Code):", plan)
-    # Every perspective is visible, using the best model for each task
+    branch = Branch(system="You are a helpful assistant.")
+    result = await branch.communicate("What is the capital of France?")
+    print(result)
 
 asyncio.run(main())
 ```
 
-### Available Models
-
-**OpenAI**: GPT-5, GPT-4.1, GPT-4.1-mini, GPT-4o, GPT-4o-mini  
-**NVIDIA NIM**: DeepSeek V3.1 (latest preview), Llama 3.2 Vision, Mistral Large, Mixtral 8x22B  
-**Claude Code**: Workspace-aware development with file access  
-**Also supported**: Anthropic Claude, Google Gemini, Ollama (local), Groq, Perplexity
-
-## Why Observable Workflows Matter
-
-- **Trust through transparency**: See every step, not just the final answer
-- **Multiple perspectives**: Different agents catch different issues
-- **Audit trails**: Every decision is logged and reproducible
-- **No black boxes**: You control the workflow, not agent conversations
-
-## When to Use LionAGI
-
-✅ **Perfect for:**
-- Complex decisions needing multiple perspectives
-- Production systems requiring audit trails
-- Workflows where you need to see the reasoning
-- Coordinating different models for different tasks
-
-❌ **Not for:**
-- Simple chatbots
-- Basic Q&A
-- Prototypes where you want agents to chat freely
-
-## Core Concepts Made Simple
-
-**Branches = Agents**  
-Each Branch is an independent agent with its own context
-
-**Explicit > Implicit**  
-You control the workflow, not agent conversations
-
-**Observable > Explainable**  
-See what happened, don't trust what models claim
-
-## Quick Patterns
-
-### Get Multiple Perspectives
-```python
-# Parallel analysis from different angles
-results = await asyncio.gather(
-    technical_agent.chat("Technical implications?"),
-    business_agent.chat("Business impact?"),
-    legal_agent.chat("Legal considerations?")
-)
-# See all perspectives at once
-```
-
-### Use the Right Model for Each Job
-```python
-# Complex analysis needs powerful model
-researcher = Branch(chat_model=iModel(provider="anthropic", model="claude-3-opus"))
-research = await researcher.chat("Deep dive into quantum computing")
-
-# Simple summary can use cheaper model
-summarizer = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-summary = await summarizer.chat(f"Three key points: {research}")
-```
-
-## Learning Path
-
-1. **Start Here** → [Your First Flow](quickstart/your-first-flow.md)
-2. **Understand Why** → [Why LionAGI?](thinking-in-lionagi/why-lionagi.md)
-3. **Learn Basics** → [Sessions and Branches](core-concepts/sessions-and-branches.md)
-4. **Apply Patterns** → [Common Workflows](patterns/index.md)
-5. **Go Deeper** → [Advanced Topics](advanced/index.md)
-
-## The Key Difference
-
-```python
-# ❌ Other frameworks: Agents figure it out themselves
-result = agent_conversation(agent1, agent2, agent3, problem)
-# Who knows what happened?
-
-# ✅ LionAGI: You orchestrate, agents execute
-step1 = await analyst.analyze(problem)
-step2 = await critic.review(step1)
-step3 = await synthesizer.combine(step1, step2)
-# Every step visible and verifiable
-```
-
-## Get Started
-
-**Ready to build?** Start with [Your First Flow](quickstart/your-first-flow.md) →
-
-**Have questions?** Check our [Problem Statement](problem-statement.md) to understand our philosophy
-
-**Need help?** [GitHub Issues](https://github.com/lion-agi/lionagi) | [Discord](https://discord.gg/lionagi)
+`communicate()` sends a message, adds both the instruction and the response to the conversation history, and returns the response as a string. No iModel needed for defaults -- Branch auto-creates one from your `OPENAI_API_KEY`.
 
 ---
 
-*LionAGI: Observable workflows for trustworthy AI*
+## What Makes It Different
 
-Apache 2.0 License
+### Multi-provider, same code
+
+```python
+from lionagi import Branch, iModel
+
+openai_branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini")
+)
+
+anthropic_branch = Branch(
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514")
+)
+
+gemini_branch = Branch(
+    chat_model=iModel(provider="gemini", model="gemini-2.5-flash")
+)
+```
+
+### Structured output with `response_format`
+
+```python
+from pydantic import BaseModel
+from lionagi import Branch
+
+class City(BaseModel):
+    name: str
+    country: str
+    population: int
+
+async def main():
+    branch = Branch()
+    city = await branch.communicate(
+        "Tell me about Tokyo.",
+        response_format=City,
+    )
+    print(city.name, city.population)  # Typed Pydantic model
+```
+
+### Tool calling with `operate()`
+
+```python
+from lionagi import Branch
+
+def get_weather(city: str, unit: str = "celsius") -> str:
+    """Get current weather for a city."""
+    return f"22 degrees {unit} in {city}, partly cloudy"
+
+async def main():
+    branch = Branch(tools=[get_weather])
+    result = await branch.operate(
+        instruction="What's the weather in Tokyo?",
+        actions=True,
+    )
+    print(result)  # LLM called get_weather, got the result, and responded
+```
+
+### Graph workflows with `Session` and `Builder`
+
+```python
+from lionagi import Session, Builder
+
+session = Session()
+builder = Builder()
+
+# Define a two-step workflow
+step1 = builder.add_operation(
+    "communicate",
+    instruction="List 3 startup ideas in AI.",
+)
+step2 = builder.add_operation(
+    "communicate",
+    instruction="Pick the most feasible idea and explain why.",
+    depends_on=[step1],
+)
+
+async def main():
+    results = await session.flow(builder.get_graph())
+    print(results)
+```
+
+---
+
+## Supported Providers
+
+| Provider | `provider=` | Environment Variable | Example Model |
+| --- | --- | --- | --- |
+| OpenAI | `"openai"` | `OPENAI_API_KEY` | `gpt-4.1-mini` |
+| Anthropic | `"anthropic"` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
+| Google Gemini | `"gemini"` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
+| Ollama | `"ollama"` | *(none, local)* | `llama3.2` |
+| NVIDIA NIM | `"nvidia_nim"` | `NVIDIA_NIM_API_KEY` | `meta/llama-3.1-70b-instruct` |
+| Groq | `"groq"` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| Perplexity | `"perplexity"` | `PERPLEXITY_API_KEY` | `sonar-pro` |
+| OpenRouter | `"openrouter"` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
+| OpenAI-compatible | *(any string)* | *(pass `api_key=` directly)* | *(your model)* |
+
+```python
+# OpenAI-compatible custom endpoint
+custom = iModel(
+    provider="my_provider",
+    model="my-model",
+    api_key="your-key",
+    base_url="https://your-endpoint.com/v1",
+)
+```
+
+---
+
+## Learning Path
+
+| Step | Topic | Link |
+| --- | --- | --- |
+| 1 | Install and verify | [Installation](quickstart/installation.md) |
+| 2 | First working examples | [Quick Start](quickstart/your-first-flow.md) |
+| 3 | Core abstractions | [Core Concepts](core-concepts/index.md) |
+| 4 | Operations in depth | [Operations](core-concepts/operations.md) |
+| 5 | Branch and Session | [Sessions & Branches](core-concepts/sessions-and-branches.md) |
+| 6 | Workflow patterns | [Patterns](patterns/index.md) |
+| 7 | Provider details | [LLM Providers](integrations/llm-providers.md) |
+| 8 | Advanced topics | [Advanced](advanced/index.md) |
+| 9 | API reference | [Reference](reference/api/index.md) |
+
+---
+
+## Key Concepts at a Glance
+
+**Branch** -- A single conversation thread. Manages messages, tools, and model instances. All LLM operations (`chat`, `communicate`, `operate`, `parse`, `ReAct`) are Branch methods.
+
+**iModel** -- Wraps any LLM provider behind a uniform async interface. Handles rate limiting, retries, and request/response translation.
+
+**Session** -- Manages multiple Branches. Executes graph-based workflows via `session.flow()`.
+
+**Builder** -- Constructs operation graphs (DAGs) for `Session.flow()`. Supports sequential dependencies, parallel fan-out, and dynamic expansion from results.
+
+---
+
+## Requirements
+
+- Python >= 3.10
+- At least one LLM provider API key (or Ollama running locally)
+
+---
+
+*Apache 2.0 License* | [GitHub](https://github.com/khive-ai/lionagi) | [Discord](https://discord.gg/lionagi)

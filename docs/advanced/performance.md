@@ -1,174 +1,283 @@
-# Performance Optimization
+# Performance
 
-Making LionAGI workflows fast and efficient.
+lionagi provides structured concurrency primitives in
+`lionagi.ln.concurrency` and built-in rate limiting in `iModel` to help
+you maximize throughput without overwhelming API providers.
 
-## Parallel Execution
+## Concurrency Primitives
 
-Execute multiple branches simultaneously:
+All primitives are built on [AnyIO](https://anyio.readthedocs.io/) and
+work with both asyncio and trio backends.
+
+### gather -- Concurrent Execution
+
+Run multiple awaitables concurrently and collect results in input order:
 
 ```python
-from lionagi import Session, Branch, iModel
-import asyncio
+from lionagi.ln.concurrency import gather
 
-session = Session()
-
-# Multiple branches for parallel processing
-researcher = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
-    system="Research specialist"
+results = await gather(
+    branch.communicate("Analyze market trends"),
+    branch.communicate("Analyze competitor landscape"),
+    branch.communicate("Analyze technology adoption"),
 )
-analyst = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
-    system="Data analyst"
+# results[0], results[1], results[2] match input order
+```
+
+With `return_exceptions=True`, failures are returned as exception objects
+instead of propagating:
+
+```python
+results = await gather(
+    branch.communicate("Task A"),
+    branch.communicate("Task B"),
+    return_exceptions=True,
 )
+for r in results:
+    if isinstance(r, Exception):
+        print(f"Failed: {r}")
+    else:
+        print(f"Success: {r[:50]}...")
+```
 
-session.include_branches([researcher, analyst])
+### race -- First-to-Complete
 
-# Execute in parallel
-results = await asyncio.gather(
-    researcher.communicate("Research market trends"),
-    analyst.communicate("Analyze competitive landscape")
+Run multiple awaitables and return the first result. All other tasks are
+cancelled:
+
+```python
+from lionagi.ln.concurrency import race
+
+# Try multiple providers, use whichever responds first
+fastest = await race(
+    openai_branch.communicate("Summarize this paper"),
+    anthropic_branch.communicate("Summarize this paper"),
 )
 ```
 
-## Concurrency Control
+### bounded_map -- Concurrent Mapping with Limit
 
-Control parallel execution with `max_concurrent`:
+Apply an async function to a sequence of items with a concurrency limit:
 
 ```python
-from lionagi import Session, Builder, Branch, iModel
+from lionagi.ln.concurrency import bounded_map
 
-session = Session()
-builder = Builder("performance_test")
+documents = ["doc1.txt", "doc2.txt", "doc3.txt", "doc4.txt", "doc5.txt"]
 
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-session.include_branches([branch])
+async def summarize(doc: str):
+    return await branch.communicate(f"Summarize: {doc}")
 
-# Create multiple operations
-topics = ["AI trends", "market analysis", "competition"]
-for topic in topics:
-    builder.add_operation(
-        "communicate",
-        branch=branch,
-        instruction=f"Brief analysis of {topic}"
-    )
+# Process all documents, at most 3 at a time
+summaries = await bounded_map(summarize, documents, limit=3)
+```
 
-# Execute with controlled concurrency
-result = await session.flow(
-    builder.get_graph(),
-    max_concurrent=2  # Only 2 operations at once
+Like `gather`, it supports `return_exceptions=True` for partial failure
+tolerance.
+
+### CompletionStream -- Results As They Arrive
+
+Iterate over results in completion order (first-finished, not input order):
+
+```python
+from lionagi.ln.concurrency import CompletionStream
+
+tasks = [
+    branch.communicate(f"Analyze topic {i}")
+    for i in range(10)
+]
+
+async with CompletionStream(tasks, limit=5) as stream:
+    async for idx, result in stream:
+        print(f"Task {idx} finished: {result[:80]}...")
+        # Process each result as soon as it's available
+```
+
+The `limit` parameter controls how many tasks run concurrently. Without
+it, all tasks start immediately.
+
+### retry -- Exponential Backoff
+
+Retry an async callable with exponential backoff and deadline awareness:
+
+```python
+from lionagi.ln.concurrency import retry
+
+result = await retry(
+    lambda: branch.communicate("Flaky request"),
+    attempts=3,
+    base_delay=0.5,
+    max_delay=5.0,
+    retry_on=(ValueError, ConnectionError),
+    jitter=0.1,
 )
 ```
 
-## Token Efficiency
+`retry` respects structured concurrency: cancellation exceptions are
+never retried, and delays are capped to any ambient deadline from a
+parent `CancelScope`.
 
-Use appropriate models for different tasks:
+## iModel Rate Limiting
+
+Every `iModel` instance uses a `RateLimitedAPIExecutor` that queues
+requests and enforces rate limits automatically.
+
+### Configuration
 
 ```python
-# Light model for simple tasks
-classifier = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
-    system="Classify content briefly"
+from lionagi import iModel
+
+model = iModel(
+    provider="openai",
+    model="gpt-4.1-mini",
+    # Rate limiting
+    limit_requests=60,          # Max requests per cycle
+    limit_tokens=100_000,       # Max tokens per cycle
+    capacity_refresh_time=60,   # Cycle duration in seconds
+    # Queue
+    queue_capacity=100,         # Max queued requests
+    # Streaming concurrency
+    concurrency_limit=5,        # Max concurrent streaming requests
+)
+```
+
+The executor maintains token and request budgets that replenish every
+`capacity_refresh_time` seconds. When limits are exhausted, requests
+queue until capacity is available.
+
+### Per-Task Model Selection
+
+Use lighter models for simple tasks and heavier models for complex ones:
+
+```python
+from lionagi import Branch, iModel
+
+fast = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
+    system="Classify briefly.",
+)
+powerful = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1"),
+    system="Provide detailed analysis.",
 )
 
-# Powerful model for complex analysis
-analyzer = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20240620"),
-    system="Provide detailed analysis"
-)
+# Quick classification
+category = await fast.communicate("Classify: complex or simple?")
 
-content = "Sample content to process"
-
-# Step 1: Quick classification
-category = await classifier.communicate(f"Category (simple/complex): {content}")
-
-# Step 2: Use appropriate model based on complexity
-if "complex" in category.lower():
-    analysis = await analyzer.communicate(f"Detailed analysis: {content}")
+# Route to appropriate model
+if "complex" in str(category).lower():
+    analysis = await powerful.communicate("Detailed analysis of...")
 else:
-    analysis = await classifier.communicate(f"Brief analysis: {content}")
+    analysis = await fast.communicate("Brief analysis of...")
 ```
 
-## Batch Processing
+## Flow-Level Concurrency
 
-Process multiple items efficiently:
+`Session.flow()` controls how many operations in a graph run
+simultaneously:
 
 ```python
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
+from lionagi import Session, Builder
 
-items = [f"item_{i}" for i in range(20)]
-batch_size = 5
-results = []
+# Run at most 3 operations concurrently
+result = await session.flow(builder.get_graph(), max_concurrent=3)
 
-for i in range(0, len(items), batch_size):
-    batch = items[i:i + batch_size]
-    
-    # Process batch in parallel
-    batch_results = await asyncio.gather(*[
-        branch.communicate(f"Process: {item}")
-        for item in batch
-    ])
-    
-    results.extend(batch_results)
+# Sequential execution (useful for debugging)
+result = await session.flow(builder.get_graph(), parallel=False)
 ```
+
+The `max_concurrent` parameter maps directly to a `CapacityLimiter` in
+the `DependencyAwareExecutor`. The default is 5.
 
 ## Memory Management
 
-Clear message history in long workflows:
+### Clearing Message History
+
+Long-running branches accumulate messages. Clear them when context is
+no longer needed:
 
 ```python
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
+branch = Branch(chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
 
-large_dataset = [f"document_{i}" for i in range(100)]
-chunk_size = 10
-results = []
-
-for i in range(0, len(large_dataset), chunk_size):
-    chunk = large_dataset[i:i + chunk_size]
-    
-    # Process chunk
-    chunk_result = await branch.communicate(
-        f"Summarize these {len(chunk)} documents: {chunk}"
-    )
-    results.append(chunk_result)
-    
-    # Clear message history to free memory
-    branch.messages.clear()
+for chunk in data_chunks:
+    result = await branch.communicate(f"Process: {chunk}")
+    results.append(result)
+    branch.messages.clear()  # Free memory, reset context
 ```
 
-## Best Practices
+### Branch as Context Manager
 
-**Choose appropriate patterns** for your use case:
+Branch supports `async with` for automatic log cleanup:
 
 ```python
-# Simple parallel tasks: Use asyncio.gather()
-results = await asyncio.gather(*[branch.communicate(task) for task in tasks])
-
-# Complex workflows: Use Builder + session.flow()
-result = await session.flow(builder.get_graph(), max_concurrent=5)
+async with Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini")
+) as branch:
+    result = await branch.communicate("Analyze this data")
+    # Logs are automatically dumped on exit
 ```
 
-**Control concurrency** based on your needs:
+### Flow Cleanup
 
-- Start with `max_concurrent=3-5`
-- Adjust based on API rate limits
-- Monitor for optimal settings
-
-**Optimize token usage**:
-
-- Use appropriate models for task complexity
-- Clear message history when context not needed
-- Batch similar operations together
-
-**Monitor performance**:
+For large graphs, use `flow_with_cleanup` to free operation results
+after execution:
 
 ```python
-# Use verbose mode for insights
-result = await session.flow(graph, verbose=True)
+from lionagi.operations.flow import flow_with_cleanup
 
-# Track metrics
-print(f"Completed: {len(result['completed_operations'])}")
+result = await flow_with_cleanup(
+    session=session,
+    graph=builder.get_graph(),
+    cleanup_results=True,
+    keep_only=[final_op_id],  # Only keep the final result
+)
 ```
 
-Performance optimization focuses on parallel execution, concurrency control, and
-efficient resource usage.
+## Structured Concurrency Patterns
+
+### Task Groups
+
+For fine-grained control, use `TaskGroup` directly:
+
+```python
+from lionagi.ln.concurrency import create_task_group
+
+results = {}
+
+async with create_task_group() as tg:
+    async def worker(name, prompt):
+        results[name] = await branch.communicate(prompt)
+
+    tg.start_soon(worker, "market", "Analyze market")
+    tg.start_soon(worker, "tech", "Analyze technology")
+    # All tasks complete before exiting the context
+```
+
+### Cancel Scopes
+
+Set timeouts on operations:
+
+```python
+from lionagi.ln.concurrency import fail_after, move_on_after
+
+# Hard timeout: raises TimeoutError after 30 seconds
+with fail_after(30):
+    result = await branch.communicate("Complex analysis...")
+
+# Soft timeout: continues execution, result may be None
+with move_on_after(10) as scope:
+    result = await branch.communicate("Quick check...")
+if scope.cancelled_caught:
+    result = "Timed out, using fallback"
+```
+
+## Guidelines
+
+- Use `bounded_map` instead of manual batching loops -- it handles
+  concurrency limiting and error propagation correctly.
+- Set `limit_requests` and `limit_tokens` on `iModel` to match your
+  API provider's rate limits.
+- Use `CompletionStream` when you need to process results as they arrive
+  rather than waiting for all to complete.
+- Prefer `gather` over `asyncio.gather` -- lionagi's version uses
+  structured concurrency (AnyIO TaskGroups) which provides proper
+  cancellation semantics.

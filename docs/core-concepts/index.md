@@ -1,7 +1,7 @@
 # Core Concepts
 
-!!! info "You're in Step 3 of the Learning Path"
-    You've learned [why LionAGI is different](../thinking-in-lionagi/why-lionagi.md). Now let's understand the practical mechanics that make it work.
+!!! info "Core Concepts"
+    Understanding these abstractions is the foundation for building effective multi-agent workflows with LionAGI.
 
 Understanding LionAGI's core abstractions is essential for building effective multi-agent workflows. These concepts work together to provide the parallel execution, memory isolation, and flexible orchestration that make LionAGI powerful.
 

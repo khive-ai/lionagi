@@ -180,10 +180,12 @@ nav:
   - Learn:
       - Core Concepts:
           - core-concepts/index.md
+          - Philosophy: core-concepts/lionagi-philosophy.md
           - Operations: core-concepts/operations.md
           - Sessions & Branches: core-concepts/sessions-and-branches.md
           - Messages & Memory: core-concepts/messages-and-memory.md
           - Models & Providers: core-concepts/models-and-providers.md
+          - Tools & Functions: core-concepts/tools-and-functions.md
   
       - Cookbook:
           - cookbook/index.md
@@ -221,17 +223,22 @@ nav:
           - LlamaIndex RAG: integrations/llamaindex-rag.md
           - DSPy Optimization: integrations/dspy-optimization.md
 
+  - For AI Agents:
+      - for-ai-agents/index.md
+      - CLI Providers: for-ai-agents/claude-code-usage.md
+      - Orchestration Guide: for-ai-agents/orchestration-guide.md
+      - Pattern Selection: for-ai-agents/pattern-selection.md
+      - State & Debugging: for-ai-agents/self-improvement.md
+
   - Reference:
       - API Reference: reference/api/index.md
       - Changelog: reference/changelog.md
       - Troubleshooting: reference/troubleshooting.md
 
   - Community:
-      - community/index.md
       - Contributing: contributing.md
       - Code of Conduct: code-of-conduct.md
       - Documentation Standards: DOCUMENTATION_STANDARDS.md
-      - Our Vision: marketing/language-interoperability-manifesto.md
 
 extra:
   version:

@@ -1,625 +1,732 @@
 # LLM Provider Integration
 
-Comprehensive guide to all supported LLM providers in LionAGI.
+LionAGI supports 12 providers through a unified `iModel` interface. All providers
+work with the same `Branch` API -- swap the model and your application code stays
+the same.
+
+## How Provider Selection Works
+
+Every LLM call in LionAGI goes through `iModel`, which wraps an `Endpoint` for a
+specific provider. When you create an `iModel`, the `match_endpoint` function
+selects the right endpoint class based on the `provider` and `endpoint` strings
+you pass in. API keys are resolved automatically from environment variables (or
+`.env` / `.env.local` / `.secrets.env` files) via pydantic-settings.
+
+```python
+from lionagi import Branch, iModel
+
+# Explicit provider + model
+model = iModel(provider="openai", model="gpt-4.1-mini")
+
+# Slash-syntax auto-detects provider from the model string
+model = iModel(model="openai/gpt-4.1-mini")
+
+# Branch uses the model for all LLM operations
+branch = Branch(chat_model=model)
+```
+
+## Quick Reference
+
+| Provider | `provider=` | Env Var for API Key | Endpoint(s) | Default Model |
+|---|---|---|---|---|
+| OpenAI | `"openai"` | `OPENAI_API_KEY` | `"chat"`, `"response"` | `gpt-4.1-mini` |
+| Anthropic | `"anthropic"` | `ANTHROPIC_API_KEY` | `"chat"` / `"messages"` | -- |
+| Google Gemini | `"gemini"` | `GEMINI_API_KEY` | `"chat"` | `gemini-2.5-flash` |
+| Ollama | `"ollama"` | *(none required)* | `"chat"` | -- |
+| Perplexity | `"perplexity"` | `PERPLEXITY_API_KEY` | `"chat"` | `sonar` |
+| Groq | `"groq"` | `GROQ_API_KEY` | `"chat"` | `llama-3.3-70b-versatile` |
+| OpenRouter | `"openrouter"` | `OPENROUTER_API_KEY` | `"chat"` | `google/gemini-2.5-flash` |
+| NVIDIA NIM | `"nvidia_nim"` | `NVIDIA_NIM_API_KEY` | `"chat"`, `"embed"` | `meta/llama3-8b-instruct` |
+| Exa | `"exa"` | `EXA_API_KEY` | `"search"` | -- |
+| Claude Code CLI | `"claude_code"` | *(uses local CLI)* | `"query_cli"` | `sonnet` |
+| Gemini CLI | `"gemini_code"` | *(uses local CLI)* | `"query_cli"` | `gemini-2.5-pro` |
+| Codex CLI | `"codex"` | *(uses local CLI)* | `"query_cli"` | `gpt-5.3-codex` |
+
+## Installation
+
+```bash
+# Core package (includes OpenAI, Anthropic, Gemini, Groq, OpenRouter,
+# Perplexity, NVIDIA NIM, Exa support)
+uv pip install lionagi
+
+# For Ollama local models
+uv pip install "lionagi[ollama]"
+```
+
+---
 
 ## OpenAI
 
 ### Setup
 
-Set your OpenAI API key:
-
 ```bash
-export OPENAI_API_KEY="your-api-key-here"
-```
-
-Or use a `.env` file:
-
-```env
-OPENAI_API_KEY=your-api-key-here
+export OPENAI_API_KEY="sk-..."
 ```
 
 ### Basic Usage
 
 ```python
-from lionagi import Branch, iModel
 import asyncio
+from lionagi import Branch, iModel
 
 async def main():
-    # Using GPT-4o-mini (recommended for development)
-    branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-    
-    response = await branch.communicate(
-        "Explain the difference between async and sync programming in Python"
+    branch = Branch(
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini")
     )
-    
-    print(response)
+    result = await branch.chat(
+        instruction="Explain the difference between async and sync programming."
+    )
+    print(result)
 
 asyncio.run(main())
 ```
 
-### Advanced Configuration
+If `OPENAI_API_KEY` is set and you do not pass a `chat_model`, Branch defaults to
+`provider="openai"`, `model="gpt-4.1-mini"` automatically (configurable via the
+`LIONAGI_CHAT_PROVIDER` and `LIONAGI_CHAT_MODEL` environment variables).
+
+### Endpoints
+
+OpenAI has two endpoint types:
+
+- **Chat Completions** (`endpoint="chat"`, the default) -- standard
+  `chat/completions` API.
+- **Responses** (`endpoint="response"`) -- the newer `responses` API.
 
 ```python
+# Responses endpoint
+model = iModel(provider="openai", model="gpt-4.1-mini", endpoint="response")
+```
+
+### Structured Output
+
+```python
+import asyncio
+from pydantic import BaseModel, Field
 from lionagi import Branch, iModel
 
-# Custom OpenAI configuration
-config = {
-    "model": "gpt-4o-mini",
-    "temperature": 0.7,
-    "max_tokens": 2000,
-    "top_p": 0.9,
-    "frequency_penalty": 0.1,
-    "presence_penalty": 0.1
-}
+class SentimentResult(BaseModel):
+    sentiment: str = Field(description="positive, negative, or neutral")
+    confidence: float = Field(description="Confidence score 0-1")
 
 async def main():
-    session = Session(
-        imodel="gpt-4o-mini",
-        **config
+    branch = Branch(
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini")
     )
-    
-    # Multi-turn conversation with memory
-    await session.chat("I'm building a web scraper in Python.")
-    response = await session.chat("What libraries should I use for handling JavaScript?")
-    
-    print(response)
-```
-
-### Streaming Responses
-
-```python
-from lionagi.session import Session
-
-async def stream_chat():
-    session = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-    
-    async for chunk in session.chat_stream(
-        "Write a short story about AI agents working together"
-    ):
-        print(chunk.content, end="", flush=True)
-    
-    print()  # New line at the end
-
-asyncio.run(stream_chat())
-```
-
-### Function Calling
-
-```python
-from lionagi.session import Session
-from lionagi.tools.base import Tool
-from pydantic import Field
-from typing import Dict, Any
-
-class WeatherTool(Tool):
-    """Get current weather for a location."""
-    
-    location: str = Field(description="City name")
-    
-    async def call(self) -> Dict[str, Any]:
-        # Simulate API call
-        return {
-            "location": self.location,
-            "temperature": "22°C",
-            "condition": "Sunny",
-            "humidity": "45%"
-        }
-
-async def function_calling_example():
-    session = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-    session.register_tool(WeatherTool)
-    
-    response = await session.chat(
-        "What's the weather like in Tokyo? Format it nicely."
+    result = await branch.operate(
+        instruction="Analyze the sentiment of this review.",
+        context="The product exceeded all my expectations!",
+        operative_model=SentimentResult,
     )
-    
-    print(response)
+    print(result)  # Operative with .output containing a SentimentResult
 
-asyncio.run(function_calling_example())
+asyncio.run(main())
 ```
 
-### Troubleshooting
+### Available Models
 
-- **Rate Limits**: Use exponential backoff (built into LionAGI)
-- **Token Limits**: Monitor token usage with `session.get_token_count()`
-- **API Errors**: Check API key validity and billing status
-- **Timeout Issues**: Increase timeout in session configuration
+Any model available through the OpenAI API works. Common choices:
+
+- `gpt-4.1-mini` (default, cost-effective)
+- `gpt-4.1`
+- `gpt-4o`
+- `gpt-4o-mini`
+- `o3-mini`
+
+---
 
 ## Anthropic
 
 ### Setup
 
 ```bash
-export ANTHROPIC_API_KEY="your-anthropic-key"
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 ### Basic Usage
 
 ```python
-from lionagi.session import Session
+import asyncio
+from lionagi import Branch, iModel
 
-async def claude_example():
-    # Using Claude 3.5 Sonnet
-    session = Branch(chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20241022"))
-    
-    response = await session.chat(
-        "Analyze this code and suggest improvements:",
-        context="""
-        def process_data(data):
-            result = []
-            for item in data:
-                if item > 0:
-                    result.append(item * 2)
-            return result
-        """
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514")
     )
-    
-    print(response)
+    result = await branch.chat(
+        instruction="Analyze this code for potential issues.",
+        context="def divide(a, b): return a / b",
+    )
+    print(result)
 
-asyncio.run(claude_example())
+asyncio.run(main())
 ```
 
-### Long Context Processing
+The endpoint string can be `"chat"` or `"messages"` -- both resolve to the
+Anthropic Messages API. System messages in the conversation are automatically
+extracted and passed as the Anthropic `system` parameter.
+
+### Prompt Caching
+
+Anthropic supports prompt caching via `cache_control`. Pass it when invoking:
 
 ```python
-from lionagi.session import Session
-from lionagi.tools.file.reader import ReaderTool
-
-async def long_document_analysis():
-    session = Branch(chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20241022"))
-    
-    # Claude excels at long context
-    reader = ReaderTool()
-    document = await reader.read("long_document.pdf")
-    
-    response = await session.chat(
-        "Summarize the key points and identify any inconsistencies in this document:",
-        context=document.content
-    )
-    
-    print(response)
+result = await branch.chat(
+    instruction="Summarize this long document.",
+    context=long_document,
+    cache_control=True,
+)
 ```
 
-### Structured Output with Claude
+### Available Models
 
-```python
-from lionagi.session import Session
-from pydantic import BaseModel, Field
-from typing import List
+- `claude-sonnet-4-20250514`
+- `claude-opus-4-20250514`
+- `claude-3-5-sonnet-20241022`
+- `claude-3-5-haiku-20241022`
 
-class CodeReview(BaseModel):
-    overall_score: int = Field(description="Score from 1-10")
-    strengths: List[str] = Field(description="Code strengths")
-    weaknesses: List[str] = Field(description="Areas for improvement")
-    recommendations: List[str] = Field(description="Specific recommendations")
+---
 
-async def structured_code_review():
-    session = Branch(chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20241022"))
-    
-    response = await session.instruct(
-        instruction="Review this Python code and provide structured feedback",
-        context="""
-        class DataProcessor:
-            def __init__(self, data):
-                self.data = data
-                self.processed = False
-            
-            def process(self):
-                if not self.processed:
-                    self.data = [x * 2 for x in self.data if x > 0]
-                    self.processed = True
-                return self.data
-        """,
-        response_format=CodeReview
-    )
-    
-    print(f"Score: {response.overall_score}/10")
-    print(f"Strengths: {response.strengths}")
-    print(f"Recommendations: {response.recommendations}")
-
-asyncio.run(structured_code_review())
-```
-
-### Troubleshooting
-
-- **Content Policy**: Claude has strict content policies
-- **API Limits**: Monitor usage through Anthropic console
-- **Context Windows**: Claude 3.5 Sonnet supports up to 200K tokens
-
-## Ollama (Local)
+## Google Gemini (Native API)
 
 ### Setup
 
-Install Ollama and dependencies:
+```bash
+export GEMINI_API_KEY="..."
+```
+
+### Basic Usage
+
+```python
+import asyncio
+from lionagi import Branch, iModel
+
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="gemini", model="gemini-2.5-flash")
+    )
+    result = await branch.chat(
+        instruction="Compare Python and Rust for systems programming."
+    )
+    print(result)
+
+asyncio.run(main())
+```
+
+The Gemini provider uses Google's OpenAI-compatible endpoint at
+`generativelanguage.googleapis.com/v1beta/openai`, so it accepts standard
+chat-completion parameters.
+
+### Available Models
+
+- `gemini-2.5-flash` (default)
+- `gemini-2.5-pro`
+- `gemini-2.0-flash`
+
+---
+
+## Ollama (Local Models)
+
+### Setup
 
 ```bash
-# Install Ollama
+# 1. Install Ollama (https://ollama.com)
 curl -fsSL https://ollama.ai/install.sh | sh
 
-# Install Python package
-uv add lionagi[ollama]
+# 2. Install the lionagi Ollama extra
+uv pip install "lionagi[ollama]"
 
-# Pull a model
+# 3. Pull a model
 ollama pull llama3.2:3b
 ```
 
+No API key is needed. The endpoint defaults to `http://localhost:11434/v1`.
+
 ### Basic Usage
 
 ```python
-from lionagi.session import Session
+import asyncio
+from lionagi import Branch, iModel
 
-async def local_llama_example():
-    # Local Llama model
-    session = Session(
-        imodel="llama3.2:3b",
-        provider="ollama",
-        base_url="http://localhost:11434"
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="ollama", model="llama3.2:3b")
     )
-    
-    response = await session.chat(
-        "Explain how transformers work in machine learning"
+    result = await branch.chat(
+        instruction="Explain how transformers work in machine learning."
     )
-    
-    print(response)
+    print(result)
 
-asyncio.run(local_llama_example())
+asyncio.run(main())
 ```
 
-### Model Management
+### Auto-Pull
+
+If the requested model is not available locally, LionAGI will pull it from the
+Ollama registry automatically before the first call (with a progress bar via
+`tqdm`).
+
+### Custom Base URL
+
+If Ollama runs on a different host or port:
 
 ```python
-from lionagi.service.connections.providers.ollama_ import OllamaEndpoint
-import ollama
-
-async def manage_models():
-    client = ollama.AsyncClient()
-    
-    # List available models
-    models = await client.list()
-    print("Available models:")
-    for model in models['models']:
-        print(f"- {model['name']} ({model['size']} bytes)")
-    
-    # Pull a new model
-    await client.pull("codellama:7b")
-    
-    # Use the new model
-    session = Session(
-        imodel="codellama:7b",
-        provider="ollama"
-    )
-    
-    response = await session.chat(
-        "Write a Python function to calculate Fibonacci numbers"
-    )
-    print(response)
-
-asyncio.run(manage_models())
+model = iModel(
+    provider="ollama",
+    model="llama3.2:3b",
+    base_url="http://my-server:11434/v1",
+)
 ```
 
-### Custom Model Configuration
+---
 
-```python
-from lionagi.session import Session
+## Perplexity
 
-# Fine-tuned local model settings
-config = {
-    "temperature": 0.1,  # Lower for code generation
-    "top_p": 0.9,
-    "top_k": 40,
-    "repeat_penalty": 1.1,
-    "num_ctx": 4096,  # Context window
-    "num_predict": 1000,  # Max tokens to generate
-}
-
-async def custom_ollama_config():
-    session = Session(
-        imodel="codellama:7b",
-        provider="ollama",
-        **config
-    )
-    
-    response = await session.chat(
-        "Optimize this SQL query:",
-        context="SELECT * FROM users WHERE age > 18 AND city = 'NYC' ORDER BY name"
-    )
-    
-    print(response)
-```
-
-### Troubleshooting
-
-- **Ollama Not Running**: Check service: `ollama serve`
-- **Model Not Found**: Pull model first: `ollama pull model_name`
-- **Memory Issues**: Use smaller models (3B vs 7B vs 13B parameters)
-- **Slow Performance**: Ensure GPU drivers are installed for acceleration
-
-## Google (Gemini)
+Perplexity provides real-time web search and Q&A through their Sonar API.
 
 ### Setup
 
 ```bash
-export GOOGLE_API_KEY="your-google-api-key"
-# or
-export GEMINI_API_KEY="your-gemini-api-key"
+export PERPLEXITY_API_KEY="pplx-..."
 ```
 
 ### Basic Usage
 
 ```python
-from lionagi.session import Session
+import asyncio
+from lionagi import Branch, iModel
 
-async def gemini_example():
-    session = Session(
-        imodel="gemini-1.5-flash",
-        provider="google"
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="perplexity", model="sonar")
     )
-    
-    response = await session.chat(
-        "Compare Python and Rust for system programming"
+    result = await branch.chat(
+        instruction="What are the latest developments in quantum computing?"
     )
-    
-    print(response)
+    print(result)
 
-asyncio.run(gemini_example())
+asyncio.run(main())
 ```
 
-### Multimodal Capabilities
+### Available Models
 
-```python
-from lionagi.session import Session
-from lionagi.tools.file.reader import ReaderTool
+- `sonar` (default)
+- `sonar-pro`
+- `sonar-reasoning`
+- `sonar-reasoning-pro`
+- `sonar-deep-research`
 
-async def gemini_vision_example():
-    session = Session(
-        imodel="gemini-1.5-pro",
-        provider="google"
-    )
-    
-    # Image analysis
-    reader = ReaderTool()
-    image_data = await reader.read("diagram.png")
-    
-    response = await session.chat(
-        "Describe what you see in this image and explain any technical concepts shown",
-        attachments=[image_data]
-    )
-    
-    print(response)
+### Provider-Specific Parameters
+
+Perplexity supports additional parameters that can be passed as kwargs:
+
+- `search_mode` -- `"default"` or `"academic"` (restricts to scholarly sources)
+- `search_domain_filter` -- list of domains to include/exclude (prefix with `"-"`)
+- `search_recency_filter` -- `"month"`, `"week"`, `"day"`, or `"hour"`
+- `return_related_questions` -- `True`/`False`
+
+---
+
+## Groq
+
+### Setup
+
+```bash
+export GROQ_API_KEY="gsk_..."
 ```
 
-### Large Context Processing
+### Basic Usage
 
 ```python
-from lionagi.session import Session
+import asyncio
+from lionagi import Branch, iModel
 
-async def large_context_analysis():
-    # Gemini 1.5 Pro supports up to 2M tokens
-    session = Session(
-        imodel="gemini-1.5-pro",
-        provider="google"
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="groq", model="llama-3.3-70b-versatile")
     )
-    
-    # Process entire codebase
-    codebase = await load_entire_codebase()  # Your function
-    
-    response = await session.chat(
-        "Analyze this entire codebase for security vulnerabilities and architectural issues",
-        context=codebase
+    result = await branch.chat(
+        instruction="Fast inference test -- explain recursion in one paragraph."
     )
-    
-    print(response)
+    print(result)
+
+asyncio.run(main())
 ```
 
-### Troubleshooting
+Groq uses an OpenAI-compatible API, so standard chat-completion parameters
+(`temperature`, `max_tokens`, `top_p`, etc.) are supported.
 
-- **API Quota**: Check Google Cloud Console for quota limits
-- **Safety Settings**: Adjust safety settings for content filtering
-- **Regional Availability**: Gemini availability varies by region
+### Available Models
 
-## Custom Providers
+- `llama-3.3-70b-versatile` (default)
+- `llama-3.1-8b-instant`
+- `mixtral-8x7b-32768`
 
-### Adding New Providers
+---
+
+## OpenRouter
+
+OpenRouter provides access to many models through a single API.
+
+### Setup
+
+```bash
+export OPENROUTER_API_KEY="sk-or-..."
+```
+
+### Basic Usage
 
 ```python
-from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.connections.providers.types import ProviderConfig
-from typing import Dict, Any
+import asyncio
+from lionagi import Branch, iModel
 
-class CustomLLMEndpoint(Endpoint):
-    """Custom LLM provider endpoint."""
-    
-    def __init__(self, api_key: str, base_url: str, **kwargs):
-        config = EndpointConfig(
-            name="custom_llm",
-            provider="custom",
-            base_url=base_url,
-            endpoint="v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            **kwargs
+async def main():
+    branch = Branch(
+        chat_model=iModel(
+            provider="openrouter",
+            model="google/gemini-2.5-flash",
         )
-        super().__init__(config)
-    
-    async def call(self, messages: list, **kwargs) -> Dict[str, Any]:
-        payload = {
-            "messages": messages,
-            "model": kwargs.get("model", "default"),
-            "temperature": kwargs.get("temperature", 0.7),
-            "max_tokens": kwargs.get("max_tokens", 1000)
-        }
-        
-        response = await self.client.post(
-            self.config.endpoint,
-            json=payload
-        )
-        
-        return response.json()
-
-# Register the custom provider
-from lionagi.service.manager import ServiceManager
-
-class CustomLLMProvider:
-    def __init__(self, api_key: str, base_url: str):
-        self.endpoint = CustomLLMEndpoint(api_key, base_url)
-    
-    async def create_completion(self, messages: list, **kwargs):
-        return await self.endpoint.call(messages, **kwargs)
-
-# Usage
-async def custom_provider_example():
-    provider = CustomLLMProvider(
-        api_key="your-custom-api-key",
-        base_url="https://api.customllm.com"
     )
-    
-    # Register with LionAGI
-    ServiceManager.register_provider("custom_llm", provider)
-    
-    # Use in session
-    session = Session(
-        imodel="custom-model-name",
-        provider="custom_llm"
-    )
-    
-    response = await session.chat("Hello from custom provider!")
-    print(response)
+    result = await branch.chat(instruction="Hello from OpenRouter!")
+    print(result)
+
+asyncio.run(main())
 ```
 
-### OpenAI-Compatible Providers
+OpenRouter is OpenAI-compatible. Use any model ID from the
+[OpenRouter model list](https://openrouter.ai/models).
+
+---
+
+## NVIDIA NIM
+
+### Setup
+
+Get an API key from [build.nvidia.com](https://build.nvidia.com/).
+
+```bash
+export NVIDIA_NIM_API_KEY="nvapi-..."
+```
+
+### Chat Endpoint
 
 ```python
-from lionagi.session import Session
+import asyncio
+from lionagi import Branch, iModel
 
-# Many providers are OpenAI-compatible
-async def openai_compatible_providers():
-    # Together AI
-    session_together = Session(
-        imodel="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-        provider="openai",  # OpenAI-compatible
+async def main():
+    branch = Branch(
+        chat_model=iModel(
+            provider="nvidia_nim",
+            model="meta/llama3-8b-instruct",
+        )
+    )
+    result = await branch.chat(instruction="Explain GPU parallelism.")
+    print(result)
+
+asyncio.run(main())
+```
+
+### Embedding Endpoint
+
+```python
+embed_model = iModel(
+    provider="nvidia_nim",
+    endpoint="embed",
+    model="nvidia/nv-embed-v1",
+)
+```
+
+---
+
+## Exa (Search)
+
+Exa is a search provider, not a chat provider. It uses `endpoint="search"`.
+
+### Setup
+
+```bash
+export EXA_API_KEY="..."
+```
+
+### Basic Usage
+
+```python
+from lionagi import iModel
+
+search_model = iModel(provider="exa", endpoint="search")
+```
+
+Exa supports search-specific parameters including `query`, `category`,
+`type` (`"keyword"`, `"neural"`, `"auto"`), `num_results`, `include_domains`,
+`exclude_domains`, date filters, and content retrieval options.
+
+---
+
+## CLI Providers
+
+CLI providers run coding agents as subprocesses. They differ from HTTP API
+providers in important ways:
+
+- They spawn heavy subprocesses, not HTTP requests.
+- They maintain session state with resume capability.
+- Concurrency defaults are conservative (`DEFAULT_CONCURRENCY_LIMIT = 3`,
+  `DEFAULT_QUEUE_CAPACITY = 10`).
+- They do not require API keys -- authentication is handled by the locally
+  installed CLI tool.
+
+### Claude Code CLI
+
+Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
+locally.
+
+```python
+import asyncio
+from lionagi import Branch, iModel
+
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="claude_code", model="sonnet")
+    )
+    result = await branch.chat(
+        instruction="Read the README and summarize the project."
+    )
+    print(result)
+
+asyncio.run(main())
+```
+
+The `model` parameter accepts `"sonnet"`, `"opus"`, or any string the Claude Code
+CLI recognizes.
+
+### Gemini CLI
+
+Requires [Gemini CLI](https://github.com/google-gemini/gemini-cli) installed
+locally.
+
+```python
+import asyncio
+from lionagi import Branch, iModel
+
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="gemini_code", model="gemini-2.5-pro")
+    )
+    result = await branch.chat(
+        instruction="Analyze the project structure."
+    )
+    print(result)
+
+asyncio.run(main())
+```
+
+### Codex CLI
+
+Requires [OpenAI Codex CLI](https://github.com/openai/codex) installed locally.
+
+```python
+import asyncio
+from lionagi import Branch, iModel
+
+async def main():
+    branch = Branch(
+        chat_model=iModel(provider="codex", model="gpt-5.3-codex")
+    )
+    result = await branch.chat(
+        instruction="Fix the failing tests in this project."
+    )
+    print(result)
+
+asyncio.run(main())
+```
+
+---
+
+## Provider Auto-Detection
+
+If the `model` string contains a `/`, the prefix is treated as the provider name.
+This lets you skip the `provider=` parameter:
+
+```python
+from lionagi import iModel
+
+# These two are equivalent:
+m1 = iModel(provider="openai", model="gpt-4.1-mini")
+m2 = iModel(model="openai/gpt-4.1-mini")
+
+# Works with any provider
+m3 = iModel(model="anthropic/claude-sonnet-4-20250514")
+m4 = iModel(model="groq/llama-3.3-70b-versatile")
+m5 = iModel(model="gemini/gemini-2.5-flash")
+```
+
+---
+
+## OpenAI-Compatible Custom Providers
+
+Any provider that implements the OpenAI chat completions API can be used with
+LionAGI. When `match_endpoint` does not recognize the provider name, it falls
+back to a generic OpenAI-compatible endpoint. Pass `base_url` to point at the
+custom server:
+
+```python
+import asyncio
+from lionagi import Branch, iModel
+
+async def main():
+    model = iModel(
+        provider="together",
+        model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         base_url="https://api.together.xyz/v1",
-        api_key="your-together-key"
+        api_key="your-together-key",
     )
-    
-    # Groq
-    session_groq = Session(
-        imodel="llama-3.1-8b-instant",
-        provider="openai",  # OpenAI-compatible
-        base_url="https://api.groq.com/openai/v1",
-        api_key="your-groq-key"
-    )
-    
-    # Perplexity
-    session_pplx = Session(
-        imodel="llama-3.1-sonar-small-128k-online",
-        provider="perplexity",
-        api_key="your-perplexity-key"
-    )
-    
-    # Use any of them
-    response = await session_groq.chat("Fast inference test")
-    print(response)
+    branch = Branch(chat_model=model)
+    result = await branch.chat(instruction="Hello from a custom provider!")
+    print(result)
 
-asyncio.run(openai_compatible_providers())
+asyncio.run(main())
 ```
 
-### Provider Configuration Templates
+The fallback endpoint uses `chat/completions`, bearer auth, and
+`application/json` content type.
+
+---
+
+## Async Context Manager
+
+Both `iModel` and `Branch` support `async with` for resource cleanup:
 
 ```python
-# config/custom_providers.py
-from typing import Dict, Any
+import asyncio
+from lionagi import Branch, iModel
 
-CUSTOM_PROVIDER_CONFIGS = {
-    "huggingface": {
-        "base_url": "https://api-inference.huggingface.co/models",
-        "headers": {
-            "Authorization": "Bearer {api_key}",
-            "Content-Type": "application/json"
-        },
-        "endpoint_template": "{model_name}",
-        "request_format": "huggingface",
-        "response_format": "huggingface"
-    },
-    
-    "replicate": {
-        "base_url": "https://api.replicate.com/v1",
-        "headers": {
-            "Authorization": "Token {api_key}",
-            "Content-Type": "application/json"
-        },
-        "endpoint_template": "predictions",
-        "request_format": "replicate",
-        "response_format": "replicate"
-    }
-}
+async def main():
+    # iModel context manager -- stops the rate-limited executor on exit
+    async with iModel(provider="openai", model="gpt-4.1-mini") as model:
+        branch = Branch(chat_model=model)
+        result = await branch.chat(instruction="Hello!")
+        print(result)
 
-class ProviderFactory:
-    @staticmethod
-    def create_provider(provider_name: str, config: Dict[str, Any]):
-        if provider_name in CUSTOM_PROVIDER_CONFIGS:
-            template = CUSTOM_PROVIDER_CONFIGS[provider_name]
-            # Merge template with user config
-            final_config = {**template, **config}
-            return CustomLLMProvider(**final_config)
-        
-        raise ValueError(f"Unknown provider: {provider_name}")
+    # Branch context manager -- flushes logs on exit
+    async with Branch(
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini")
+    ) as branch:
+        result = await branch.chat(instruction="Hello again!")
+        print(result)
+
+asyncio.run(main())
 ```
 
-## Provider Comparison
+---
 
-### Performance Characteristics
+## Copying Models
 
-| Provider              | Latency | Context | Strengths                 | Best For                |
-| --------------------- | ------- | ------- | ------------------------- | ----------------------- |
-| **GPT-4o-mini**       | Fast    | 128K    | Balanced, cost-effective  | General development     |
-| **GPT-4**             | Medium  | 128K    | Reasoning, complex tasks  | Critical applications   |
-| **Claude 3.5 Sonnet** | Medium  | 200K    | Code, analysis, safety    | Code review, analysis   |
-| **Gemini 1.5 Pro**    | Medium  | 2M      | Multimodal, large context | Document processing     |
-| **Ollama/Local**      | Varies  | Varies  | Privacy, no API costs     | Sensitive data, offline |
-
-### Cost Optimization
+Use `iModel.copy()` to create an independent instance with the same
+configuration but a fresh ID and executor. This is useful when you need
+separate rate-limiting or session state:
 
 ```python
-from lionagi.session import Session
-from lionagi.service.token_calculator import TokenCalculator
+from lionagi import iModel
 
-async def cost_aware_routing():
-    # Simple tasks → GPT-4o-mini
-    simple_session = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-    
-    # Complex reasoning → GPT-4
-    complex_session = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-    
-    # Code tasks → Claude
-    code_session = Branch(chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20241022"))
-    
-    def route_by_complexity(task: str):
-        # Simple heuristics
-        if any(word in task.lower() for word in ["code", "debug", "review"]):
-            return code_session
-        elif any(word in task.lower() for word in ["analyze", "complex", "reasoning"]):
-            return complex_session
-        else:
-            return simple_session
-    
-    # Route task to appropriate model
-    task = "Fix this Python bug in my authentication system"
-    session = route_by_complexity(task)
-    
-    response = await session.chat(task)
-    return response
+model = iModel(provider="openai", model="gpt-4.1-mini")
+
+# Fresh copy, no shared state
+model2 = model.copy()
+
+# For CLI providers: share_session=True carries over the session ID
+cli_model = iModel(provider="claude_code", model="sonnet")
+cli_model2 = cli_model.copy(share_session=True)
 ```
 
-### Best Practices
+---
 
-1. **Model Selection**: Choose based on task complexity and cost requirements
-2. **API Key Management**: Use environment variables, never hardcode keys
-3. **Error Handling**: Implement retry logic with exponential backoff
-4. **Rate Limiting**: Respect provider rate limits to avoid blocking
-5. **Token Management**: Monitor token usage to control costs
-6. **Caching**: Cache responses for identical queries
-7. **Streaming**: Use streaming for long responses to improve UX
-8. **Fallback Providers**: Have backup providers for high availability
+## Rate Limiting and Concurrency
+
+`iModel` wraps a `RateLimitedAPIExecutor` that handles queuing and throttling.
+You can configure it at construction time:
+
+```python
+from lionagi import iModel
+
+model = iModel(
+    provider="openai",
+    model="gpt-4.1-mini",
+    queue_capacity=100,            # Max queued requests (default: 100, CLI: 10)
+    capacity_refresh_time=60,      # Seconds between capacity refreshes
+    limit_requests=50,             # Max requests per cycle
+    limit_tokens=100_000,          # Max tokens per cycle
+    concurrency_limit=10,          # Max concurrent streaming requests
+)
+```
+
+CLI providers use lower defaults (`queue_capacity=10`,
+`concurrency_limit=3`) because each call spawns a subprocess.
+
+---
+
+## Multiple Models in One Branch
+
+A `Branch` maintains a `chat_model` and a `parse_model`. By default
+`parse_model` mirrors `chat_model`, but you can set them independently:
+
+```python
+from lionagi import Branch, iModel
+
+branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
+    parse_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
+)
+```
+
+You can also override the model per-call:
+
+```python
+fast_model = iModel(provider="groq", model="llama-3.3-70b-versatile")
+
+# Use the fast model just for this one call
+result = await branch.chat(
+    instruction="Quick question.",
+    imodel=fast_model,
+)
+```
+
+---
+
+## Environment Variable Reference
+
+| Variable | Provider |
+|---|---|
+| `OPENAI_API_KEY` | OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic |
+| `GEMINI_API_KEY` | Google Gemini |
+| `GROQ_API_KEY` | Groq |
+| `OPENROUTER_API_KEY` | OpenRouter |
+| `PERPLEXITY_API_KEY` | Perplexity |
+| `NVIDIA_NIM_API_KEY` | NVIDIA NIM |
+| `EXA_API_KEY` | Exa |
+| `LIONAGI_CHAT_PROVIDER` | Default provider (default: `openai`) |
+| `LIONAGI_CHAT_MODEL` | Default model (default: `gpt-4.1-mini`) |
+
+These can be set as environment variables or placed in `.env`, `.env.local`, or
+`.secrets.env` files in your project root.
+
+---
+
+## Troubleshooting
+
+**"Provider must be provided"** -- You passed a `model` string without a `/`
+separator and did not set `provider=`. Either use slash syntax
+(`model="openai/gpt-4.1-mini"`) or pass `provider=` explicitly.
+
+**"API key is required for authentication"** -- The environment variable for your
+provider is not set. Check the table above for the correct variable name.
+
+**"ollama is not installed"** -- Install the Ollama extra:
+`uv pip install "lionagi[ollama]"`.
+
+**Slow CLI providers** -- CLI providers spawn subprocesses. If calls seem slow,
+that is expected. Avoid high concurrency with CLI providers.
+
+**Rate limit errors (429)** -- LionAGI retries with exponential backoff
+automatically. If you still hit limits, reduce `limit_requests` or
+`limit_tokens` in the `iModel` constructor.

@@ -6,25 +6,25 @@ Quick solutions to common LionAGI issues.
 
 **Import Error: Module not found**
 
-```python
+```bash
 # Error: ModuleNotFoundError: No module named 'lionagi'
-pip install lionagi
+uv add lionagi
 
 # For latest development version
-pip install git+https://github.com/khive-ai/lionagi.git
+uv add git+https://github.com/khive-ai/lionagi.git
 ```
 
 **Missing Optional Dependencies**
 
-```python
+```bash
 # Error: docling not available
-pip install lionagi[pdf]  # For PDF processing
+uv add "lionagi[pdf]"  # For PDF processing
 
-# Error: matplotlib not available  
-pip install matplotlib
+# Error: matplotlib not available
+uv add matplotlib
 
 # Error: networkx not available
-pip install networkx
+uv add networkx
 ```
 
 **Python Version Issues**
@@ -32,7 +32,7 @@ pip install networkx
 ```bash
 # LionAGI requires Python 3.10+
 python --version  # Check version
-pip install lionagi  # Only works on 3.10+
+uv add lionagi  # Only works on 3.10+
 ```
 
 ## API Key Errors
@@ -46,7 +46,7 @@ from lionagi import Branch, iModel
 # Set API key
 os.environ["OPENAI_API_KEY"] = "your-key-here"
 
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
+branch = Branch(chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
 ```
 
 **Multiple Providers**
@@ -57,7 +57,7 @@ os.environ["ANTHROPIC_API_KEY"] = "your-anthropic-key"
 os.environ["OPENAI_API_KEY"] = "your-openai-key"
 
 # Or in iModel directly
-model = iModel(provider="openai", model="gpt-4o-mini", api_key="your-key")
+model = iModel(provider="openai", model="gpt-4.1-mini", api_key="your-key")
 ```
 
 ## Async/Await Problems
@@ -190,7 +190,7 @@ for i in range(1000):
 
 # Solution: Create new branch when needed
 def get_fresh_branch():
-    return Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
+    return Branch(chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
 
 # Or clear messages (if implemented)
 # branch.messages.clear()  # Check if available
@@ -278,6 +278,6 @@ print(f"Branches: {len(session.branches)}")
 **GitHub Issues**: Report bugs at
 [khive-ai/lionagi/issues](https://github.com/khive-ai/lionagi/issues)
 
-**Check Version**: `pip show lionagi` for installed version
+**Check Version**: `uv pip show lionagi` for installed version
 
 **Minimal Reproduction**: Include minimal code that reproduces the issue

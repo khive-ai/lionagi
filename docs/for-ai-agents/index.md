@@ -1,34 +1,108 @@
 # For AI Agents
 
-Guidance specifically for AI agents working with LionAGI.
+This section is written for AI coding agents -- Claude Code, Codex, Gemini CLI,
+and similar tools -- that need to use lionagi programmatically. The content
+prioritizes machine-readable structure, lookup tables, and copy-paste code
+patterns over narrative explanation.
 
-## Agent Resources
+## What lionagi Is
 
-- **[Orchestration Guide](orchestration-guide.md)** - How to orchestrate
-  multi-agent workflows
-- **[Pattern Selection](pattern-selection.md)** - Choose the right patterns for
-  your task
-- **[Claude Code Usage](claude-code-usage.md)** - LionAGI in Claude Code
-  environment
-- **[Self-Improvement](self-improvement.md)** - Learn and adapt your approaches
+lionagi is a provider-agnostic LLM orchestration SDK. It lets your agent call
+any LLM provider through a uniform interface, manage conversation state, invoke
+tools, parse structured output, and coordinate multi-step workflows as DAGs.
 
-## Key Concepts for AI Agents
+## Core Objects (4 things to know)
 
-- **Think in Graphs**: LionAGI uses dependency graphs, not sequential chains
-- **Leverage Parallelism**: Multiple operations can run simultaneously  
-- **Use Builder Pattern**: Construct workflows declaratively
-- **Handle Context**: Each Branch maintains persistent memory
+| Object | What It Does | Import |
+|--------|-------------|--------|
+| `Branch` | Single conversation thread. Primary API surface. | `from lionagi import Branch` |
+| `iModel` | LLM provider wrapper (API or CLI). | `from lionagi import iModel` |
+| `Session` | Multi-branch orchestrator. Manages Branch lifecycle. | `from lionagi import Session` |
+| `Builder` | DAG builder for multi-step workflows. | `from lionagi import Builder` |
 
-## Common Agent Workflows
+## Branch Methods (the API you will use most)
 
-1. **Research & Analysis**: Fan-out for parallel research, fan-in for synthesis
-2. **Multi-Perspective**: Different agents provide specialized viewpoints
-3. **Iterative Refinement**: Sequential operations that build on each other
-4. **Validation Patterns**: Multiple agents validate and critique results
+| Method | Adds to History | Tool Calling | Structured Output | Use Case |
+|--------|:-:|:-:|:-:|---------|
+| `chat()` | No | No | Optional | Low-level LLM call for orchestration |
+| `communicate()` | Yes | No | Optional | Conversational interaction |
+| `operate()` | Yes | Yes | Optional | Tool use + structured output |
+| `ReAct()` | Yes | Yes | Optional | Multi-step reasoning with tools |
+| `parse()` | No | No | Yes | Extract structured data from text |
+| `interpret()` | No | No | No | Rewrite/refine a prompt |
 
-## Best Practices
+## Defaults
 
-- Start with simple patterns before complex orchestration
-- Use appropriate concurrency levels for your resources
-- Monitor costs and performance as you scale
-- Handle errors gracefully with fallback strategies
+```python
+# Default provider and model (from lionagi.config.settings)
+provider = "openai"
+model = "gpt-4.1-mini"
+
+# Minimal Branch -- uses defaults above
+branch = Branch()
+
+# Explicit provider
+branch = Branch(chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"))
+```
+
+## Quick Start
+
+```python
+from lionagi import Branch, iModel
+
+# Simple conversation (adds to history)
+async with Branch() as b:
+    response = await b.communicate("Explain dependency injection")
+
+# Structured output
+from pydantic import BaseModel
+
+class Analysis(BaseModel):
+    summary: str
+    confidence: float
+
+result = await b.communicate(
+    "Analyze this code for security issues",
+    response_format=Analysis,
+)
+# result is an Analysis instance
+
+# Tool use
+def search_docs(query: str) -> str:
+    """Search documentation."""
+    return f"Results for: {query}"
+
+b.register_tools(search_docs)
+result = await b.operate(
+    instruction="Find documentation about authentication",
+    actions=True,
+)
+```
+
+## Section Contents
+
+| Page | When to Read |
+|------|-------------|
+| [Claude Code Usage](claude-code-usage.md) | Using lionagi with CLI-based agent providers |
+| [Orchestration Guide](orchestration-guide.md) | Building multi-step workflows |
+| [Pattern Selection](pattern-selection.md) | Choosing the right Branch method |
+| [Self-Improvement](self-improvement.md) | Inspecting and debugging conversations |
+
+## Provider Support
+
+**API Providers:** openai, anthropic, google (Gemini API), ollama, nvidia, perplexity, groq, openrouter
+
+**CLI Providers (for agent-to-agent):** claude_code, gemini_code, codex
+
+## Key Behaviors
+
+- `Branch` supports `async with` for automatic log cleanup on exit.
+- `iModel` supports `async with` for automatic executor shutdown.
+- `chat()` does NOT add messages to conversation history. Use it for one-off
+  orchestration calls.
+- `communicate()` DOES add messages to history. Use it for building conversation
+  context.
+- `operate()` DOES add messages and can invoke registered tools.
+- Default `parse_model` is the same as `chat_model` unless explicitly set.
+- CLI endpoints (claude_code, gemini_code, codex) get fresh copies on
+  `Branch.clone()` to avoid session conflicts.

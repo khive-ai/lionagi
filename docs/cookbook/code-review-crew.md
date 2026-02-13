@@ -11,17 +11,17 @@ session = Session()
 
 # Create specialized reviewers
 security = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Security expert. Focus only on security issues."
 )
 
 performance = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Performance expert. Focus only on performance issues."
 )
 
 maintainability = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Code quality expert. Focus on maintainability and readability."
 )
 
@@ -34,27 +34,20 @@ def login(user, pwd):
     return db.execute(query).fetchone()
 '''
 
-# Parallel reviews using LionAGI TaskGroup
-import lionagi as ln
+# Parallel reviews
+import asyncio
 
-reviews = {}
+security_result, performance_result, maintainability_result = await asyncio.gather(
+    security.chat(f"Security review: {code}"),
+    performance.chat(f"Performance review: {code}"),
+    maintainability.chat(f"Code quality review: {code}"),
+)
 
-async def security_review():
-    reviews["security"] = await security.chat(f"Security review: {code}")
-
-async def performance_review():
-    reviews["performance"] = await performance.chat(f"Performance review: {code}")
-
-async def maintainability_review():
-    reviews["maintainability"] = await maintainability.chat(f"Code quality review: {code}")
-
-async with ln.create_task_group() as tg:
-    tg.start_soon(security_review)
-    tg.start_soon(performance_review)
-    tg.start_soon(maintainability_review)
-
-# All tasks complete when TaskGroup context exits
-review_results = reviews
+review_results = {
+    "security": security_result,
+    "performance": performance_result,
+    "maintainability": maintainability_result,
+}
 ```
 
 ## Builder Pattern Review
@@ -67,11 +60,11 @@ builder = Builder("code_review")
 
 # Reviewers
 security_branch = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Security code reviewer"
 )
 quality_branch = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Code quality reviewer"
 )
 
@@ -118,7 +111,7 @@ review_ops = []
 
 for review_type in review_types:
     branch = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
         system=f"{review_type.title()} code reviewer"
     )
     reviewers[review_type] = branch
@@ -132,7 +125,7 @@ for review_type in review_types:
 
 # Senior reviewer for final decision
 senior = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Senior code reviewer who makes final approval decisions"
 )
 
@@ -178,16 +171,13 @@ Format response as:
 ### Advanced Parallel Execution
 
 ```python
-# LionAGI TaskGroup (recommended)
-async with ln.create_task_group() as tg:
-    tg.start_soon(security_task)
-    tg.start_soon(performance_task)
-    tg.start_soon(quality_task)
+import asyncio
 
-# Or asyncio.gather() for simple cases
+# asyncio.gather() for parallel reviews
 reviews = await asyncio.gather(
     security.chat(prompt),
-    performance.chat(prompt)
+    performance.chat(prompt),
+    quality.chat(prompt),
 )
 ```
 

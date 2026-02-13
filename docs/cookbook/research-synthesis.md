@@ -12,7 +12,7 @@ from lionagi.protocols.types import AssistantResponse
 
 # Setup orchestrator
 orchestrator = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Break research into parallel assignments and synthesize findings"
 )
 session = Session(default_branch=orchestrator)
@@ -39,7 +39,7 @@ instruct_models = result["operation_results"][root].instruct_models
 research_nodes = []
 for i, instruction in enumerate(instruct_models):
     researcher = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
         system=f"Research specialist #{i+1} - focused domain expert"
     )
     
@@ -89,7 +89,7 @@ print(f"Research complete. Total cost: ${costs:.4f}")
 ```python
 # Literature review orchestrator
 orchestrator = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Literature review coordinator and synthesizer"
 )
 
@@ -114,7 +114,7 @@ review_tasks = result["operation_results"][planning].instruct_models
 review_nodes = []
 for task in review_tasks:
     reviewer = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
         system="Academic paper analysis specialist"
     )
     
@@ -147,7 +147,7 @@ total_cost = 0
 max_cost = 1.0
 
 coordinator = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Efficient research coordinator"
 )
 

@@ -1,44 +1,35 @@
 # Advanced Topics
 
-!!! info "For Experienced Users"
-    This section is designed for developers building production systems, optimizing performance, or extending LionAGI's capabilities. 
+This section covers production-oriented features of lionagi: concurrency
+primitives, resilience patterns, workflow composition, and runtime
+observability.
 
-Deep dive into LionAGI's advanced features and production-ready capabilities.
+## What's Here
 
-## What You'll Learn
+- **[Custom Operations](custom-operations.md)** -- Register custom async
+  functions as Branch operations, compose them into graphs with
+  `OperationGraphBuilder`, and use `Session.operation()` as a decorator.
 
-These advanced concepts will help you build robust, scalable, and observable multi-agent systems:
+- **[Flow Composition](flow-composition.md)** -- Build multi-step graphs with
+  `OperationGraphBuilder`, control dependencies, fan-out with `expand_from_result`,
+  and aggregate results.
 
-- **[Custom Operations](custom-operations.md)** - Build specialized operations
-  for your workflows
-- **[Flow Composition](flow-composition.md)** - Compose complex multi-agent
-  flows
-- **[Performance](performance.md)** - Optimize your LionAGI workflows
-- **[Error Handling](error-handling.md)** - Handle failures gracefully
-- **[Observability](observability.md)** - Monitor and debug your workflows
+- **[Performance](performance.md)** -- Use lionagi's structured concurrency
+  utilities (`gather`, `race`, `bounded_map`, `CompletionStream`, `retry`)
+  and iModel rate limiting to maximize throughput.
+
+- **[Error Handling](error-handling.md)** -- Built-in retry logic, circuit
+  breakers, rate limiting, and structured error propagation in iModel and
+  operation flows.
+
+- **[Observability](observability.md)** -- DataLogger and Log objects,
+  HookRegistry for pre/post-invoke hooks on iModel, message inspection,
+  and flow-level verbose mode.
 
 ## Prerequisites
 
-!!! warning "Required Knowledge"
-    Before diving into advanced topics, make sure you have:
-    
-    - ✅ Completed the [Core Concepts](../core-concepts/) section
-    - ✅ Built workflows using [Patterns](../patterns/)  
-    - ✅ Experience with Python async/await programming
-    - ✅ Understanding of multi-agent coordination concepts
+Before reading these pages you should be comfortable with:
 
-## When to Use Advanced Features
-
-!!! success "You Need Advanced Topics If:"
-    - Building production systems with specific performance requirements
-    - Need custom operations beyond the built-in types
-    - Want detailed monitoring and observability 
-    - Handling complex error scenarios and failures
-    - Integrating with enterprise systems and databases
-
-## Next Steps
-
-!!! tip "After Mastering Advanced Topics"
-    - [Integrations](../integrations/) - Connect with databases, tools, and services
-    - [Migration Guides](../migration/) - If you're coming from other frameworks  
-    - [For AI Agents](../for-ai-agents/) - Special guidance for AI-powered development
+- Branch operations (`chat`, `communicate`, `operate`, `ReAct`)
+- iModel configuration and provider setup
+- Python `async`/`await` patterns

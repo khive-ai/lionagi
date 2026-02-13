@@ -136,7 +136,7 @@ from lionagi import Branch, iModel
 import asyncio
 
 async def example():
-    branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
+    branch = Branch(chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
     try:
         result = await branch.chat("Analyze this")
         return result

@@ -21,7 +21,7 @@ builder = Builder("document_analysis")
 
 # Create analyzer branch
 analyzer = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="You are a document analysis expert."
 )
 session.include_branches([analyzer])
@@ -62,7 +62,7 @@ Research paper analysis with sequential dependency:
 ```python
 # Specialized research analyzer
 researcher = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Research analyst specializing in academic papers."
 )
 
@@ -108,7 +108,7 @@ Each step accumulates context for deeper analysis:
 
 ```python
 investigator = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Thorough investigator building understanding incrementally."
 )
 
@@ -159,7 +159,7 @@ step3 = builder.add_operation("communicate", instruction="Draw conclusions", dep
 ```python
 # Use same branch for context continuity
 analyzer = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Maintain context across analysis steps."
 )
 ```

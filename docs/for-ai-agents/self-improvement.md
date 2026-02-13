@@ -1,442 +1,354 @@
-# Self-Improvement Guide
+# Self-Improvement
 
-Learning from execution results to improve orchestration.
+How to inspect, debug, and adapt your lionagi usage by examining conversation
+state, logs, and serialization.
 
-## Execution Metrics to Track
+## Inspecting Conversation State
 
-Monitor key metrics from LionAGI workflow executions.
+### Branch.messages -- The Conversation History
+
+`branch.messages` is a `Pile[RoledMessage]` containing all messages in the
+conversation. Access it to review what has been sent and received.
 
 ```python
-from lionagi import Session, Builder, Branch, iModel
-import time
-import asyncio
+# Number of messages
+len(branch.messages)
 
-async def track_execution_metrics():
-    """Track key metrics for improvement"""
-    session = Session()
-    builder = Builder("tracked_workflow")
-    
-    branch = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini")
-    )
-    session.include_branches([branch])
-    
-    # Add operations
-    op1 = builder.add_operation("communicate", branch=branch, instruction="Task 1")
-    op2 = builder.add_operation("communicate", branch=branch, instruction="Task 2")
-    synthesis = builder.add_aggregation(
-        "communicate", branch=branch,
-        source_node_ids=[op1, op2],
-        instruction="Synthesize results"
-    )
-    
-    # Execute and track metrics
-    start_time = time.time()
-    result = await session.flow(builder.get_graph(), max_concurrent=2, verbose=True)
-    execution_time = time.time() - start_time
-    
-    # Extract metrics
-    metrics = {
-        "execution_time": execution_time,
-        "completed_operations": len(result["completed_operations"]),
-        "failed_operations": len(result["skipped_operations"]),
-        "success_rate": len(result["completed_operations"]) / (len(result["completed_operations"]) + len(result["skipped_operations"])),
-        "parallel_efficiency": len(result["completed_operations"]) / execution_time,
-        "pattern_used": "builder_graph"
-    }
-    
-    print(f"Metrics: {metrics}")
-    return metrics
+# Iterate all messages
+for msg in branch.messages:
+    print(f"[{msg.role}] {msg.content[:100]}")
 
-asyncio.run(track_execution_metrics())
+# Get the last message
+last = branch.messages[-1]
+
+# Access by UUID
+msg = branch.messages[some_uuid]
 ```
 
-## Pattern Performance Analysis
-
-Compare different orchestration patterns for similar tasks.
+### Message Types
 
 ```python
-async def pattern_comparison():
-    """Compare patterns for the same task set"""
-    
-    tasks = ["Analyze market", "Research competitors", "Assess risks"]
-    results = {}
-    
-    # Pattern 1: Sequential execution
-    start_time = time.time()
-    branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-    sequential_results = []
-    for task in tasks:
-        result = await branch.communicate(task)
-        sequential_results.append(result)
-    
-    results["sequential"] = {
-        "time": time.time() - start_time,
-        "pattern": "sequential",
-        "results": len(sequential_results)
-    }
-    
-    # Pattern 2: Parallel execution
-    start_time = time.time()
-    parallel_results = await asyncio.gather(*[
-        branch.communicate(task) for task in tasks
-    ])
-    
-    results["parallel"] = {
-        "time": time.time() - start_time,
-        "pattern": "asyncio_gather", 
-        "results": len(parallel_results)
-    }
-    
-    # Pattern 3: Builder graph
-    start_time = time.time()
-    session = Session()
-    builder = Builder("comparison")
-    session.include_branches([branch])
-    
-    ops = [builder.add_operation("communicate", branch=branch, instruction=task) for task in tasks]
-    synthesis = builder.add_aggregation("communicate", branch=branch, source_node_ids=ops, instruction="Combine")
-    
-    graph_result = await session.flow(builder.get_graph(), max_concurrent=3)
-    
-    results["builder"] = {
-        "time": time.time() - start_time,
-        "pattern": "builder_graph",
-        "results": len(graph_result["completed_operations"])
-    }
-    
-    # Analysis
-    print("Pattern Performance Comparison:")
-    for pattern, metrics in results.items():
-        print(f"{pattern}: {metrics['time']:.2f}s, {metrics['results']} results")
-    
-    # Best pattern for this task type
-    fastest = min(results.items(), key=lambda x: x[1]["time"])
-    print(f"Best pattern: {fastest[0]} ({fastest[1]['time']:.2f}s)")
-    
-    return results
+from lionagi.protocols.messages import (
+    System,              # system prompt
+    Instruction,         # user instruction
+    AssistantResponse,   # LLM response
+    ActionRequest,       # tool call from LLM
+    ActionResponse,      # tool result back to LLM
+)
 
-asyncio.run(pattern_comparison())
+# Check message type
+from lionagi.protocols.messages import AssistantResponse
+if isinstance(branch.messages[-1], AssistantResponse):
+    response = branch.messages[-1]
+    print(response.content)          # response text
+    print(response.model_response)   # raw provider response dict
 ```
 
-## Failure Analysis and Learning
-
-Learn from execution failures to improve future orchestration.
+### System Message
 
 ```python
-async def failure_analysis():
-    """Analyze failures to improve future executions"""
-    
-    failure_log = []
-    
-    # Simulate different failure scenarios
-    test_scenarios = [
-        {"pattern": "direct", "task": "Complex multi-step analysis"},
-        {"pattern": "gather", "task": "Sequential dependent tasks"},
-        {"pattern": "builder", "task": "Simple single question"}
-    ]
-    
-    for scenario in test_scenarios:
-        try:
-            if scenario["pattern"] == "direct":
-                branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-                # This might fail for complex tasks
-                result = await branch.communicate(scenario["task"])
-                
-            elif scenario["pattern"] == "gather":
-                # This might fail for dependent tasks
-                branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-                results = await asyncio.gather(*[
-                    branch.communicate("Step 1 of analysis"),
-                    branch.communicate("Step 2 that depends on Step 1")  # Problem: no dependency
-                ])
-                
-            elif scenario["pattern"] == "builder":
-                # This might be overkill for simple tasks
-                session = Session()
-                builder = Builder("simple")
-                branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-                session.include_branches([branch])
-                
-                op = builder.add_operation("communicate", branch=branch, instruction="What is 2+2?")
-                result = await session.flow(builder.get_graph())
-            
-            print(f"✓ {scenario['pattern']} pattern worked for: {scenario['task']}")
-            
-        except Exception as e:
-            failure_info = {
-                "pattern": scenario["pattern"],
-                "task": scenario["task"], 
-                "error": str(e),
-                "lesson": self.analyze_failure(scenario["pattern"], scenario["task"], str(e))
-            }
-            failure_log.append(failure_info)
-            print(f"✗ {scenario['pattern']} failed: {e}")
-    
-    return failure_log
-
-def analyze_failure(pattern, task, error):
-    """Extract lessons from failures"""
-    lessons = {
-        ("direct", "multi-step"): "Use Builder for complex workflows with multiple steps",
-        ("gather", "dependent"): "Use Builder with dependencies for sequential tasks",
-        ("builder", "simple"): "Use direct execution for simple single tasks"
-    }
-    
-    # Simple pattern matching for lessons
-    for key, lesson in lessons.items():
-        if key[0] in pattern.lower() and any(word in task.lower() for word in key[1].split("-")):
-            return lesson
-    
-    return "Review pattern selection guide"
-
-asyncio.run(failure_analysis())
+# Read the current system message
+if branch.system:
+    print(branch.system.content)
 ```
 
-## Optimization Loop
-
-Implement continuous improvement based on execution history.
+### Convert to DataFrame
 
 ```python
-class ExecutionOptimizer:
-    """Learn from execution patterns and optimize future choices"""
-    
-    def __init__(self):
-        self.execution_history = []
-        self.pattern_performance = {}
-    
-    def record_execution(self, task_type: str, pattern: str, metrics: dict):
-        """Record execution results for learning"""
-        execution = {
-            "task_type": task_type,
-            "pattern": pattern,
-            "execution_time": metrics.get("execution_time", 0),
-            "success_rate": metrics.get("success_rate", 0),
-            "efficiency": metrics.get("parallel_efficiency", 0)
-        }
-        
-        self.execution_history.append(execution)
-        
-        # Update pattern performance
-        key = (task_type, pattern)
-        if key not in self.pattern_performance:
-            self.pattern_performance[key] = []
-        self.pattern_performance[key].append(execution)
-    
-    def recommend_pattern(self, task_type: str) -> str:
-        """Recommend best pattern based on historical performance"""
-        
-        # Find all patterns used for this task type
-        relevant_patterns = {}
-        for (stored_task, pattern), executions in self.pattern_performance.items():
-            if stored_task == task_type:
-                avg_time = sum(e["execution_time"] for e in executions) / len(executions)
-                avg_success = sum(e["success_rate"] for e in executions) / len(executions)
-                
-                # Score: balance speed and success rate
-                score = avg_success * 0.7 + (1/avg_time) * 0.3
-                relevant_patterns[pattern] = score
-        
-        if relevant_patterns:
-            best_pattern = max(relevant_patterns.items(), key=lambda x: x[1])
-            return best_pattern[0]
-        
-        # Default fallback
-        return "direct"
-    
-    def get_insights(self) -> dict:
-        """Generate insights from execution history"""
-        if not self.execution_history:
-            return {"insight": "No execution history available"}
-        
-        # Pattern usage frequency
-        pattern_usage = {}
-        for execution in self.execution_history:
-            pattern = execution["pattern"]
-            pattern_usage[pattern] = pattern_usage.get(pattern, 0) + 1
-        
-        # Average performance by pattern
-        pattern_performance = {}
-        for execution in self.execution_history:
-            pattern = execution["pattern"]
-            if pattern not in pattern_performance:
-                pattern_performance[pattern] = []
-            pattern_performance[pattern].append(execution["execution_time"])
-        
-        avg_performance = {
-            pattern: sum(times) / len(times) 
-            for pattern, times in pattern_performance.items()
-        }
-        
-        return {
-            "most_used_pattern": max(pattern_usage.items(), key=lambda x: x[1])[0],
-            "fastest_pattern": min(avg_performance.items(), key=lambda x: x[1])[0],
-            "total_executions": len(self.execution_history),
-            "pattern_usage": pattern_usage,
-            "avg_performance": avg_performance
-        }
-
-async def optimization_example():
-    """Example of using the optimization loop"""
-    optimizer = ExecutionOptimizer()
-    
-    # Simulate some executions
-    optimizer.record_execution("analysis", "direct", {"execution_time": 2.0, "success_rate": 1.0})
-    optimizer.record_execution("analysis", "gather", {"execution_time": 1.5, "success_rate": 0.9})
-    optimizer.record_execution("multi_step", "builder", {"execution_time": 3.0, "success_rate": 1.0})
-    optimizer.record_execution("multi_step", "gather", {"execution_time": 2.0, "success_rate": 0.6})
-    
-    # Get recommendations
-    print(f"Recommended pattern for 'analysis': {optimizer.recommend_pattern('analysis')}")
-    print(f"Recommended pattern for 'multi_step': {optimizer.recommend_pattern('multi_step')}")
-    
-    # Get insights
-    insights = optimizer.get_insights()
-    print(f"Insights: {insights}")
-    
-    return optimizer
-
-asyncio.run(optimization_example())
+df = branch.to_df()
+# Columns include: role, sender, recipient, content, created_at, etc.
 ```
 
-## Knowledge Persistence
+## Inspecting Logs
 
-Save and retrieve learned orchestration patterns.
+### Branch.logs -- Activity Logs
+
+`branch.logs` is a `Pile[Log]` containing API call logs, tool invocations, and
+other activity records.
 
 ```python
+# Number of log entries
+len(branch.logs)
+
+# Iterate logs
+for log in branch.logs:
+    print(log.content)  # dict with event details
+
+# Dump logs to file
+branch.dump_logs(persist_path="./debug_logs.json", clear=False)
+
+# Async version
+await branch.adump_logs(persist_path="./debug_logs.json", clear=False)
+```
+
+### Using Async Context Manager for Auto-Cleanup
+
+```python
+async with Branch() as b:
+    await b.communicate("First question")
+    await b.communicate("Follow-up question")
+    # On exit, logs are automatically dumped and cleared
+```
+
+## Serialization: Save and Restore State
+
+### Branch Serialization
+
+```python
+# Save branch state to dict
+state = branch.to_dict()
+# state contains: messages, logs, chat_model, parse_model, system, log_config, metadata
+
+# Restore from dict
+restored = Branch.from_dict(state)
+# restored has the same messages, models, and configuration
+
+# Save to JSON file
 import json
-import os
+with open("branch_state.json", "w") as f:
+    json.dump(state, f, default=str)
 
-class PatternKnowledge:
-    """Persist learned orchestration knowledge"""
-    
-    def __init__(self, knowledge_file: str = "orchestration_knowledge.json"):
-        self.knowledge_file = knowledge_file
-        self.knowledge = self.load_knowledge()
-    
-    def save_pattern_success(self, task_pattern: str, orchestration_pattern: str, metrics: dict):
-        """Save successful pattern combination"""
-        if "successful_patterns" not in self.knowledge:
-            self.knowledge["successful_patterns"] = {}
-        
-        key = f"{task_pattern}:{orchestration_pattern}"
-        if key not in self.knowledge["successful_patterns"]:
-            self.knowledge["successful_patterns"][key] = []
-        
-        self.knowledge["successful_patterns"][key].append(metrics)
-        self.save_knowledge()
-    
-    def save_pattern_failure(self, task_pattern: str, orchestration_pattern: str, error: str):
-        """Save failed pattern combination to avoid repeating"""
-        if "failed_patterns" not in self.knowledge:
-            self.knowledge["failed_patterns"] = {}
-        
-        key = f"{task_pattern}:{orchestration_pattern}"
-        if key not in self.knowledge["failed_patterns"]:
-            self.knowledge["failed_patterns"][key] = []
-        
-        self.knowledge["failed_patterns"][key].append(error)
-        self.save_knowledge()
-    
-    def get_best_pattern(self, task_pattern: str) -> str:
-        """Get best orchestration pattern for task type"""
-        successful = self.knowledge.get("successful_patterns", {})
-        
-        # Find all successful patterns for this task type
-        candidates = {}
-        for key, results in successful.items():
-            stored_task, pattern = key.split(":", 1)
-            if stored_task == task_pattern:
-                # Average success metrics
-                avg_time = sum(r.get("execution_time", 10) for r in results) / len(results)
-                avg_success = sum(r.get("success_rate", 0) for r in results) / len(results)
-                
-                score = avg_success * 0.8 + (1/avg_time) * 0.2
-                candidates[pattern] = score
-        
-        if candidates:
-            return max(candidates.items(), key=lambda x: x[1])[0]
-        
-        return "direct"  # Default
-    
-    def should_avoid_pattern(self, task_pattern: str, orchestration_pattern: str) -> bool:
-        """Check if pattern combination should be avoided"""
-        failed = self.knowledge.get("failed_patterns", {})
-        key = f"{task_pattern}:{orchestration_pattern}"
-        
-        # Avoid if it has failed multiple times
-        return len(failed.get(key, [])) >= 3
-    
-    def load_knowledge(self) -> dict:
-        """Load knowledge from file"""
-        if os.path.exists(self.knowledge_file):
-            with open(self.knowledge_file, "r") as f:
-                return json.load(f)
-        return {}
-    
-    def save_knowledge(self):
-        """Save knowledge to file"""
-        with open(self.knowledge_file, "w") as f:
-            json.dump(self.knowledge, f, indent=2)
-
-async def knowledge_example():
-    """Example of using persistent knowledge"""
-    knowledge = PatternKnowledge()
-    
-    # Save some successful patterns
-    knowledge.save_pattern_success(
-        "code_review", "gather", 
-        {"execution_time": 1.5, "success_rate": 0.95}
-    )
-    
-    knowledge.save_pattern_success(
-        "research_workflow", "builder",
-        {"execution_time": 3.0, "success_rate": 1.0}
-    )
-    
-    # Save a failure
-    knowledge.save_pattern_failure(
-        "simple_question", "builder",
-        "Overkill for simple task"
-    )
-    
-    # Get recommendations
-    print(f"Best for code_review: {knowledge.get_best_pattern('code_review')}")
-    print(f"Best for research_workflow: {knowledge.get_best_pattern('research_workflow')}")
-    print(f"Should avoid simple_question+builder: {knowledge.should_avoid_pattern('simple_question', 'builder')}")
-    
-    return knowledge
-
-asyncio.run(knowledge_example())
+# Load from JSON file
+with open("branch_state.json") as f:
+    data = json.load(f)
+restored = Branch.from_dict(data)
 ```
 
-## Best Practices for Self-Improvement
+### What Gets Serialized
 
-### 1. Track Key Metrics
+| Field | Included | Notes |
+|-------|:--------:|-------|
+| messages | Yes | Full conversation history |
+| logs | Yes | All activity logs |
+| chat_model | Yes | Provider, model, endpoint config |
+| parse_model | Yes | Provider, model, endpoint config |
+| system | Yes | System message if set |
+| log_config | Yes | Logger configuration |
+| metadata | Yes | Including clone_from info |
+| registered tools | No | Re-register after deserialization |
 
-- Execution time
-- Success/failure rates
-- Pattern effectiveness
-- Resource usage
+## Cloning: Explore Alternatives
 
-### 2. Analyze Patterns
+### Branch.clone() -- Fork a Conversation
 
-- Compare different approaches for similar tasks
-- Identify what makes patterns successful
-- Learn from failures and mistakes
+`clone()` creates a new Branch with the same messages, system prompt, tools,
+and model configuration. Use it to explore alternative conversation paths
+without affecting the original.
 
-### 3. Build Feedback Loops
+```python
+# Synchronous clone
+alt_branch = branch.clone()
 
-- Record execution results
-- Update recommendations based on performance
-- Continuously refine pattern selection
+# Async clone (acquires message lock)
+alt_branch = await branch.aclone()
 
-### 4. Persist Learning
+# Clone with a specific sender ID
+alt_branch = branch.clone(sender=some_id)
+```
 
-- Save successful pattern combinations
-- Remember failed approaches to avoid repeating
-- Build knowledge base over time
+### Clone Behavior by Endpoint Type
 
-Self-improvement in LionAGI orchestration comes from systematically tracking
-execution results, analyzing pattern effectiveness, and building persistent
-knowledge to make better orchestration decisions over time.
+| Endpoint Type | Clone Behavior |
+|--------------|----------------|
+| API (openai, anthropic, etc.) | Shared endpoint (same connection pool) |
+| CLI (claude_code, gemini_code, codex) | Fresh endpoint copy (independent session) |
+
+### Exploring Alternatives
+
+```python
+# Original conversation
+await branch.communicate("Analyze this code for bugs")
+
+# Fork and try a different approach
+alt = branch.clone()
+await alt.communicate("Now focus specifically on security vulnerabilities")
+
+# Compare results
+original_response = branch.messages[-1].content
+alternative_response = alt.messages[-1].content
+```
+
+### Session.split() -- Fork Within a Session
+
+```python
+session = Session()
+session.include_branches([branch])
+
+# Split creates a clone and adds it to the session
+forked = session.split(branch)
+# forked is now managed by the session alongside the original
+```
+
+## Debugging Patterns
+
+### Inspect What the LLM Received
+
+```python
+# Get the full message sequence that was sent
+for msg in branch.messages:
+    print(f"Role: {msg.role}")
+    print(f"Content: {msg.content}")
+    print(f"Created: {msg.created_at}")
+    print("---")
+```
+
+### Inspect API Call Details
+
+```python
+# Logs contain raw API call information
+for log in branch.logs:
+    content = log.content
+    if isinstance(content, dict):
+        # Check for API payload
+        if "payload" in content:
+            print(f"Request: {content['payload']}")
+        # Check for response
+        if "response" in content:
+            print(f"Response: {content['response']}")
+```
+
+### Check Token Usage (CLI providers)
+
+```python
+from lionagi.protocols.messages import AssistantResponse
+
+for msg in branch.messages:
+    if isinstance(msg, AssistantResponse):
+        resp = msg.model_response
+        if isinstance(resp, dict):
+            cost = resp.get("total_cost_usd")
+            if cost:
+                print(f"Cost: ${cost:.4f}")
+```
+
+### Validate Structured Output Quality
+
+```python
+from pydantic import BaseModel, ValidationError
+
+class Expected(BaseModel):
+    summary: str
+    score: float
+
+# Test parsing reliability
+successes = 0
+for i in range(5):
+    alt = branch.clone()
+    result = await alt.communicate(
+        "Score this code quality",
+        response_format=Expected,
+    )
+    if isinstance(result, Expected):
+        successes += 1
+        print(f"Trial {i}: score={result.score}")
+    else:
+        print(f"Trial {i}: parse failed, got {type(result)}")
+
+print(f"Success rate: {successes}/5")
+```
+
+## Adapting Model Configuration
+
+### Swap Models at Runtime
+
+```python
+from lionagi import iModel
+
+# Upgrade to a more capable model for complex tasks
+branch.chat_model = iModel(provider="openai", model="gpt-4.1")
+
+# Use a faster model for simple follow-ups
+branch.chat_model = iModel(provider="openai", model="gpt-4.1-mini")
+```
+
+### Use Different Models for Chat vs Parse
+
+```python
+# Expensive model for conversation, cheap model for parsing
+branch = Branch(
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
+    parse_model=iModel(provider="openai", model="gpt-4.1-mini"),
+)
+```
+
+### Override Model Per Call
+
+```python
+# Use a specific model for just this call
+result = await branch.communicate(
+    "Complex analysis requiring high capability",
+    chat_model=iModel(provider="openai", model="gpt-4.1"),
+)
+```
+
+## Workflow Debugging
+
+### Session.flow() Results
+
+```python
+result = await session.flow(builder.get_graph(), verbose=True)
+
+# Inspect results per operation
+for node_id, op_result in result.get("operation_results", {}).items():
+    print(f"Node {str(node_id)[:8]}: {type(op_result).__name__}")
+    if op_result is None:
+        print("  -> Operation returned None (possible parse failure)")
+
+# Check what was skipped
+for skipped in result.get("skipped_operations", []):
+    print(f"Skipped: {str(skipped)[:8]}")
+
+# Check completed
+for completed in result.get("completed_operations", []):
+    print(f"Completed: {str(completed)[:8]}")
+```
+
+### Builder State Inspection
+
+```python
+state = builder.visualize_state()
+print(f"Total nodes: {state['total_nodes']}")
+print(f"Executed: {state['executed_nodes']}")
+print(f"Remaining: {state['unexecuted_nodes']}")
+print(f"Current heads: {state['current_heads']}")
+print(f"Expansions: {state['expansions']}")
+```
+
+## Property Reference
+
+### Branch Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `branch.messages` | `Pile[RoledMessage]` | All conversation messages |
+| `branch.logs` | `Pile[Log]` | Activity logs |
+| `branch.system` | `System \| None` | System message |
+| `branch.chat_model` | `iModel` | Chat model (settable) |
+| `branch.parse_model` | `iModel` | Parse model (settable) |
+| `branch.tools` | `dict[str, Tool]` | Registered tools |
+| `branch.msgs` | `MessageManager` | Message manager (advanced) |
+| `branch.acts` | `ActionManager` | Action manager (advanced) |
+| `branch.mdls` | `iModelManager` | Model manager (advanced) |
+
+### Branch Methods for State Management
+
+| Method | Description |
+|--------|-------------|
+| `to_dict()` | Serialize to dict |
+| `from_dict(data)` | Restore from dict (classmethod) |
+| `to_df()` | Convert messages to DataFrame |
+| `clone(sender=None)` | Synchronous fork |
+| `aclone(sender=None)` | Async fork (with lock) |
+| `dump_logs(clear, persist_path)` | Save logs to file |
+| `adump_logs(clear, persist_path)` | Async save logs |
+| `register_tools(tools)` | Add tools |
+
+### iModel Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `model.is_cli` | `bool` | Whether this is a CLI endpoint |
+| `model.model_name` | `str` | Model name string |
+| `model.request_options` | `type[BaseModel] \| None` | Request schema |
+| `model.id` | `UUID` | Unique identifier |
+| `model.created_at` | `float` | Creation timestamp |

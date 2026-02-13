@@ -1,218 +1,245 @@
 # Error Handling
 
-Handle failures gracefully in LionAGI workflows.
+lionagi provides multiple layers of resilience: retry with backoff in the
+concurrency layer, circuit breakers and rate limiting in the service layer,
+and structured error propagation in operation flows.
 
-## Basic Error Handling
+## iModel Built-in Resilience
 
-Catch and handle common errors:
+### Rate Limiting
+
+Every `iModel` wraps a `RateLimitedAPIExecutor` that automatically queues
+and throttles requests. You configure limits at construction time:
 
 ```python
-from lionagi import Branch, iModel
+from lionagi import iModel
 
-try:
-    # Invalid model configuration
-    branch = Branch(
-        chat_model=iModel(provider="invalid", model="gpt-4")
-    )
-    result = await branch.communicate("Analyze market trends")
-    
-except Exception as e:
-    print(f"Error: {e}")
-    # Fallback to working model
-    branch = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4")
-    )
-    result = await branch.communicate("Analyze market trends")
+model = iModel(
+    provider="openai",
+    model="gpt-4.1-mini",
+    limit_requests=60,          # Requests per cycle
+    limit_tokens=100_000,       # Tokens per cycle
+    capacity_refresh_time=60,   # Cycle length in seconds
+    queue_capacity=100,         # Max queued requests
+)
 ```
 
-## Retry Pattern
+When the request or token budget is exhausted, the executor holds incoming
+requests until the next replenishment cycle. This happens transparently --
+you do not need to add manual delays.
 
-Retry failed operations with backoff:
+### Circuit Breaker
+
+Endpoints can be configured with a `CircuitBreaker` that prevents
+repeated calls to a failing service:
 
 ```python
-import asyncio
-from lionagi import Branch, iModel
+from lionagi.service.resilience import CircuitBreaker, RetryConfig
 
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-
-async def safe_communicate(prompt: str, max_retries: int = 3):
-    for attempt in range(max_retries):
-        try:
-            return await branch.communicate(prompt)
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
-            if attempt == max_retries - 1:
-                raise
-            await asyncio.sleep(2 ** attempt)  # Exponential backoff
-
-result = await safe_communicate("Analyze market trends")
+breaker = CircuitBreaker(
+    failure_threshold=5,     # Open after 5 consecutive failures
+    recovery_time=30.0,      # Wait 30s before testing recovery
+    half_open_max_calls=1,   # Allow 1 test call in half-open state
+    name="openai_chat",
+)
 ```
 
-## Fallback Pattern
+Circuit states:
 
-Try multiple models as fallbacks:
+- **CLOSED** -- normal operation, requests pass through.
+- **OPEN** -- too many failures, requests are rejected immediately with
+  `CircuitBreakerOpenError`.
+- **HALF_OPEN** -- recovery time elapsed, allowing a limited number of
+  test calls. Success closes the circuit; failure reopens it.
+
+### Retry with Backoff (Service Layer)
+
+The service layer provides `retry_with_backoff` for retrying API calls:
+
+```python
+from lionagi.service.resilience import retry_with_backoff
+
+result = await retry_with_backoff(
+    some_api_call,
+    arg1, arg2,
+    max_retries=3,
+    base_delay=1.0,
+    max_delay=60.0,
+    backoff_factor=2.0,
+    jitter=True,
+    retry_exceptions=(ConnectionError, TimeoutError),
+    exclude_exceptions=(AuthenticationError,),
+)
+```
+
+There is also a `@with_retry` decorator for applying retry logic to
+async functions declaratively:
+
+```python
+from lionagi.service.resilience import with_retry
+
+@with_retry(max_retries=3, base_delay=1.0)
+async def call_external_api():
+    ...
+```
+
+## Concurrency-Layer Retry
+
+The `retry` function in `lionagi.ln.concurrency` provides structured-
+concurrency-aware retry with deadline support:
+
+```python
+from lionagi.ln.concurrency import retry, fail_after
+
+# Retry with ambient deadline awareness
+with fail_after(30):
+    result = await retry(
+        lambda: branch.communicate("Analyze this"),
+        attempts=3,
+        base_delay=0.5,
+        max_delay=5.0,
+        retry_on=(ValueError,),
+    )
+```
+
+Key differences from the service-layer retry:
+
+- Uses AnyIO structured concurrency (cancellation is never retried).
+- Respects parent `CancelScope` deadlines -- delays are capped so they
+  do not exceed the ambient deadline.
+- Takes a zero-argument async callable (use `lambda` or `functools.partial`).
+
+## Flow-Level Error Handling
+
+### Operation Status Tracking
+
+Each `Operation` node in a flow graph tracks its execution status:
+
+```python
+from lionagi.protocols.generic import EventStatus
+
+# After session.flow(), check individual operation status
+for node in builder.get_graph().internal_nodes.values():
+    print(f"{node.operation}: {node.execution.status}")
+    if node.execution.status == EventStatus.FAILED:
+        print(f"  Error: {node.execution.error}")
+```
+
+Possible statuses: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`,
+`CANCELLED`, `SKIPPED`.
+
+### Partial Success in Flows
+
+When an operation in a graph fails, the error is captured and dependent
+operations may still proceed (they receive the error as context). The
+flow result separates completed and skipped operations:
+
+```python
+result = await session.flow(builder.get_graph(), verbose=True)
+
+completed = result["completed_operations"]
+skipped = result["skipped_operations"]
+errors = {
+    op_id: res
+    for op_id, res in result["operation_results"].items()
+    if isinstance(res, dict) and "error" in res
+}
+
+print(f"Completed: {len(completed)}, Skipped: {len(skipped)}")
+for op_id, err in errors.items():
+    print(f"  {str(op_id)[:8]}: {err['error']}")
+```
+
+### Edge Conditions
+
+Graph edges can have conditions that control whether dependent operations
+execute. When all incoming edges fail their conditions, the operation is
+skipped rather than failed:
+
+```python
+from lionagi.protocols.graph.edge import Edge, EdgeCondition
+```
+
+## Provider Fallback Pattern
+
+Try multiple providers in sequence:
 
 ```python
 from lionagi import Branch, iModel
 
-models = [
-    {"provider": "openai", "model": "gpt-4"},
-    {"provider": "anthropic", "model": "claude-3-5-sonnet-20240620"}
+configs = [
+    {"provider": "openai", "model": "gpt-4.1-mini"},
+    {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
 ]
 
-prompt = "What are current AI trends?"
-
-for i, config in enumerate(models):
-    try:
-        branch = Branch(chat_model=iModel(**config))
-        result = await branch.communicate(prompt)
-        print(f"✓ Success with model {i+1}")
-        break
-    except Exception as e:
-        print(f"✗ Model {i+1} failed: {e}")
-        if i == len(models) - 1:
-            raise Exception("All models failed")
+async def resilient_call(prompt: str) -> str:
+    for i, config in enumerate(configs):
+        try:
+            branch = Branch(chat_model=iModel(**config))
+            return await branch.communicate(prompt)
+        except Exception as e:
+            if i == len(configs) - 1:
+                raise
+            print(f"Provider {config['provider']} failed: {e}, trying next")
 ```
 
-## Workflow Fallbacks
+## Structured Output Validation
 
-Simplify workflows when complex ones fail:
+`branch.operate()` and `branch.parse()` have built-in retry logic for
+structured output parsing. When the LLM returns malformed JSON,
+lionagi retries the parse (not the API call) using fuzzy matching:
 
 ```python
-from lionagi import Session, Builder, Branch, iModel
+from pydantic import BaseModel
 
-async def complex_workflow():
-    session = Session()
-    builder = Builder("analysis")
-    
-    branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-    session.include_branches([branch])
-    
-    step1 = builder.add_operation(
-        "communicate", branch=branch,
-        instruction="Research market trends"
-    )
-    step2 = builder.add_operation(
-        "communicate", branch=branch,
-        instruction="Analyze competition",
-        depends_on=[step1]
-    )
-    
-    return await session.flow(builder.get_graph())
+class Analysis(BaseModel):
+    sentiment: str
+    confidence: float
+    key_points: list[str]
 
-async def simple_workflow():
-    branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-    result = await branch.communicate("Provide market and competitive analysis")
-    return {"operation_results": {"analysis": result}}
-
-# Try complex, fallback to simple
-try:
-    result = await complex_workflow()
-except Exception as e:
-    print(f"Complex workflow failed: {e}")
-    result = await simple_workflow()
+result = await branch.operate(
+    instruction="Analyze this review",
+    response_format=Analysis,
+    handle_validation="return_value",  # Return best-effort on failure
+    # Other options: "raise" (raise on failure), "return_none"
+)
 ```
 
-## Partial Results
+The `handle_validation` parameter controls behavior when parsing fails
+after all retries:
 
-Accept partial success when some operations fail:
+- `"raise"` -- raise an exception.
+- `"return_value"` -- return whatever was parsed (may be partial).
+- `"return_none"` -- return `None`.
+
+## gather with return_exceptions
+
+For batch operations where partial failure is acceptable:
 
 ```python
-from lionagi import Branch, iModel
+from lionagi.ln.concurrency import gather
 
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
+results = await gather(
+    branch.communicate("Task 1"),
+    branch.communicate("Task 2"),
+    branch.communicate("Task 3"),
+    return_exceptions=True,
+)
 
-tasks = ["market analysis", "competitor research", "risk assessment"]
-results = []
-
-for task in tasks:
-    try:
-        result = await branch.communicate(f"Brief {task}")
-        results.append({"task": task, "result": result, "status": "success"})
-        print(f"✓ {task} completed")
-    except Exception as e:
-        results.append({"task": task, "error": str(e), "status": "failed"})
-        print(f"✗ {task} failed: {e}")
-
-# Use partial results if sufficient
-successful = [r for r in results if r["status"] == "success"]
-if len(successful) >= 2:
-    print(f"Using {len(successful)} successful results")
-else:
-    print("Too many failures to proceed")
+successes = [r for r in results if not isinstance(r, BaseException)]
+failures = [r for r in results if isinstance(r, BaseException)]
+print(f"{len(successes)} succeeded, {len(failures)} failed")
 ```
 
-## Error Tracking
+## Guidelines
 
-Track errors for monitoring:
-
-```python
-from lionagi import Branch, iModel
-
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4"))
-
-operations = ["market analysis", "competitor research", "risk assessment"]
-errors = []
-successes = 0
-
-for operation in operations:
-    try:
-        result = await branch.communicate(f"Brief {operation}")
-        successes += 1
-        print(f"✓ {operation} completed")
-    except Exception as e:
-        errors.append({"operation": operation, "error": str(e)})
-        print(f"✗ {operation} failed: {e}")
-
-total = len(operations)
-error_rate = len(errors) / total * 100
-print(f"Results: {successes}/{total} successful ({error_rate:.1f}% error rate)")
-```
-
-## Best Practices
-
-**Handle errors at appropriate levels**:
-
-```python
-# Operation level: basic try/catch
-try:
-    result = await branch.communicate(instruction)
-except Exception as e:
-    print(f"Operation failed: {e}")
-
-# Workflow level: fallbacks
-try:
-    result = await complex_workflow()
-except Exception:
-    result = await simple_fallback()
-```
-
-**Use simple retry logic**:
-
-```python
-for attempt in range(3):
-    try:
-        return await operation()
-    except Exception as e:
-        if attempt == 2:
-            raise
-        await asyncio.sleep(2 ** attempt)
-```
-
-**Accept partial results**:
-
-```python
-results = []
-for task in tasks:
-    try:
-        result = await process_task(task)
-        results.append(result)
-    except Exception:
-        continue
-
-if len(results) >= minimum_required:
-    return results
-```
-
-Error handling focuses on practical patterns: basic try/catch blocks, retry
-logic, fallback strategies, and accepting partial results.
+- Let iModel's built-in rate limiting handle API throttling -- do not
+  add manual `sleep()` calls.
+- Use `CircuitBreaker` for endpoints that may go down entirely, not for
+  transient rate limit errors (rate limiting handles those).
+- Use `handle_validation="return_value"` in `operate()` for best-effort
+  structured output rather than failing the entire pipeline.
+- In flows, use `verbose=True` to diagnose which operations failed and
+  why, then add targeted error handling.
+- Prefer `gather(return_exceptions=True)` over try/except loops for
+  batch operations.

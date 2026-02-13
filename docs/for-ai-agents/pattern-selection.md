@@ -1,289 +1,288 @@
-# Pattern Selection Guide
+# Pattern Selection
 
-Choosing the right orchestration pattern for the task.
+Decision trees and lookup tables for choosing the right lionagi API for your
+task.
 
-## Quick Decision Framework
+## Primary Decision Tree
+
+```
+What do you need?
+|
++-- Single LLM call, no conversation state needed?
+|   +-- chat()
+|
++-- Conversation with history tracking?
+|   |
+|   +-- Plain text response?
+|   |   +-- communicate(instruction)
+|   |
+|   +-- Structured output (Pydantic model)?
+|   |   +-- communicate(instruction, response_format=Model)
+|   |
+|   +-- Tool calling needed?
+|   |   |
+|   |   +-- Single-step tool use?
+|   |   |   +-- operate(instruction, actions=True)
+|   |   |
+|   |   +-- Multi-step reasoning + tools?
+|   |       +-- ReAct(instruct)
+|   |
+|   +-- Structured output + tool calling?
+|       +-- operate(instruction, response_format=Model, actions=True)
+|
++-- Parse existing text into a model?
+|   +-- parse(text, response_format=Model)
+|
++-- Rewrite/improve a prompt?
+|   +-- interpret(text)
+|
++-- Multiple operations with dependencies?
+|   +-- Session + Builder
+|
++-- Multiple independent operations in parallel?
+    +-- gather() or asyncio.gather()
+```
+
+## Method Lookup Table
+
+| Scenario | Method | Key Parameters |
+|----------|--------|---------------|
+| Ask a question, get a string | `communicate(instruction)` | -- |
+| Ask a question, get structured data | `communicate(instruction, response_format=Model)` | `num_parse_retries=3` |
+| Call tools based on instruction | `operate(instruction, actions=True)` | `tools=[fn]`, `action_strategy="concurrent"` |
+| Tools + structured output | `operate(instruction, actions=True, response_format=Model)` | `reason=True` |
+| Multi-step reasoning | `ReAct(instruct)` | `max_extensions=3`, `extension_allowed=True` |
+| Extract data from raw text | `parse(text, response_format=Model)` | `max_retries=3`, `fuzzy_match=True` |
+| Refine a prompt | `interpret(text)` | `domain="...", style="..."` |
+| Orchestration call (no history) | `chat(instruction)` | `response_format=Model` |
+
+## Concurrency Decision Tree
+
+```
+How many operations?
+|
++-- Just one?
+|   +-- Use the method directly: await branch.communicate(...)
+|
++-- Multiple, all independent?
+|   |
+|   +-- Small number (2-5)?
+|   |   +-- gather(branch.communicate("A"), branch.communicate("B"))
+|   |
+|   +-- Large number, need concurrency limit?
+|   |   +-- bounded_map(fn, items, limit=N)
+|   |
+|   +-- Want results as they complete?
+|   |   +-- CompletionStream(tasks, limit=N)
+|   |
+|   +-- Want only the fastest result?
+|       +-- race(branch.communicate("A"), branch.communicate("B"))
+|
++-- Operations have dependencies?
+|   +-- Session + Builder with depends_on
+|
++-- Need retry on failure?
+    +-- retry(fn, attempts=3, retry_on=(ValueError,))
+```
+
+## Workflow Complexity Decision
+
+```
+Is the task a single prompt?
+|
++-- Yes -> Branch method directly
+|
++-- No -> Are there dependencies between steps?
+    |
+    +-- No -> gather() or bounded_map()
+    |
+    +-- Yes -> Do results of one step determine what steps come next?
+        |
+        +-- No -> Builder with static depends_on
+        |
+        +-- Yes -> Builder + expand_from_result() (dynamic expansion)
+```
+
+## Structured Output Patterns
+
+### Pattern 1: Simple extraction from conversation
 
 ```python
-# Single simple task → Direct execution
-if single_task and simple:
-    result = await branch.communicate(instruction)
+from pydantic import BaseModel
 
-# Multiple independent tasks → asyncio.gather
-if multiple_tasks and independent:
-    results = await asyncio.gather(*[branch.communicate(task) for task in tasks])
+class Entities(BaseModel):
+    people: list[str]
+    organizations: list[str]
 
-# Complex workflow with dependencies → Builder
-if dependencies or aggregation_needed:
-    builder = Builder("workflow")
-    # ... build graph
-    result = await session.flow(builder.get_graph())
+result = await branch.communicate(
+    "Extract all entities from this text: ...",
+    response_format=Entities,
+)
+# result: Entities(people=[...], organizations=[...])
 ```
 
-## Pattern Characteristics
-
-### Direct Execution
-
-Best for single, straightforward tasks.
+### Pattern 2: Tool use with structured final output
 
 ```python
-from lionagi import Branch, iModel
-import asyncio
+class Report(BaseModel):
+    findings: list[str]
+    recommendation: str
 
-async def direct_pattern():
-    """Use for: Single analysis, simple questions, quick tasks"""
-    branch = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini")
-    )
-    
-    # Perfect for single operations
-    result = await branch.communicate("Analyze this market trend")
-    return result
-
-asyncio.run(direct_pattern())
+branch.register_tools([search_docs, check_status])
+result = await branch.operate(
+    instruction="Investigate the issue and write a report",
+    actions=True,
+    response_format=Report,
+    reason=True,  # include chain-of-thought
+)
+# result: Report(findings=[...], recommendation="...")
 ```
 
-**When to use:**
-
-- Single analysis or question
-- No dependencies on other operations
-- Quick, standalone tasks
-- Conversational interactions
-
-### Parallel Execution (asyncio.gather)
-
-Best for multiple independent tasks.
+### Pattern 3: Multi-step reasoning with structured output
 
 ```python
-async def parallel_pattern():
-    """Use for: Independent parallel tasks, bulk processing"""
-    branch = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini")
-    )
-    
-    tasks = [
-        "Analyze market trends",
-        "Research competitors", 
-        "Evaluate risks",
-        "Assess opportunities"
-    ]
-    
-    # Perfect for independent parallel work
-    results = await asyncio.gather(*[
-        branch.communicate(task) for task in tasks
-    ])
-    
-    return results
+from lionagi.operations.fields import Instruct
 
-asyncio.run(parallel_pattern())
+result = await branch.ReAct(
+    instruct=Instruct(
+        instruction="Research and analyze the market opportunity",
+        guidance="Use available tools to gather data before concluding",
+    ),
+    tools=[search_market_data, get_competitors],
+    response_format=MarketAnalysis,
+    max_extensions=3,
+)
 ```
 
-**When to use:**
-
-- Multiple independent tasks
-- No dependencies between operations
-- Bulk processing
-- Maximum parallelism needed
-
-### Builder Graphs
-
-Best for complex workflows with dependencies.
+### Pattern 4: Parse existing text (no LLM conversation)
 
 ```python
-from lionagi import Session, Builder
+raw_text = """
+Name: John Smith
+Role: Engineer
+Department: Backend
+"""
 
-async def builder_pattern():
-    """Use for: Dependencies, aggregation, complex workflows"""
-    session = Session()
-    builder = Builder("analysis")
-    
-    branch = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini")
-    )
-    session.include_branches([branch])
-    
-    # Step 1: Research
-    research = builder.add_operation(
-        "communicate", branch=branch,
-        instruction="Research market conditions"
-    )
-    
-    # Step 2: Analysis (depends on research)
-    analysis = builder.add_operation(
-        "communicate", branch=branch,
-        instruction="Analyze research findings",
-        depends_on=[research]
-    )
-    
-    # Step 3: Synthesis
-    synthesis = builder.add_aggregation(
-        "communicate", branch=branch,
-        source_node_ids=[research, analysis],
-        instruction="Create final report"
-    )
-    
-    result = await session.flow(builder.get_graph())
-    return result
-
-asyncio.run(builder_pattern())
+result = await branch.parse(
+    raw_text,
+    response_format=Employee,
+    fuzzy_match=True,        # handle approximate field names
+    max_retries=3,
+)
 ```
 
-**When to use:**
+## Branch Configuration Patterns
 
-- Operations depend on each other
-- Need to aggregate/synthesize results
-- Multi-phase workflows
-- Complex coordination required
-
-## Pattern Comparison
-
-| Pattern     | Best For                        | Avoid When          | Complexity | Performance |
-| ----------- | ------------------------------- | ------------------- | ---------- | ----------- |
-| **Direct**  | Single tasks, conversations     | Multiple operations | Low        | Fast        |
-| **Gather**  | Independent parallel tasks      | Dependencies exist  | Medium     | Very Fast   |
-| **Builder** | Complex workflows, dependencies | Simple single tasks | High       | Optimized   |
-
-## Selection Examples
-
-### Example 1: Simple Analysis
+### Single-purpose branch
 
 ```python
-# Task: "Analyze this code for security issues"
-# Pattern: Direct execution
-
-async def security_analysis():
-    branch = Branch(
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
-        system="Security expert"
-    )
-    return await branch.communicate("Analyze this code for security issues")
+reviewer = Branch(
+    system="You are a senior code reviewer. Focus on correctness and security.",
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
+)
 ```
 
-### Example 2: Multiple Independent Reviews
+### Multi-model branch (different models for chat vs parse)
 
 ```python
-# Task: Review code for security, performance, style
-# Pattern: Parallel execution
-
-async def multi_review():
-    security = Branch(system="Security reviewer")
-    performance = Branch(system="Performance reviewer") 
-    style = Branch(system="Style reviewer")
-    
-    results = await asyncio.gather(
-        security.communicate("Review security"),
-        performance.communicate("Review performance"),
-        style.communicate("Review style")
-    )
-    return results
+branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1"),
+    parse_model=iModel(provider="openai", model="gpt-4.1-mini"),
+)
 ```
 
-### Example 3: Research → Analysis → Report
+### Branch with tools pre-registered
 
 ```python
-# Task: Multi-step workflow with dependencies
-# Pattern: Builder graph
-
-async def research_workflow():
-    session = Session()
-    builder = Builder("research")
-    
-    branch = Branch(chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-    session.include_branches([branch])
-    
-    research = builder.add_operation(
-        "communicate", branch=branch,
-        instruction="Research topic"
-    )
-    
-    analysis = builder.add_operation(
-        "communicate", branch=branch,
-        instruction="Analyze findings",
-        depends_on=[research]
-    )
-    
-    report = builder.add_operation(
-        "communicate", branch=branch,
-        instruction="Write final report", 
-        depends_on=[analysis]
-    )
-    
-    return await session.flow(builder.get_graph())
+branch = Branch(
+    system="You have access to search and file tools.",
+    tools=[search_docs, read_file, write_file],
+)
+result = await branch.operate(
+    instruction="Find and fix the bug in auth.py",
+    actions=True,
+)
 ```
 
-## Decision Tree
+## Common Anti-Patterns
 
-```
-Is it a single operation?
-├── Yes → Use Direct Execution
-└── No → Are operations independent?
-    ├── Yes → Use asyncio.gather
-    └── No → Do you need aggregation/synthesis?
-        ├── Yes → Use Builder with aggregation
-        └── No → Use Builder with dependencies
-```
-
-## Common Mistakes
-
-### Over-engineering Simple Tasks
+### Using chat() when you need history
 
 ```python
-# Bad: Builder for single task
+# Wrong: chat() does not add to history, second call lacks context
+await branch.chat("What is X?")
+await branch.chat("Tell me more about it")  # "it" has no referent
+
+# Right: communicate() maintains conversation
+await branch.communicate("What is X?")
+await branch.communicate("Tell me more about it")  # sees previous exchange
+```
+
+### Using operate() when communicate() suffices
+
+```python
+# Wrong: operate() overhead when no tools are needed
+await branch.operate(instruction="Summarize this text")
+
+# Right: communicate() is simpler when no tools/actions are involved
+await branch.communicate("Summarize this text")
+```
+
+### Sequential when parallel is possible
+
+```python
+# Wrong: sequential independent tasks
+r1 = await branch.communicate("Analyze security")
+r2 = await branch.communicate("Analyze performance")
+
+# Right: parallel independent tasks
+from lionagi.ln.concurrency import gather
+r1, r2 = await gather(
+    branch.communicate("Analyze security"),
+    branch.communicate("Analyze performance"),
+)
+```
+
+### Over-engineering with Builder
+
+```python
+# Wrong: Builder for a single operation
 builder = Builder("simple")
 op = builder.add_operation("communicate", branch=branch, instruction="Hello")
 result = await session.flow(builder.get_graph())
 
-# Good: Direct execution
+# Right: direct call
 result = await branch.communicate("Hello")
 ```
 
-### Missing Parallelism Opportunities
+## Quick Reference Card
 
 ```python
-# Bad: Sequential when could be parallel
-result1 = await branch.communicate("Task 1")
-result2 = await branch.communicate("Task 2")  # Waits for Task 1
+from lionagi import Branch, Session, Builder, iModel
+from lionagi.ln.concurrency import gather, race, bounded_map, retry, CompletionStream
+from lionagi.operations.fields import Instruct, LIST_INSTRUCT_FIELD_MODEL
+from pydantic import BaseModel
 
-# Good: Parallel independent tasks
-results = await asyncio.gather(
-    branch.communicate("Task 1"),
-    branch.communicate("Task 2")  # Runs in parallel
-)
-```
+# -- Setup --
+branch = Branch(chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
 
-### Forcing Dependencies
+# -- Single operations --
+text     = await branch.communicate("question")
+model    = await branch.communicate("question", response_format=MyModel)
+tool_res = await branch.operate(instruction="do X", actions=True)
+react_res = await branch.ReAct(Instruct(instruction="solve X"), tools=[fn])
 
-```python
-# Bad: Unnecessary dependencies
-step2 = builder.add_operation(..., depends_on=[step1])  # Not needed
+# -- Parallel --
+results = await gather(branch.communicate("A"), branch.communicate("B"))
+fastest = await race(branch.communicate("A"), branch.communicate("B"))
+mapped  = await bounded_map(lambda x: branch.communicate(x), items, limit=3)
 
-# Good: Parallel when possible
-step1 = builder.add_operation(...)  # No depends_on
-step2 = builder.add_operation(...)  # No depends_on
-synthesis = builder.add_aggregation(..., source_node_ids=[step1, step2])
-```
-
-## Fallback Strategy
-
-When unsure, start simple and evolve:
-
-```python
-# 1. Start with direct execution
-result = await branch.communicate(instruction)
-
-# 2. If you need multiple independent tasks, upgrade to gather
-results = await asyncio.gather(*tasks)
-
-# 3. If you need dependencies or aggregation, upgrade to Builder
+# -- DAG workflow --
+session = Session()
 builder = Builder("workflow")
-# ... add operations with dependencies
+session.include_branches([branch])
+s1 = builder.add_operation("communicate", branch=branch, instruction="step 1")
+s2 = builder.add_operation("communicate", branch=branch, instruction="step 2",
+                           depends_on=[s1])
 result = await session.flow(builder.get_graph())
 ```
-
-## Performance Guidelines
-
-- **Direct**: Fastest for single operations
-- **Gather**: Fastest for independent parallel operations
-- **Builder**: Optimized for complex workflows, handles concurrency limits
-
-Choose based on your specific coordination needs, not just performance.

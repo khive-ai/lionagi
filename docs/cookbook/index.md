@@ -37,9 +37,9 @@ from lionagi import Branch, iModel
 import asyncio
 
 agents = {
-    "analyst": Branch(system="Analyze data", chat_model=iModel(provider="openai", model="gpt-4o-mini")),
-    "critic": Branch(system="Find issues", chat_model=iModel(provider="openai", model="gpt-4o-mini")),
-    "advisor": Branch(system="Give recommendations", chat_model=iModel(provider="openai", model="gpt-4o-mini"))
+    "analyst": Branch(system="Analyze data", chat_model=iModel(provider="openai", model="gpt-4.1-mini")),
+    "critic": Branch(system="Find issues", chat_model=iModel(provider="openai", model="gpt-4.1-mini")),
+    "advisor": Branch(system="Give recommendations", chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
 }
 
 async def analyze(topic):
@@ -88,4 +88,4 @@ Have a useful pattern? Submit a PR with:
     **What's next?**
     - [Advanced Topics](../advanced/) - Custom operations, performance tuning, observability
     - [Integrations](../integrations/) - Connect with databases, tools, and services
-    - [Migration Guides](../migration/) - If you're coming from other frameworks
+    - [API Reference](../reference/api/) - Full API documentation

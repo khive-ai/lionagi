@@ -1,229 +1,244 @@
-# Using LionAGI from Claude Code
+# CLI Agent Providers
 
-Native integration guide for Claude Code users.
+lionagi integrates with CLI-based AI agents -- Claude Code, Gemini CLI, and
+OpenAI Codex -- as iModel providers. This enables agent-to-agent orchestration:
+your outer agent uses lionagi to spawn and coordinate inner agents.
 
-## Basic Setup
+## Supported CLI Providers
+
+| Provider String | CLI Tool | Endpoint Class |
+|----------------|----------|---------------|
+| `claude_code` | Claude Code | `ClaudeCodeCLIEndpoint` |
+| `gemini_code` | Gemini CLI | `GeminiCLIEndpoint` |
+| `codex` | OpenAI Codex | `CodexCLIEndpoint` |
+
+All CLI providers use `endpoint="query_cli"` and require no real API key
+(`api_key` is ignored; the CLI tool handles auth).
+
+## Quick Setup
+
+### Claude Code
 
 ```python
 from lionagi import Branch, iModel
 
-BASE_CONFIG = {
-    "provider": "claude_code",
-    "endpoint": "query_cli",
-    "model": "sonnet",
-    "api_key": "dummy_api_key",
-    "allowed_tools": ["Read"],
-    "permission_mode": "bypassPermissions",
-    "verbose_output": True,
-    "cli_display_theme": "dark",
-}
-
-# Create Claude Code branch
-branch = Branch(
-    chat_model=iModel(cwd="lionagi", **BASE_CONFIG),
-    name="cc_agent"
+cc_model = iModel(
+    provider="claude_code",
+    model="sonnet",                    # model hint for Claude Code
+    cwd="/path/to/project",            # working directory for the agent
+    permission_mode="bypassPermissions",  # or "default"
+    allowed_tools=["Read", "Grep", "Glob"],
+    verbose_output=True,
 )
 
+branch = Branch(chat_model=cc_model, name="claude_agent")
 response = await branch.communicate("Analyze the codebase structure")
 ```
 
-## Workspace Management
+### Gemini CLI
 
 ```python
-CC_WORKSPACE = ".khive/workspace"
+gemini_model = iModel(
+    provider="gemini_code",
+    model="gemini-2.5-pro",
+    cwd="/path/to/project",
+)
 
-def create_cc(
-    subdir: str,
-    model: str = "sonnet",
-    verbose_output: bool = True,
-    permission_mode="default",
-    auto_finish: bool = False,
-):
-    return iModel(
-        provider="claude_code",
-        endpoint="query_cli",
-        model=model,
-        ws=f"{CC_WORKSPACE}/{subdir}",
-        verbose_output=verbose_output,
-        add_dir="../../../",
-        permission_mode=permission_mode,
-        cli_display_theme="light",
-        auto_finish=auto_finish,
-    )
+branch = Branch(chat_model=gemini_model, name="gemini_agent")
+response = await branch.communicate("Review this module for issues")
 ```
 
-## Multi-Agent with Claude Code
+### Codex
 
 ```python
-from lionagi import Session, Builder
-from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
+codex_model = iModel(
+    provider="codex",
+    model="codex-mini",
+    cwd="/path/to/project",
+)
 
-async def claude_code_orchestration():
-    try:
-        orc_cc = create_cc("orchestrator")
-        orc_branch = Branch(
-            chat_model=orc_cc,
-            parse_model=orc_cc,
-            use_lion_system_message=True,
-            system_datetime=True,
-            name="orchestrator",
-        )
-        session = Session(default_branch=orc_branch)
+branch = Branch(chat_model=codex_model, name="codex_agent")
+response = await branch.communicate("Refactor the authentication module")
+```
 
-        builder = Builder("CodeAnalysis")
-        root = builder.add_operation(
-            "operate",
-            instruct=Instruct(
-                instruction="Analyze codebase and create research tasks",
-                context="project_root",
-            ),
-            reason=True,
-            field_models=[LIST_INSTRUCT_FIELD_MODEL],
-        )
+## iModel Configuration Reference
 
-        result = await session.flow(builder.get_graph())
-        instruct_models = result["operation_results"][root].instruct_models
-        
-        # Fan-out to researchers
-        research_nodes = []
-        for i in instruct_models:
-            node = builder.add_operation(
-                "communicate",
-                depends_on=[root],
-                chat_model=create_cc("researcher"),
-                **i.to_dict(),
-            )
-            research_nodes.append(node)
+### Common Parameters (all CLI providers)
 
-        # Execute research
-        await session.flow(builder.get_graph())
-        
-        # Synthesis
-        synthesis = builder.add_operation(
-            "communicate",
-            depends_on=research_nodes,
-            branch=orc_branch,
-            instruction="Synthesize researcher findings",
-        )
+```python
+iModel(
+    provider="claude_code",          # Required: provider string
+    model="sonnet",                  # Model selection hint
+    cwd="/path/to/project",          # Working directory for the agent
+    verbose_output=True,             # Show agent output during execution
+    cli_include_summary=False,       # Include cost/usage summary
+    auto_finish=False,               # Auto-complete if agent doesn't finish
+)
+```
 
-        final_result = await session.flow(builder.get_graph())
-        return final_result["operation_results"][synthesis]
+### Claude Code-Specific Parameters
 
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
+```python
+iModel(
+    provider="claude_code",
+    model="sonnet",
+    permission_mode="bypassPermissions",  # "default" | "bypassPermissions"
+    allowed_tools=["Read", "Grep", "Glob", "Bash"],
+    cli_display_theme="dark",             # "dark" | "light"
+    max_turns=10,                         # Max conversation turns
+)
+```
 
-# Usage
-result = await claude_code_orchestration()
+## Session Management
+
+CLI providers maintain session state via `session_id`. lionagi handles this
+automatically:
+
+1. First call creates a new session.
+2. Subsequent calls on the same iModel resume the session.
+3. `Branch.clone()` creates a fresh copy with no shared session state.
+4. `iModel.copy(share_session=True)` carries over the session ID.
+
+```python
+# Fresh copy, independent session
+new_model = cc_model.copy()
+
+# Copy that resumes the same CLI session
+resumed_model = cc_model.copy(share_session=True)
+```
+
+## Multi-Agent Orchestration
+
+### Workspace Isolation
+
+Give each agent its own working directory to prevent file conflicts:
+
+```python
+def create_agent(role: str, subdir: str) -> iModel:
+    return iModel(
+        provider="claude_code",
+        model="sonnet",
+        cwd=f"/project/.agents/{subdir}",
+        permission_mode="bypassPermissions",
+        allowed_tools=["Read", "Grep", "Glob", "Bash"],
+    )
+
+orchestrator = create_agent("orchestrator", "orc")
+researcher_1 = create_agent("researcher", "res1")
+researcher_2 = create_agent("researcher", "res2")
+```
+
+### Fan-Out Pattern
+
+```python
+from lionagi import Branch, Session, Builder
+from lionagi.operations.fields import Instruct
+
+session = Session()
+builder = Builder("research")
+
+# Orchestrator generates sub-tasks
+orc_branch = Branch(chat_model=orchestrator, name="orchestrator")
+session.include_branches([orc_branch])
+
+root = builder.add_operation(
+    "operate",
+    branch=orc_branch,
+    instruction="Break this task into 3 research sub-tasks",
+    response_format=TaskList,  # your Pydantic model
+)
+
+result = await session.flow(builder.get_graph())
+
+# Fan out to researcher agents
+for i, task in enumerate(result["operation_results"][root].tasks):
+    agent = create_agent("researcher", f"res_{i}")
+    res_branch = Branch(chat_model=agent, name=f"researcher_{i}")
+    session.include_branches([res_branch])
+
+    builder.add_operation(
+        "communicate",
+        branch=res_branch,
+        instruction=task.description,
+        depends_on=[root],
+    )
+
+# Execute all research in parallel
+final = await session.flow(builder.get_graph(), max_concurrent=3)
 ```
 
 ## Cost Tracking
 
-```python
-def get_context_with_costs(node_id, builder, session):
-    nonlocal costs
-    graph = builder.get_graph()
-    node = graph.internal_nodes[node_id]
-    branch = session.get_branch(node.branch_id, None)
-    
-    if (branch and len(branch.messages) > 0 and 
-        isinstance(msg := branch.messages[-1], AssistantResponse)):
-        costs += msg.model_response.get("total_cost_usd") or 0
-        return f"""
-Response: {msg.model_response.get("result") or "Not available"}
-Summary: {msg.model_response.get("summary") or "Not available"}
-        """.strip()
+CLI providers include cost data in model responses:
 
-costs = 0
-# After execution
-print(f"Total cost: ${costs:.4f}")
+```python
+from lionagi.protocols.messages import AssistantResponse
+
+# After a communicate/operate call, inspect the last message
+last_msg = branch.messages[-1]
+if isinstance(last_msg, AssistantResponse):
+    cost = last_msg.model_response.get("total_cost_usd", 0)
+    result_text = last_msg.model_response.get("result", "")
+    summary = last_msg.model_response.get("summary", "")
 ```
 
-## Integration Patterns
+## Event Handlers (Claude Code only)
 
-**Single Agent Analysis:**
+Claude Code supports streaming event handlers for fine-grained control:
 
 ```python
-cc_model = iModel(**BASE_CONFIG)
-investigator = Branch(
-    name="investigator", 
-    chat_model=cc_model,
-    parse_model=cc_model,
-)
+cc_model = iModel(provider="claude_code", model="sonnet")
 
-response = await investigator.communicate(
-    "Read into the architecture and explain key components"
+# Access the endpoint to set handlers
+cc_model.endpoint.update_handlers(
+    on_text=lambda chunk: print(f"Text: {chunk.text}"),
+    on_tool_use=lambda chunk: print(f"Tool: {chunk}"),
+    on_thinking=lambda chunk: print(f"Thinking: {chunk.text}"),
+    on_final=lambda session: print(f"Done: {session.result}"),
 )
 ```
 
-**Multi-Workspace Setup:**
+Available handler keys by provider:
+
+| Provider | Handlers |
+|----------|----------|
+| `claude_code` | `on_thinking`, `on_text`, `on_tool_use`, `on_tool_result`, `on_system`, `on_final` |
+| `gemini_code` | `on_text`, `on_tool_use`, `on_tool_result`, `on_final` |
+| `codex` | `on_text`, `on_tool_use`, `on_tool_result`, `on_final` |
+
+## Async Context Manager
+
+Both `Branch` and `iModel` support async context managers:
 
 ```python
-# Orchestrator workspace
-orc_model = create_cc("orchestrator")
+async with iModel(provider="claude_code", model="sonnet") as model:
+    async with Branch(chat_model=model) as branch:
+        result = await branch.communicate("Analyze this code")
+    # Branch dumps logs on exit
 
-# Researcher workspaces
-researchers = [
-    create_cc(f"researcher_{i}") 
-    for i in range(3)
-]
+# iModel executor stops on exit
 ```
 
-## Common Patterns
-
-**File Analysis:**
-
-```python
-prompt = """
-Read the specified directory structure.
-Focus on architecture and design patterns.
-Provide structured analysis of key components.
-"""
-
-response = await branch.communicate(prompt)
-```
-
-**Error Handling:**
+## Error Handling
 
 ```python
 try:
-    result = await session.flow(builder.get_graph())
-    return result["operation_results"][synthesis]
-except Exception as e:
-    print(f"Error: {e}")
-    import traceback
-    traceback.print_exc()
-    return None
+    result = await branch.communicate("Complex analysis task")
+except ValueError as e:
+    if "Failed to invoke API call" in str(e):
+        # CLI tool likely timed out or crashed
+        # Default timeout is 18000 seconds (5 hours)
+        pass
 ```
 
-## Best Practices
+## Key Differences: CLI vs API Providers
 
-- Use workspace isolation for multi-agent scenarios
-- Track costs with `total_cost_usd` extraction
-- Handle errors with traceback for debugging
-- Keep configurations clean and reusable
-- Leverage Claude Code's file access capabilities
-
-## Troubleshooting
-
-**Permission Issues:**
-
-```python
-# Use bypass for development
-"permission_mode": "bypassPermissions"
-```
-
-**Workspace Conflicts:**
-
-```python
-# Separate workspaces per agent
-ws=f"{CC_WORKSPACE}/{unique_subdir}"
-```
-
-**Cost Monitoring:**
-
-```python
-# Extract from model response
-total_cost = msg.model_response.get("total_cost_usd", 0)
-```
+| Aspect | API Providers | CLI Providers |
+|--------|--------------|---------------|
+| Auth | API key required | CLI tool handles auth |
+| Latency | Low (HTTP) | Higher (subprocess) |
+| Session state | Stateless | Persistent session_id |
+| Concurrency | High (100 queue capacity) | Low (default 3) |
+| Clone behavior | Shared endpoint | Fresh endpoint copy |
+| Timeout | Provider default | 18000s (5 hours) |
+| Tool calling | Via function schemas | Via CLI tool's built-in tools |

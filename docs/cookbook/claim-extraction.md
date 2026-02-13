@@ -29,7 +29,7 @@ async def extract_claims_from_document(document_path: str):
     # Create ReAct-enabled branch with ReaderTool
     extractor = Branch(
         tools=[ReaderTool],
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
         name="claim_extractor"
     )
     
@@ -70,7 +70,7 @@ async def sequential_claim_analysis(document_path: str):
     # Create branch with ReaderTool
     analyzer = Branch(
         tools=[ReaderTool],
-        chat_model=iModel(provider="openai", model="gpt-4o-mini")
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini")
     )
     session = Session(default_branch=analyzer)
     builder = Builder("ClaimAnalysis")
@@ -153,7 +153,7 @@ async def extract_from_multiple_documents(document_paths: list[str]):
         """Process single document"""
         extractor = Branch(
             tools=[ReaderTool],
-            chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+            chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
             name=f"extractor_{Path(doc_path).stem}"
         )
         
@@ -222,7 +222,7 @@ async def validate_claims(claims: list[Claim], reference_docs: list[str] = None)
     
     validator = Branch(
         tools=[search_evidence, cross_reference],
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
         name="claim_validator"
     )
     
@@ -281,7 +281,7 @@ async def extract_citations(document_path: str):
     
     citation_extractor = Branch(
         tools=[ReaderTool],
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
         system="You specialize in extracting citations from academic papers",
         name="citation_extractor"
     )
@@ -328,7 +328,7 @@ async def extract_performance_claims(document_path: str):
     
     performance_extractor = Branch(
         tools=[ReaderTool],
-        chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+        chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
         system="You extract performance metrics and experimental results from research papers",
         name="performance_extractor"
     )

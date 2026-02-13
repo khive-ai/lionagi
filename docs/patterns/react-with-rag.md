@@ -26,7 +26,7 @@ def search_knowledge(query: str) -> dict:
 
 # ReAct-enabled Branch
 researcher = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Research and reason step by step using available tools.",
     tools=[search_knowledge]
 )
@@ -61,7 +61,7 @@ def search_docs(query: str) -> dict:
 
 # Multi-tool researcher
 researcher = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-opus-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Expert researcher with access to multiple knowledge sources.",
     tools=[search_papers, search_docs]
 )
@@ -86,7 +86,7 @@ from lionagi.tools.file.reader import ReaderTool
 
 # Document analyst
 analyst = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Analyze documents systematically, extracting key information.",
     tools=[ReaderTool]
 )

@@ -31,23 +31,23 @@ builder = Builder("solution_tournament")
 
 # Create diverse problem solvers
 creative_solver = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Approach problems creatively with unconventional solutions."
 )
 
 analytical_solver = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Solve problems with systematic, analytical approaches."
 )
 
 practical_solver = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Focus on practical, implementable solutions."
 )
 
 # Judge for evaluation
 judge = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-opus-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Evaluate solutions objectively on feasibility and effectiveness."
 )
 
@@ -103,15 +103,15 @@ Elimination rounds with refinement:
 ```python
 # Create multiple competitors with different approaches
 competitors = [
-    Branch(system="Prioritize user experience", chat_model=iModel(provider="openai", model="gpt-4o-mini")),
-    Branch(system="Focus on technical excellence", chat_model=iModel(provider="openai", model="gpt-4o-mini")),
-    Branch(system="Emphasize cost-effectiveness", chat_model=iModel(provider="openai", model="gpt-4o-mini"))
+    Branch(system="Prioritize user experience", chat_model=iModel(provider="openai", model="gpt-4.1-mini")),
+    Branch(system="Focus on technical excellence", chat_model=iModel(provider="openai", model="gpt-4.1-mini")),
+    Branch(system="Emphasize cost-effectiveness", chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
 ]
 
 # Panel of specialized judges
 judges = [
-    Branch(system="Judge business viability", chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229")),
-    Branch(system="Judge technical feasibility", chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"))
+    Branch(system="Judge business viability", chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514")),
+    Branch(system="Judge technical feasibility", chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"))
 ]
 
 challenge = "Create a mobile app for better sleep habits"
@@ -149,22 +149,22 @@ Specialized competition for code solutions:
 # Different coding philosophies
 performance_coder = Branch(
     system="Write optimized, performance-focused code",
-    chat_model=iModel(provider="openai", model="gpt-4o-mini")
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini")
 )
 
 readable_coder = Branch(
     system="Write clean, maintainable code",
-    chat_model=iModel(provider="openai", model="gpt-4o-mini")
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini")
 )
 
 secure_coder = Branch(
     system="Write secure, robust code with error handling",
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229")
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514")
 )
 
 code_judge = Branch(
     system="Senior developer evaluating code quality and best practices",
-    chat_model=iModel(provider="anthropic", model="claude-3-opus-20240229")
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514")
 )
 
 coding_challenge = "Write Python function to get top 10 users by score from list of dicts"
@@ -190,9 +190,9 @@ Competition with cross-pollination:
 
 ```python
 # Competing approaches
-innovative = Branch(system="Focus on disruption", chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-practical = Branch(system="Focus on execution", chat_model=iModel(provider="openai", model="gpt-4o-mini"))
-user_focused = Branch(system="Focus on user experience", chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"))
+innovative = Branch(system="Focus on disruption", chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
+practical = Branch(system="Focus on execution", chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
+user_focused = Branch(system="Focus on user experience", chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"))
 
 project = "Sustainable urban transportation"
 
@@ -210,7 +210,7 @@ for team in [innovative, practical, user_focused]:
     """)
 
 # Collaborative synthesis
-mediator = Branch(system="Identify synergies between approaches", chat_model=iModel(provider="anthropic", model="claude-3-opus-20240229"))
+mediator = Branch(system="Identify synergies between approaches", chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"))
 
 final_solution = await mediator.communicate(f"""
 Create hybrid solution combining strengths: {refined_proposals}

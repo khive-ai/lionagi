@@ -41,7 +41,7 @@ async def production_fan_out_in():
     
     try:
         orc_branch = Branch(
-            chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+            chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
             name="orchestrator"
         )
         session = Session(default_branch=orc_branch)
@@ -67,7 +67,7 @@ async def production_fan_out_in():
             node = builder.add_operation(
                 "communicate",
                 depends_on=[root],
-                chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+                chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
                 **instruction.to_dict()
             )
             research_nodes.append(node)
@@ -116,7 +116,7 @@ Summary: {msg.model_response.get("summary") or "Not available"}
         return None
 
 asyncio.run(production_fan_out_in())
-````
+```
 
 ## When to Use
 

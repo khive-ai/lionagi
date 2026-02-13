@@ -1,62 +1,32 @@
 # Integrations
 
-!!! info "For Production Systems"
-    This section helps you connect LionAGI to real-world systems - databases, APIs, tools, and other AI frameworks.
+Connect lionagi with external services, tools, and frameworks.
 
-Connect LionAGI with external services and frameworks to build comprehensive AI systems.
+## Core
 
-## Available Integrations
+- **[LLM Providers](llm-providers.md)** -- OpenAI, Anthropic, Gemini, Ollama, and more
+- **[Tools](tools.md)** -- Turn any Python function into an LLM-callable tool
+- **[MCP Servers](mcp-servers.md)** -- Connect to Model Context Protocol tool servers
 
-### **Core Infrastructure**
+## Data
 
-- **[LLM Providers](llm-providers.md)** - OpenAI, Anthropic, local models
-- **[Vector Stores](vector-stores.md)** - Qdrant, Pinecone, Chroma
-- **[Databases](databases.md)** - PostgreSQL, MongoDB, Redis
-- **[Tools](tools.md)** - External APIs and services
-- **[MCP Servers](mcp-servers.md)** - Model Context Protocol integration
+- **[Databases](databases.md)** -- Serializing Branch state; pydapter for storage adapters
+- **[Vector Stores](vector-stores.md)** -- Using embeddings and vector search with tools
 
-### **AI Framework Orchestration**
+## External Frameworks
 
-- **[LlamaIndex RAG](llamaindex-rag.md)** - Wrap RAG capabilities as operations
-- **[DSPy Optimization](dspy-optimization.md)** - Embed prompt optimization
+lionagi does not have native integrations with other AI frameworks, but you can wrap any framework's functionality as a lionagi tool:
 
-## Meta-Orchestration
+- **[DSPy](dspy-optimization.md)** -- Wrap DSPy modules as tools
+- **[LlamaIndex](llamaindex-rag.md)** -- Wrap LlamaIndex query engines as tools
 
-LionAGI's key advantage: **orchestrate any existing AI framework** without code
-changes.
+## Integration Pattern
+
+Any Python function (sync or async) can become a tool:
 
 ```python
-# Your existing framework code runs unchanged
-builder.add_operation(operation=your_existing_workflow)
+branch = Branch(tools=[your_function])
+result = await branch.operate(instruction="...", actions=True)
 ```
 
-This works with:
-
-- LangChain workflows
-- CrewAI crews
-- AutoGen conversations
-- Custom Python functions
-- External APIs
-
-## Integration Patterns
-
-- **Wrapper Operations**: Embed external tools as LionAGI operations
-- **Multi-Framework**: Coordinate multiple frameworks in single workflow
-- **Gradual Migration**: Keep existing code while gaining orchestration benefits
-
-## When You Need Integrations
-
-!!! success "Use Integrations When:"
-    - **Persistent data**: Need to store workflow results in databases
-    - **External knowledge**: RAG systems with vector stores and knowledge bases
-    - **Tool augmentation**: Agents need access to APIs, calculators, or specialized services
-    - **Framework combination**: Want to orchestrate existing LangChain/CrewAI workflows
-    - **Production deployment**: Need monitoring, logging, and enterprise infrastructure
-
-## Getting Started
-
-!!! tip "Integration Strategy"
-    **Start simple**: Begin with [LLM Providers](llm-providers.md) and [Tools](tools.md)  
-    **Add persistence**: Connect [Databases](databases.md) for workflow state  
-    **Scale up**: Add [Vector Stores](vector-stores.md) for knowledge-intensive workflows  
-    **Orchestrate**: Integrate existing frameworks with [meta-orchestration patterns](#meta-orchestration)
+This works with any external library -- database clients, HTTP APIs, vector stores, or other AI frameworks. See [Tools](tools.md) for details.

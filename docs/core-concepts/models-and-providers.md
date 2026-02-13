@@ -1,190 +1,343 @@
 # Models and Providers
 
-LionAGI's `iModel` provides a unified interface for working with different LLM
-providers.
+LionAGI's `iModel` provides a unified interface for working with different LLM providers. Configure once, swap providers without changing application code.
 
 ## Basic Usage
 
 ```python
 from lionagi import Branch, iModel
 
-assistant = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4")
+branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini")
 )
 
-response = await assistant.chat("Explain quantum computing")
+response = await branch.communicate("Explain quantum computing")
 ```
+
+If you do not specify a model, Branch uses the default from environment configuration: `LIONAGI_CHAT_PROVIDER` (default: `openai`) and `LIONAGI_CHAT_MODEL` (default: `gpt-4.1-mini`).
 
 ## Supported Providers
 
-**OpenAI**: API key from `OPENAI_API_KEY` environment variable
+### API-Based Providers
+
+These providers communicate with hosted APIs over HTTP.
+
+**OpenAI** -- API key: `OPENAI_API_KEY`
 
 ```python
-openai_branch = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
-    system="Quantum computing expert"
+# Default model (gpt-4.1-mini)
+branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini")
+)
+
+# Other OpenAI models
+gpt4 = iModel(provider="openai", model="gpt-4.1")
+gpt4o = iModel(provider="openai", model="gpt-4o")
+gpt4o_mini = iModel(provider="openai", model="gpt-4o-mini")
+```
+
+OpenAI also supports `endpoint="response"` for the Responses API:
+
+```python
+response_model = iModel(provider="openai", endpoint="response", model="gpt-4.1")
+```
+
+**Anthropic** -- API key: `ANTHROPIC_API_KEY`
+
+```python
+branch = Branch(
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-5-20250929")
+)
+
+# Other Anthropic models
+haiku = iModel(provider="anthropic", model="claude-haiku-4-5-20251001")
+opus = iModel(provider="anthropic", model="claude-opus-4-6")
+```
+
+Anthropic supports prompt caching via `cache_control=True` on individual calls.
+
+**Gemini (Native API)** -- API key: `GEMINI_API_KEY`
+
+Gemini uses Google's OpenAI-compatible endpoint:
+
+```python
+branch = Branch(
+    chat_model=iModel(provider="gemini", model="gemini-2.5-flash")
+)
+
+# Other Gemini models
+gemini_pro = iModel(provider="gemini", model="gemini-2.0-flash")
+```
+
+**Groq** -- API key: `GROQ_API_KEY`
+
+Fast inference for open models:
+
+```python
+branch = Branch(
+    chat_model=iModel(provider="groq", model="llama-3.3-70b-versatile")
 )
 ```
 
-**Anthropic**: API key from `ANTHROPIC_API_KEY` environment variable
+**OpenRouter** -- API key: `OPENROUTER_API_KEY`
+
+Access many models through a single API:
 
 ```python
-claude_branch = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20240620"),
-    system="Python programming expert"
+branch = Branch(
+    chat_model=iModel(provider="openrouter", model="google/gemini-2.5-flash")
 )
 ```
 
-**Ollama**: Local models
+**Perplexity** -- API key: `PERPLEXITY_API_KEY`
+
+Real-time web search and Q&A via the Sonar API:
 
 ```python
-local_branch = Branch(
+branch = Branch(
+    chat_model=iModel(provider="perplexity", model="sonar")
+)
+```
+
+**NVIDIA NIM** -- API key: `NVIDIA_NIM_API_KEY`
+
+Cloud-hosted models on NVIDIA infrastructure:
+
+```python
+# Chat models
+branch = Branch(
+    chat_model=iModel(provider="nvidia_nim", model="meta/llama3-8b-instruct")
+)
+
+# Embedding models
+embed_model = iModel(provider="nvidia_nim", endpoint="embed", model="nvidia/nv-embed-v1")
+```
+
+**Exa** -- API key: `EXA_API_KEY`
+
+Semantic search (not a chat provider):
+
+```python
+exa = iModel(provider="exa", endpoint="search")
+```
+
+**Ollama** -- Local models, no API key required
+
+```python
+branch = Branch(
     chat_model=iModel(
-        provider="ollama", 
-        model="llama2",
+        provider="ollama",
+        model="llama3",
         base_url="http://localhost:11434"
-    ),
-    system="Local assistant"
+    )
 )
 ```
 
-## Multiple Providers
+### CLI-Based Providers
 
-Mix different providers in a single session:
+CLI providers wrap agentic coding tools that run as subprocesses. They differ from API providers in several ways:
+
+- They spawn subprocesses instead of making HTTP requests
+- They maintain sessions with resume capability
+- They use NDJSON streaming over stdin/stdout
+- Default concurrency is limited (3 concurrent, queue capacity of 10)
+
+**Claude Code** -- Uses installed `claude` CLI
+
+```python
+claude_code = iModel(provider="claude_code")
+
+branch = Branch(chat_model=claude_code)
+result = await branch.communicate("Refactor the auth module")
+```
+
+**Gemini CLI** -- Uses installed `gemini` CLI
+
+```python
+gemini_cli = iModel(provider="gemini_code")
+
+branch = Branch(chat_model=gemini_cli)
+result = await branch.communicate("Review this codebase")
+```
+
+**Codex CLI** -- Uses installed `codex` CLI
+
+```python
+codex = iModel(provider="codex")
+
+branch = Branch(chat_model=codex)
+result = await branch.communicate("Write tests for the parser module")
+```
+
+### OpenAI-Compatible Providers
+
+Any provider with an OpenAI-compatible API can be used by specifying `base_url`:
+
+```python
+custom = iModel(
+    provider="custom",
+    model="my-model",
+    base_url="https://my-provider.example.com/v1",
+    api_key="my-api-key"
+)
+```
+
+## iModel Constructor
+
+The full constructor signature with all parameters:
+
+```python
+model = iModel(
+    # Provider and endpoint
+    provider="openai",                  # Provider name
+    model="gpt-4.1-mini",              # Model name (passed via **kwargs)
+    endpoint="chat",                    # Endpoint type (default: "chat")
+    base_url=None,                      # Custom base URL
+    api_key=None,                       # API key (defaults to env var)
+
+    # Rate limiting
+    queue_capacity=100,                 # Max queued requests (10 for CLI)
+    capacity_refresh_time=60,           # Queue refresh interval (seconds)
+    interval=None,                      # Processing interval
+    limit_requests=None,               # Max requests per cycle
+    limit_tokens=None,                 # Max tokens per cycle
+    concurrency_limit=None,            # Max concurrent requests (3 for CLI)
+
+    # Streaming
+    streaming_process_func=None,       # Custom chunk processor
+
+    # Hooks
+    hook_registry=None,                # HookRegistry for pre/post hooks
+    exit_hook=False,                   # Enable exit hooks
+
+    # Model-specific parameters (passed to the endpoint)
+    temperature=0.7,
+    max_tokens=2000,
+)
+```
+
+## Async Context Manager
+
+Use `iModel` as an async context manager for automatic resource cleanup:
+
+```python
+async with iModel(provider="openai", model="gpt-4.1") as model:
+    branch = Branch(chat_model=model)
+    result = await branch.communicate("Hello")
+    # Executor is stopped and resources released on exit
+```
+
+## Copying Models
+
+Use `copy()` to create an independent `iModel` instance with the same configuration but a fresh ID and executor:
+
+```python
+original = iModel(provider="openai", model="gpt-4.1-mini")
+
+# Fresh instance, independent executor
+clone = original.copy()
+
+# For CLI endpoints, optionally share the session for resume
+cli_clone = cli_model.copy(share_session=True)
+```
+
+This is particularly useful when creating multiple branches that need independent rate limiting.
+
+## Branch with Separate Chat and Parse Models
+
+Branch supports separate models for chat and structured parsing:
+
+```python
+branch = Branch(
+    chat_model=iModel(provider="openai", model="gpt-4.1"),       # For conversations
+    parse_model=iModel(provider="openai", model="gpt-4.1-mini"), # For parsing
+    system="Technical assistant"
+)
+
+# communicate() uses chat_model
+await branch.communicate("Explain this concept")
+
+# parse() uses parse_model
+result = await branch.parse(some_text, response_format=MyModel)
+```
+
+If `parse_model` is not specified, it defaults to the same model as `chat_model`.
+
+## Multiple Providers in One Session
+
+Mix different providers for different tasks:
 
 ```python
 from lionagi import Session, Branch, iModel
 
 session = Session()
 
-fast_branch = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4"),
+fast_branch = session.new_branch(
+    name="fast",
     system="Quick answers",
-    name="fast"
+    imodel=iModel(provider="openai", model="gpt-4.1-mini")
 )
 
-analytical_branch = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20240620"),
+deep_branch = session.new_branch(
+    name="deep",
     system="Detailed analysis",
-    name="analytical"
+    imodel=iModel(provider="anthropic", model="claude-sonnet-4-5-20250929")
 )
 
-session.include_branches([fast_branch, analytical_branch])
-
-# Use different models for different tasks
-quick = await fast_branch.chat("What is 2+2?")
-analysis = await analytical_branch.chat("Analyze AI implications")
+# Route tasks to the appropriate model
+quick = await fast_branch.communicate("What is 2+2?")
+analysis = await deep_branch.communicate("Analyze the implications of quantum computing on cryptography")
 ```
 
 ## Model Configuration
 
-Configure model parameters:
+Configure model parameters at construction time:
 
 ```python
-from lionagi import Branch, iModel
-
-configured_model = iModel(
+configured = iModel(
     provider="openai",
-    model="gpt-4",
-    temperature=0.7,        # Randomness (0.0-1.0) 
-    max_tokens=2000,       # Response length limit
-    limit_requests=100,    # Rate limiting
+    model="gpt-4.1",
+    temperature=0.7,
+    max_tokens=2000,
+    limit_requests=100,
     limit_tokens=50000
 )
 
-writer = Branch(
-    chat_model=configured_model,
-    system="Creative writer"
-)
+branch = Branch(chat_model=configured, system="Creative writer")
 ```
 
 ## Environment Configuration
 
-Load settings from environment variables:
+LionAGI loads API keys and defaults from environment variables:
 
-```python
-import os
-from lionagi import Branch, iModel
+| Variable                   | Purpose                        | Default           |
+|----------------------------|--------------------------------|-------------------|
+| `OPENAI_API_KEY`           | OpenAI authentication          | --                |
+| `ANTHROPIC_API_KEY`        | Anthropic authentication       | --                |
+| `GEMINI_API_KEY`           | Gemini authentication          | --                |
+| `GROQ_API_KEY`             | Groq authentication            | --                |
+| `OPENROUTER_API_KEY`       | OpenRouter authentication      | --                |
+| `PERPLEXITY_API_KEY`       | Perplexity authentication      | --                |
+| `NVIDIA_NIM_API_KEY`       | NVIDIA NIM authentication      | --                |
+| `EXA_API_KEY`              | Exa authentication             | --                |
+| `LIONAGI_CHAT_PROVIDER`    | Default chat provider          | `openai`          |
+| `LIONAGI_CHAT_MODEL`       | Default chat model             | `gpt-4.1-mini`   |
 
-model = iModel(
-    provider=os.getenv("LLM_PROVIDER", "openai"),
-    model=os.getenv("LLM_MODEL", "gpt-4"),
-    temperature=float(os.getenv("LLM_TEMPERATURE", "0.7"))
-)
+Settings are loaded from `.env`, `.env.local`, or `.secrets.env` files automatically via pydantic-settings.
 
-assistant = Branch(chat_model=model)
-```
+## Provider Comparison
 
-## Model Selection
-
-Choose models based on task requirements:
-
-```python
-from lionagi import Branch, iModel
-
-def select_model(task_type: str):
-    if task_type == "simple_qa":
-        return iModel(provider="openai", model="gpt-4")
-    elif task_type == "complex_reasoning": 
-        return iModel(provider="anthropic", model="claude-3-5-sonnet-20240620")
-    elif task_type == "private_data":
-        return iModel(provider="ollama", model="llama2")
-    else:
-        return iModel(provider="openai", model="gpt-4")  # Default
-
-# Use appropriate model for task
-model = select_model("complex_reasoning")
-assistant = Branch(chat_model=model, system="Analytical assistant")
-```
-
-## Best Practices
-
-**Use descriptive branch names** and appropriate models:
-
-```python
-# Different models for different needs
-fast_qa = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4", temperature=0.3),
-    system="Quick, consistent answers",
-    name="qa_assistant"
-)
-
-analytical = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-5-sonnet-20240620"),
-    system="Detailed analysis", 
-    name="analyst"
-)
-```
-
-**Handle errors gracefully**:
-
-```python
-models_to_try = [
-    ("openai", "gpt-4"),
-    ("anthropic", "claude-3-5-sonnet-20240620"),
-    ("ollama", "llama2")
-]
-
-for provider, model in models_to_try:
-    try:
-        assistant = Branch(chat_model=iModel(provider=provider, model=model))
-        response = await assistant.chat("Hello!")
-        break  # Use first successful model
-    except Exception as e:
-        continue
-```
-
-**Pre-configure models** for different scenarios:
-
-```python
-CONFIGS = {
-    "development": iModel(provider="openai", model="gpt-4", temperature=0.3),
-    "production": iModel(provider="anthropic", model="claude-3-5-sonnet-20240620"),
-    "creative": iModel(provider="openai", model="gpt-4", temperature=0.9)
-}
-
-dev_assistant = Branch(chat_model=CONFIGS["development"])
-```
-
-LionAGI's iModel provides a consistent interface across providers while handling
-API differences and configuration automatically.
+| Provider     | Type | Default Model                        | Auth Key Env Var       |
+|-------------|------|--------------------------------------|------------------------|
+| `openai`    | API  | `gpt-4.1-mini`                       | `OPENAI_API_KEY`       |
+| `anthropic` | API  | --                                   | `ANTHROPIC_API_KEY`    |
+| `gemini`    | API  | `gemini-2.5-flash`                   | `GEMINI_API_KEY`       |
+| `groq`      | API  | `llama-3.3-70b-versatile`            | `GROQ_API_KEY`         |
+| `openrouter`| API  | `google/gemini-2.5-flash`            | `OPENROUTER_API_KEY`   |
+| `perplexity`| API  | `sonar`                              | `PERPLEXITY_API_KEY`   |
+| `nvidia_nim`| API  | `meta/llama3-8b-instruct`            | `NVIDIA_NIM_API_KEY`   |
+| `ollama`    | API  | --                                   | --                     |
+| `exa`       | API  | -- (search only)                     | `EXA_API_KEY`          |
+| `claude_code`| CLI | --                                   | -- (uses CLI auth)     |
+| `gemini_code`| CLI | --                                   | -- (uses CLI auth)     |
+| `codex`     | CLI  | --                                   | -- (uses CLI auth)     |

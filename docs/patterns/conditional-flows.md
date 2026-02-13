@@ -22,23 +22,23 @@ builder = Builder("conditional_example")
 
 # Classifier branch
 classifier = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Classify requests as: question, task, or creative."
 )
 
 # Specialized handlers  
 qa_expert = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Answer questions clearly and accurately."
 )
 
 task_expert = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Provide step-by-step task guidance."
 )
 
 creative_expert = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Help with creative projects and brainstorming."
 )
 
@@ -76,17 +76,17 @@ Content processing with quality thresholds:
 ```python
 # Content creation and review branches
 creator = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Create high-quality content."
 )
 
 reviewer = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"),
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"),
     system="Review content quality and provide scores 1-10."
 )
 
 editor = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Improve and refine content."
 )
 
@@ -118,12 +118,12 @@ Graceful degradation when primary processing fails:
 ```python
 # Main and fallback processors
 processor = Branch(
-    chat_model=iModel(provider="anthropic", model="claude-3-sonnet-20240229"),
+    chat_model=iModel(provider="anthropic", model="claude-sonnet-4-20250514"),
     system="Process complex requests thoroughly."
 )
 
 fallback = Branch(
-    chat_model=iModel(provider="openai", model="gpt-4o-mini"), 
+    chat_model=iModel(provider="openai", model="gpt-4.1-mini"), 
     system="Handle requests with simplified approaches."
 )
 
