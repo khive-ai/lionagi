@@ -4,8 +4,18 @@
 from __future__ import annotations
 
 import contextlib
+import sys
 from enum import Enum as _Enum
 from typing import Any
+
+# ExceptionGroup is available in Python 3.11+; use exceptiongroup backport for 3.10
+if sys.version_info < (3, 11):  # noqa: UP036
+    try:
+        from exceptiongroup import ExceptionGroup  # noqa: A004
+    except ImportError:
+        ExceptionGroup = None  # type: ignore[misc,assignment]  # noqa: A001
+else:
+    ExceptionGroup = ExceptionGroup  # noqa: PLW0127, A001
 
 from pydantic import Field, field_serializer
 
@@ -53,9 +63,10 @@ class Execution:
             if known.
         response (Any): The result or output of the execution, if any.
         error (str | None): An error message if the execution failed.
+        retryable (bool | None): Whether a retry is safe after failure.
     """
 
-    __slots__ = ("status", "duration", "response", "error")
+    __slots__ = ("status", "duration", "response", "error", "retryable")
 
     def __init__(
         self,
@@ -63,6 +74,7 @@ class Execution:
         response: Any = None,
         status: EventStatus = EventStatus.PENDING,
         error: str | None = None,
+        retryable: bool | None = None,
     ) -> None:
         """Initializes an execution instance.
 
@@ -71,22 +83,25 @@ class Execution:
             response (Any): The result or output of the execution.
             status (EventStatus): The current status (default is PENDING).
             error (str | None): An optional error message.
+            retryable (bool | None): Whether retry is safe (default None).
         """
         self.status = status
         self.duration = duration
         self.response = response
         self.error = error
+        self.retryable = retryable
 
     def __str__(self) -> str:
         """Returns a string representation of the execution state.
 
         Returns:
             str: A descriptive string indicating status, duration, response,
-            and error.
+            error, and retryable.
         """
         return (
             f"Execution(status={self.status.value}, duration={self.duration}, "
-            f"response={self.response}, error={self.error})"
+            f"response={self.response}, error={self.error}, "
+            f"retryable={self.retryable})"
         )
 
     def to_dict(self) -> dict:
@@ -121,12 +136,109 @@ class Execution:
         if res_ is Unset and not json_serializable:
             res_ = "<unserializable>"
 
+        error_value = self.error
+        if isinstance(self.error, BaseException):
+            if ExceptionGroup is not None and isinstance(self.error, ExceptionGroup):
+                error_value = self._serialize_exception_group(self.error)
+            else:
+                error_value = {
+                    "error": type(self.error).__name__,
+                    "message": str(self.error),
+                }
+
         return {
             "status": self.status.value,
             "duration": self.duration,
             "response": res_ or self.response,
-            "error": self.error,
+            "error": error_value,
+            "retryable": self.retryable,
         }
+
+    def _serialize_exception_group(
+        self,
+        eg: ExceptionGroup,
+        depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> dict[str, Any]:
+        """Recursively serialize ExceptionGroup with depth limit and cycle detection.
+
+        Args:
+            eg: ExceptionGroup to serialize.
+            depth: Current recursion depth (internal).
+            _seen: Object IDs already visited for cycle detection (internal).
+
+        Returns:
+            Dict with error type, message, and nested exceptions.
+        """
+        max_depth = 100
+        if depth > max_depth:
+            return {
+                "error": "ExceptionGroup",
+                "message": f"Max nesting depth ({max_depth}) exceeded",
+                "nested_count": len(eg.exceptions) if hasattr(eg, "exceptions") else 0,
+            }
+
+        if _seen is None:
+            _seen = set()
+
+        eg_id = id(eg)
+        if eg_id in _seen:
+            return {
+                "error": "ExceptionGroup",
+                "message": "Circular reference detected",
+            }
+
+        _seen.add(eg_id)
+
+        try:
+            exceptions = []
+            for exc in eg.exceptions:
+                if isinstance(exc, ExceptionGroup):
+                    exceptions.append(self._serialize_exception_group(exc, depth + 1, _seen))
+                else:
+                    exceptions.append(
+                        {
+                            "error": type(exc).__name__,
+                            "message": str(exc),
+                        }
+                    )
+
+            return {
+                "error": type(eg).__name__,
+                "message": str(eg),
+                "exceptions": exceptions,
+            }
+        finally:
+            _seen.discard(eg_id)
+
+    def add_error(self, exc: BaseException) -> None:
+        """Add error; creates ExceptionGroup if multiple errors accumulated.
+
+        On Python 3.10 without the ``exceptiongroup`` backport, multiple
+        errors are stored as a plain list in a wrapper Exception.
+
+        Args:
+            exc: The exception to add.
+        """
+        if self.error is None:
+            self.error = exc
+        elif ExceptionGroup is not None and isinstance(self.error, ExceptionGroup):
+            self.error = ExceptionGroup(
+                "multiple errors",
+                [*self.error.exceptions, exc],
+            )
+        elif isinstance(self.error, BaseException):
+            if ExceptionGroup is not None:
+                self.error = ExceptionGroup(
+                    "multiple errors",
+                    [self.error, exc],
+                )
+            else:
+                # Fallback for Python 3.10 without exceptiongroup
+                self.error = Exception(f"multiple errors: {self.error}, {exc}")
+        else:
+            # error is a string or other non-exception type
+            self.error = exc
 
 
 class Event(Element):
@@ -169,9 +281,7 @@ class Event(Element):
         if isinstance(val, EventStatus):
             self.execution.status = val
         else:
-            raise ValueError(
-                f"Invalid status type: {type(val)}. Expected EventStatus or str."
-            )
+            raise ValueError(f"Invalid status type: {type(val)}. Expected EventStatus or str.")
 
     @property
     def request(self) -> dict:
@@ -190,6 +300,18 @@ class Event(Element):
     def from_dict(cls, data: dict) -> Event:
         """Not implemented. Events cannot be fully recreated once done."""
         raise NotImplementedError("Cannot recreate an event once it's done.")
+
+    def assert_completed(self) -> None:
+        """Assert the event completed successfully.
+
+        Raises:
+            RuntimeError: If the event status is not COMPLETED, with
+                execution details in the message.
+        """
+        if self.execution.status != EventStatus.COMPLETED:
+            exec_dict = self.execution.to_dict()
+            exec_dict.pop("response", None)
+            raise RuntimeError(f"Event did not complete successfully: {exec_dict}")
 
     def as_fresh_event(self, copy_meta: bool = False) -> Event:
         """Creates a clone of this event with the same execution state."""
