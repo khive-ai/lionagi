@@ -134,8 +134,20 @@ class MCPConnectionPool:
 
     _clients: dict[str, Any] = {}
     _configs: dict[str, dict] = {}
-    _lock = asyncio.Lock()
+    _lock: asyncio.Lock | None = None
     _security: MCPSecurityConfig | None = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """Lazily create the asyncio.Lock on first use.
+
+        This avoids binding the lock to an event loop at import time,
+        which would fail if the module is imported before any event loop
+        is running (Python 3.10-3.11).
+        """
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     @classmethod
     def set_security_config(cls, config: MCPSecurityConfig) -> None:
@@ -160,6 +172,11 @@ class MCPConnectionPool:
     @classmethod
     def load_config(cls, path: str = ".mcp.json") -> None:
         """Load MCP server configurations from file.
+
+        Thread-safety: this method mutates ``_configs`` which is also read
+        by :meth:`get_client` under the async lock. When called from
+        ``get_client`` the lock is already held.  When called standalone
+        (e.g. at startup), there is no concurrent async access yet.
 
         Args:
             path: Path to .mcp.json configuration file
@@ -209,7 +226,7 @@ class MCPConnectionPool:
             cache_key = f"inline:{config.get('command')}:{id(config)}"
 
         # Check if client exists and is connected
-        async with cls._lock:
+        async with cls._get_lock():
             if cache_key in cls._clients:
                 client = cls._clients[cache_key]
                 # Simple connectivity check
@@ -309,7 +326,7 @@ class MCPConnectionPool:
     @classmethod
     async def cleanup(cls):
         """Clean up all pooled connections."""
-        async with cls._lock:
+        async with cls._get_lock():
             for cache_key, client in cls._clients.items():
                 try:
                     await client.__aexit__(None, None, None)
