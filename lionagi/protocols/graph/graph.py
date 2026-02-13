@@ -274,10 +274,12 @@ class Graph(Element, Relational, Generic[T]):
         self,
         node_label="lion_class",
         edge_label="label",
-        draw_kwargs={},
+        draw_kwargs=None,
         **kwargs,
     ):
         """Display the graph using NetworkX and Matplotlib."""
+        if draw_kwargs is None:
+            draw_kwargs = {}
         g = self.to_networkx(**kwargs)
 
         global _MATPLIB_AVAILABLE
@@ -355,9 +357,6 @@ class Graph(Element, Relational, Generic[T]):
         Raises:
             ValueError: If graph contains cycles.
         """
-        if not self.is_acyclic():
-            raise ValueError("Cannot topologically sort graph with cycles")
-
         in_degree = {}
         for node_id in self.node_edge_mapping:
             in_degree[node_id] = len(self.node_edge_mapping[node_id]["in"])
@@ -375,6 +374,9 @@ class Graph(Element, Relational, Generic[T]):
                 in_degree[neighbor_id] -= 1
                 if in_degree[neighbor_id] == 0:
                     queue.append(neighbor_id)
+
+        if len(result) != len(self.node_edge_mapping):
+            raise ValueError("Cannot topologically sort graph with cycles")
 
         return result
 

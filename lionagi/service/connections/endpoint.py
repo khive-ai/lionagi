@@ -266,7 +266,7 @@ class Endpoint:
                             error_message = (
                                 f"Request failed with status {response.status}: {error_body}"
                             )
-                        except:
+                        except Exception:
                             error_message = f"Request failed with status {response.status}"
 
                         raise aiohttp.ClientResponseError(

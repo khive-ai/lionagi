@@ -229,12 +229,12 @@ class Session(Node, Relational):
         self,
         branches: ID.RefSeq = None,
         exclude_clone: bool = False,
-        exlcude_load: bool = False,
+        exclude_load: bool = False,
     ):
         out = self.concat_messages(
             branches=branches,
             exclude_clone=exclude_clone,
-            exclude_load=exlcude_load,
+            exclude_load=exclude_load,
         )
         return out.to_df(columns=MESSAGE_FIELDS)
 
