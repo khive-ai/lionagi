@@ -280,12 +280,70 @@ class Event(Element):
         return {}
 
     async def invoke(self) -> None:
-        """Performs the event action asynchronously."""
-        raise NotImplementedError("Override in subclass.")
+        """Execute the event with lifecycle management.
 
-    async def stream(self) -> None:
-        """Performs the event action asynchronously, streaming results."""
-        raise NotImplementedError("Override in subclass.")
+        Handles status transitions, timing, error capture, and
+        idempotency. Override ``_invoke()`` for business logic.
+
+        Subclasses that already override invoke() directly will
+        continue to work -- this is NOT @final.
+        """
+        if self.execution.status in (
+            EventStatus.COMPLETED,
+            EventStatus.FAILED,
+        ):
+            return
+
+        self.execution.status = EventStatus.PROCESSING
+        start = ln.now_utc().timestamp()
+
+        try:
+            await self._invoke()
+            self.execution.status = EventStatus.COMPLETED
+        except Exception as e:
+            self.execution.status = EventStatus.FAILED
+            self.execution.add_error(e)
+            raise
+        finally:
+            self.execution.duration = ln.now_utc().timestamp() - start
+
+    async def _invoke(self) -> None:
+        """Business logic for this event. Override in subclasses.
+
+        Called by invoke() after status transitions. Raise an exception
+        to trigger FAILED status. Set self.execution.response for results.
+        """
+        raise NotImplementedError("Override _invoke() in subclass.")
+
+    async def stream(self):
+        """Execute the event with streaming and lifecycle management.
+
+        Override ``_stream()`` for streaming business logic.
+        """
+        if self.execution.status in (
+            EventStatus.COMPLETED,
+            EventStatus.FAILED,
+        ):
+            return
+
+        self.execution.status = EventStatus.PROCESSING
+        start = ln.now_utc().timestamp()
+
+        try:
+            async for chunk in self._stream():
+                yield chunk
+            self.execution.status = EventStatus.COMPLETED
+        except Exception as e:
+            self.execution.status = EventStatus.FAILED
+            self.execution.add_error(e)
+            raise
+        finally:
+            self.execution.duration = ln.now_utc().timestamp() - start
+
+    async def _stream(self):
+        """Streaming business logic. Override in subclasses."""
+        raise NotImplementedError("Override _stream() in subclass.")
+        yield  # pragma: no cover -- makes this an async generator
 
     @classmethod
     def from_dict(cls, data: dict) -> Event:

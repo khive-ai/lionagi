@@ -148,9 +148,7 @@ class Element(BaseModel, Observable):
     def __eq__(self, other: Any) -> bool:
         """Compares two Element instances by their ID."""
         if not isinstance(other, Element):
-            raise NotImplementedError(
-                f"Cannot compare Element with {type(other)}"
-            )
+            return NotImplemented
         return self.id == other.id
 
     def __hash__(self) -> int:

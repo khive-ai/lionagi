@@ -68,6 +68,82 @@ class Flow(Element, Generic[E, P]):
             if progression.name:
                 self._progression_names[progression.name] = progression.id
 
+    # ==================== Serialization ====================
+
+    def to_dict(self, mode="python", **kw):
+        """Override to properly serialize nested Piles.
+
+        Ensures ``items`` and ``progressions`` are serialized via their
+        own ``to_dict`` so that ``lion_class`` metadata is preserved for
+        polymorphic deserialization.
+        """
+        if mode == "python":
+            dict_ = self._to_dict(**kw)
+            dict_["items"] = self.items.to_dict()
+            dict_["progressions"] = self.progressions.to_dict()
+            return dict_
+        return super().to_dict(mode=mode, **kw)
+
+    @classmethod
+    def _coerce_pile(cls, value: Any) -> Pile:
+        """Convert a dict, list, or Pile into a Pile instance."""
+        if isinstance(value, Pile):
+            return value
+        if isinstance(value, dict):
+            return Pile.from_dict(value)
+        if isinstance(value, list):
+            return Pile(collections=value)
+        return value
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Flow:
+        """Deserialize from dict with proper Pile reconstruction.
+
+        Pydantic V2 cannot round-trip Pile fields through
+        ``model_validate`` because Pile uses custom
+        ``__pydantic_extra__``/``__pydantic_private__`` hooks that
+        conflict with nested-model validation.  This method
+        reconstructs Pile objects explicitly, then uses
+        ``model_construct`` to assemble the Flow, followed by manual
+        referential-integrity validation and index rebuilding.
+        """
+        data = data.copy()
+        metadata = data.pop("metadata", {})
+        metadata.pop("lion_class", None)
+
+        # Coerce scalar fields that model_construct won't validate
+        if "id" in data and not isinstance(data["id"], UUID):
+            data["id"] = UUID(str(data["id"]))
+
+        items = cls._coerce_pile(data.pop("items", None)) or Pile()
+        progressions = cls._coerce_pile(
+            data.pop("progressions", None)
+        ) or Pile()
+
+        # Validate referential integrity
+        item_ids = set(items.keys())
+        for prog in progressions:
+            missing = set(prog) - item_ids
+            if missing:
+                raise ItemNotFoundError(
+                    f"Progression '{prog.name}' references missing "
+                    f"items: {missing}"
+                )
+
+        flow = cls.model_construct(
+            items=items,
+            progressions=progressions,
+            metadata=metadata,
+            **data,
+        )
+        # Rebuild private attrs that model_construct skips
+        flow._progression_names = {}
+        flow._lock = threading.RLock()
+        for prog in flow.progressions:
+            if prog.name:
+                flow._progression_names[prog.name] = prog.id
+        return flow
+
     # ==================== Progression Management ====================
 
     def add_progression(self, progression: P) -> None:

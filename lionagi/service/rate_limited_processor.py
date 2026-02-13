@@ -121,23 +121,24 @@ class RateLimitedAPIProcessor(Processor):
         if self._request_limiter is None and self._token_limiter is None:
             return self.queue.qsize() < self.queue_capacity
 
-        # Check request limit
-        if self._request_limiter:
-            # Try to acquire with timeout
-            with move_on_after(0.1) as scope:
-                await self._request_limiter.acquire()
-                if scope.cancelled_caught:
+        # Atomic check-then-acquire under lock to prevent race conditions
+        # between checking availability and acquiring tokens.
+        async with self._lock:
+            # Pre-check both budgets before acquiring anything
+            if self._request_limiter:
+                if self._request_limiter.available_tokens < 1:
                     return False
 
-        # Check token limit if required
-        if self._token_limiter and required_tokens:
-            # For token-based limiting, we need to acquire multiple tokens
-            # This is a simplified approach - in production you might want
-            # a more sophisticated token bucket algorithm
-            if self._token_limiter.available_tokens < required_tokens:
-                if self._request_limiter:
-                    self._request_limiter.release()
-                return False
+            if self._token_limiter and required_tokens:
+                if self._token_limiter.available_tokens < required_tokens:
+                    return False
+
+            # Both budgets sufficient — acquire request token
+            if self._request_limiter:
+                with move_on_after(0.01) as scope:
+                    await self._request_limiter.acquire()
+                if scope.cancelled_caught:
+                    return False
 
         return True
 

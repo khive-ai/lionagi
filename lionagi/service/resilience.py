@@ -310,7 +310,12 @@ class RetryConfig:
         backoff_factor: float = 2.0,
         jitter: bool = True,
         jitter_factor: float = 0.2,
-        retry_exceptions: tuple[type[Exception], ...] = (Exception,),
+        retry_exceptions: tuple[type[Exception], ...] = (
+            APIClientError,
+            CircuitBreakerOpenError,
+            ConnectionError,
+            TimeoutError,
+        ),
         exclude_exceptions: tuple[type[Exception], ...] = (),
     ):
         """
@@ -324,6 +329,7 @@ class RetryConfig:
             jitter: Whether to add randomness to delay timings.
             jitter_factor: How much randomness to add as a percentage.
             retry_exceptions: Tuple of exception types that should trigger retry.
+                Defaults to transient errors only (API, connection, timeout).
             exclude_exceptions: Tuple of exception types that should not be retried.
         """
         self.max_retries = max_retries
@@ -372,7 +378,12 @@ class RetryConfig:
 async def retry_with_backoff(
     func: Callable[..., Awaitable[T]],
     *args: Any,
-    retry_exceptions: tuple[type[Exception], ...] = (Exception,),
+    retry_exceptions: tuple[type[Exception], ...] = (
+        APIClientError,
+        CircuitBreakerOpenError,
+        ConnectionError,
+        TimeoutError,
+    ),
     exclude_exceptions: tuple[type[Exception], ...] = (),
     max_retries: int = 3,
     base_delay: float = 1.0,
@@ -499,7 +510,12 @@ def with_retry(
     backoff_factor: float = 2.0,
     jitter: bool = True,
     jitter_factor: float = 0.2,
-    retry_exceptions: tuple[type[Exception], ...] = (Exception,),
+    retry_exceptions: tuple[type[Exception], ...] = (
+        APIClientError,
+        CircuitBreakerOpenError,
+        ConnectionError,
+        TimeoutError,
+    ),
     exclude_exceptions: tuple[type[Exception], ...] = (),
 ) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """

@@ -224,7 +224,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
-            "_lock": Field(default_factory=threading.Lock),
+            "_lock": Field(default_factory=threading.RLock),
             "_async": Field(default_factory=ConcurrencyLock),
         }
 

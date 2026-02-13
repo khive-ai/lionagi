@@ -37,6 +37,7 @@ class Processor(Observer):
         queue_capacity: int,
         capacity_refresh_time: float,
         concurrency_limit: int,
+        max_queue_size: int = 0,
     ) -> None:
         """Initializes a Processor instance.
 
@@ -45,6 +46,12 @@ class Processor(Observer):
                 The maximum number of events processed in one batch.
             capacity_refresh_time (float):
                 The time in seconds after which processing capacity is reset.
+            concurrency_limit (int):
+                Maximum concurrent event processing tasks.
+            max_queue_size (int):
+                Maximum queue size for backpressure. 0 means unlimited.
+                When the queue is full, enqueue() will block until space
+                is available.
 
         Raises:
             ValueError: If `queue_capacity` < 1, or
@@ -58,7 +65,8 @@ class Processor(Observer):
 
         self.queue_capacity = queue_capacity
         self.capacity_refresh_time = capacity_refresh_time
-        self.queue = asyncio.Queue()
+        self.max_queue_size = max_queue_size
+        self.queue = asyncio.Queue(maxsize=max_queue_size)
         self._available_capacity = queue_capacity
         self._execution_mode = False
         self._stop_event = ConcurrencyEvent()
@@ -88,10 +96,34 @@ class Processor(Observer):
     async def enqueue(self, event: Event) -> None:
         """Adds an event to the queue asynchronously.
 
+        Blocks if the queue is full (backpressure) until space is available.
+
         Args:
             event (Event): The event to enqueue.
         """
         await self.queue.put(event)
+
+    def try_enqueue(self, event: Event) -> bool:
+        """Non-blocking enqueue. Returns False if queue is full.
+
+        Args:
+            event (Event): The event to enqueue.
+
+        Returns:
+            True if enqueued, False if queue is full.
+        """
+        try:
+            self.queue.put_nowait(event)
+            return True
+        except asyncio.QueueFull:
+            return False
+
+    @property
+    def queue_full(self) -> bool:
+        """True if the queue is at capacity (backpressure active)."""
+        if self.max_queue_size == 0:
+            return False
+        return self.queue.qsize() >= self.max_queue_size
 
     async def dequeue(self) -> Event:
         """Retrieves the next event from the queue.

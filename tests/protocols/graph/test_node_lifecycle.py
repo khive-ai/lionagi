@@ -1,15 +1,17 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Comprehensive tests for PR8: Enhanced Node with NodeConfig, create_node
-factory, and lifecycle methods (touch, soft_delete, restore, rehash).
+"""Comprehensive tests for Node with NodeConfig, create_node factory,
+and lifecycle methods (touch, soft_delete, restore, rehash).
 
 Covers:
 - NodeConfig frozen dataclass (defaults, properties, immutability)
 - compute_hash (via ln) determinism and input variants
-- create_node() factory (class generation, config wiring, extra fields)
+- create_node() factory (class generation, config wiring, extra fields,
+  real Pydantic fields for audit features)
 - Node lifecycle methods with various config combinations
 - Backwards compatibility (base Node has node_config=None)
+- Manual subclass with node_config ClassVar (metadata fallback)
 """
 
 from __future__ import annotations
@@ -329,22 +331,22 @@ class TestCreateNodeConfigPropagation:
         cls = create_node("Versioned", versioning=True)
         v = cls(content="data")
         v.touch()
-        assert v.metadata.get("version") == 1
+        assert v.version == 1
         v.touch()
-        assert v.metadata.get("version") == 2
+        assert v.version == 2
 
     def test_soft_delete_enabled(self):
         cls = create_node("Deletable", soft_delete=True)
         d = cls(content="bye")
         d.soft_delete()
-        assert d.metadata["is_deleted"] is True
+        assert d.is_deleted is True
 
     def test_content_hashing_on_touch(self):
         cls = create_node("Hashed", content_hashing=True)
         h = cls(content="payload")
         h.touch()
-        assert "content_hash" in h.metadata
-        assert len(h.metadata["content_hash"]) == 64
+        assert h.content_hash is not None
+        assert len(h.content_hash) == 64
 
     def test_full_config(self):
         cls = create_node(
@@ -396,29 +398,29 @@ class TestNodeTouch:
         before = datetime.now(timezone.utc).isoformat()
         t.touch()
         after = datetime.now(timezone.utc).isoformat()
-        ts = t.metadata["updated_at"]
+        ts = t.updated_at
         assert before <= ts <= after
 
     def test_touch_versioning_starts_at_one(self):
         cls = create_node("V", versioning=True)
         v = cls()
         v.touch()
-        assert v.metadata["version"] == 1
+        assert v.version == 1
 
     def test_touch_versioning_increments(self):
         cls = create_node("V", versioning=True)
         v = cls()
         for expected in range(1, 6):
             v.touch()
-            assert v.metadata["version"] == expected
+            assert v.version == expected
 
     def test_touch_content_hashing_calls_rehash(self):
         cls = create_node("H", content_hashing=True)
         h = cls(content="data")
         h.touch()
-        assert "content_hash" in h.metadata
+        assert h.content_hash is not None
         expected_hash = _content_hash("data")
-        assert h.metadata["content_hash"] == expected_hash
+        assert h.content_hash == expected_hash
 
     def test_touch_by_param_sets_updated_by(self):
         cls = create_node("ByUser", track_updated_at=True)
@@ -447,10 +449,10 @@ class TestNodeTouch:
         )
         a = cls(content="payload")
         a.touch(by="system")
-        assert a.metadata["version"] == 1
-        assert "updated_at" in a.metadata
+        assert a.version == 1
+        assert a.updated_at is not None
         assert a.metadata["updated_by"] == "system"
-        assert "content_hash" in a.metadata
+        assert a.content_hash is not None
 
 
 class TestNodeSoftDelete:
@@ -471,7 +473,7 @@ class TestNodeSoftDelete:
         cls = create_node("Del", soft_delete=True)
         d = cls(content="bye")
         d.soft_delete()
-        assert d.metadata["is_deleted"] is True
+        assert d.is_deleted is True
 
     def test_soft_delete_sets_deleted_at(self):
         cls = create_node("Del", soft_delete=True)
@@ -479,7 +481,7 @@ class TestNodeSoftDelete:
         before = datetime.now(timezone.utc).isoformat()
         d.soft_delete()
         after = datetime.now(timezone.utc).isoformat()
-        ts = d.metadata["deleted_at"]
+        ts = d.deleted_at
         assert before <= ts <= after
 
     def test_soft_delete_with_by_param(self):
@@ -499,7 +501,7 @@ class TestNodeSoftDelete:
         d = cls()
         d.soft_delete()
         # touch() should have incremented version
-        assert d.metadata.get("version") == 1
+        assert d.version == 1
 
     def test_soft_delete_with_track_updated_at(self):
         cls = create_node(
@@ -509,8 +511,8 @@ class TestNodeSoftDelete:
         )
         d = cls()
         d.soft_delete(by="admin")
-        assert d.metadata["is_deleted"] is True
-        assert "updated_at" in d.metadata
+        assert d.is_deleted is True
+        assert d.updated_at is not None
         assert d.metadata.get("updated_by") == "admin"
 
     def test_soft_delete_raises_on_subclass_without_config(self):
@@ -542,17 +544,17 @@ class TestNodeRestore:
         cls = create_node("Rest", soft_delete=True)
         r = cls()
         r.soft_delete()
-        assert r.metadata["is_deleted"] is True
+        assert r.is_deleted is True
         r.restore()
-        assert r.metadata["is_deleted"] is False
+        assert r.is_deleted is False
 
     def test_restore_removes_deleted_at(self):
         cls = create_node("Rest", soft_delete=True)
         r = cls()
         r.soft_delete()
-        assert "deleted_at" in r.metadata
+        assert r.deleted_at is not None
         r.restore()
-        assert "deleted_at" not in r.metadata
+        assert r.deleted_at is None
 
     def test_restore_removes_deleted_by(self):
         cls = create_node("Rest", soft_delete=True)
@@ -566,10 +568,10 @@ class TestNodeRestore:
         cls = create_node("Rest", soft_delete=True, versioning=True)
         r = cls()
         r.soft_delete()
-        assert r.metadata["version"] == 1
+        assert r.version == 1
         r.restore()
         # touch was called again during restore
-        assert r.metadata["version"] == 2
+        assert r.version == 2
 
     def test_restore_with_by_param(self):
         cls = create_node(
@@ -579,14 +581,14 @@ class TestNodeRestore:
         r.soft_delete(by="admin")
         r.restore(by="manager")
         assert r.metadata.get("updated_by") == "manager"
-        assert r.metadata["is_deleted"] is False
+        assert r.is_deleted is False
 
     def test_restore_without_prior_delete(self):
         """Calling restore on a never-deleted node still works (sets is_deleted=False)."""
         cls = create_node("Rest", soft_delete=True)
         r = cls()
         r.restore()
-        assert r.metadata["is_deleted"] is False
+        assert r.is_deleted is False
 
     def test_restore_raises_on_subclass_without_config(self):
         class PlainNode(Node):
@@ -616,11 +618,11 @@ class TestNodeRehash:
         assert isinstance(result, str)
         assert len(result) == 64
 
-    def test_rehash_stores_in_metadata(self):
+    def test_rehash_stores_in_field(self):
         cls = create_node("Hash", content_hashing=True)
         h = cls(content="payload")
         h.rehash()
-        assert "content_hash" in h.metadata
+        assert h.content_hash is not None
 
     def test_rehash_matches__content_hash(self):
         cls = create_node("Hash", content_hashing=True)
@@ -670,59 +672,63 @@ class TestDeleteRestoreCycle:
         )
         a = cls(content={"status": "active"})
 
-        # --- initial state ---
-        assert a.metadata == {}
+        # --- initial state: real fields at defaults ---
+        assert a.version == 0
+        assert a.updated_at is None
+        assert a.is_deleted is False
+        assert a.deleted_at is None
+        assert a.content_hash is None
 
         # --- touch once ---
         a.touch(by="alice")
-        assert a.metadata["version"] == 1
-        assert "updated_at" in a.metadata
+        assert a.version == 1
+        assert a.updated_at is not None
         assert a.metadata["updated_by"] == "alice"
-        assert "content_hash" in a.metadata
-        hash_v1 = a.metadata["content_hash"]
+        assert a.content_hash is not None
+        hash_v1 = a.content_hash
 
         # --- soft_delete ---
         a.soft_delete(by="bob")
-        assert a.metadata["is_deleted"] is True
-        assert "deleted_at" in a.metadata
+        assert a.is_deleted is True
+        assert a.deleted_at is not None
         assert a.metadata["deleted_by"] == "bob"
-        assert a.metadata["version"] == 2  # touch was called inside soft_delete
+        assert a.version == 2  # touch was called inside soft_delete
 
         # --- restore ---
         a.restore(by="carol")
-        assert a.metadata["is_deleted"] is False
-        assert "deleted_at" not in a.metadata
+        assert a.is_deleted is False
+        assert a.deleted_at is None
         assert "deleted_by" not in a.metadata
-        assert a.metadata["version"] == 3  # touch was called inside restore
+        assert a.version == 3  # touch was called inside restore
         assert a.metadata["updated_by"] == "carol"
 
         # --- content change + rehash ---
         a.content = {"status": "updated"}
         a.touch(by="dave")
-        assert a.metadata["version"] == 4
-        hash_v4 = a.metadata["content_hash"]
+        assert a.version == 4
+        hash_v4 = a.content_hash
         assert hash_v4 != hash_v1
 
     def test_double_delete_is_idempotent(self):
         cls = create_node("Del", soft_delete=True, versioning=True)
         d = cls()
         d.soft_delete()
-        assert d.metadata["is_deleted"] is True
-        assert d.metadata["version"] == 1
+        assert d.is_deleted is True
+        assert d.version == 1
         d.soft_delete()
-        assert d.metadata["is_deleted"] is True
-        assert d.metadata["version"] == 2  # version still increments
+        assert d.is_deleted is True
+        assert d.version == 2  # version still increments
 
     def test_double_restore_is_idempotent(self):
         cls = create_node("Rst", soft_delete=True, versioning=True)
         r = cls()
         r.soft_delete()
         r.restore()
-        assert r.metadata["is_deleted"] is False
-        assert r.metadata["version"] == 2
+        assert r.is_deleted is False
+        assert r.version == 2
         r.restore()
-        assert r.metadata["is_deleted"] is False
-        assert r.metadata["version"] == 3
+        assert r.is_deleted is False
+        assert r.version == 3
 
 
 # ===================================================================
@@ -820,9 +826,9 @@ class TestEdgeCases:
     def test_touch_on_freshly_created_node_no_prior_version(self):
         cls = create_node("Fresh", versioning=True)
         f = cls()
-        assert "version" not in f.metadata
+        assert f.version == 0
         f.touch()
-        assert f.metadata["version"] == 1
+        assert f.version == 1
 
     def test_rehash_with_large_content(self):
         cls = create_node("Big", content_hashing=True)
@@ -847,11 +853,11 @@ class TestEdgeCases:
         cls = create_node("TS", track_updated_at=True)
         t = cls()
         t.touch()
-        ts1 = t.metadata["updated_at"]
+        ts1 = t.updated_at
         # Ensure a tiny time gap so timestamps differ
         time.sleep(0.01)
         t.touch()
-        ts2 = t.metadata["updated_at"]
+        ts2 = t.updated_at
         assert ts2 >= ts1
 
     def test_soft_delete_error_message_includes_class_name(self):

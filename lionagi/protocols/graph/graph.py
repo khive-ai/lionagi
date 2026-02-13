@@ -1,10 +1,12 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+import threading
 from collections import deque
+from functools import wraps
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import Field, field_serializer, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_serializer, field_validator, model_validator
 from typing_extensions import Self
 
 from lionagi._errors import ItemExistsError, RelationError
@@ -23,7 +25,20 @@ _MATPLIB_AVAILABLE = None
 __all__ = ("Graph",)
 
 
+def _graph_synchronized(func):
+    """Synchronize a Graph mutation method using its reentrant lock."""
+
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return func(self, *args, **kwargs)
+
+    return wrapper
+
+
 class Graph(Element, Relational, Generic[T]):
+    _lock: threading.RLock = PrivateAttr(default_factory=threading.RLock)
+
     internal_nodes: Pile[T] = Field(
         default_factory=lambda: Pile(item_type={Node}, strict_type=False),
         title="Internal Nodes",
@@ -62,6 +77,7 @@ class Graph(Element, Relational, Generic[T]):
     def _deserialize_nodes_edges(cls, value: Any):
         return Pile.from_dict(value)
 
+    @_graph_synchronized
     def add_node(self, node: Relational) -> None:
         """Add a node to the graph."""
         if not isinstance(node, Relational):
@@ -73,6 +89,7 @@ class Graph(Element, Relational, Generic[T]):
         except ItemExistsError as e:
             raise RelationError(f"Error adding node: {e}")
 
+    @_graph_synchronized
     def add_edge(self, edge: Edge, /) -> None:
         """Add an edge to the graph, linking two existing nodes."""
         if not isinstance(edge, Edge):
@@ -88,6 +105,7 @@ class Graph(Element, Relational, Generic[T]):
         except ItemExistsError as e:
             raise RelationError(f"Error adding node: {e}")
 
+    @_graph_synchronized
     def remove_node(self, node: ID[Node].Ref, /) -> None:
         """
         Remove a node from the graph.
@@ -117,6 +135,7 @@ class Graph(Element, Relational, Generic[T]):
         self.node_edge_mapping.pop(_id)
         return self.internal_nodes.pop(_id)
 
+    @_graph_synchronized
     def remove_edge(self, edge: Edge | str, /) -> None:
         """
         Remove an edge from the graph.

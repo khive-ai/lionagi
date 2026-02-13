@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,112 @@ logging.getLogger("fastmcp").setLevel(logging.WARNING)
 logging.getLogger("mcp.server").setLevel(logging.WARNING)
 logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
 logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.WARNING)
+
+logger = logging.getLogger(__name__)
+
+# Environment variable keys that should never be passed to MCP servers
+_SENSITIVE_ENV_PATTERNS = frozenset(
+    {
+        "AWS_SECRET",
+        "AWS_SESSION_TOKEN",
+        "DATABASE_URL",
+        "DB_PASSWORD",
+        "PRIVATE_KEY",
+        "SECRET_KEY",
+        "TOKEN",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+    }
+)
+
+
+@dataclass(frozen=True)
+class MCPSecurityConfig:
+    """Security configuration for MCP connection pool.
+
+    Controls which commands can be executed, which environment variables
+    are passed, and connection limits. Use as an optional guard layer
+    on top of the trust-based model.
+
+    Attributes:
+        command_allowlist: If set, only these commands are permitted.
+            None means all commands are allowed (trust-based default).
+        env_denylist_patterns: Substrings to filter from environment
+            variables passed to MCP servers (case-insensitive match).
+        filter_sensitive_env: If True, filters known sensitive env vars
+            (API keys, tokens, passwords) from MCP server environments.
+        max_connections_per_server: Max pooled connections per server name.
+    """
+
+    command_allowlist: frozenset[str] | None = None
+    env_denylist_patterns: frozenset[str] = field(
+        default_factory=lambda: _SENSITIVE_ENV_PATTERNS
+    )
+    filter_sensitive_env: bool = True
+    max_connections_per_server: int = 5
+
+
+def _filter_env(
+    env: dict[str, str], config: MCPSecurityConfig
+) -> dict[str, str]:
+    """Filter environment variables based on security config.
+
+    Removes entries whose keys contain any deny-listed substring
+    (case-insensitive).
+
+    Args:
+        env: Raw environment dict.
+        config: Security configuration.
+
+    Returns:
+        Filtered environment dict.
+    """
+    if not config.filter_sensitive_env:
+        return env
+
+    filtered = {}
+    deny = config.env_denylist_patterns
+    for key, value in env.items():
+        key_upper = key.upper()
+        if any(pattern in key_upper for pattern in deny):
+            logger.debug(f"Filtered sensitive env var: {key}")
+            continue
+        filtered[key] = value
+    return filtered
+
+
+def _validate_command(command: str, config: MCPSecurityConfig) -> None:
+    """Validate command against security config.
+
+    Args:
+        command: Command to validate.
+        config: Security configuration.
+
+    Raises:
+        ValueError: If command is not in allowlist or contains
+            path separators when an allowlist is active.
+    """
+    if config.command_allowlist is None:
+        return
+
+    # When allowlist is active, reject path separators and check bare name
+    if "/" in command or "\\" in command:
+        bare = os.path.basename(command)
+        if bare in config.command_allowlist:
+            raise ValueError(
+                f"Command contains path separator: '{command}'. "
+                f"Use bare command name '{bare}' instead."
+            )
+        raise ValueError(
+            f"Command '{command}' not in allowlist. "
+            f"Allowed: {sorted(config.command_allowlist)}"
+        )
+
+    if command not in config.command_allowlist:
+        raise ValueError(
+            f"Command '{command}' not in allowlist. "
+            f"Allowed: {sorted(config.command_allowlist)}"
+        )
 
 
 class MCPConnectionPool:
@@ -34,6 +141,19 @@ class MCPConnectionPool:
     _clients: dict[str, Any] = {}
     _configs: dict[str, dict] = {}
     _lock = asyncio.Lock()
+    _security: MCPSecurityConfig | None = None
+
+    @classmethod
+    def set_security_config(cls, config: MCPSecurityConfig) -> None:
+        """Set security configuration for the connection pool.
+
+        When set, all new connections will be validated against the
+        security config. Existing connections are unaffected.
+
+        Args:
+            config: Security configuration to apply.
+        """
+        cls._security = config
 
     async def __aenter__(self):
         """Context manager entry."""
@@ -116,17 +236,19 @@ class MCPConnectionPool:
     async def _create_client(cls, config: dict[str, Any]) -> Any:
         """Create a new MCP client from config.
 
-        Security Note:
-        MCP servers are explicitly configured by users via .mcp.json files or API calls.
-        The security model trusts user-provided configurations, similar to how IDEs trust
-        configured language servers. For additional security, run MCP servers in sandboxed
-        environments (containers, VMs) rather than restricting commands at the library level.
+        When a security config is set via ``set_security_config()``, commands
+        are validated against the allowlist and environment variables are
+        filtered to prevent accidental secret leakage.
+
+        Without a security config, the trust-based model applies: users are
+        responsible for vetting the MCP servers they configure, similar to
+        how IDEs trust configured language servers.
 
         Args:
             config: Server configuration with 'url' or 'command' + optional 'args' and 'env'
 
         Raises:
-            ValueError: If config format is invalid
+            ValueError: If config format is invalid or command not in allowlist.
         """
         # Validate config structure
         if not isinstance(config, dict):
@@ -148,6 +270,12 @@ class MCPConnectionPool:
             client = FastMCPClient(config["url"])
         elif "command" in config:
             # Command-based connection
+            command = config["command"]
+
+            # Security: validate command if security config is set
+            if cls._security is not None:
+                _validate_command(command, cls._security)
+
             # Validate args if provided
             args = config.get("args", [])
             if not isinstance(args, list):
@@ -156,6 +284,10 @@ class MCPConnectionPool:
             # Merge environment variables - user config takes precedence
             env = os.environ.copy()
             env.update(config.get("env", {}))
+
+            # Security: filter sensitive environment variables
+            if cls._security is not None:
+                env = _filter_env(env, cls._security)
 
             # Suppress server logging unless debug mode is enabled
             if not (
@@ -173,7 +305,7 @@ class MCPConnectionPool:
             from fastmcp.client.transports import StdioTransport
 
             transport = StdioTransport(
-                command=config["command"],
+                command=command,
                 args=args,
                 env=env,
             )
