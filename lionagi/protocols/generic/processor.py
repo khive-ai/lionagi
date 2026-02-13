@@ -371,6 +371,3 @@ class Executor(Observer):
             bool: True if the referenced event is in the pile, False otherwise.
         """
         return ref in self.pile
-
-
-# File: lionagi/protocols/generic/processor.py

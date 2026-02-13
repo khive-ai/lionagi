@@ -32,6 +32,14 @@ class Progression(Element, Ordering[T], Generic[T]):
     `order`, which is a simple list of IDs, and an optional `name`
     attribute can be assigned for identification.
 
+    Thread Safety:
+        Progression is **not** independently thread-safe.  Concurrent
+        mutations (``append``, ``remove``, ``pop``) can leave ``order``
+        and ``_members`` inconsistent.  When used inside a :class:`Pile`
+        or :class:`Flow`, the outer container's lock provides the
+        necessary synchronization.  Do not share a bare Progression
+        across threads without external locking.
+
     Attributes:
         order (list[ID[E].ID]):
             The sequence of item IDs representing the progression.

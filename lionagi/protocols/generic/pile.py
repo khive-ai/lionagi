@@ -178,6 +178,16 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     - Format adapters (JSON, CSV, Excel)
     - Memory efficient storage
 
+    Thread Safety:
+        Mutation methods decorated with ``@synchronized`` /
+        ``@async_synchronized`` acquire ``_lock`` (a ``threading.RLock``).
+        The RLock is reentrant so that :class:`Flow` can hold its own lock
+        and then call Pile methods without deadlocking.
+
+        **Note**: ``include()`` and ``update()`` are *not* decorated with
+        ``@synchronized`` — callers must hold an external lock (e.g.
+        Flow._lock) when using them from multiple threads.
+
     Attributes:
         pile_ (dict[str, T]): Internal storage mapping IDs to elements
         item_type (set[type[T]] | None): Allowed element types

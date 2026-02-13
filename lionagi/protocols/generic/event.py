@@ -204,8 +204,14 @@ class Execution:
         finally:
             _seen.discard(eg_id)
 
+    _MAX_ERRORS: int = 100
+
     def add_error(self, exc: BaseException) -> None:
         """Add error; creates ExceptionGroup if multiple errors accumulated.
+
+        Caps at ``_MAX_ERRORS`` (default 100) to prevent unbounded memory
+        growth.  When the cap is reached, subsequent errors are silently
+        dropped and a warning is logged via the group message.
 
         On Python 3.10 without the ``exceptiongroup`` backport, multiple
         errors are stored as a plain list in a wrapper Exception.
@@ -216,8 +222,10 @@ class Execution:
         if self.error is None:
             self.error = exc
         elif ExceptionGroup is not None and isinstance(self.error, ExceptionGroup):
+            if len(self.error.exceptions) >= self._MAX_ERRORS:
+                return  # cap reached — drop silently
             self.error = ExceptionGroup(
-                "multiple errors",
+                self.error.message,
                 [*self.error.exceptions, exc],
             )
         elif isinstance(self.error, BaseException):
