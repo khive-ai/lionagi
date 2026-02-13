@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 D = TypeVar("D")
 T = TypeVar("T", bound=E)
 
-_ADAPATER_REGISTERED = False
+_ADAPTER_REGISTERED = False
 
 
 def synchronized(func: Callable):
@@ -904,10 +904,8 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             try:
                 pops = self.progression[key]
                 pops = [pops] if isinstance(pops, UUID) else pops
-                result = []
-                for i in pops:
-                    self.progression.remove(i)
-                    result.append(self.collections.pop(i))
+                self.progression.exclude(pops)
+                result = [self.collections.pop(i) for i in pops]
                 result = (
                     self.__class__(items=result, item_type=self.item_type)
                     if len(result) > 1
@@ -921,10 +919,8 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         else:
             try:
                 key = validate_order(key)
-                result = []
-                for k in key:
-                    self.progression.remove(k)
-                    result.append(self.collections.pop(k))
+                self.progression.exclude(key)
+                result = [self.collections.pop(k) for k in key]
                 if len(result) == 0:
                     raise ItemNotFoundError(f"key {key} item not found")
                 elif len(result) == 1:
@@ -1183,13 +1179,13 @@ def to_list_type(value: Any, /) -> list[Any]:
     return [value]
 
 
-if not _ADAPATER_REGISTERED:
+if not _ADAPTER_REGISTERED:
     from pydapter.adapters import CsvAdapter, JsonAdapter
 
     Pile.register_adapter(CsvAdapter)
     Pile.register_adapter(JsonAdapter)
 
-    _ADAPATER_REGISTERED = True
+    _ADAPTER_REGISTERED = True
 
 Pile = Pile
 

@@ -28,7 +28,7 @@ def validate_same_dtype_flat_list(
     cls,
     value,
     dtype: type,
-    default=[],
+    default=None,
     dropna: bool = True,
 ) -> list:
     """Validate list of same data type.
@@ -45,7 +45,7 @@ def validate_same_dtype_flat_list(
         ValueError: If value is not a list or contains different data types.
     """
     if value in [None, UNDEFINED, {}]:
-        return default
+        return default if default is not None else []
 
     to_list_kwargs = {}
     to_list_kwargs["flatten"] = True

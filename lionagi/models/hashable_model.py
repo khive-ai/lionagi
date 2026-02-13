@@ -79,6 +79,7 @@ class HashableModel(BaseModel):
             return b_.decode("utf-8")
         return b_
 
+    @classmethod
     def from_json(cls, data: bytes | str, mode: ConversionMode = "json", **kwargs) -> Self:
         """Creates an instance of this class from a JSON string."""
         return cls.from_dict(data, mode=mode, **kwargs)

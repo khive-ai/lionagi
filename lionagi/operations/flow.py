@@ -127,7 +127,7 @@ class DependencyAwareExecutor:
                     # Ensure the branch exists in our local map
                     branch = self.session.branches[node.branch_id]
                     self.operation_branches[node.id] = branch
-                except:
+                except Exception:
                     pass
                 continue
 
@@ -162,7 +162,7 @@ class DependencyAwareExecutor:
                         ):
                             self.session.branches.collections[branch_id] = branch_clone
                             self.session.branches.progression.append(branch_id)
-                except:
+                except Exception:
                     # If validation fails, it's likely a mock - skip adding to collections
                     pass
 

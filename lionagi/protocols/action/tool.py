@@ -13,7 +13,6 @@ from lionagi.protocols.generic.element import Element
 
 __all__ = (
     "Tool",
-    "func_to_tool",
     "FuncTool",
     "FuncToolRef",
     "ToolRef",

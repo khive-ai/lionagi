@@ -15,7 +15,7 @@ from lionagi.ln import (
 )
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.protocols.types import AssistantResponse
-from lionagi.session.branch import AlcallParams
+from lionagi.ln import AlcallParams
 
 from ..types import HandleValidation, ParseParam
 

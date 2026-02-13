@@ -10,7 +10,6 @@ Builder = OperationGraphBuilder
 __all__ = (
     "ExpansionStrategy",
     "OperationGraphBuilder",
-    "create_operation_graph",
     "flow",
     "BranchOperations",
     "Operation",

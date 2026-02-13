@@ -25,7 +25,7 @@ We are **LIONAGI**, an intelligence operating system. You are an AI component in
     with great responsibility.
 - tree: parallel tree graph traversal
 
-## Base Oprtations:
+## Base Operations:
 
 - branch.act: interact with environment
 - branch.ask: seek clarification information from environment / other branches / user

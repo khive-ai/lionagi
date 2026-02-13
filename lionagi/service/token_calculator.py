@@ -10,7 +10,7 @@ def get_encoding_name(value: str) -> str:
     try:
         enc = tiktoken.encoding_for_model(value)
         return enc.name
-    except:
+    except Exception:
         try:
             tiktoken.get_encoding(value)
             return value
@@ -36,9 +36,6 @@ class TokenCalculator:
     @staticmethod
     def calculate_embed_token(inputs: list[str], /, **kwargs) -> int:
         try:
-            if not "inputs" in kwargs:
-                raise ValueError("Missing 'inputs' field in payload")
-
             tokenizer = tiktoken.get_encoding(
                 get_encoding_name(kwargs.get("model", "text-embedding-3-small"))
             ).encode
@@ -86,7 +83,9 @@ class TokenCalculator:
 
             if isinstance(i_, dict):
                 if "text" in i_:
-                    return TokenCalculator._calculate_chatitem(str(i_["text"]))
+                    return TokenCalculator._calculate_chatitem(
+                        str(i_["text"]), tokenizer, model_name
+                    )
                 elif "image_url" in i_:
                     return 500  # fixed cost for image URL
 

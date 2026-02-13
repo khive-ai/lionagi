@@ -16,7 +16,7 @@ from lionagi.ln.types import DataClass
 from .._concepts import Relational
 from ..generic.element import Element
 
-_ADAPATER_REGISTERED = False
+_ADAPTER_REGISTERED = False
 
 
 class Node(Element, Relational, AsyncAdaptable, Adaptable):
@@ -281,7 +281,7 @@ def _ensure_postgres_adapter():
         Node._postgres_adapter_checked = True
 
 
-if not _ADAPATER_REGISTERED:
+if not _ADAPTER_REGISTERED:
     from pydapter.adapters import JsonAdapter, TomlAdapter
 
     Node.register_adapter(JsonAdapter)
@@ -290,7 +290,7 @@ if not _ADAPATER_REGISTERED:
     # PostgreSQL adapter registration is now lazy - only loaded when needed
     # Call _ensure_postgres_adapter() in methods that actually use async adapters
 
-    _ADAPATER_REGISTERED = True
+    _ADAPTER_REGISTERED = True
 
 Node = Node
 
