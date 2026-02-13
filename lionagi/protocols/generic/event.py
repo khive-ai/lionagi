@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from enum import Enum as _Enum
-from typing import Any
+from typing import Any, ClassVar
 
-from pydantic import Field, field_serializer
+from pydantic import Field, PrivateAttr, field_serializer
 
 from lionagi import ln
 from lionagi.ln.concurrency._compat import ExceptionGroup  # noqa: A004
@@ -252,6 +253,36 @@ class Event(Element):
     execution: Execution = Field(default_factory=Execution)
     streaming: bool = Field(False, exclude=True)
 
+    # Lazily-created asyncio.Event signalled on terminal status transitions.
+    _completion_event: asyncio.Event | None = PrivateAttr(default=None)
+
+    # Terminal statuses that signal completion.
+    _TERMINAL_STATUSES: ClassVar[frozenset] = frozenset(
+        {
+            EventStatus.COMPLETED,
+            EventStatus.FAILED,
+            EventStatus.CANCELLED,
+            EventStatus.ABORTED,
+            EventStatus.SKIPPED,
+        }
+    )
+
+    @property
+    def completion_event(self) -> asyncio.Event:
+        """Lazily-created ``asyncio.Event`` that is set when this event
+        reaches a terminal status (COMPLETED, FAILED, etc.).
+
+        Safe to call from any async context; the underlying
+        ``asyncio.Event`` is created on first access.
+        """
+        if self._completion_event is None:
+            self._completion_event = asyncio.Event()
+            # If already in a terminal state (e.g., constructed with a
+            # terminal status), set it immediately.
+            if self.execution.status in self._TERMINAL_STATUSES:
+                self._completion_event.set()
+        return self._completion_event
+
     @field_serializer("execution")
     def _serialize_execution(self, val: Execution) -> dict:
         """Serializes the Execution object into a dictionary."""
@@ -274,13 +305,22 @@ class Event(Element):
 
     @status.setter
     def status(self, val: EventStatus | str) -> None:
-        """Sets the event status."""
+        """Sets the event status.
+
+        When the status transitions to a terminal state (COMPLETED,
+        FAILED, CANCELLED, ABORTED, SKIPPED), the ``completion_event``
+        is signalled so that any waiters are woken up immediately.
+        """
         if isinstance(val, str):
             if val not in EventStatus.allowed():
                 raise ValueError(f"Invalid status: {val}")
             val = EventStatus(val)
         if isinstance(val, EventStatus):
             self.execution.status = val
+            # Signal the completion event if we transitioned to a
+            # terminal state and the event has already been created.
+            if val in self._TERMINAL_STATUSES and self._completion_event is not None:
+                self._completion_event.set()
         else:
             raise ValueError(f"Invalid status type: {type(val)}. Expected EventStatus or str.")
 
@@ -294,6 +334,8 @@ class Event(Element):
 
         Handles status transitions, timing, error capture, and
         idempotency. Override ``_invoke()`` for business logic.
+        Uses ``self.status`` for terminal transitions so that
+        ``completion_event`` is signalled.
 
         Subclasses that already override invoke() directly will
         continue to work -- this is NOT @final.
@@ -309,9 +351,9 @@ class Event(Element):
 
         try:
             await self._invoke()
-            self.execution.status = EventStatus.COMPLETED
+            self.status = EventStatus.COMPLETED
         except Exception as e:
-            self.execution.status = EventStatus.FAILED
+            self.status = EventStatus.FAILED
             self.execution.add_error(e)
             raise
         finally:
@@ -329,6 +371,8 @@ class Event(Element):
         """Execute the event with streaming and lifecycle management.
 
         Override ``_stream()`` for streaming business logic.
+        Uses ``self.status`` for terminal transitions so that
+        ``completion_event`` is signalled.
         """
         if self.execution.status in (
             EventStatus.COMPLETED,
@@ -342,9 +386,9 @@ class Event(Element):
         try:
             async for chunk in self._stream():
                 yield chunk
-            self.execution.status = EventStatus.COMPLETED
+            self.status = EventStatus.COMPLETED
         except Exception as e:
-            self.execution.status = EventStatus.FAILED
+            self.status = EventStatus.FAILED
             self.execution.add_error(e)
             raise
         finally:

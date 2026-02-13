@@ -353,16 +353,22 @@ class iModel:
 
             await self.executor.append(api_call)
             await self.executor.forward()
-            ctr = 0
-            while api_call.status in [
+
+            # Wait for the event to reach a terminal status via
+            # asyncio.Event instead of busy-polling.  The completion
+            # event is signalled by Event.status setter when the
+            # status transitions to COMPLETED, FAILED, etc.
+            if api_call.status in (
                 EventStatus.PROCESSING,
                 EventStatus.PENDING,
-            ]:
-                if ctr > 100:
-                    break
-                await self.executor.forward()
-                ctr += 1
-                await asyncio.sleep(0.1)
+            ):
+                try:
+                    await asyncio.wait_for(
+                        api_call.completion_event.wait(),
+                        timeout=10.0,
+                    )
+                except asyncio.TimeoutError:
+                    pass  # Fall through — same as old ctr>100 break
 
             # Get the completed API call
             completed_call = self.executor.pile.pop(api_call.id)

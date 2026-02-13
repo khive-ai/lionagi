@@ -3,6 +3,7 @@
 
 """Step factory methods for creating configured Operative instances."""
 
+import warnings
 from typing import TYPE_CHECKING, Literal
 
 from lionagi.ln.types import Operable, Spec
@@ -74,6 +75,37 @@ class Step:
         Returns:
             Configured Operative instance
         """
+        # Warn on deprecated parameters that are silently ignored
+        _deprecated_ignored = {
+            "parse_kwargs": parse_kwargs,
+            "exclude_fields": exclude_fields,
+            "field_descriptions": field_descriptions,
+            "config_dict": config_dict,
+            "doc": doc,
+            "new_model_name": new_model_name,
+            "parameter_fields": parameter_fields,
+            "request_params": request_params,
+        }
+        for _pname, _pval in _deprecated_ignored.items():
+            if _pval is not None:
+                warnings.warn(
+                    f"{_pname} is deprecated and will be removed in a future version",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+        if not inherit_base:
+            warnings.warn(
+                "inherit_base is deprecated and will be removed in a future version",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if frozen:
+            warnings.warn(
+                "frozen is deprecated and will be removed in a future version",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         # Handle backward compatibility
         name = name or operative_name
 

@@ -3,19 +3,9 @@
 
 """Comprehensive unit tests for lionagi.service.token_calculator.
 
-Notes on known behavior:
-- _calculate_chatitem passes a raw tokenizer callable and a model name
-  (e.g. "gpt-4o") to tokenize(). In tokenize(), since the tokenizer is
-  already callable the first branch is skipped and encoding_name stays
-  as the model name. The decoder branch then calls
-  tiktoken.get_encoding(model_name) which fails because a model name is
-  not a valid encoding name. This exception is caught by
-  _calculate_chatitem's outer try/except, returning 0.
-- As a result, calculate_message_tokens only returns the per-message
-  overhead (4 tokens per message), with 0 for all content.
-- tokenize() works correctly when called directly with encoding_name
-  (not via _calculate_chatitem), or when both tokenizer and decoder
-  are provided.
+tokenize() always resolves encoding_name first via get_encoding_name(),
+so both the tokenizer and decoder are created from a valid encoding even
+when a custom tokenizer is provided without an explicit decoder.
 """
 
 import pytest
@@ -127,16 +117,16 @@ class TestTokenize:
         assert isinstance(result, int)
         assert result > 0
 
-    def test_explicit_tokenizer_without_encoding_raises(self):
-        """Passing tokenizer without encoding_name or decoder raises ValueError.
+    def test_explicit_tokenizer_without_encoding_works(self):
+        """Passing tokenizer without encoding_name still works.
 
-        When tokenizer is callable, the first branch is skipped and
-        encoding_name stays None. The decoder branch tries
-        tiktoken.get_encoding(None), which raises ValueError.
+        encoding_name is always resolved first (None -> "o200k_base"),
+        so the decoder is created from a valid encoding.
         """
         enc = tiktoken.get_encoding("cl100k_base")
-        with pytest.raises(ValueError):
-            TokenCalculator.tokenize("hello world", tokenizer=enc.encode)
+        result = TokenCalculator.tokenize("hello world", tokenizer=enc.encode)
+        assert isinstance(result, int)
+        assert result > 0
 
     def test_explicit_tokenizer_with_encoding_name(self):
         """Passing tokenizer + encoding_name allows decoder to be created."""
@@ -228,44 +218,33 @@ class TestTokenize:
 class TestCalculateChatitem:
     """Tests for the internal _calculate_chatitem method.
 
-    Note: _calculate_chatitem passes the raw tokenizer callable and
-    model_name to tokenize(). Since tokenizer is already callable,
-    tokenize skips resolving encoding_name, leaving it as the model
-    name (e.g. "gpt-4o"). The decoder branch then fails with
-    get_encoding("gpt-4o"), causing the outer try/except in
-    _calculate_chatitem to catch the error and return 0 for all
-    string/dict content.
-
-    The tests below verify this actual (buggy) behavior.
+    _calculate_chatitem passes the raw tokenizer callable and model_name
+    to tokenize(). tokenize() always resolves encoding_name first, so
+    the decoder is created correctly and content is counted.
     """
 
     @pytest.fixture()
     def tokenizer(self):
         return tiktoken.get_encoding("o200k_base").encode
 
-    def test_string_input_returns_zero_due_to_decoder_bug(self, tokenizer):
-        """String content returns 0 because tokenize fails on decoder creation.
-
-        The tokenizer is callable so encoding_name stays as model_name
-        ("gpt-4o"), causing the decoder lookup to fail.
-        """
+    def test_string_input_returns_positive(self, tokenizer):
+        """String content returns a positive token count."""
         result = TokenCalculator._calculate_chatitem(
             "hello world", tokenizer, "gpt-4o"
         )
-        assert result == 0
+        assert isinstance(result, int)
+        assert result > 0
 
-    def test_dict_with_text_key_returns_zero_due_to_decoder_bug(self, tokenizer):
-        """Dict with 'text' key also returns 0 due to the same decoder bug."""
+    def test_dict_with_text_key_returns_positive(self, tokenizer):
+        """Dict with 'text' key returns a positive token count."""
         result = TokenCalculator._calculate_chatitem(
             {"text": "hello world"}, tokenizer, "gpt-4o"
         )
-        assert result == 0
+        assert isinstance(result, int)
+        assert result > 0
 
     def test_dict_with_image_url_returns_fixed_cost(self, tokenizer):
-        """Dict with 'image_url' key should return the fixed image cost (500).
-
-        Image URL items don't go through tokenize, so they work correctly.
-        """
+        """Dict with 'image_url' key should return the fixed image cost (500)."""
         result = TokenCalculator._calculate_chatitem(
             {"image_url": "https://example.com/image.png"},
             tokenizer,
@@ -283,15 +262,15 @@ class TestCalculateChatitem:
         assert result == 1000
 
     def test_list_of_mixed_items(self, tokenizer):
-        """Mixed list: text items return 0 (bug), image returns 500."""
+        """Mixed list: text items return counts, image returns 500."""
         items = [
             {"text": "hello"},
             {"image_url": "https://example.com/img.png"},
             "world",
         ]
         result = TokenCalculator._calculate_chatitem(items, tokenizer, "gpt-4o")
-        # text items return 0 due to decoder bug, image returns 500
-        assert result == 500
+        # text items now return real counts + 500 for image
+        assert result > 500
 
     def test_empty_string(self, tokenizer):
         """Empty string returns 0 (from tokenize's early return)."""
@@ -299,11 +278,7 @@ class TestCalculateChatitem:
         assert result == 0
 
     def test_none_input_returns_none(self, tokenizer):
-        """None input doesn't match any isinstance check; returns None implicitly.
-
-        None is not str, not dict, not list, so the function falls
-        through all branches and returns None.
-        """
+        """None input doesn't match any isinstance check; returns None implicitly."""
         result = TokenCalculator._calculate_chatitem(None, tokenizer, "gpt-4o")
         assert result is None
 
@@ -324,13 +299,13 @@ class TestCalculateChatitem:
         result = TokenCalculator._calculate_chatitem([], tokenizer, "gpt-4o")
         assert result == 0
 
-    def test_dict_text_value_is_number_returns_zero(self, tokenizer):
-        """Dict with 'text' whose value is a number: str-converted then fails."""
+    def test_dict_text_value_is_number_returns_positive(self, tokenizer):
+        """Dict with 'text' whose value is a number: str-converted, then counted."""
         result = TokenCalculator._calculate_chatitem(
             {"text": 42}, tokenizer, "gpt-4o"
         )
-        # str(42) -> "42" -> tokenize fails due to decoder bug -> 0
-        assert result == 0
+        assert isinstance(result, int)
+        assert result > 0
 
 
 # ---------------------------------------------------------------------------
@@ -341,29 +316,28 @@ class TestCalculateChatitem:
 class TestCalculateEmbedItem:
     """Tests for the internal _calculate_embed_item method.
 
-    Unlike _calculate_chatitem, _calculate_embed_item passes only
-    tokenizer= to tokenize() (no encoding_name). This means encoding_name
-    is None. Since tokenizer is callable, the first branch is skipped.
-    Then decoder creation fails with get_encoding(None), raising
-    ValueError which is caught by _calculate_embed_item's try/except,
-    returning 0.
+    tokenize() always resolves encoding_name first, so even when
+    _calculate_embed_item passes only tokenizer= (no encoding_name),
+    the decoder is created correctly from the fallback encoding.
     """
 
     @pytest.fixture()
     def tokenizer(self):
         return tiktoken.get_encoding("cl100k_base").encode
 
-    def test_string_input_returns_zero_due_to_decoder_bug(self, tokenizer):
-        """String returns 0 because tokenize's decoder creation fails."""
+    def test_string_input_returns_positive(self, tokenizer):
+        """String returns a positive token count."""
         result = TokenCalculator._calculate_embed_item("hello world", tokenizer)
-        assert result == 0
+        assert isinstance(result, int)
+        assert result > 0
 
-    def test_list_of_strings_returns_zero(self, tokenizer):
-        """List of strings: each item returns 0, sum is 0."""
+    def test_list_of_strings_returns_positive(self, tokenizer):
+        """List of strings: each item contributes tokens."""
         result = TokenCalculator._calculate_embed_item(
             ["hello", "world"], tokenizer
         )
-        assert result == 0
+        assert isinstance(result, int)
+        assert result > 0
 
     def test_empty_string(self, tokenizer):
         """Empty string returns 0 (from tokenize early return)."""
@@ -385,12 +359,13 @@ class TestCalculateEmbedItem:
         result = TokenCalculator._calculate_embed_item(None, tokenizer)
         assert result is None
 
-    def test_nested_list_returns_zero(self, tokenizer):
-        """Nested list items also return 0 due to decoder bug."""
+    def test_nested_list_returns_positive(self, tokenizer):
+        """Nested list items return actual token counts."""
         result = TokenCalculator._calculate_embed_item(
             [["hello", "world"]], tokenizer
         )
-        assert result == 0
+        assert isinstance(result, int)
+        assert result > 0
 
 
 # ---------------------------------------------------------------------------
@@ -401,25 +376,26 @@ class TestCalculateEmbedItem:
 class TestCalculateMessageTokens:
     """Tests for the top-level calculate_message_tokens static method.
 
-    Due to the decoder bug in _calculate_chatitem, all content tokens
-    are 0. Only the per-message overhead of 4 tokens is counted.
+    Each message adds 4 tokens of overhead plus actual content tokens.
     """
 
-    def test_single_message_returns_overhead_only(self):
-        """A single message returns only the 4-token overhead."""
+    def test_single_message_with_content(self):
+        """A single message returns overhead + content tokens."""
         messages = [{"role": "user", "content": "hello world"}]
         result = TokenCalculator.calculate_message_tokens(messages)
-        assert result == 4
+        # 4 overhead + actual content tokens
+        assert result > 4
 
-    def test_multiple_messages_returns_overhead_sum(self):
-        """Multiple messages return 4 * num_messages."""
+    def test_multiple_messages_with_content(self):
+        """Multiple messages return overhead + content for each."""
         messages = [
             {"role": "system", "content": "You are helpful."},
             {"role": "user", "content": "What is 2+2?"},
             {"role": "assistant", "content": "4"},
         ]
         result = TokenCalculator.calculate_message_tokens(messages)
-        assert result == 12  # 3 * 4
+        # 3 * 4 overhead + actual content tokens
+        assert result > 12
 
     def test_empty_message_list(self):
         """Empty list should return 0 tokens."""
@@ -438,13 +414,12 @@ class TestCalculateMessageTokens:
             TokenCalculator.calculate_message_tokens(messages)
 
     def test_message_with_dict_content_text_key(self):
-        """Message content as dict with 'text' key returns only overhead."""
+        """Message content as dict with 'text' key returns overhead + tokens."""
         messages = [
             {"role": "user", "content": {"text": "what is the weather?"}}
         ]
         result = TokenCalculator.calculate_message_tokens(messages)
-        # Content tokenization returns 0 due to decoder bug
-        assert result == 4
+        assert result > 4  # 4 overhead + actual content tokens
 
     def test_message_with_list_content_image_only(self):
         """Multimodal message with image_url only: overhead + 500."""
@@ -460,7 +435,7 @@ class TestCalculateMessageTokens:
         assert result == 504  # 4 overhead + 500 image
 
     def test_message_with_list_content_text_and_image(self):
-        """Multimodal: text returns 0 (bug), image returns 500, plus overhead."""
+        """Multimodal: text tokens + image 500 + overhead."""
         messages = [
             {
                 "role": "user",
@@ -471,21 +446,21 @@ class TestCalculateMessageTokens:
             }
         ]
         result = TokenCalculator.calculate_message_tokens(messages)
-        # 4 overhead + 0 (text bug) + 500 (image) = 504
-        assert result == 504
+        # 4 overhead + content tokens + 500 image
+        assert result > 504
 
     def test_custom_model_kwarg(self):
         """Passing model= kwarg should change the tokenizer used.
 
-        Both still return only overhead since content is 0.
+        Both should return overhead + content (not just overhead).
         """
         messages = [{"role": "user", "content": "hello world"}]
         result_default = TokenCalculator.calculate_message_tokens(messages)
         result_gpt35 = TokenCalculator.calculate_message_tokens(
             messages, model="gpt-3.5-turbo"
         )
-        assert result_default == 4
-        assert result_gpt35 == 4
+        assert result_default > 4
+        assert result_gpt35 > 4
 
     def test_message_missing_content_key_raises_typeerror(self):
         """Message without 'content' key: .get("content") returns None.
@@ -511,13 +486,14 @@ class TestCalculateMessageTokens:
         assert result_two - result_one == 4
 
     def test_large_conversation_overhead(self):
-        """50 messages produce 200 tokens of overhead."""
+        """50 messages with content produce more than just overhead."""
         messages = [
             {"role": "user", "content": f"Message number {i}"}
             for i in range(50)
         ]
         result = TokenCalculator.calculate_message_tokens(messages)
-        assert result == 200  # 50 * 4
+        # 50 * 4 overhead + actual content tokens
+        assert result > 200
 
 
 # ---------------------------------------------------------------------------
@@ -529,30 +505,18 @@ class TestCalculateEmbedToken:
     """Tests for the top-level calculate_embed_token static method."""
 
     def test_single_string_input(self):
-        """Single string in the list should return positive token count.
-
-        Unlike _calculate_chatitem, calculate_embed_token creates its
-        own tokenizer using get_encoding_name + get_encoding, then
-        passes it to _calculate_embed_item. The same decoder bug applies
-        there, but calculate_embed_token has an outer try/except that
-        catches any exception and returns 0. So even when
-        _calculate_embed_item returns None (via the decoder bug returning
-        0), the sum should still work since 0 is a valid int.
-
-        Actually, _calculate_embed_item's try/except catches the decoder
-        ValueError and returns 0 (int), so summing works: returns 0.
-        """
+        """Single string in the list should return positive token count."""
         result = TokenCalculator.calculate_embed_token(["hello world"])
         assert isinstance(result, int)
-        # Returns 0 due to decoder bug in _calculate_embed_item -> tokenize
-        assert result == 0
+        assert result > 0
 
     def test_multiple_strings(self):
-        """Multiple strings: each returns 0 due to decoder bug, total is 0."""
+        """Multiple strings: each contributes tokens."""
         result = TokenCalculator.calculate_embed_token(
             ["hello world", "goodbye world"]
         )
-        assert result == 0
+        assert isinstance(result, int)
+        assert result > 0
 
     def test_empty_list(self):
         """Empty input list should return 0."""
@@ -570,8 +534,7 @@ class TestCalculateEmbedToken:
             ["hello world"], model="text-embedding-3-large"
         )
         assert isinstance(result, int)
-        # Still 0 due to decoder bug
-        assert result == 0
+        assert result > 0
 
     def test_with_invalid_items_returns_zero(self):
         """Integers in input: _calculate_embed_item returns None for ints.

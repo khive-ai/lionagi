@@ -64,6 +64,12 @@ def prepare_operate_kw(
             DeprecationWarning,
             stacklevel=2,
         )
+    if request_model:
+        warnings.warn(
+            "Parameter 'request_model' is deprecated. Use 'response_format'.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     if imodel:
         warnings.warn(
             "Parameter 'imodel' is deprecated. Use 'chat_model'.",

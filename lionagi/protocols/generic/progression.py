@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
@@ -47,8 +48,8 @@ class Progression(Element, Ordering[T], Generic[T]):
             An optional human-readable identifier for the progression.
     """
 
-    order: list[ID[T].ID] = Field(
-        default_factory=list,
+    order: deque[ID[T].ID] = Field(
+        default_factory=deque,
         title="Order",
         description="A sequence of IDs representing the progression.",
     )
@@ -69,23 +70,23 @@ class Progression(Element, Ordering[T], Generic[T]):
         self._members = set(self.order)
 
     @field_validator("order", mode="before")
-    def _validate_ordering(cls, value: Any) -> list[UUID]:
-        """Ensures `order` is a valid list of UUIDs.
+    def _validate_ordering(cls, value: Any) -> deque[UUID]:
+        """Ensures `order` is a valid deque of UUIDs.
 
         Args:
             value (Any): Input sequence (could be elements, IDs, etc.).
 
         Returns:
-            list[UUID]: The list of validated UUID objects.
+            deque[UUID]: The deque of validated UUID objects.
         """
-        return validate_order(value)
+        return deque(validate_order(value))
 
     @field_serializer("order")
-    def _serialize_order(self, value: list[UUID]) -> list[str]:
+    def _serialize_order(self, value: deque[UUID]) -> list[str]:
         """Serializes IDs in `order` to string form.
 
         Args:
-            value (list[UUID]): The order list of ID objects.
+            value (deque[UUID]): The order deque of ID objects.
 
         Returns:
             list[str]: A list of stringified IDs.
@@ -136,13 +137,13 @@ class Progression(Element, Ordering[T], Generic[T]):
             key_cls = key.__class__.__name__
             raise TypeError(f"indices must be integers or slices, not {key_cls}")
         try:
-            a = self.order[key]
-            if not a:
-                raise ItemNotFoundError(f"index {key} item not found")
             if isinstance(key, slice):
-                # Return a new Progression for slices
+                a = list(self.order)[key]
+                if not a:
+                    raise ItemNotFoundError(f"index {key} item not found")
                 return self.__class__(order=a)
             else:
+                a = self.order[key]
                 return a
         except IndexError:
             raise ItemNotFoundError(f"index {key} item not found") from None
@@ -161,7 +162,10 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         refs = validate_order(value)
         if isinstance(key, slice):
-            self.order[key] = refs
+            # deque doesn't support slice assignment; rebuild via list
+            as_list = list(self.order)
+            as_list[key] = refs
+            self.order = deque(as_list)
             self._rebuild_members()
         else:
             try:
@@ -181,7 +185,12 @@ class Progression(Element, Ordering[T], Generic[T]):
         Args:
             key (int | slice): The position(s) to delete.
         """
-        del self.order[key]
+        if isinstance(key, slice):
+            as_list = list(self.order)
+            del as_list[key]
+            self.order = deque(as_list)
+        else:
+            del self.order[key]
         self._rebuild_members()
 
     def __iter__(self):
@@ -212,7 +221,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         Returns:
             list[UUID]: A shallow copy of the ID list.
         """
-        return self.order[:]
+        return list(self.order)
 
     def clear(self) -> None:
         """Removes all items from the progression."""
@@ -264,7 +273,7 @@ class Progression(Element, Ordering[T], Generic[T]):
 
         before = len(self.order)
         rset = set(refs)
-        self.order = [x for x in self.order if x not in rset]
+        self.order = deque(x for x in self.order if x not in rset)
         self._rebuild_members()
         return len(self.order) < before
 
@@ -297,7 +306,14 @@ class Progression(Element, Ordering[T], Generic[T]):
             ItemNotFoundError: If the index is invalid or out of range.
         """
         try:
-            uid = self.order.pop(index)
+            if index == -1 or index == len(self.order) - 1:
+                uid = self.order.pop()
+            elif index == 0:
+                uid = self.order.popleft()
+            else:
+                # deque doesn't support pop(index); use del + __getitem__
+                uid = self.order[index]
+                del self.order[index]
             if uid not in self.order:
                 self._members.discard(uid)
             return uid
@@ -305,7 +321,7 @@ class Progression(Element, Ordering[T], Generic[T]):
             raise ItemNotFoundError(str(e)) from e
 
     def popleft(self) -> UUID:
-        """Removes and returns the first ID.
+        """Removes and returns the first ID. O(1) with deque.
 
         Returns:
             UUID: The ID at the front of the progression.
@@ -315,7 +331,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         if not self.order:
             raise ItemNotFoundError("No items in progression.")
-        uid = self.order.pop(0)
+        uid = self.order.popleft()
         if uid not in self.order:
             self._members.discard(uid)
         return uid
@@ -341,7 +357,8 @@ class Progression(Element, Ordering[T], Generic[T]):
         missing = [r for r in refs if r not in self._members]
         if missing:
             raise ItemNotFoundError(str(missing))
-        self.order = [x for x in self.order if x not in refs]
+        rset = set(refs)
+        self.order = deque(x for x in self.order if x not in rset)
         self._rebuild_members()
 
     def count(self, item: Any, /) -> int:
@@ -374,6 +391,7 @@ class Progression(Element, Ordering[T], Generic[T]):
             ValueError: If the item is not found in that range.
         """
         ref = ID.get_id(item)
+        # deque.index() supports start/end in Python 3.5+
         if end is not None:
             return self.order.index(ref, start, end)
         return self.order.index(ref, start)
@@ -403,7 +421,7 @@ class Progression(Element, Ordering[T], Generic[T]):
             Progression[E]: A new progression with combined IDs.
         """
         new_refs = validate_order(other)
-        return Progression(order=self.order + new_refs)
+        return Progression(order=list(self.order) + new_refs)
 
     def __radd__(self, other: Any) -> Progression[T]:
         """Returns a new Progression with IDs from `other` + this.
@@ -416,7 +434,7 @@ class Progression(Element, Ordering[T], Generic[T]):
             Progression[E]: A new progression with combined IDs.
         """
         new_refs = validate_order(other)
-        return Progression(order=new_refs + self.order)
+        return Progression(order=new_refs + list(self.order))
 
     def __iadd__(self, other: Any) -> Self:
         """In-place addition of IDs.
@@ -441,8 +459,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         refs = validate_order(other)
         remove_set = set(refs)
-        new_order = [x for x in self.order if x not in remove_set]
-        return Progression(order=new_order)
+        return Progression(order=[x for x in self.order if x not in remove_set])
 
     def __isub__(self, other: Any) -> Self:
         """In-place exclusion of specified IDs.
@@ -511,7 +528,8 @@ class Progression(Element, Ordering[T], Generic[T]):
         from_index = self._validate_index(from_index)
         to_index = self._validate_index(to_index, allow_end=True)
 
-        item = self.order.pop(from_index)
+        item = self.order[from_index]
+        del self.order[from_index]
         if from_index < to_index:
             to_index -= 1
         self.order.insert(to_index, item)
@@ -543,7 +561,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         Returns:
             Progression[E]: A reversed copy of the current progression.
         """
-        return Progression(order=list(reversed(self.order)))
+        return Progression(order=list(self.order)[::-1])
 
     def __eq__(self, other: object) -> bool:
         """Checks equality with another Progression.
@@ -556,23 +574,23 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         if not isinstance(other, Progression):
             return NotImplemented
-        return (self.order == other.order) and (self.name == other.name)
+        return (list(self.order) == list(other.order)) and (self.name == other.name)
 
     def __gt__(self, other: Progression[T]) -> bool:
         """Compares if this progression is "greater" by ID order."""
-        return self.order > other.order
+        return list(self.order) > list(other.order)
 
     def __lt__(self, other: Progression[T]) -> bool:
         """Compares if this progression is "less" by ID order."""
-        return self.order < other.order
+        return list(self.order) < list(other.order)
 
     def __ge__(self, other: Progression[T]) -> bool:
         """Compares if this progression is >= the other by ID order."""
-        return self.order >= other.order
+        return list(self.order) >= list(other.order)
 
     def __le__(self, other: Progression[T]) -> bool:
         """Compares if this progression is <= the other by ID order."""
-        return self.order <= other.order
+        return list(self.order) <= list(other.order)
 
     def __repr__(self) -> str:
         """Returns a string representation of the progression.
