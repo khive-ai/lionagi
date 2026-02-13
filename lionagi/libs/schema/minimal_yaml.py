@@ -17,9 +17,7 @@ class MinimalDumper(yaml.SafeDumper):
 def _represent_str(dumper: yaml.SafeDumper, data: str):
     # Use block scalars for multiline text; plain style otherwise.
     if "\n" in data:
-        return dumper.represent_scalar(
-            "tag:yaml.org,2002:str", data, style="|"
-        )
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
     return dumper.represent_scalar("tag:yaml.org,2002:str", data)
 
 

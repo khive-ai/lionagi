@@ -117,9 +117,7 @@ class OperationGraphBuilder:
         if depends_on:
             for dep_id in depends_on:
                 if dep_id in self._operations:
-                    edge = Edge(
-                        head=dep_id, tail=node.id, label=["depends_on"]
-                    )
+                    edge = Edge(head=dep_id, tail=node.id, label=["depends_on"])
                     self.graph.add_edge(edge)
         elif self._current_heads:
             # Auto-link from current heads
@@ -191,11 +189,7 @@ class OperationGraphBuilder:
 
             # Handle context inheritance for expanded operations
             if inherit_context:
-                if (
-                    chain_context
-                    and strategy == ExpansionStrategy.SEQUENTIAL
-                    and i > 0
-                ):
+                if chain_context and strategy == ExpansionStrategy.SEQUENTIAL and i > 0:
                     # Chain context: inherit from previous expanded operation
                     node.metadata["inherit_context"] = True
                     node.metadata["primary_dependency"] = new_node_ids[i - 1]
@@ -313,11 +307,7 @@ class OperationGraphBuilder:
         Returns:
             List of unexecuted operations
         """
-        return [
-            op
-            for op_id, op in self._operations.items()
-            if op_id not in self._executed
-        ]
+        return [op for op_id, op in self._operations.items() if op_id not in self._executed]
 
     def add_conditional_branch(
         self,
@@ -348,39 +338,29 @@ class OperationGraphBuilder:
 
         # Link from current heads
         for head_id in self._current_heads:
-            edge = Edge(
-                head=head_id, tail=check_node.id, label=["to_condition"]
-            )
+            edge = Edge(head=head_id, tail=check_node.id, label=["to_condition"])
             self.graph.add_edge(edge)
 
         result = {"check": check_node.id}
 
         # Add true branch
-        true_node = create_operation(
-            operation=true_op, parameters={"branch": "true"}
-        )
+        true_node = create_operation(operation=true_op, parameters={"branch": "true"})
         self.graph.add_node(true_node)
         self._operations[true_node.id] = true_node
         result["true"] = true_node.id
 
         # Connect with condition label
-        true_edge = Edge(
-            head=check_node.id, tail=true_node.id, label=["if_true"]
-        )
+        true_edge = Edge(head=check_node.id, tail=true_node.id, label=["if_true"])
         self.graph.add_edge(true_edge)
 
         # Add false branch if specified
         if false_op:
-            false_node = create_operation(
-                operation=false_op, parameters={"branch": "false"}
-            )
+            false_node = create_operation(operation=false_op, parameters={"branch": "false"})
             self.graph.add_node(false_node)
             self._operations[false_node.id] = false_node
             result["false"] = false_node.id
 
-            false_edge = Edge(
-                head=check_node.id, tail=false_node.id, label=["if_false"]
-            )
+            false_edge = Edge(head=check_node.id, tail=false_node.id, label=["if_false"])
             self.graph.add_edge(false_edge)
 
             self._current_heads = [true_node.id, false_node.id]

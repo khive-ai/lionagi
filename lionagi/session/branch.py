@@ -204,9 +204,7 @@ class Branch(Element, Relational):
         if isinstance(parse_model, dict):
             parse_model = iModel.from_dict(parse_model)
 
-        self._imodel_manager = iModelManager(
-            chat=chat_model, parse=parse_model
-        )
+        self._imodel_manager = iModelManager(chat=chat_model, parse=parse_model)
 
         # --- ActionManager ---
         self._action_manager = ActionManager()
@@ -335,28 +333,16 @@ class Branch(Element, Relational):
         """
         if sender is not None:
             if not ID.is_id(sender):
-                raise ValueError(
-                    f"Cannot clone Branch: '{sender}' is not a valid sender ID."
-                )
+                raise ValueError(f"Cannot clone Branch: '{sender}' is not a valid sender ID.")
             sender = ID.get_id(sender)
 
         system = self.msgs.system.clone() if self.msgs.system else None
         tools = (
-            list(self._action_manager.registry.values())
-            if self._action_manager.registry
-            else None
+            list(self._action_manager.registry.values()) if self._action_manager.registry else None
         )
         # Transfer iModels: CLI endpoints get a fresh copy, API endpoints share
-        chat_model = (
-            self.chat_model.copy()
-            if self.chat_model.is_cli
-            else self.chat_model
-        )
-        parse_model = (
-            self.parse_model.copy()
-            if self.parse_model.is_cli
-            else self.parse_model
-        )
+        chat_model = self.chat_model.copy() if self.chat_model.is_cli else self.chat_model
+        parse_model = self.parse_model.copy() if self.parse_model.is_cli else self.parse_model
 
         branch_clone = Branch(
             system=system,
@@ -380,9 +366,7 @@ class Branch(Element, Relational):
             tools = tools.to_tool()
         self._action_manager.register_tool(tools, update=update)
 
-    def register_tools(
-        self, tools: FuncTool | list[FuncTool] | LionTool, update: bool = False
-    ):
+    def register_tools(self, tools: FuncTool | list[FuncTool] | LionTool, update: bool = False):
         """
         Registers one or more tools in the ActionManager.
 
@@ -420,11 +404,7 @@ class Branch(Element, Relational):
         if progression is None:
             progression = self.msgs.progression
 
-        msgs = [
-            self.msgs.messages[i]
-            for i in progression
-            if i in self.msgs.messages
-        ]
+        msgs = [self.msgs.messages[i] for i in progression if i in self.msgs.messages]
         p = Pile(collections=msgs)
         return p.to_df(columns=MESSAGE_FIELDS)
 
@@ -506,14 +486,9 @@ class Branch(Element, Relational):
                 "id": str(self.metadata["clone_from"].id),
                 "user": str(self.metadata["clone_from"].user),
                 "created_at": self.metadata["clone_from"].created_at,
-                "progression": [
-                    str(i)
-                    for i in self.metadata["clone_from"].msgs.progression
-                ],
+                "progression": [str(i) for i in self.metadata["clone_from"].msgs.progression],
             }
-        meta.update(
-            copy({k: v for k, v in self.metadata.items() if k != "clone_from"})
-        )
+        meta.update(copy({k: v for k, v in self.metadata.items() if k != "clone_from"}))
 
         dict_ = super().to_dict()
         dict_["messages"] = self.messages.to_dict()
@@ -680,18 +655,14 @@ class Branch(Element, Relational):
     async def parse(
         self,
         text: str,
-        handle_validation: Literal[
-            "raise", "return_value", "return_none"
-        ] = "return_value",
+        handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
         max_retries: int = 3,
         request_type: type[BaseModel] = None,
         operative: "Operative" = None,
         similarity_algo="jaro_winkler",
         similarity_threshold: float = 0.85,
         fuzzy_match: bool = True,
-        handle_unmatched: Literal[
-            "ignore", "raise", "remove", "fill", "force"
-        ] = "force",
+        handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "force",
         fill_value: Any = None,
         fill_mapping: dict[str, Any] | None = None,
         strict: bool = False,
@@ -737,11 +708,7 @@ class Branch(Element, Relational):
                 Parsed model instance, or a fallback based on `handle_validation`.
         """
 
-        _pms = {
-            k: v
-            for k, v in locals().items()
-            if k not in ("self", "_pms") and v is not None
-        }
+        _pms = {k: v for k, v in locals().items() if k not in ("self", "_pms") and v is not None}
         from lionagi.operations.parse.parse import parse, prepare_parse_kws
 
         return await parse(self, **prepare_parse_kws(self, **_pms))
@@ -765,9 +732,7 @@ class Branch(Element, Relational):
         skip_validation: bool = False,
         tools: ToolRef = None,
         operative: "Operative" = None,
-        response_format: type[
-            BaseModel
-        ] = None,  # alias of operative.request_type
+        response_format: type[BaseModel] = None,  # alias of operative.request_type
         actions: bool = False,
         reason: bool = False,
         call_params: AlcallParams = None,
@@ -775,9 +740,7 @@ class Branch(Element, Relational):
         verbose_action: bool = False,
         field_models: list[FieldModel] = None,
         exclude_fields: list | dict | None = None,
-        handle_validation: Literal[
-            "raise", "return_value", "return_none"
-        ] = "return_value",
+        handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
         include_token_usage_to_model: bool = False,
         **kwargs,
     ) -> list | BaseModel | None | dict | str:
@@ -863,11 +826,7 @@ class Branch(Element, Relational):
                 - If both `operative_model` and `response_format` or `request_model` are given.
                 - If the LLM's response cannot be parsed into the expected format and `handle_validation='raise'`.
         """
-        _pms = {
-            k: v
-            for k, v in locals().items()
-            if k not in ("self", "_pms") and v is not None
-        }
+        _pms = {k: v for k, v in locals().items() if k not in ("self", "_pms") and v is not None}
         from lionagi.operations.operate.operate import (
             operate,
             prepare_operate_kw,
@@ -971,11 +930,7 @@ class Branch(Element, Relational):
         suppress_errors: bool = True,
         call_params: AlcallParams = None,
     ) -> list[ActionResponse]:
-        _pms = {
-            k: v
-            for k, v in locals().items()
-            if k not in ("self", "_pms") and v is not None
-        }
+        _pms = {k: v for k, v in locals().items() if k not in ("self", "_pms") and v is not None}
         from lionagi.operations.act.act import act, prepare_act_kw
 
         return await act(self, **prepare_act_kw(self, **_pms))
@@ -1143,9 +1098,7 @@ class Branch(Element, Relational):
 
         # Remove potential duplicate parameters from kwargs
         kwargs_filtered = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in {"verbose_analysis", "verbose_action"}
+            k: v for k, v in kwargs.items() if k not in {"verbose_analysis", "verbose_action"}
         }
 
         return await ReAct(
@@ -1212,11 +1165,7 @@ class Branch(Element, Relational):
         )
 
         # Convert Instruct to dict if needed
-        instruct_dict = (
-            instruct.to_dict()
-            if isinstance(instruct, Instruct)
-            else dict(instruct)
-        )
+        instruct_dict = instruct.to_dict() if isinstance(instruct, Instruct) else dict(instruct)
 
         # Build InterpretContext if interpretation requested
         intp_param = None

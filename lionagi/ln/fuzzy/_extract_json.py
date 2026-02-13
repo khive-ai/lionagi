@@ -45,9 +45,7 @@ def extract_json(
         input_str = input_data
 
     if len(input_str) > max_size:
-        raise ValueError(
-            f"Input size ({len(input_str)} bytes) exceeds maximum ({max_size} bytes)"
-        )
+        raise ValueError(f"Input size ({len(input_str)} bytes) exceeds maximum ({max_size} bytes)")
 
     # 1. Try direct parsing
     try:

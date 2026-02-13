@@ -49,9 +49,7 @@ class HashableModel(BaseModel):
                 raise ValueError(f"Unsupported mode: {mode}")
 
     @classmethod
-    def from_dict(
-        cls, data: dict, mode: ConversionMode = "python", **kw
-    ) -> Self:
+    def from_dict(cls, data: dict, mode: ConversionMode = "python", **kw) -> Self:
         match mode:
             case "python":
                 return cls.model_validate(data, **kw)
@@ -81,9 +79,7 @@ class HashableModel(BaseModel):
             return b_.decode("utf-8")
         return b_
 
-    def from_json(
-        cls, data: bytes | str, mode: ConversionMode = "json", **kwargs
-    ) -> Self:
+    def from_json(cls, data: bytes | str, mode: ConversionMode = "json", **kwargs) -> Self:
         """Creates an instance of this class from a JSON string."""
         return cls.from_dict(data, mode=mode, **kwargs)
 

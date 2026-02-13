@@ -101,9 +101,7 @@ class ActionManager(Manager):
             )
         self.registry[tool.function] = tool
 
-    def register_tools(
-        self, tools: list[FuncTool] | FuncTool, update: bool = False
-    ) -> None:
+    def register_tools(self, tools: list[FuncTool] | FuncTool, update: bool = False) -> None:
         """
         Register multiple tools at once.
 
@@ -121,9 +119,7 @@ class ActionManager(Manager):
         for t in tools_list:
             self.register_tool(t, update=update)
 
-    def match_tool(
-        self, action_request: ActionRequest | BaseModel | dict
-    ) -> FunctionCalling:
+    def match_tool(self, action_request: ActionRequest | BaseModel | dict) -> FunctionCalling:
         """
         Convert an ActionRequest (or dict with "function"/"arguments")
         into a `FunctionCalling` instance by finding the matching tool.
@@ -212,9 +208,7 @@ class ActionManager(Manager):
                 return {"tools": self.schema_list}
             return []
         else:
-            schemas = self._get_tool_schema(
-                tools, auto_register=auto_register, update=update
-            )
+            schemas = self._get_tool_schema(tools, auto_register=auto_register, update=update)
             return {"tools": schemas}
 
     def _get_tool_schema(
@@ -245,10 +239,7 @@ class ActionManager(Manager):
                 return self.registry[name].tool_schema
             raise ValueError(f"Tool {name} is not registered.")
         elif isinstance(tool, list):
-            return [
-                self._get_tool_schema(t, auto_register=auto_register)
-                for t in tool
-            ]
+            return [self._get_tool_schema(t, auto_register=auto_register) for t in tool]
         raise TypeError(f"Unsupported type {type(tool)}")
 
     async def register_mcp_server(
@@ -298,9 +289,7 @@ class ActionManager(Manager):
         if request_options:
             for k in list(request_options.keys()):
                 if not k.startswith(f"{server_name}_"):
-                    request_options[f"{server_name}_{k}"] = (
-                        request_options.pop(k)
-                    )
+                    request_options[f"{server_name}_{k}"] = request_options.pop(k)
 
         if tool_names:
             # Register specific tools with qualified names
@@ -318,9 +307,7 @@ class ActionManager(Manager):
                     tool_request_options = request_options[tool_name]
 
                 # Create tool with request_options for Pydantic validation
-                tool = Tool(
-                    mcp_config=mcp_config, request_options=tool_request_options
-                )
+                tool = Tool(mcp_config=mcp_config, request_options=tool_request_options)
                 self.register_tool(tool, update=update)
                 registered_tools.append(tool_name)
         else:
@@ -359,18 +346,14 @@ class ActionManager(Manager):
                             "function": {
                                 "name": tool.name,
                                 "description": (
-                                    tool.description
-                                    if hasattr(tool, "description")
-                                    else None
+                                    tool.description if hasattr(tool, "description") else None
                                 ),
                                 "parameters": tool.inputSchema,
                             },
                         }
                 except Exception as schema_error:
                     # If schema extraction fails, let Tool auto-generate from function signature
-                    logging.warning(
-                        f"Could not extract schema for {tool.name}: {schema_error}"
-                    )
+                    logging.warning(f"Could not extract schema for {tool.name}: {schema_error}")
                     tool_schema = None
 
                 try:
@@ -383,9 +366,7 @@ class ActionManager(Manager):
                     self.register_tool(tool_obj, update=update)
                     registered_tools.append(tool.name)
                 except Exception as e:
-                    logging.warning(
-                        f"Failed to register tool {tool.name}: {e}"
-                    )
+                    logging.warning(f"Failed to register tool {tool.name}: {e}")
 
         return registered_tools
 
@@ -433,13 +414,9 @@ class ActionManager(Manager):
         for server_name in server_names:
             try:
                 # Register using server reference
-                tools = await self.register_mcp_server(
-                    {"server": server_name}, update=update
-                )
+                tools = await self.register_mcp_server({"server": server_name}, update=update)
                 all_tools[server_name] = tools
-                print(
-                    f"✅ Registered {len(tools)} tools from server '{server_name}'"
-                )
+                print(f"✅ Registered {len(tools)} tools from server '{server_name}'")
             except Exception as e:
                 print(f"⚠️  Failed to register server '{server_name}': {e}")
                 all_tools[server_name] = []
@@ -502,9 +479,7 @@ async def load_mcp_tools(
         server_names = list(MCPConnectionPool._configs.keys())
 
     if server_names is None:
-        raise ValueError(
-            "Either provide server_names or config_path to discover servers"
-        )
+        raise ValueError("Either provide server_names or config_path to discover servers")
 
     # Register all servers
     for server_name in server_names:
@@ -519,9 +494,7 @@ async def load_mcp_tools(
                 request_options=request_options,
                 update=update,
             )
-            print(
-                f"✅ Loaded {len(tools_registered)} tools from {server_name}"
-            )
+            print(f"✅ Loaded {len(tools_registered)} tools from {server_name}")
         except Exception as e:
             print(f"⚠️  Failed to load server '{server_name}': {e}")
 

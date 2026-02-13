@@ -91,9 +91,7 @@ class OpenaiChatEndpoint(Endpoint):
         **kwargs,
     ):
         """Override to handle model-specific parameter filtering."""
-        payload, headers = super().create_payload(
-            request, extra_headers, **kwargs
-        )
+        payload, headers = super().create_payload(request, extra_headers, **kwargs)
         # Convert system role to developer role for reasoning models
         if "messages" in payload and payload["messages"]:
             if payload["messages"][0].get("role") == "system":

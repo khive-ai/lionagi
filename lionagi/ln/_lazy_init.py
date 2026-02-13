@@ -100,9 +100,7 @@ def lazy_import(
             return lazy_import(name, _MAP, __name__, globals())
     """
     if name not in module_map:
-        raise AttributeError(
-            f"module '{package}' has no attribute '{name}'"
-        )
+        raise AttributeError(f"module '{package}' has no attribute '{name}'")
     module_path, import_name = module_map[name]
     import importlib
 

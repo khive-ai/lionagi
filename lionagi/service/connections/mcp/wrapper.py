@@ -53,16 +53,12 @@ class MCPSecurityConfig:
     """
 
     command_allowlist: frozenset[str] | None = None
-    env_denylist_patterns: frozenset[str] = field(
-        default_factory=lambda: _SENSITIVE_ENV_PATTERNS
-    )
+    env_denylist_patterns: frozenset[str] = field(default_factory=lambda: _SENSITIVE_ENV_PATTERNS)
     filter_sensitive_env: bool = True
     max_connections_per_server: int = 5
 
 
-def _filter_env(
-    env: dict[str, str], config: MCPSecurityConfig
-) -> dict[str, str]:
+def _filter_env(env: dict[str, str], config: MCPSecurityConfig) -> dict[str, str]:
     """Filter environment variables based on security config.
 
     Removes entries whose keys contain any deny-listed substring
@@ -112,14 +108,12 @@ def _validate_command(command: str, config: MCPSecurityConfig) -> None:
                 f"Use bare command name '{bare}' instead."
             )
         raise ValueError(
-            f"Command '{command}' not in allowlist. "
-            f"Allowed: {sorted(config.command_allowlist)}"
+            f"Command '{command}' not in allowlist. Allowed: {sorted(config.command_allowlist)}"
         )
 
     if command not in config.command_allowlist:
         raise ValueError(
-            f"Command '{command}' not in allowlist. "
-            f"Allowed: {sorted(config.command_allowlist)}"
+            f"Command '{command}' not in allowlist. Allowed: {sorted(config.command_allowlist)}"
         )
 
 
@@ -183,9 +177,7 @@ class MCPConnectionPool:
             with open(config_path) as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
-            raise json.JSONDecodeError(
-                f"Invalid JSON in MCP config file: {e.msg}", e.doc, e.pos
-            )
+            raise json.JSONDecodeError(f"Invalid JSON in MCP config file: {e.msg}", e.doc, e.pos)
 
         if not isinstance(data, dict):
             raise ValueError("MCP config must be a JSON object")
@@ -260,9 +252,7 @@ class MCPConnectionPool:
         try:
             from fastmcp import Client as FastMCPClient
         except ImportError:
-            raise ImportError(
-                "FastMCP not installed. Run: pip install fastmcp"
-            )
+            raise ImportError("FastMCP not installed. Run: pip install fastmcp")
 
         # Handle different config formats
         if "url" in config:
@@ -291,8 +281,7 @@ class MCPConnectionPool:
 
             # Suppress server logging unless debug mode is enabled
             if not (
-                config.get("debug", False)
-                or os.environ.get("MCP_DEBUG", "").lower() == "true"
+                config.get("debug", False) or os.environ.get("MCP_DEBUG", "").lower() == "true"
             ):
                 # Common environment variables to suppress logging
                 env.setdefault("LOG_LEVEL", "ERROR")
@@ -326,9 +315,7 @@ class MCPConnectionPool:
                     await client.__aexit__(None, None, None)
                 except Exception as e:
                     # Log cleanup errors for debugging while continuing cleanup
-                    logging.debug(
-                        f"Error cleaning up MCP client {cache_key}: {e}"
-                    )
+                    logging.debug(f"Error cleaning up MCP client {cache_key}: {e}")
             cls._clients.clear()
 
 
@@ -349,9 +336,7 @@ def create_mcp_tool(mcp_config: dict[str, Any], tool_name: str) -> Any:
         actual_tool_name = mcp_config.get("_original_tool_name", tool_name)
 
         # Remove metadata before getting client
-        config_for_client = {
-            k: v for k, v in mcp_config.items() if not k.startswith("_")
-        }
+        config_for_client = {k: v for k, v in mcp_config.items() if not k.startswith("_")}
 
         client = await MCPConnectionPool.get_client(config_for_client)
 

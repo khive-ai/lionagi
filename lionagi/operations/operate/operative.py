@@ -153,9 +153,7 @@ class Operative:
 
             return None
 
-    def update_response_model(
-        self, text: str | None = None, data: dict | None = None
-    ) -> Any:
+    def update_response_model(self, text: str | None = None, data: dict | None = None) -> Any:
         """Update response model from text or dict.
 
         Args:

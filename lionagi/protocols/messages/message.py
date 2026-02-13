@@ -27,16 +27,12 @@ class MessageContent(DataClass):
     @property
     def rendered(self) -> str:
         """Render the content as a string."""
-        raise NotImplementedError(
-            "Subclasses must implement rendered property."
-        )
+        raise NotImplementedError("Subclasses must implement rendered property.")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MessageContent":
         """Create an instance from a dictionary."""
-        raise NotImplementedError(
-            "Subclasses must implement from_dict method."
-        )
+        raise NotImplementedError("Subclasses must implement from_dict method.")
 
 
 class RoledMessage(Node, Sendable):
@@ -64,11 +60,7 @@ class RoledMessage(Node, Sendable):
     def chat_msg(self) -> dict[str, Any] | None:
         """A dictionary representation typically used in chat-based contexts."""
         try:
-            role_str = (
-                self.role.value
-                if isinstance(self.role, MessageRole)
-                else str(self.role)
-            )
+            role_str = self.role.value if isinstance(self.role, MessageRole) else str(self.role)
             return {"role": role_str, "content": self.rendered}
         except Exception:
             return None

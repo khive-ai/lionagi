@@ -109,11 +109,7 @@ def in_console() -> bool:
     Checks if we're running in a console/terminal environment.
     Returns True if stdout is a TTY and not in a notebook.
     """
-    return (
-        hasattr(sys.stdout, "isatty")
-        and sys.stdout.isatty()
-        and not in_notebook()
-    )
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty() and not in_notebook()
 
 
 def format_dict(data: Any, indent: int = 0) -> str:
@@ -224,11 +220,7 @@ def as_readable(
                 # Single item
                 maybe_list = to_dict_safe(i_)
                 # If it's a list, store as items; else just single
-                items = (
-                    maybe_list
-                    if isinstance(maybe_list, list)
-                    else [maybe_list]
-                )
+                items = maybe_list if isinstance(maybe_list, list) else [maybe_list]
         except Exception:
             # If conversion fails, fallback to str
             return str(i_)
@@ -243,9 +235,7 @@ def as_readable(
                 # JSON approach
                 try:
                     # Provide indentation, ensure ASCII not forced
-                    rendered.append(
-                        json.dumps(item, indent=2, ensure_ascii=False)
-                    )
+                    rendered.append(json.dumps(item, indent=2, ensure_ascii=False))
                 except Exception:
                     # fallback
                     rendered.append(str(item))
@@ -285,9 +275,7 @@ def as_readable(
         console = Console(theme=console_theme)
 
         # determine prose / fenced code
-        is_fenced_code = (
-            md and str_.startswith("```") and str_.rstrip().endswith("```")
-        )
+        is_fenced_code = md and str_.startswith("```") and str_.rstrip().endswith("```")
         is_prose_md = md and not is_fenced_code
         panel_width = min(console.width - 4, max_panel_width)
 

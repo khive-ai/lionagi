@@ -46,9 +46,7 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
         if k not in _CODEX_HANDLER_PARAMS:
             raise ValueError(f"Invalid handler key: {k}")
         if not (v is None or callable(v)):
-            raise ValueError(
-                f"Handler value must be callable or None, got {type(v)}"
-            )
+            raise ValueError(f"Handler value must be callable or None, got {type(v)}")
 
 
 class CodexCLIEndpoint(CLIEndpoint):
@@ -95,17 +93,13 @@ class CodexCLIEndpoint(CLIEndpoint):
         request: CodexCodeRequest = payload["request"]
         session: CodexSession = CodexSession()
 
-        async for chunk in stream_codex_cli(
-            request, session, **self.codex_handlers, **kwargs
-        ):
+        async for chunk in stream_codex_cli(request, session, **self.codex_handlers, **kwargs):
             if isinstance(chunk, dict):
                 if chunk.get("type") == "done":
                     break
             responses.append(chunk)
 
-        codex_log.info(
-            f"Session {session.session_id} finished with {len(responses)} chunks"
-        )
+        codex_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
         texts = []
         for i in session.chunks:
             if i.text is not None:

@@ -45,17 +45,13 @@ class HookRegistry:
         **kw,
     ) -> tuple[Any | Exception, bool]:
         if ht_ is None and ct_ is None:
-            raise RuntimeError(
-                "Either hook_type or chunk_type must be provided"
-            )
+            raise RuntimeError("Either hook_type or chunk_type must be provided")
         if ht_ and (self._hooks.get(ht_)):
             validate_hooks({ht_: self._hooks[ht_]})
             h = get_handler(self._hooks, ht_, True)
             return await h(ev_, **kw)
         elif not ct_:
-            raise RuntimeError(
-                "Hook type is required when chunk_type is not provided"
-            )
+            raise RuntimeError("Hook type is required when chunk_type is not provided")
         else:
             validate_stream_handlers({ct_: self._stream_handlers.get(ct_)})
             h = get_handler(self._stream_handlers, ct_, True)
@@ -200,9 +196,7 @@ class HookRegistry:
             match hook_type:
                 case HookEventTypes.PreEventCreate:
                     return (
-                        await self.pre_event_create(
-                            event_like, exit=exit, **kw
-                        ),
+                        await self.pre_event_create(event_like, exit=exit, **kw),
                         meta,
                     )
                 case HookEventTypes.PreInvocation:
@@ -216,14 +210,10 @@ class HookRegistry:
                     meta["event_id"] = str(event_like.id)
                     meta["event_created_at"] = event_like.created_at
                     return (
-                        await self.post_invocation(
-                            event_like, exit=exit, **kw
-                        ),
+                        await self.post_invocation(event_like, exit=exit, **kw),
                         meta,
                     )
-        return await self.handle_streaming_chunk(
-            chunk_type, chunk, exit=exit, **kw
-        )
+        return await self.handle_streaming_chunk(chunk_type, chunk, exit=exit, **kw)
 
     def _can_handle(
         self,

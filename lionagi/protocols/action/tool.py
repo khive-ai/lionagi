@@ -85,15 +85,11 @@ class Tool(Element):
 
         if mcp_config is not None:
             if func_callable is not None:
-                raise ValueError(
-                    "`mcp_config` and `func_callable` cannot both be set."
-                )
+                raise ValueError("`mcp_config` and `func_callable` cannot both be set.")
             if not isinstance(mcp_config, dict):
                 raise ValueError("`mcp_config` must be a dictionary.")
             if len(mcp_config) != 1:
-                raise ValueError(
-                    "`mcp_config` must contain exactly one entry."
-                )
+                raise ValueError("`mcp_config` must contain exactly one entry.")
             tool_name, config = next(iter(mcp_config.items()))
 
             from lionagi.service.connections.mcp.wrapper import create_mcp_tool
@@ -104,9 +100,7 @@ class Tool(Element):
                 validate_callable,
             )
 
-            validate_callable(
-                cls, func_callable, undefind_able=False, check_name=True
-            )
+            validate_callable(cls, func_callable, undefind_able=False, check_name=True)
 
         data["func_callable"] = func_callable
         return data
@@ -143,9 +137,7 @@ class Tool(Element):
         try:
             a = {
                 k
-                for k, v in inspect.signature(
-                    self.func_callable
-                ).parameters.items()
+                for k, v in inspect.signature(self.func_callable).parameters.items()
                 if v.default == inspect.Parameter.empty
             }
             for i in ("kw", "kwargs", "args"):

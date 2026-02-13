@@ -140,11 +140,7 @@ class iModel:
         # 3. Configure executor ---------------------------------------------
         # Resolve defaults based on endpoint type
         if queue_capacity is None:
-            queue_capacity = (
-                self.endpoint.DEFAULT_QUEUE_CAPACITY
-                if self.endpoint.is_cli
-                else 100
-            )
+            queue_capacity = self.endpoint.DEFAULT_QUEUE_CAPACITY if self.endpoint.is_cli else 100
         if concurrency_limit is None and self.endpoint.is_cli:
             concurrency_limit = self.endpoint.DEFAULT_CONCURRENCY_LIMIT
 
@@ -186,11 +182,7 @@ class iModel:
                 registry=self.hook_registry,
                 event_like=create_event_type,
                 params=create_event_hook_params or {},
-                exit=(
-                    self.exit_hook
-                    if create_event_exit_hook is None
-                    else create_event_exit_hook
-                ),
+                exit=(self.exit_hook if create_event_exit_hook is None else create_event_exit_hook),
                 timeout=create_event_hook_timeout,
             )
             await h_ev.invoke()
@@ -207,14 +199,10 @@ class iModel:
                 api_call = create_event_type(**kwargs)
             if h_ev:
                 h_ev.assosiated_event_info["event_id"] = str(api_call.id)
-                h_ev.assosiated_event_info["event_created_at"] = (
-                    api_call.created_at
-                )
+                h_ev.assosiated_event_info["event_created_at"] = api_call.created_at
                 await global_hook_logger.alog(Log(content=h_ev.to_dict()))
 
-            if self.hook_registry._can_handle(
-                ht_=HookEventTypes.PreInvocation
-            ):
+            if self.hook_registry._can_handle(ht_=HookEventTypes.PreInvocation):
                 api_call.create_pre_invoke_hook(
                     hook_registry=self.hook_registry,
                     exit_hook=(
@@ -226,9 +214,7 @@ class iModel:
                     hook_params=pre_invoke_event_hook_params or {},
                 )
 
-            if self.hook_registry._can_handle(
-                ht_=HookEventTypes.PostInvocation
-            ):
+            if self.hook_registry._can_handle(ht_=HookEventTypes.PostInvocation):
                 api_call.create_post_invoke_hook(
                     hook_registry=self.hook_registry,
                     exit_hook=(
@@ -316,10 +302,7 @@ class iModel:
             api_call = await self.create_event(**kw)
             await self.executor.append(api_call)
 
-        if (
-            self.executor.processor is None
-            or self.executor.processor.is_stopped()
-        ):
+        if self.executor.processor is None or self.executor.processor.is_stopped():
             await self.executor.start()
 
         if self.executor.processor._concurrency_sem:
@@ -365,10 +348,7 @@ class iModel:
                 kw.pop("stream", None)
                 api_call = await self.create_event(**kw)
 
-            if (
-                self.executor.processor is None
-                or self.executor.processor.is_stopped()
-            ):
+            if self.executor.processor is None or self.executor.processor.is_stopped():
                 await self.executor.start()
 
             await self.executor.append(api_call)
@@ -447,8 +427,10 @@ class iModel:
             circuit_breaker=self.endpoint.circuit_breaker,
             retry_config=self.endpoint.retry_config,
         )
-        if share_session and isinstance(new_endpoint, CLIEndpoint) and isinstance(
-            self.endpoint, CLIEndpoint
+        if (
+            share_session
+            and isinstance(new_endpoint, CLIEndpoint)
+            and isinstance(self.endpoint, CLIEndpoint)
         ):
             new_endpoint.session_id = self.endpoint.session_id
         return iModel(

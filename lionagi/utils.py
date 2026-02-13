@@ -116,9 +116,7 @@ def is_same_dtype(
 def is_union_type(tp) -> bool:
     """True for typing.Union[...] and PEP 604 unions (A | B)."""
     origin = get_origin(tp)
-    return origin is Union or origin is getattr(
-        types, "UnionType", object()
-    )  # Py3.10+
+    return origin is Union or origin is getattr(types, "UnionType", object())  # Py3.10+
 
 
 NoneType = type(None)
@@ -213,9 +211,7 @@ def create_path(
     # Check if file or directory existence
     full_path.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
     if full_path.exists() and not file_exist_ok:
-        raise FileExistsError(
-            f"File {full_path} already exists and file_exist_ok is False."
-        )
+        raise FileExistsError(f"File {full_path} already exists and file_exist_ok is False.")
 
     return full_path
 

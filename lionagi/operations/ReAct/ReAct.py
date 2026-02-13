@@ -68,11 +68,7 @@ async def ReAct(
         verbose_analysis = kwargs.pop("verbose")
 
     # Convert Instruct to dict if needed
-    instruct_dict = (
-        instruct.to_dict()
-        if isinstance(instruct, Instruct)
-        else dict(instruct)
-    )
+    instruct_dict = instruct.to_dict() if isinstance(instruct, Instruct) else dict(instruct)
 
     # Build InterpretParam if interpretation requested
     intp_param = None
@@ -353,9 +349,7 @@ async def ReActStream(
 
     # Validate and clamp max_extensions
     if max_extensions and max_extensions > 100:
-        logger.warning(
-            "max_extensions should not exceed 100; defaulting to 100."
-        )
+        logger.warning("max_extensions should not exceed 100; defaulting to 100.")
         max_extensions = 100
 
     def verbose_yield(title, s_):
@@ -403,9 +397,7 @@ async def ReActStream(
     initial_chat_param = chat_param.with_updates(response_format=ReActAnalysis)
 
     initial_parse_param = (
-        parse_param.with_updates(response_format=ReActAnalysis)
-        if parse_param
-        else None
+        parse_param.with_updates(response_format=ReActAnalysis) if parse_param else None
     )
 
     # Add proper extension prompt for initial analysis
@@ -449,13 +441,9 @@ async def ReActStream(
     def prepare_analysis_kwargs(exts):
         new_instruction = None
         if exts == max_extensions:
-            new_instruction = ReActAnalysis.FIRST_EXT_PROMPT.format(
-                extensions=exts
-            )
+            new_instruction = ReActAnalysis.FIRST_EXT_PROMPT.format(extensions=exts)
         else:
-            new_instruction = ReActAnalysis.CONTINUE_EXT_PROMPT.format(
-                extensions=exts
-            )
+            new_instruction = ReActAnalysis.CONTINUE_EXT_PROMPT.format(extensions=exts)
 
         # Use with_updates to create new context instances
         updates = {"response_format": ReActAnalysis}
@@ -479,9 +467,7 @@ async def ReActStream(
         from ..act.act import _get_default_call_params
 
         _actx = (
-            action_param.with_updates(
-                strategy=getattr(analysis, "action_strategy", "concurrent")
-            )
+            action_param.with_updates(strategy=getattr(analysis, "action_strategy", "concurrent"))
             if action_param
             else ActionParam(
                 action_call_params=_get_default_call_params(),
@@ -505,9 +491,7 @@ async def ReActStream(
 
         # Build parse context for extension
         ext_parse_param = (
-            parse_param.with_updates(
-                response_format=kwargs["chat_param"].response_format
-            )
+            parse_param.with_updates(response_format=kwargs["chat_param"].response_format)
             if parse_param
             else None
         )
@@ -527,9 +511,7 @@ async def ReActStream(
         )
         round_count += 1
 
-        if isinstance(analysis, dict) and all(
-            i is None for i in analysis.values()
-        ):
+        if isinstance(analysis, dict) and all(i is None for i in analysis.values()):
             if not continue_after_failed_response:
                 raise ValueError(
                     "All values in the response are None. "
@@ -537,9 +519,7 @@ async def ReActStream(
                     "Set `continue_after_failed_response=True` to ignore this error."
                 )
 
-        out = verbose_yield(
-            f"\n### ReAct Round No.{round_count} Analysis:\n", analysis
-        )
+        out = verbose_yield(f"\n### ReAct Round No.{round_count} Analysis:\n", analysis)
         yield out
 
         if extensions:
@@ -548,9 +528,7 @@ async def ReActStream(
     # Step 5: Final answer
     answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction=ins_str)
 
-    final_response_format = (
-        resp_ctx.get("response_format") if resp_ctx else None
-    )
+    final_response_format = resp_ctx.get("response_format") if resp_ctx else None
     if not final_response_format:
         final_response_format = Analysis
 
@@ -565,9 +543,7 @@ async def ReActStream(
     final_chat_param = chat_param.with_updates(**resp_ctx_updates)
 
     final_parse_param = (
-        parse_param.with_updates(response_format=final_response_format)
-        if parse_param
-        else None
+        parse_param.with_updates(response_format=final_response_format) if parse_param else None
     )
 
     # Build operate kwargs, honoring response_kwargs

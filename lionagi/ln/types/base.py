@@ -76,9 +76,7 @@ class Params:
     _config: ClassVar[ModelConfig] = ModelConfig()
     """Configuration for this Params class."""
 
-    _allowed_keys: ClassVar[set[str]] = field(
-        default=set(), init=False, repr=False
-    )
+    _allowed_keys: ClassVar[set[str]] = field(default=set(), init=False, repr=False)
     """Class variable cache to store allowed keys for parameters."""
 
     def __init__(self, **kwargs: Any):
@@ -119,22 +117,15 @@ class Params:
         """Return the keys of the parameters."""
         if cls._allowed_keys:
             return cls._allowed_keys
-        cls._allowed_keys = {
-            i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")
-        }
+        cls._allowed_keys = {i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")}
         return cls._allowed_keys
 
     @override
     def _validate(self) -> None:
         def _validate_strict(k):
-            if self._config.strict and self._is_sentinel(
-                getattr(self, k, Unset)
-            ):
+            if self._config.strict and self._is_sentinel(getattr(self, k, Unset)):
                 raise ValueError(f"Missing required parameter: {k}")
-            if (
-                self._config.prefill_unset
-                and getattr(self, k, Undefined) is Undefined
-            ):
+            if self._config.prefill_unset and getattr(self, k, Undefined) is Undefined:
                 object.__setattr__(self, k, Unset)
 
         for k in self.allowed():
@@ -195,9 +186,7 @@ class DataClass:
     _config: ClassVar[ModelConfig] = ModelConfig()
     """Configuration for this DataClass."""
 
-    _allowed_keys: ClassVar[set[str]] = field(
-        default=set(), init=False, repr=False
-    )
+    _allowed_keys: ClassVar[set[str]] = field(default=set(), init=False, repr=False)
     """Class variable cache to store allowed keys for parameters."""
 
     def __post_init__(self):
@@ -209,22 +198,15 @@ class DataClass:
         """Return the keys of the parameters."""
         if cls._allowed_keys:
             return cls._allowed_keys
-        cls._allowed_keys = {
-            i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")
-        }
+        cls._allowed_keys = {i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")}
         return cls._allowed_keys
 
     @override
     def _validate(self) -> None:
         def _validate_strict(k):
-            if self._config.strict and self._is_sentinel(
-                getattr(self, k, Unset)
-            ):
+            if self._config.strict and self._is_sentinel(getattr(self, k, Unset)):
                 raise ValueError(f"Missing required parameter: {k}")
-            if (
-                self._config.prefill_unset
-                and getattr(self, k, Undefined) is Undefined
-            ):
+            if self._config.prefill_unset and getattr(self, k, Undefined) is Undefined:
                 self.__setattr__(k, Unset)
 
         for k in self.allowed():

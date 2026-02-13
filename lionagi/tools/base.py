@@ -46,9 +46,7 @@ class ResourceMeta(BaseModel):
 
 class Resource(Node):
     content: JsonValue = None
-    category: ResourceCategory = Field(
-        default=ResourceCategory.OTHER, frozen=True
-    )
+    category: ResourceCategory = Field(default=ResourceCategory.OTHER, frozen=True)
 
     @property
     def meta_obj(self) -> ResourceMeta:
@@ -70,6 +68,4 @@ class Resource(Node):
 
 
 class Prompt(Resource):
-    category: ResourceCategory = Field(
-        default=ResourceCategory.PROMPT, frozen=True
-    )
+    category: ResourceCategory = Field(default=ResourceCategory.PROMPT, frozen=True)

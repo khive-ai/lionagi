@@ -42,9 +42,7 @@ class DataLoggerConfig(BaseModel):
     def _validate_non_negative(cls, value):
         if value is not None:
             if not isinstance(value, int) or value < 0:
-                raise ValueError(
-                    "Capacity and hash_digits must be non-negative."
-                )
+                raise ValueError("Capacity and hash_digits must be non-negative.")
         return value
 
     @field_validator("extension")
@@ -186,9 +184,7 @@ class DataLogger:
                 raise ValueError(f"Unsupported file extension: {suffix}")
 
             logger.info(f"Dumped logs to {fp}")
-            do_clear = (
-                self._config.clear_after_dump if clear is None else clear
-            )
+            do_clear = self._config.clear_after_dump if clear is None else clear
             if do_clear:
                 self.logs.clear()
         except Exception as e:
@@ -241,9 +237,7 @@ class DataLogger:
                     logger.error(f"Failed to save logs on exit: {e}")
 
     @classmethod
-    def from_config(
-        cls, config: DataLoggerConfig, logs: Any = None
-    ) -> DataLogger:
+    def from_config(cls, config: DataLoggerConfig, logs: Any = None) -> DataLogger:
         """
         Construct a LogManager from a LogManagerConfig.
         """

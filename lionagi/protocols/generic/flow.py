@@ -116,9 +116,7 @@ class Flow(Element, Generic[E, P]):
             data["id"] = UUID(str(data["id"]))
 
         items = cls._coerce_pile(data.pop("items", None)) or Pile()
-        progressions = cls._coerce_pile(
-            data.pop("progressions", None)
-        ) or Pile()
+        progressions = cls._coerce_pile(data.pop("progressions", None)) or Pile()
 
         # Validate referential integrity
         item_ids = set(items.keys())
@@ -126,8 +124,7 @@ class Flow(Element, Generic[E, P]):
             missing = set(prog) - item_ids
             if missing:
                 raise ItemNotFoundError(
-                    f"Progression '{prog.name}' references missing "
-                    f"items: {missing}"
+                    f"Progression '{prog.name}' references missing items: {missing}"
                 )
 
         flow = cls.model_construct(
@@ -212,9 +209,7 @@ class Flow(Element, Generic[E, P]):
                     uid = ID.get_id(key)
                     return self.progressions[uid]
                 except Exception as exc:
-                    raise ItemNotFoundError(
-                        f"Progression '{key}' not found in flow"
-                    ) from exc
+                    raise ItemNotFoundError(f"Progression '{key}' not found in flow") from exc
 
             uid = key.id if isinstance(key, Progression) else key
             return self.progressions[uid]

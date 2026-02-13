@@ -321,9 +321,7 @@ class Executor(Observer):
 
     async def _create_processor(self) -> None:
         """Instantiates the processor using the stored config."""
-        self.processor = await self.processor_type.create(
-            **self.processor_config
-        )
+        self.processor = await self.processor_type.create(**self.processor_config)
 
     async def append(self, event: Event) -> None:
         """Adds a new Event to the pile and marks it as pending.
@@ -339,9 +337,7 @@ class Executor(Observer):
     def completed_events(self) -> Pile[Event]:
         """Pile[Event]: All events in COMPLETED status."""
         return Pile(
-            collections=[
-                e for e in self.pile if e.status == EventStatus.COMPLETED
-            ],
+            collections=[e for e in self.pile if e.status == EventStatus.COMPLETED],
             item_type=self.processor_type.event_type,
             strict_type=self.strict_event_type,
         )
@@ -350,9 +346,7 @@ class Executor(Observer):
     def pending_events(self) -> Pile[Event]:
         """Pile[Event]: All events currently in PENDING status."""
         return Pile(
-            collections=[
-                e for e in self.pile if e.status == EventStatus.PENDING
-            ],
+            collections=[e for e in self.pile if e.status == EventStatus.PENDING],
             item_type=self.processor_type.event_type,
             strict_type=self.strict_event_type,
         )
@@ -361,9 +355,7 @@ class Executor(Observer):
     def failed_events(self) -> Pile[Event]:
         """Pile[Event]: All events whose status is FAILED."""
         return Pile(
-            collections=[
-                e for e in self.pile if e.status == EventStatus.FAILED
-            ],
+            collections=[e for e in self.pile if e.status == EventStatus.FAILED],
             item_type=self.processor_type.event_type,
             strict_type=self.strict_event_type,
         )

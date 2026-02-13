@@ -66,9 +66,7 @@ class RateLimitedAPIProcessor(Processor):
                     # Adjust total tokens to reset capacity
                     current_borrowed = self._request_limiter.borrowed_tokens
                     if current_borrowed < self.limit_requests:
-                        self._request_limiter.total_tokens = (
-                            self.limit_requests
-                        )
+                        self._request_limiter.total_tokens = self.limit_requests
 
                 if self._token_limiter and self.limit_tokens:
                     # Reset token limiter capacity
@@ -108,15 +106,11 @@ class RateLimitedAPIProcessor(Processor):
             limit_tokens=limit_tokens,
             concurrency_limit=concurrency_limit,
         )
-        self._rate_limit_replenisher_task = asyncio.create_task(
-            self.start_replenishing()
-        )
+        self._rate_limit_replenisher_task = asyncio.create_task(self.start_replenishing())
         return self
 
     @override
-    async def request_permission(
-        self, required_tokens: int = None, **kwargs: Any
-    ) -> bool:
+    async def request_permission(self, required_tokens: int = None, **kwargs: Any) -> bool:
         # No limits configured, just check queue capacity
         if self._request_limiter is None and self._token_limiter is None:
             return self.queue.qsize() < self.queue_capacity
@@ -164,9 +158,7 @@ class RateLimitedAPIExecutor(Executor):
             "limit_tokens": limit_tokens,
             "concurrency_limit": concurrency_limit,
         }
-        super().__init__(
-            processor_config=config, strict_event_type=strict_event_type
-        )
+        super().__init__(processor_config=config, strict_event_type=strict_event_type)
         self.config = config
         self.interval = interval
         self.limit_requests = limit_requests

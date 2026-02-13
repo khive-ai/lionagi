@@ -90,9 +90,7 @@ class Edge(Element):
         tail = ID.get_id(tail)
         if condition:
             if not isinstance(condition, EdgeCondition):
-                raise ValueError(
-                    "Condition must be an instance of EdgeCondition."
-                )
+                raise ValueError("Condition must be an instance of EdgeCondition.")
             kwargs["condition"] = condition
         if label:
             if isinstance(label, str):
@@ -100,9 +98,7 @@ class Edge(Element):
             elif isinstance(label, list) and is_same_dtype(label, str):
                 kwargs["label"] = label
             else:
-                raise ValueError(
-                    "Label must be a string or a list of strings."
-                )
+                raise ValueError("Label must be a string or a list of strings.")
 
         super().__init__(head=head, tail=tail, properties=kwargs)
 

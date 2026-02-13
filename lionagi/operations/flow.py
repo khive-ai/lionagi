@@ -89,25 +89,15 @@ class DependencyAwareExecutor:
 
         # Create capacity limiter for concurrency control
         # None means no limit, use the configured unlimited value
-        capacity = (
-            self.max_concurrent
-            if self.max_concurrent is not None
-            else UNLIMITED_CONCURRENCY
-        )
+        capacity = self.max_concurrent if self.max_concurrent is not None else UNLIMITED_CONCURRENCY
         limiter = CapacityLimiter(capacity)
 
-        nodes = [
-            n
-            for n in self.graph.internal_nodes.values()
-            if isinstance(n, Operation)
-        ]
+        nodes = [n for n in self.graph.internal_nodes.values() if isinstance(n, Operation)]
         await self._alcall(nodes, self._execute_operation, limiter=limiter)
 
         # Return results - only include actually completed operations
         completed_ops = [
-            op_id
-            for op_id in self.results.keys()
-            if op_id not in self.skipped_operations
+            op_id for op_id in self.results.keys() if op_id not in self.skipped_operations
         ]
 
         result = {
@@ -155,9 +145,7 @@ class DependencyAwareExecutor:
             # that will be updated once dependencies complete
             for operation in operations_needing_branches:
                 # Create a fresh branch for now
-                branch_clone = self.session.default_branch.clone(
-                    sender=self.session.id
-                )
+                branch_clone = self.session.default_branch.clone(sender=self.session.id)
 
                 # Store in our operation branches map
                 self.operation_branches[operation.id] = branch_clone
@@ -170,12 +158,9 @@ class DependencyAwareExecutor:
                         branch_id = branch_clone.id
                         # Only add to collections if it's a valid ID
                         if isinstance(branch_id, (str, UUID)) or (
-                            hasattr(branch_id, "__str__")
-                            and not hasattr(branch_id, "_mock_name")
+                            hasattr(branch_id, "__str__") and not hasattr(branch_id, "_mock_name")
                         ):
-                            self.session.branches.collections[branch_id] = (
-                                branch_clone
-                            )
+                            self.session.branches.collections[branch_id] = branch_clone
                             self.session.branches.progression.append(branch_id)
                 except:
                     # If validation fails, it's likely a mock - skip adding to collections
@@ -185,27 +170,21 @@ class DependencyAwareExecutor:
                 if operation.metadata.get("inherit_context"):
                     branch_clone.metadata = branch_clone.metadata or {}
                     branch_clone.metadata["pending_context_inheritance"] = True
-                    branch_clone.metadata["inherit_from_operation"] = (
-                        operation.metadata.get("primary_dependency")
+                    branch_clone.metadata["inherit_from_operation"] = operation.metadata.get(
+                        "primary_dependency"
                     )
 
         if self.verbose:
             print(f"Pre-allocated {len(operations_needing_branches)} branches")
 
-    async def _execute_operation(
-        self, operation: Operation, limiter: CapacityLimiter
-    ):
+    async def _execute_operation(self, operation: Operation, limiter: CapacityLimiter):
         """Execute a single operation with dependency waiting."""
         # Skip if operation is already completed
         if operation.execution.status == EventStatus.COMPLETED:
             if self.verbose:
-                print(
-                    f"Skipping already completed operation: {str(operation.id)[:8]}"
-                )
+                print(f"Skipping already completed operation: {str(operation.id)[:8]}")
             # Ensure results are available for dependencies
-            if operation.id not in self.results and hasattr(
-                operation, "response"
-            ):
+            if operation.id not in self.results and hasattr(operation, "response"):
                 self.results[operation.id] = operation.response
             # Signal completion for any waiting operations
             self.completion_events[operation.id].set()
@@ -221,9 +200,7 @@ class DependencyAwareExecutor:
                 self.skipped_operations.add(operation.id)
 
                 if self.verbose:
-                    print(
-                        f"Skipping operation due to edge conditions: {str(operation.id)[:8]}"
-                    )
+                    print(f"Skipping operation due to edge conditions: {str(operation.id)[:8]}")
 
                 # Signal completion so dependent operations can proceed
                 self.completion_events[operation.id].set()
@@ -241,9 +218,7 @@ class DependencyAwareExecutor:
                 if self.verbose:
                     print(f"Executing operation: {str(operation.id)[:8]}")
 
-                branch = self.operation_branches.get(
-                    operation.id, self.session.default_branch
-                )
+                branch = self.operation_branches.get(operation.id, self.session.default_branch)
                 operation.execution.status = EventStatus.PROCESSING
 
                 await operation.invoke(branch)
@@ -253,10 +228,7 @@ class DependencyAwareExecutor:
                 operation.execution.status = EventStatus.COMPLETED
 
                 # Update context if response contains context
-                if (
-                    isinstance(operation.response, dict)
-                    and "context" in operation.response
-                ):
+                if isinstance(operation.response, dict) and "context" in operation.response:
                     self.context.update(operation.response["context"])
 
                 if self.verbose:
@@ -284,9 +256,7 @@ class DependencyAwareExecutor:
         """
         # Get all incoming edges
         incoming_edges = [
-            edge
-            for edge in self.graph.internal_edges.values()
-            if edge.tail == operation.id
+            edge for edge in self.graph.internal_edges.values() if edge.tail == operation.id
         ]
 
         # If no incoming edges, this is a head node - always execute
@@ -307,9 +277,7 @@ class DependencyAwareExecutor:
 
             # Build context for edge condition evaluation
             result_value = self.results.get(edge.head)
-            if result_value is not None and not isinstance(
-                result_value, (str, int, float, bool)
-            ):
+            if result_value is not None and not isinstance(result_value, (str, int, float, bool)):
                 result_value = to_dict(result_value, recursive=True)
 
             ctx = {"result": result_value, "context": self.context}
@@ -327,9 +295,7 @@ class DependencyAwareExecutor:
         if operation.metadata.get("aggregation"):
             sources = operation.parameters.get("aggregation_sources", [])
             if self.verbose and sources:
-                print(
-                    f"Aggregation {str(operation.id)[:8]} waiting for {len(sources)} sources"
-                )
+                print(f"Aggregation {str(operation.id)[:8]} waiting for {len(sources)} sources")
 
             # Wait for ALL sources (sources are now strings from builder.py)
             for source_id_str in sources:
@@ -344,9 +310,7 @@ class DependencyAwareExecutor:
         predecessors = self.graph.get_predecessors(operation)
         for pred in predecessors:
             if self.verbose:
-                print(
-                    f"Operation {str(operation.id)[:8]} waiting for {str(pred.id)[:8]}"
-                )
+                print(f"Operation {str(operation.id)[:8]} waiting for {str(pred.id)[:8]}")
             await self.completion_events[pred.id].wait()
 
     def _prepare_operation(self, operation: Operation):
@@ -362,9 +326,7 @@ class DependencyAwareExecutor:
 
                 if pred.id in self.results:
                     result = self.results[pred.id]
-                    if result is not None and not isinstance(
-                        result, (str, int, float, bool)
-                    ):
+                    if result is not None and not isinstance(result, (str, int, float, bool)):
                         result = to_dict(result, recursive=True)
                     pred_context[f"{str(pred.id)}_result"] = result
 
@@ -430,9 +392,7 @@ class DependencyAwareExecutor:
                         branch._message_manager.messages.clear()
                         for msg in primary_branch._message_manager.messages:
                             if hasattr(msg, "clone"):
-                                branch._message_manager.messages.append(
-                                    msg.clone()
-                                )
+                                branch._message_manager.messages.append(msg.clone())
                             else:
                                 branch._message_manager.messages.append(msg)
 
@@ -471,9 +431,7 @@ class DependencyAwareExecutor:
 
                 # Ensure condition has apply method
                 if not hasattr(edge.condition, "apply"):
-                    raise AttributeError(
-                        f"Edge {edge.id} condition missing 'apply' method."
-                    )
+                    raise AttributeError(f"Edge {edge.id} condition missing 'apply' method.")
 
     def _validate_execution_results(self, results: dict[str, Any]):
         """Validate execution results for consistency."""
@@ -548,9 +506,7 @@ async def flow(
     return await executor.execute()
 
 
-def cleanup_flow_results(
-    result: dict[str, Any], keep_only: list[str] = None
-) -> dict[str, Any]:
+def cleanup_flow_results(result: dict[str, Any], keep_only: list[str] = None) -> dict[str, Any]:
     """
     Clean up flow execution results to reduce memory usage.
 
@@ -567,16 +523,12 @@ def cleanup_flow_results(
     # If keep_only is specified, only keep those results
     if keep_only is not None:
         filtered_results = {
-            op_id: res
-            for op_id, res in result["operation_results"].items()
-            if op_id in keep_only
+            op_id: res for op_id, res in result["operation_results"].items() if op_id in keep_only
         }
         result["operation_results"] = filtered_results
         # Update completed_operations to match
         result["completed_operations"] = [
-            op_id
-            for op_id in result.get("completed_operations", [])
-            if op_id in keep_only
+            op_id for op_id in result.get("completed_operations", []) if op_id in keep_only
         ]
     else:
         # Clear all results to free memory

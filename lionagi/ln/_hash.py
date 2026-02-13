@@ -104,30 +104,20 @@ def _generate_hashable_representation(item: Any) -> Any:
         try:
             sorted_elements = sorted(item)
         except TypeError:
-            sorted_elements = sorted(
-                item, key=lambda x: (str(type(x)), str(x))
-            )
+            sorted_elements = sorted(item, key=lambda x: (str(type(x)), str(x)))
         return (
             _TYPE_MARKER_FROZENSET,
-            tuple(
-                _generate_hashable_representation(elem)
-                for elem in sorted_elements
-            ),
+            tuple(_generate_hashable_representation(elem) for elem in sorted_elements),
         )
 
     if isinstance(item, set):
         try:
             sorted_elements = sorted(item)
         except TypeError:
-            sorted_elements = sorted(
-                item, key=lambda x: (str(type(x)), str(x))
-            )
+            sorted_elements = sorted(item, key=lambda x: (str(type(x)), str(x)))
         return (
             _TYPE_MARKER_SET,
-            tuple(
-                _generate_hashable_representation(elem)
-                for elem in sorted_elements
-            ),
+            tuple(_generate_hashable_representation(elem) for elem in sorted_elements),
         )
 
     # Fallback for other types
@@ -234,9 +224,7 @@ def compute_hash(
         payload = json_dumpb(obj, sort_keys=True, deterministic_sets=True)
 
     if len(payload) > MAX_HASH_INPUT_BYTES:
-        raise ValueError(
-            f"Payload {len(payload):,}B > {MAX_HASH_INPUT_BYTES:,}B limit"
-        )
+        raise ValueError(f"Payload {len(payload):,}B > {MAX_HASH_INPUT_BYTES:,}B limit")
 
     hasher = algorithm.get_hasher()
     return hasher(payload).hexdigest()

@@ -57,9 +57,7 @@ def _stable_sorted_iterable(o: Iterable[Any]) -> list[Any]:
     Key: (class name, normalized str) avoids comparisons across unlike types
     and removes memory address variance in default reprs.
     """
-    return sorted(
-        o, key=lambda x: (x.__class__.__name__, _normalize_for_sorting(x))
-    )
+    return sorted(o, key=lambda x: (x.__class__.__name__, _normalize_for_sorting(x)))
 
 
 def _safe_exception_payload(ex: Exception) -> dict[str, str]:
@@ -166,9 +164,7 @@ def get_orjson_default(
                     if isinstance(obj, Exception):
                         return _safe_exception_payload(obj)
                     return _clip(repr(obj), fallback_clip)
-                raise TypeError(
-                    f"Type is not JSON serializable: {typ.__name__}"
-                )
+                raise TypeError(f"Type is not JSON serializable: {typ.__name__}")
         return func(obj)
 
     return default

@@ -114,9 +114,7 @@ class Broadcaster:
             ValueError: If event type doesn't match _event_type.
         """
         if not isinstance(event, cls._event_type):
-            raise ValueError(
-                f"Event must be of type {cls._event_type.__name__}"
-            )
+            raise ValueError(f"Event must be of type {cls._event_type.__name__}")
         with cls._lock:
             callbacks = cls._cleanup_dead_refs()
         for callback in callbacks:
@@ -125,9 +123,7 @@ class Broadcaster:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error(
-                    f"Error in subscriber callback: {e}", exc_info=True
-                )
+                logger.error(f"Error in subscriber callback: {e}", exc_info=True)
 
     @classmethod
     def get_subscriber_count(cls) -> int:

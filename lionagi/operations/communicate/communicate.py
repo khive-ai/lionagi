@@ -101,14 +101,10 @@ def prepare_communicate_kw(
         parse_param = ParseParam(
             response_format=response_format,
             fuzzy_match_params=(
-                FuzzyMatchKeysParams(**fuzzy_kw)
-                if fuzzy_kw
-                else FuzzyMatchKeysParams()
+                FuzzyMatchKeysParams(**fuzzy_kw) if fuzzy_kw else FuzzyMatchKeysParams()
             ),
             handle_validation=handle_validation,
-            alcall_params=get_default_call().with_updates(
-                retry_attempts=num_parse_retries
-            ),
+            alcall_params=get_default_call().with_updates(retry_attempts=num_parse_retries),
             imodel=parse_model,
             imodel_kw={},
         )
@@ -137,9 +133,7 @@ async def communicate(
 
     from ..chat.chat import chat
 
-    ins, res = await chat(
-        branch, instruction, chat_param, return_ins_res_message=True
-    )
+    ins, res = await chat(branch, instruction, chat_param, return_ins_res_message=True)
 
     branch.msgs.add_message(instruction=ins)
     branch.msgs.add_message(assistant_response=res)
@@ -156,9 +150,7 @@ async def communicate(
         from ..parse.parse import parse
 
         try:
-            out, res2 = await parse(
-                branch, res.response, parse_param, return_res_message=True
-            )
+            out, res2 = await parse(branch, res.response, parse_param, return_res_message=True)
             if res2 and isinstance(res2, AssistantResponse):
                 res.metadata["original_model_response"] = res.model_response
                 # model_response is read-only property - update metadata instead

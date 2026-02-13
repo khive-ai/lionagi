@@ -23,9 +23,7 @@ from .base import Meta
 
 # Global cache for annotated types with bounded size
 _MAX_CACHE_SIZE = int(os.environ.get("LIONAGI_FIELD_CACHE_SIZE", "10000"))
-_annotated_cache: OrderedDict[tuple[type, tuple[Meta, ...]], type] = (
-    OrderedDict()
-)
+_annotated_cache: OrderedDict[tuple[type, tuple[Meta, ...]], type] = OrderedDict()
 _cache_lock = threading.RLock()  # Thread-safe access to cache
 
 
@@ -51,23 +49,17 @@ class CommonMeta(Enum):
     def _validate_common_metas(cls, **kw):
         """Validate common metadata constraints."""
         if kw.get("default") and kw.get("default_factory"):
-            raise ValueError(
-                "Cannot provide both 'default' and 'default_factory'"
-            )
+            raise ValueError("Cannot provide both 'default' and 'default_factory'")
         if _df := kw.get("default_factory"):
             if not callable(_df):
                 raise ValueError("'default_factory' must be callable")
         if _val := kw.get("validator"):
             _val = [_val] if not isinstance(_val, list) else _val
             if not all(callable(v) for v in _val):
-                raise ValueError(
-                    "Validators must be a list of functions or a function"
-                )
+                raise ValueError("Validators must be a list of functions or a function")
 
     @classmethod
-    def prepare(
-        cls, *args: Meta, metadata: tuple[Meta, ...] = None, **kw: Any
-    ) -> tuple[Meta, ...]:
+    def prepare(cls, *args: Meta, metadata: tuple[Meta, ...] = None, **kw: Any) -> tuple[Meta, ...]:
         """Prepare metadata tuple from various inputs, checking for duplicates.
 
         Args:
@@ -97,9 +89,7 @@ class CommonMeta(Enum):
 
         # Process args
         if args:
-            _args = to_list(
-                args, flatten=True, flatten_tuple_set=True, dropna=True
-            )
+            _args = to_list(args, flatten=True, flatten_tuple_set=True, dropna=True)
             for meta in _args:
                 if meta.key in seen_keys:
                     raise ValueError(f"Duplicate metadata key: {meta.key}")
@@ -170,9 +160,7 @@ class Spec:
                 or str(type(base_type)) == "<class 'types.UnionType'>"
             )
             if not is_valid_type:
-                raise ValueError(
-                    f"base_type must be a type or type annotation, got {base_type}"
-                )
+                raise ValueError(f"base_type must be a type or type annotation, got {base_type}")
 
         # Check for async default factory and warn
         if kw.get("default_factory") and is_coro_func(kw["default_factory"]):
@@ -319,9 +307,7 @@ class Spec:
             return self.with_updates(default_factory=default)
         return self.with_updates(default=default)
 
-    def with_validator(
-        self, validator: Callable[..., Any] | list[Callable[..., Any]]
-    ) -> Spec:
+    def with_validator(self, validator: Callable[..., Any] | list[Callable[..., Any]]) -> Spec:
         """Create spec with validator(s).
 
         Args:
@@ -369,14 +355,10 @@ class Spec:
 
             # Handle nullable case - wrap in Optional-like union
             actual_type = (
-                Any
-                if is_sentinel(self.base_type, none_as_sentinel=True)
-                else self.base_type
+                Any if is_sentinel(self.base_type, none_as_sentinel=True) else self.base_type
             )
             current_metadata = (
-                ()
-                if is_sentinel(self.metadata, none_as_sentinel=True)
-                else self.metadata
+                () if is_sentinel(self.metadata, none_as_sentinel=True) else self.metadata
             )
 
             if any(m.key == "nullable" and m.value for m in current_metadata):
@@ -418,11 +400,7 @@ class Spec:
             exclude = set()
         if exclude_common:
             exclude = exclude | CommonMeta.allowed()
-        return {
-            meta.key: meta.value
-            for meta in self.metadata
-            if meta.key not in exclude
-        }
+        return {meta.key: meta.value for meta in self.metadata if meta.key not in exclude}
 
 
 def _is_factory(obj: Any) -> tuple[bool, bool]:

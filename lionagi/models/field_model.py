@@ -30,9 +30,7 @@ def _init_pydantic_field_params() -> None:
 
     from pydantic import Field as PydanticField
 
-    _PYDANTIC_FIELD_PARAMS = set(
-        inspect.signature(PydanticField).parameters.keys()
-    )
+    _PYDANTIC_FIELD_PARAMS = set(inspect.signature(PydanticField).parameters.keys())
     _PYDANTIC_FIELD_PARAMS.discard("kwargs")
 
 
@@ -44,9 +42,7 @@ def _get_pydantic_field_params() -> set[str]:
 
 # Global cache for annotated types with bounded size
 _MAX_CACHE_SIZE = int(os.environ.get("LIONAGI_FIELD_CACHE_SIZE", "10000"))
-_annotated_cache: OrderedDict[tuple[type, tuple[Meta, ...]], type] = (
-    OrderedDict()
-)
+_annotated_cache: OrderedDict[tuple[type, tuple[Meta, ...]], type] = OrderedDict()
 _cache_lock = threading.RLock()  # Thread-safe access to cache
 
 # Configurable limit on metadata items to prevent explosion
@@ -82,9 +78,7 @@ class FieldModel(Params):
     """
 
     # Class configuration - let Params handle Unset population
-    _config: ClassVar[ModelConfig] = ModelConfig(
-        prefill_unset=True, none_as_sentinel=True
-    )
+    _config: ClassVar[ModelConfig] = ModelConfig(prefill_unset=True, none_as_sentinel=True)
 
     # Public fields (all start as Unset when not provided)
     base_type: type[Any]
@@ -138,8 +132,7 @@ class FieldModel(Params):
                 or isinstance(
                     self.base_type, types.UnionType
                 )  # Python 3.10+ union types (str | None)
-                or str(type(self.base_type))
-                == "<class 'types.UnionType'>"  # Fallback check
+                or str(type(self.base_type)) == "<class 'types.UnionType'>"  # Fallback check
             )
             if not is_valid_type:
                 raise ValueError(
@@ -203,12 +196,9 @@ class FieldModel(Params):
         if "validator" in kwargs:
             validator = kwargs["validator"]
             if not callable(validator) and not (
-                isinstance(validator, list)
-                and all(callable(v) for v in validator)
+                isinstance(validator, list) and all(callable(v) for v in validator)
             ):
-                raise ValueError(
-                    "Validators must be a list of functions or a function"
-                )
+                raise ValueError("Validators must be a list of functions or a function")
 
         # Convert remaining kwargs to metadata
         if kwargs:
@@ -232,9 +222,7 @@ class FieldModel(Params):
             return "field"
 
         # If not found, raise AttributeError as usual
-        raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{name}'"
-        )
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     # ---- factory helpers -------------------------------------------------- #
 
@@ -245,9 +233,7 @@ class FieldModel(Params):
             New FieldModel with nullable metadata added
         """
         # Add nullable marker to metadata
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
         new_metadata = (*current_metadata, Meta("nullable", True))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -266,15 +252,11 @@ class FieldModel(Params):
             New FieldModel with list wrapper
         """
         # Get current base type
-        current_base = (
-            Any if self._is_sentinel(self.base_type) else self.base_type
-        )
+        current_base = Any if self._is_sentinel(self.base_type) else self.base_type
         # Change base type to list of current type
         new_base = list[current_base]  # type: ignore
         # Add listable marker to metadata
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
         new_metadata = (*current_metadata, Meta("listable", True))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -293,9 +275,7 @@ class FieldModel(Params):
             New FieldModel with validator added
         """
         # Add validator to metadata
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
         new_metadata = (*current_metadata, Meta("validator", f))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -314,12 +294,8 @@ class FieldModel(Params):
             New FieldModel with description added
         """
         # Remove any existing description
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
-        filtered_metadata = tuple(
-            m for m in current_metadata if m.key != "description"
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != "description")
         new_metadata = (
             *filtered_metadata,
             Meta("description", description),
@@ -342,12 +318,8 @@ class FieldModel(Params):
             New FieldModel with default added
         """
         # Remove any existing default metadata to avoid conflicts
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
-        filtered_metadata = tuple(
-            m for m in current_metadata if m.key != "default"
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != "default")
         new_metadata = (*filtered_metadata, Meta("default", default))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -366,12 +338,8 @@ class FieldModel(Params):
             New FieldModel with frozen setting
         """
         # Remove any existing frozen metadata
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
-        filtered_metadata = tuple(
-            m for m in current_metadata if m.key != "frozen"
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != "frozen")
         new_metadata = (*filtered_metadata, Meta("frozen", frozen))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -425,12 +393,8 @@ class FieldModel(Params):
         Returns:
             New FieldModel with exclude setting
         """
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
-        filtered_metadata = tuple(
-            m for m in current_metadata if m.key != "exclude"
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != "exclude")
         new_metadata = (*filtered_metadata, Meta("exclude", exclude))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -472,12 +436,8 @@ class FieldModel(Params):
         existing = self.extract_metadata("json_schema_extra") or {}
         updated = {**existing, **kwargs}
 
-        current_metadata = (
-            () if self._is_sentinel(self.metadata) else self.metadata
-        )
-        filtered_metadata = tuple(
-            m for m in current_metadata if m.key != "json_schema_extra"
-        )
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != "json_schema_extra")
         new_metadata = (
             *filtered_metadata,
             Meta("json_schema_extra", updated),
@@ -572,12 +532,8 @@ class FieldModel(Params):
                 return _annotated_cache[cache_key]
 
             # Handle nullable case - wrap in Optional-like union
-            actual_type = (
-                Any if self._is_sentinel(self.base_type) else self.base_type
-            )
-            current_metadata = (
-                () if self._is_sentinel(self.metadata) else self.metadata
-            )
+            actual_type = Any if self._is_sentinel(self.base_type) else self.base_type
+            current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
 
             if any(m.key == "nullable" and m.value for m in current_metadata):
                 # Use union syntax for nullable
@@ -676,9 +632,7 @@ class FieldModel(Params):
                         result = validator(value)
                         # If validator returns False (simple boolean validator), raise error
                         if result is False:
-                            validator_name = getattr(
-                                validator, "__name__", f"validator_{i}"
-                            )
+                            validator_name = getattr(validator, "__name__", f"validator_{i}")
                             raise ValidationError(
                                 f"Validation failed for {validator_name}",
                                 field_name=field_name,
@@ -715,11 +669,7 @@ class FieldModel(Params):
             attrs.append("validated")
 
         attr_str = f" [{', '.join(attrs)}]" if attrs else ""
-        base_type_name = (
-            "Any"
-            if self._is_sentinel(self.base_type)
-            else self.base_type.__name__
-        )
+        base_type_name = "Any" if self._is_sentinel(self.base_type) else self.base_type.__name__
         return f"FieldModel({base_type_name}{attr_str})"
 
     @property
@@ -745,9 +695,7 @@ class FieldModel(Params):
             for meta in self.metadata:
                 if meta.key == "validator":
                     validator_name = f"{field_name}_validator"
-                    validators[validator_name] = field_validator(field_name)(
-                        meta.value
-                    )
+                    validators[validator_name] = field_validator(field_name)(meta.value)
 
         return validators if validators else None
 
@@ -841,9 +789,7 @@ class FieldModel(Params):
 
         return Spec(self.base_type, **kwargs)
 
-    def metadata_dict(
-        self, exclude: list[str] | None = None
-    ) -> dict[str, Any]:
+    def metadata_dict(self, exclude: list[str] | None = None) -> dict[str, Any]:
         """Convert all metadata to dictionary with optional exclusions.
 
         Args:

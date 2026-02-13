@@ -49,9 +49,7 @@ __all__ = (
 )
 
 
-async def gather(
-    *aws: Awaitable[T], return_exceptions: bool = False
-) -> list[T | BaseException]:
+async def gather(*aws: Awaitable[T], return_exceptions: bool = False) -> list[T | BaseException]:
     """Run awaitables concurrently, return list of results.
 
     Args:
@@ -259,9 +257,7 @@ class CompletionStream:
 
     def __aiter__(self):
         if not self._recv:
-            raise RuntimeError(
-                "CompletionStream must be used as async context manager"
-            )
+            raise RuntimeError("CompletionStream must be used as async context manager")
         return self
 
     async def __anext__(self):
@@ -316,9 +312,7 @@ async def retry(
 
     cancelled_exc = anyio.get_cancelled_exc_class()
     if any(issubclass(cancelled_exc, t) for t in retry_on):
-        raise ValueError(
-            "retry_on must not include the cancellation exception type"
-        )
+        raise ValueError("retry_on must not include the cancellation exception type")
 
     attempt = 0
     deadline = effective_deadline()

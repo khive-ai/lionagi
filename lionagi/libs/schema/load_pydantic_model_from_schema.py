@@ -65,9 +65,7 @@ def load_pydantic_model_from_schema(
         raise ImportError(error_msg)
 
     if DataModelType is not None:
-        pydantic_version = (
-            pydantic_version or DataModelType.PydanticV2BaseModel
-        )
+        pydantic_version = pydantic_version or DataModelType.PydanticV2BaseModel
         python_version = python_version or PythonVersion.PY_312
     else:
         # These won't be used since we'll raise ImportError above
@@ -76,27 +74,19 @@ def load_pydantic_model_from_schema(
 
     schema_input_data: str
     schema_dict: dict[str, Any]
-    resolved_model_name = (
-        model_name  # Keep track of the potentially updated name
-    )
+    resolved_model_name = model_name  # Keep track of the potentially updated name
 
     # --- 1. Prepare Schema Input ---
     if isinstance(schema, dict):
         try:
             model_name_from_title = schema.get("title")
-            if model_name_from_title and isinstance(
-                model_name_from_title, str
-            ):
+            if model_name_from_title and isinstance(model_name_from_title, str):
                 valid_chars = string.ascii_letters + string.digits + "_"
                 sanitized_title = "".join(
-                    c
-                    for c in model_name_from_title.replace(" ", "")
-                    if c in valid_chars
+                    c for c in model_name_from_title.replace(" ", "") if c in valid_chars
                 )
                 if sanitized_title and sanitized_title[0].isalpha():
-                    resolved_model_name = (
-                        sanitized_title  # Update the name to use
-                    )
+                    resolved_model_name = sanitized_title  # Update the name to use
             schema_dict = schema
             schema_input_data = ln.json_dumps(schema_dict)
         except TypeError as e:
@@ -106,19 +96,13 @@ def load_pydantic_model_from_schema(
         try:
             schema_dict = json.loads(schema)
             model_name_from_title = schema_dict.get("title")
-            if model_name_from_title and isinstance(
-                model_name_from_title, str
-            ):
+            if model_name_from_title and isinstance(model_name_from_title, str):
                 valid_chars = string.ascii_letters + string.digits + "_"
                 sanitized_title = "".join(
-                    c
-                    for c in model_name_from_title.replace(" ", "")
-                    if c in valid_chars
+                    c for c in model_name_from_title.replace(" ", "") if c in valid_chars
                 )
                 if sanitized_title and sanitized_title[0].isalpha():
-                    resolved_model_name = (
-                        sanitized_title  # Update the name to use
-                    )
+                    resolved_model_name = sanitized_title  # Update the name to use
             schema_input_data = schema
         except json.JSONDecodeError as e:
             error_msg = "Invalid JSON schema string provided"
@@ -157,9 +141,7 @@ def load_pydantic_model_from_schema(
             raise FileNotFoundError(error_msg)
 
         def get_modules():
-            spec = importlib.util.spec_from_file_location(
-                module_name, str(output_file)
-            )
+            spec = importlib.util.spec_from_file_location(module_name, str(output_file))
 
             if spec is None or spec.loader is None:
                 error_msg = f"Could not create module spec for {output_file}"
@@ -178,7 +160,9 @@ def load_pydantic_model_from_schema(
 
         def validate_base_model_class(m):
             if not isinstance(m, type) or not issubclass(m, BaseModel):
-                error_msg = f"Found attribute '{resolved_model_name}' is not a Pydantic BaseModel class."
+                error_msg = (
+                    f"Found attribute '{resolved_model_name}' is not a Pydantic BaseModel class."
+                )
                 raise TypeError(error_msg)
 
         # --- 4. Find the Model Class ---
@@ -217,9 +201,7 @@ def load_pydantic_model_from_schema(
                 )
                 raise AttributeError(error_msg) from e
         except TypeError as e:
-            error_msg = (
-                f"Error validating found model class '{resolved_model_name}'"
-            )
+            error_msg = f"Error validating found model class '{resolved_model_name}'"
             raise TypeError(error_msg) from e
 
         # --- 5. Rebuild the Model (Providing Namespace) ---

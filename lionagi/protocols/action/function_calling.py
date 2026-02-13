@@ -43,16 +43,11 @@ class FunctionCalling(Event):
             self.arguments = args.model_dump(exclude_unset=True)
 
         if self.func_tool.strict_func_call is True:
-            if (
-                not set(self.arguments.keys())
-                == self.func_tool.required_fields
-            ):
+            if not set(self.arguments.keys()) == self.func_tool.required_fields:
                 raise ValueError("arguments must match the function schema")
 
         else:
-            if not self.func_tool.minimum_acceptable_fields.issubset(
-                set(self.arguments.keys())
-            ):
+            if not self.func_tool.minimum_acceptable_fields.issubset(set(self.arguments.keys())):
                 raise ValueError("arguments must match the function schema")
         return self
 
@@ -73,18 +68,14 @@ class FunctionCalling(Event):
                 return await self.func_tool.preprocessor(
                     kwargs, **self.func_tool.preprocessor_kwargs
                 )
-            return self.func_tool.preprocessor(
-                kwargs, **self.func_tool.preprocessor_kwargs
-            )
+            return self.func_tool.preprocessor(kwargs, **self.func_tool.preprocessor_kwargs)
 
         async def _post_process(arg: Any):
             if is_coro_func(self.func_tool.postprocessor):
                 return await self.func_tool.postprocessor(
                     arg, **self.func_tool.postprocessor_kwargs
                 )
-            return self.func_tool.postprocessor(
-                arg, **self.func_tool.postprocessor_kwargs
-            )
+            return self.func_tool.postprocessor(arg, **self.func_tool.postprocessor_kwargs)
 
         async def _inner() -> Any:
             """Execute the function with pre/post processing.

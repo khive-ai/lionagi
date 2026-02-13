@@ -223,9 +223,7 @@ class ResponseFormatJSONObject(BaseModel):
 
 class JSONSchemaFormat(BaseModel):
     name: str
-    schema_: dict[str, Any] = Field(
-        alias="schema", description="JSON Schema definition"
-    )
+    schema_: dict[str, Any] = Field(alias="schema", description="JSON Schema definition")
     strict: bool | None = Field(
         default=None,
         description="If true, disallow unspecified properties (strict schema).",
@@ -282,13 +280,7 @@ class ToolMessage(BaseModel):
     tool_call_id: str  # must reference the assistant's tool_calls[i].id
 
 
-ChatMessage = (
-    SystemMessage
-    | DeveloperMessage
-    | UserMessage
-    | AssistantMessage
-    | ToolMessage
-)
+ChatMessage = SystemMessage | DeveloperMessage | UserMessage | AssistantMessage | ToolMessage
 
 # ---------- Stream options ----------
 
@@ -320,9 +312,7 @@ class OpenAIChatCompletionsRequest(BaseModel):
     temperature: float | None = Field(
         default=None, ge=0.0, le=2.0, description="Higher is more random."
     )
-    top_p: float | None = Field(
-        default=None, ge=0.0, le=1.0, description="Nucleus sampling."
-    )
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0, description="Nucleus sampling.")
     presence_penalty: float | None = Field(
         default=None,
         ge=-2.0,
@@ -347,12 +337,8 @@ class OpenAIChatCompletionsRequest(BaseModel):
     )
 
     # Count, stop, logits
-    n: int | None = Field(
-        default=None, ge=1, description="# of choices to generate."
-    )
-    stop: str | list[str] | None = Field(
-        default=None, description="Stop sequence(s)."
-    )
+    n: int | None = Field(default=None, ge=1, description="# of choices to generate.")
+    stop: str | list[str] | None = Field(default=None, description="Stop sequence(s).")
     logit_bias: dict[str, float] | None = Field(
         default=None,
         description="Map of token-id -> bias (-100..100).",
@@ -391,9 +377,7 @@ class OpenAIChatCompletionsRequest(BaseModel):
     stream_options: StreamOptions | None = None
 
     # Routing / tiering
-    service_tier: (
-        Literal["auto", "default", "flex", "scale", "priority"] | None
-    ) = Field(
+    service_tier: Literal["auto", "default", "flex", "scale", "priority"] | None = Field(
         default=None,
         description="Processing tier; requires account eligibility.",
     )

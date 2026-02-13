@@ -82,9 +82,7 @@ def to_num(
     target_type = validate_num_type(num_type)
 
     number_matches = (
-        number_matches[:num_count]
-        if num_count < len(number_matches)
-        else number_matches
+        number_matches[:num_count] if num_count < len(number_matches) else number_matches
     )
 
     for type_and_value in number_matches:
@@ -108,9 +106,7 @@ def to_num(
 
         except Exception as e:
             if len(type_and_value) == 2:
-                raise type(e)(
-                    f"Error processing {type_and_value[1]}: {str(e)}"
-                )
+                raise type(e)(f"Error processing {type_and_value[1]}: {str(e)}")
             raise type(e)(f"Error processing {type_and_value}: {str(e)}")
 
     if results and num_count == 1:
@@ -271,9 +267,7 @@ def convert_type(
             raise TypeError("Cannot convert complex number to int")
         return target_type(value)
     except (ValueError, TypeError) as e:
-        raise TypeError(
-            f"Cannot convert {value} to {target_type.__name__}"
-        ) from e
+        raise TypeError(f"Cannot convert {value} to {target_type.__name__}") from e
 
 
 def apply_bounds(

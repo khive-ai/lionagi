@@ -19,17 +19,11 @@ def breakdown_pydantic_annotation(
     for k, v in model.__annotations__.items():
         origin = get_origin(v)
         if _is_pydantic_model(v):
-            out[k] = breakdown_pydantic_annotation(
-                v, max_depth, current_depth + 1
-            )
+            out[k] = breakdown_pydantic_annotation(v, max_depth, current_depth + 1)
         elif origin is list:
             args = get_args(v)
             if args and _is_pydantic_model(args[0]):
-                out[k] = [
-                    breakdown_pydantic_annotation(
-                        args[0], max_depth, current_depth + 1
-                    )
-                ]
+                out[k] = [breakdown_pydantic_annotation(args[0], max_depth, current_depth + 1)]
             else:
                 out[k] = [args[0] if args else Any]
         else:

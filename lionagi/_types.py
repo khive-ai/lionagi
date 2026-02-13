@@ -14,9 +14,7 @@ def __getattr__(name: str):
 
     for mod_path in _SOURCE_MODULES:
         try:
-            mod = importlib.import_module(
-                f".{mod_path}", __name__.rpartition(".")[0]
-            )
+            mod = importlib.import_module(f".{mod_path}", __name__.rpartition(".")[0])
             if hasattr(mod, name):
                 obj = getattr(mod, name)
                 _lazy_type_cache[name] = obj
@@ -24,6 +22,4 @@ def __getattr__(name: str):
         except (ImportError, AttributeError):
             continue
 
-    raise AttributeError(
-        f"module '{__name__}' has no attribute '{name}'"
-    )
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

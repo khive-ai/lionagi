@@ -44,6 +44,4 @@ class CLIEndpoint(Endpoint):
         raise NotImplementedError("CLI endpoints do not use aiohttp")
 
     async def _stream_aiohttp(self, payload: dict, headers: dict, **kwargs):
-        raise NotImplementedError(
-            "CLI endpoints do not use aiohttp streaming"
-        )
+        raise NotImplementedError("CLI endpoints do not use aiohttp streaming")

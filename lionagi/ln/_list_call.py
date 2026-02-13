@@ -39,20 +39,14 @@ def lcall(
         try:
             func_list = list(func)
             if len(func_list) != 1 or not callable(func_list[0]):
-                raise ValueError(
-                    "func must contain exactly one callable function."
-                )
+                raise ValueError("func must contain exactly one callable function.")
             func = func_list[0]
         except TypeError as e:
-            raise ValueError(
-                "func must be callable or iterable with one callable."
-            ) from e
+            raise ValueError("func must be callable or iterable with one callable.") from e
 
     # Validate output processing options
     if output_unique and not (output_flatten or output_dropna):
-        raise ValueError(
-            "unique_output requires flatten or dropna for post-processing."
-        )
+        raise ValueError("unique_output requires flatten or dropna for post-processing.")
 
     # Process input based on sanitization flag
     if input_flatten or input_dropna:

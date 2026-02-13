@@ -20,9 +20,7 @@ class SystemContent(MessageContent):
         system_datetime: Optional datetime string
     """
 
-    system_message: str = (
-        "You are a helpful AI assistant. Let's think step by step."
-    )
+    system_message: str = "You are a helpful AI assistant. Let's think step by step."
     system_datetime: str | None = None
 
     @property
@@ -49,9 +47,7 @@ class SystemContent(MessageContent):
         elif system_datetime is False or system_datetime is None:
             system_datetime = None
 
-        return cls(
-            system_message=system_message, system_datetime=system_datetime
-        )
+        return cls(system_message=system_message, system_datetime=system_datetime)
 
 
 class System(RoledMessage):
