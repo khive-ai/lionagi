@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from pydantic import Field, field_serializer, field_validator
+from pydantic import Field, PrivateAttr, field_serializer, field_validator
 from typing_extensions import Self
 
 from lionagi._errors import ItemNotFoundError
@@ -49,6 +49,16 @@ class Progression(Element, Ordering[T], Generic[T]):
         title="Name",
         description="A human-readable identifier for the progression.",
     )
+    _members: set[UUID] = PrivateAttr(default_factory=set)
+
+    def model_post_init(self, __context: Any) -> None:
+        """Initialize _members set from order for O(1) membership checks."""
+        super().model_post_init(__context)
+        self._members = set(self.order)
+
+    def _rebuild_members(self) -> None:
+        """Rebuild _members from order after bulk mutations."""
+        self._members = set(self.order)
 
     @field_validator("order", mode="before")
     def _validate_ordering(cls, value: Any) -> list[UUID]:
@@ -83,7 +93,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         return bool(self.order)
 
     def __contains__(self, item: Any) -> bool:
-        """Checks if one or more IDs exist in the progression.
+        """Checks if one or more IDs exist in the progression. O(1) per ID.
 
         Args:
             item (Any): Could be an `Element`, `UUID`, `UUID`, string,
@@ -95,7 +105,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         try:
             refs = validate_order(item)
-            return all(ref in self.order for ref in refs)
+            return all(ref in self._members for ref in refs)
         except Exception:
             return False
 
@@ -146,12 +156,18 @@ class Progression(Element, Ordering[T], Generic[T]):
         refs = validate_order(value)
         if isinstance(key, slice):
             self.order[key] = refs
+            self._rebuild_members()
         else:
             try:
+                old = self.order[key]
                 self.order[key] = refs[0]
+                if old not in self.order:
+                    self._members.discard(old)
+                self._members.add(refs[0])
             except IndexError:
                 # If key is out of range, insertion occurs
                 self.order.insert(key, refs[0])
+                self._members.add(refs[0])
 
     def __delitem__(self, key: int | slice) -> None:
         """Deletes item(s) by index or slice.
@@ -160,6 +176,7 @@ class Progression(Element, Ordering[T], Generic[T]):
             key (int | slice): The position(s) to delete.
         """
         del self.order[key]
+        self._rebuild_members()
 
     def __iter__(self):
         """Iterates over the IDs in this progression.
@@ -194,6 +211,7 @@ class Progression(Element, Ordering[T], Generic[T]):
     def clear(self) -> None:
         """Removes all items from the progression."""
         self.order.clear()
+        self._members.clear()
 
     def include(self, item: Any, /) -> bool:
         """Adds new IDs at the end if they are not already present.
@@ -213,12 +231,11 @@ class Progression(Element, Ordering[T], Generic[T]):
         if not refs:
             return True
 
-        existing = set(self.order)
         appended = False
         for ref in refs:
-            if ref not in existing:
+            if ref not in self._members:
                 self.order.append(ref)
-                existing.add(ref)
+                self._members.add(ref)
                 appended = True
         return appended
 
@@ -242,6 +259,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         before = len(self.order)
         rset = set(refs)
         self.order = [x for x in self.order if x not in rset]
+        self._rebuild_members()
         return len(self.order) < before
 
     def append(self, item: Any, /) -> None:
@@ -253,9 +271,11 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         if isinstance(item, Element):
             self.order.append(item.id)
+            self._members.add(item.id)
             return
         refs = validate_order(item)
         self.order.extend(refs)
+        self._members.update(refs)
 
     def pop(self, index: int = -1) -> UUID:
         """Removes and returns one ID by index.
@@ -271,7 +291,10 @@ class Progression(Element, Ordering[T], Generic[T]):
             ItemNotFoundError: If the index is invalid or out of range.
         """
         try:
-            return self.order.pop(index)
+            uid = self.order.pop(index)
+            if uid not in self.order:
+                self._members.discard(uid)
+            return uid
         except Exception as e:
             raise ItemNotFoundError(str(e)) from e
 
@@ -286,7 +309,10 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         if not self.order:
             raise ItemNotFoundError("No items in progression.")
-        return self.order.pop(0)
+        uid = self.order.pop(0)
+        if uid not in self.order:
+            self._members.discard(uid)
+        return uid
 
     def remove(self, item: Any, /) -> None:
         """Removes the first occurrence of each specified ID.
@@ -306,10 +332,11 @@ class Progression(Element, Ordering[T], Generic[T]):
             raise ItemNotFoundError(str(item)) from e
         if not refs:
             return
-        missing = [r for r in refs if r not in self.order]
+        missing = [r for r in refs if r not in self._members]
         if missing:
             raise ItemNotFoundError(str(missing))
         self.order = [x for x in self.order if x not in refs]
+        self._rebuild_members()
 
     def count(self, item: Any, /) -> int:
         """Counts the number of occurrences of an ID.
@@ -357,6 +384,7 @@ class Progression(Element, Ordering[T], Generic[T]):
         if not isinstance(other, Progression):
             raise ValueError("Can only extend with another Progression.")
         self.order.extend(other.order)
+        self._members.update(other.order)
 
     def __add__(self, other: Any) -> Progression[T]:
         """Returns a new Progression with IDs from both this and `other`.
@@ -433,7 +461,75 @@ class Progression(Element, Ordering[T], Generic[T]):
         """
         item_ = validate_order(item)
         for i in reversed(item_):
-            self.order.insert(index, ID.get_id(i))
+            uid = ID.get_id(i)
+            self.order.insert(index, uid)
+            self._members.add(uid)
+
+    def _validate_index(self, index: int, allow_end: bool = False) -> int:
+        """Normalize and validate index (supports negative indexing).
+
+        Args:
+            index: Index to validate.
+            allow_end: If True, allows index == len (for insertion).
+
+        Returns:
+            Normalized non-negative index.
+
+        Raises:
+            ItemNotFoundError: If index out of bounds.
+        """
+        length = len(self.order)
+        if length == 0 and not allow_end:
+            raise ItemNotFoundError("Progression is empty")
+
+        if index < 0:
+            index = length + index
+
+        max_index = length if allow_end else length - 1
+        if index < 0 or index > max_index:
+            raise ItemNotFoundError(
+                f"Index {index} out of range for progression of length {length}"
+            )
+        return index
+
+    def move(self, from_index: int, to_index: int) -> None:
+        """Move item from one position to another.
+
+        Args:
+            from_index: Source position (supports negative).
+            to_index: Target position (supports negative).
+
+        Raises:
+            ItemNotFoundError: If either index is out of bounds.
+        """
+        from_index = self._validate_index(from_index)
+        to_index = self._validate_index(to_index, allow_end=True)
+
+        item = self.order.pop(from_index)
+        if from_index < to_index:
+            to_index -= 1
+        self.order.insert(to_index, item)
+
+    def swap(self, index1: int, index2: int) -> None:
+        """Swap items at two positions.
+
+        Args:
+            index1: First position (supports negative).
+            index2: Second position (supports negative).
+
+        Raises:
+            ItemNotFoundError: If either index is out of bounds.
+        """
+        index1 = self._validate_index(index1)
+        index2 = self._validate_index(index2)
+        self.order[index1], self.order[index2] = (
+            self.order[index2],
+            self.order[index1],
+        )
+
+    def reverse(self) -> None:
+        """Reverse order in-place. _members unchanged since set is unordered."""
+        self.order.reverse()
 
     def __reversed__(self) -> Progression[T]:
         """Returns a new reversed Progression.
