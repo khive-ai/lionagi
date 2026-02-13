@@ -776,10 +776,44 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         except StopAsyncIteration:
             raise StopAsyncIteration("End of pile")
 
+    def filter(self, predicate: Callable[[T], bool]) -> Pile[T]:
+        """Return a new Pile containing items matching the predicate.
+
+        Args:
+            predicate: A callable that takes an item and returns True/False.
+
+        Returns:
+            Pile[T]: A new Pile containing only matching items.
+        """
+        return self._filter_by_function(predicate)
+
+    def _filter_by_function(self, func: Callable[[T], bool]) -> Pile[T]:
+        """Internal filter implementation.
+
+        Args:
+            func: Callable predicate over items.
+
+        Returns:
+            Pile[T] with matching items in original order.
+        """
+        matched = []
+        for key in self.progression:
+            item = self.collections[key]
+            if func(item):
+                matched.append(item)
+        return self.__class__(
+            collections=matched,
+            item_type=self.item_type,
+            strict_type=self.strict_type,
+        )
+
     # private methods
     def _getitem(self, key: Any) -> Any | list | T:
         if key is None:
             raise ValueError("getitem key not provided.")
+
+        if callable(key) and not isinstance(key, UUID | Element):
+            return self._filter_by_function(key)
 
         if isinstance(key, int | slice):
             try:
