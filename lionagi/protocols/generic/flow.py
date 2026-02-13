@@ -28,6 +28,18 @@ class Flow(Element, Generic[E, P]):
     Progressions reference items by UUID. Referential integrity is
     validated: every UUID in a progression must exist in the items pile.
 
+    Thread Safety:
+        Flow methods are protected by ``_lock`` (an ``RLock``).
+        The lock ordering invariant is: **Flow._lock > Pile._lock** —
+        always acquire Flow's lock before any child Pile lock.  Since
+        ``_lock`` is reentrant, internal methods that call other locked
+        Flow methods (e.g. ``add_item`` → ``get_progression``) are safe
+        within the same thread.
+
+        **Do not mutate** ``flow.items`` or ``flow.progressions``
+        directly from external code in a concurrent context — use the
+        Flow methods instead, which hold the lock.
+
     Attributes:
         name: Optional flow identifier.
         items: Element storage (Pile[E]).

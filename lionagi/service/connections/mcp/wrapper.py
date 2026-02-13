@@ -21,15 +21,21 @@ logger = logging.getLogger(__name__)
 # Environment variable keys that should never be passed to MCP servers
 _SENSITIVE_ENV_PATTERNS = frozenset(
     {
+        "API_KEY",
+        "API_SECRET",
+        "API_TOKEN",
+        "ACCESS_TOKEN",
+        "AUTH_TOKEN",
         "AWS_SECRET",
         "AWS_SESSION_TOKEN",
+        "CREDENTIAL",
         "DATABASE_URL",
         "DB_PASSWORD",
+        "PASSWORD",
         "PRIVATE_KEY",
+        "REFRESH_TOKEN",
         "SECRET_KEY",
-        "TOKEN",
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
+        "SERVICE_TOKEN",
     }
 )
 

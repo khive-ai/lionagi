@@ -36,6 +36,18 @@ def _graph_synchronized(func):
 
 
 class Graph(Element, Relational, Generic[T]):
+    """Directed graph of Nodes and Edges with adjacency mapping.
+
+    Thread Safety:
+        Mutation methods (``add_node``, ``add_edge``, ``remove_node``,
+        ``remove_edge``) are protected by ``@_graph_synchronized``
+        using an ``RLock``.  Read-only traversal methods
+        (``get_tails``, ``topological_sort``, ``find_path``) are **not**
+        synchronized — if the graph may be mutated concurrently,
+        callers should hold ``graph._lock`` or use external
+        synchronization during reads.
+    """
+
     _lock: threading.RLock = PrivateAttr(default_factory=threading.RLock)
 
     internal_nodes: Pile[T] = Field(
