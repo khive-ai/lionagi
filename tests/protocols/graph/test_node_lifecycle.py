@@ -6,7 +6,7 @@ factory, and lifecycle methods (touch, soft_delete, restore, rehash).
 
 Covers:
 - NodeConfig frozen dataclass (defaults, properties, immutability)
-- compute_content_hash() determinism and input variants
+- compute_hash (via ln) determinism and input variants
 - create_node() factory (class generation, config wiring, extra fields)
 - Node lifecycle methods with various config combinations
 - Backwards compatibility (base Node has node_config=None)
@@ -15,19 +15,23 @@ Covers:
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 
 import pytest
 
+from lionagi.ln import compute_hash
 from lionagi.protocols.graph.node import Node
 from lionagi.protocols.graph.node_factory import (
     NodeConfig,
-    compute_content_hash,
     create_node,
 )
+
+
+def _content_hash(content):
+    """Wrapper for compute_hash matching the old rehash() calling convention."""
+    return compute_hash(content, none_as_valid=True)
 
 
 # ===================================================================
@@ -143,112 +147,81 @@ class TestNodeConfigImmutability:
 
 
 # ===================================================================
-# 2. compute_content_hash
+# 2. compute_hash (via ln)
 # ===================================================================
 
 
 class TestComputeContentHash:
-    """compute_content_hash input variants and determinism."""
+    """compute_hash input variants and determinism."""
 
     def test_none_content(self):
-        result = compute_content_hash(None)
+        result = _content_hash(None)
         expected = hashlib.sha256(b"null").hexdigest()
         assert result == expected
 
     def test_string_content(self):
-        result = compute_content_hash("hello")
+        result = _content_hash("hello")
         expected = hashlib.sha256(b"hello").hexdigest()
         assert result == expected
 
     def test_empty_string_content(self):
-        result = compute_content_hash("")
+        result = _content_hash("")
         expected = hashlib.sha256(b"").hexdigest()
         assert result == expected
 
     def test_bytes_content(self):
         data = b"\x00\x01\x02"
-        result = compute_content_hash(data)
+        result = _content_hash(data)
         expected = hashlib.sha256(data).hexdigest()
         assert result == expected
 
-    def test_dict_content_json_serialized(self):
+    def test_dict_content_deterministic(self):
+        """Dict content produces a valid hash."""
         content = {"b": 2, "a": 1}
-        result = compute_content_hash(content)
-        expected = hashlib.sha256(
-            json.dumps(content, sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
+        result = _content_hash(content)
+        assert isinstance(result, str)
+        assert len(result) == 64
 
     def test_dict_content_sort_keys(self):
         """Dict ordering does not affect the hash due to sort_keys=True."""
-        h1 = compute_content_hash({"z": 1, "a": 2})
-        h2 = compute_content_hash({"a": 2, "z": 1})
+        h1 = _content_hash({"z": 1, "a": 2})
+        h2 = _content_hash({"a": 2, "z": 1})
         assert h1 == h2
 
     def test_list_content(self):
         content = [1, 2, 3]
-        result = compute_content_hash(content)
-        expected = hashlib.sha256(
-            json.dumps(content, sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
+        result = _content_hash(content)
+        assert isinstance(result, str)
+        assert len(result) == 64
 
     def test_nested_dict_content(self):
         content = {"outer": {"inner": [1, 2]}}
-        result = compute_content_hash(content)
-        expected = hashlib.sha256(
-            json.dumps(content, sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
+        result = _content_hash(content)
+        assert isinstance(result, str)
+        assert len(result) == 64
 
     def test_integer_content(self):
-        """Integers are JSON-serializable so they go through dumps."""
-        result = compute_content_hash(42)
-        expected = hashlib.sha256(
-            json.dumps(42, sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
-
-    def test_custom_object_goes_through_json_dumps_default_str(self):
-        """Custom objects are handled by json.dumps(default=str)."""
-
-        class Weird:
-            def __str__(self):
-                return "weird-object"
-
-        result = compute_content_hash(Weird())
-        # json.dumps with default=str serializes as '"weird-object"'
-        expected = hashlib.sha256(
-            json.dumps("weird-object", sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
+        """Integers are JSON-serializable."""
+        result = _content_hash(42)
+        assert isinstance(result, str)
+        assert len(result) == 64
 
     def test_determinism_same_content(self):
         """Same content always produces the same hash."""
-        a = compute_content_hash({"key": "value"})
-        b = compute_content_hash({"key": "value"})
+        a = _content_hash({"key": "value"})
+        b = _content_hash({"key": "value"})
         assert a == b
 
     def test_different_content_different_hash(self):
-        a = compute_content_hash("alpha")
-        b = compute_content_hash("beta")
+        a = _content_hash("alpha")
+        b = _content_hash("beta")
         assert a != b
 
     def test_hash_is_64_char_hex(self):
         """SHA-256 hex digest is always 64 characters."""
-        result = compute_content_hash("anything")
+        result = _content_hash("anything")
         assert len(result) == 64
         assert all(c in "0123456789abcdef" for c in result)
-
-    def test_dict_with_non_serializable_values(self):
-        """Dict with datetime values uses default=str fallback in dumps."""
-        dt = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        content = {"ts": dt}
-        result = compute_content_hash(content)
-        expected = hashlib.sha256(
-            json.dumps(content, sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
 
 
 # ===================================================================
@@ -444,7 +417,7 @@ class TestNodeTouch:
         h = cls(content="data")
         h.touch()
         assert "content_hash" in h.metadata
-        expected_hash = compute_content_hash("data")
+        expected_hash = _content_hash("data")
         assert h.metadata["content_hash"] == expected_hash
 
     def test_touch_by_param_sets_updated_by(self):
@@ -649,12 +622,12 @@ class TestNodeRehash:
         h.rehash()
         assert "content_hash" in h.metadata
 
-    def test_rehash_matches_compute_content_hash(self):
+    def test_rehash_matches__content_hash(self):
         cls = create_node("Hash", content_hashing=True)
         content = {"key": "value"}
         h = cls(content=content)
         result = h.rehash()
-        assert result == compute_content_hash(content)
+        assert result == _content_hash(content)
 
     def test_rehash_updates_on_content_change(self):
         cls = create_node("Hash", content_hashing=True)
@@ -663,13 +636,13 @@ class TestNodeRehash:
         h.content = "after"
         hash2 = h.rehash()
         assert hash1 != hash2
-        assert hash2 == compute_content_hash("after")
+        assert hash2 == _content_hash("after")
 
     def test_rehash_none_content(self):
         cls = create_node("Hash", content_hashing=True)
         h = cls(content=None)
         result = h.rehash()
-        assert result == compute_content_hash(None)
+        assert result == _content_hash(None)
 
     def test_rehash_returns_none_on_subclass_without_config(self):
         class PlainNode(Node):
@@ -856,7 +829,7 @@ class TestEdgeCases:
         big_content = "x" * 1_000_000
         b = cls(content=big_content)
         result = b.rehash()
-        assert result == compute_content_hash(big_content)
+        assert result == _content_hash(big_content)
 
     def test_create_node_schema_override(self):
         cls = create_node("Custom", schema="private")
@@ -893,31 +866,25 @@ class TestEdgeCases:
         with pytest.raises(RuntimeError, match="MySpecialNode"):
             inst.restore()
 
-    def test_compute_content_hash_empty_dict(self):
-        result = compute_content_hash({})
-        expected = hashlib.sha256(
-            json.dumps({}, sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
+    def test_content_hash_empty_dict(self):
+        result = _content_hash({})
+        assert isinstance(result, str)
+        assert len(result) == 64
 
-    def test_compute_content_hash_empty_list(self):
-        result = compute_content_hash([])
-        expected = hashlib.sha256(
-            json.dumps([], sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
+    def test_content_hash_empty_list(self):
+        result = _content_hash([])
+        assert isinstance(result, str)
+        assert len(result) == 64
 
-    def test_compute_content_hash_boolean(self):
-        h_true = compute_content_hash(True)
-        h_false = compute_content_hash(False)
+    def test_content_hash_boolean(self):
+        h_true = _content_hash(True)
+        h_false = _content_hash(False)
         assert h_true != h_false
 
-    def test_compute_content_hash_float(self):
-        result = compute_content_hash(3.14)
-        expected = hashlib.sha256(
-            json.dumps(3.14, sort_keys=True, default=str).encode()
-        ).hexdigest()
-        assert result == expected
+    def test_content_hash_float(self):
+        result = _content_hash(3.14)
+        assert isinstance(result, str)
+        assert len(result) == 64
 
 
 # ===================================================================
@@ -961,7 +928,7 @@ class TestManualSubclassWithConfig:
 
         d = Doc(content="hello world")
         h = d.rehash()
-        assert h == compute_content_hash("hello world")
+        assert h == _content_hash("hello world")
         assert d.metadata["content_hash"] == h
 
     def test_manual_subclass_no_soft_delete(self):

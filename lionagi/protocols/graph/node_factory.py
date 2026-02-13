@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,29 +50,6 @@ class NodeConfig:
     def has_audit_fields(self) -> bool:
         """True if any audit/lifecycle tracking is enabled."""
         return self.content_hashing or self.soft_delete or self.versioning or self.track_updated_at
-
-
-def compute_content_hash(content: Any) -> str:
-    """Compute a SHA-256 hash of content for change detection.
-
-    Args:
-        content: Any JSON-serializable content.
-
-    Returns:
-        Hex-encoded SHA-256 hash string.
-    """
-    import json
-
-    if content is None:
-        data = b"null"
-    elif isinstance(content, (str, bytes)):
-        data = content.encode() if isinstance(content, str) else content
-    else:
-        try:
-            data = json.dumps(content, sort_keys=True, default=str).encode()
-        except (TypeError, ValueError):
-            data = str(content).encode()
-    return hashlib.sha256(data).hexdigest()
 
 
 def create_node(

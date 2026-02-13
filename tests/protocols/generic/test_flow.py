@@ -176,9 +176,9 @@ class TestGetProgression:
         flow, prog = self._setup()
         assert flow.get_progression(prog) is prog
 
-    def test_get_missing_name_raises_key_error(self):
+    def test_get_missing_name_raises_item_not_found(self):
         flow = Flow()
-        with pytest.raises(KeyError, match="not found"):
+        with pytest.raises(ItemNotFoundError, match="not found"):
             flow.get_progression("nonexistent")
 
     def test_get_missing_uuid_raises(self):
@@ -240,7 +240,7 @@ class TestAddItem:
     def test_add_item_nonexistent_progression_raises(self):
         flow = Flow()
         node = Node(content="oops")
-        with pytest.raises(KeyError):
+        with pytest.raises(ItemNotFoundError):
             flow.add_item(node, progressions="ghost")
 
 

@@ -205,9 +205,9 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         if config is None or not config.content_hashing:
             return None
 
-        from .node_factory import compute_content_hash
+        from lionagi.ln import compute_hash
 
-        new_hash = compute_content_hash(self.content)
+        new_hash = compute_hash(self.content, none_as_valid=True)
         self.metadata["content_hash"] = new_hash
         return new_hash
 

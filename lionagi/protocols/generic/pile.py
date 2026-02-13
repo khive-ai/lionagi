@@ -797,7 +797,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             Pile[T] with matching items in original order.
         """
         matched = []
-        for key in self.progression:
+        for key in list(self.progression):
             item = self.collections[key]
             if func(item):
                 matched.append(item)
@@ -812,7 +812,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         if key is None:
             raise ValueError("getitem key not provided.")
 
-        if callable(key) and not isinstance(key, UUID | Element):
+        if callable(key) and not isinstance(key, (UUID, Element, type)):
             return self._filter_by_function(key)
 
         if isinstance(key, int | slice):

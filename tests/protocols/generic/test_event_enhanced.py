@@ -10,24 +10,10 @@ and backward compatibility.
 
 from __future__ import annotations
 
-import sys
-
 import pytest
 
+from lionagi.ln.concurrency._compat import ExceptionGroup
 from lionagi.protocols.generic.event import Event, EventStatus, Execution
-
-# ---------------------------------------------------------------------------
-# Python 3.10 compatibility: ExceptionGroup is not a builtin.
-# The source file (event.py) references bare ExceptionGroup at runtime
-# without importing it. We import it from the compat layer and patch it
-# into the event module's globals so the runtime code works.
-# ---------------------------------------------------------------------------
-from lionagi.ln.concurrency._compat import ExceptionGroup  # noqa: F811
-
-if sys.version_info < (3, 11):
-    import lionagi.protocols.generic.event as _event_module
-
-    _event_module.ExceptionGroup = ExceptionGroup  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

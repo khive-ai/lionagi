@@ -4,22 +4,13 @@
 from __future__ import annotations
 
 import contextlib
-import sys
 from enum import Enum as _Enum
 from typing import Any
-
-# ExceptionGroup is available in Python 3.11+; use exceptiongroup backport for 3.10
-if sys.version_info < (3, 11):  # noqa: UP036
-    try:
-        from exceptiongroup import ExceptionGroup  # noqa: A004
-    except ImportError:
-        ExceptionGroup = None  # type: ignore[misc,assignment]  # noqa: A001
-else:
-    ExceptionGroup = ExceptionGroup  # noqa: PLW0127, A001
 
 from pydantic import Field, field_serializer
 
 from lionagi import ln
+from lionagi.ln.concurrency._compat import ExceptionGroup  # noqa: A004
 from lionagi.utils import Unset, to_dict
 
 from .element import Element

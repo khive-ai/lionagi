@@ -1,14 +1,14 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for Broadcaster (lionagi/protocols/generic/broadcaster.py)."""
+"""Tests for Broadcaster (lionagi/service/broadcaster.py)."""
 
 import asyncio
 import gc
 
 import pytest
 
-from lionagi.protocols.generic.broadcaster import Broadcaster
+from lionagi.service.broadcaster import Broadcaster
 
 
 # ---------------------------------------------------------------------------

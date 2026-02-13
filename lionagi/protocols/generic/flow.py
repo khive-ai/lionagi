@@ -124,21 +124,24 @@ class Flow(Element, Generic[E, P]):
             Matching progression.
 
         Raises:
-            KeyError: If not found.
+            ItemNotFoundError: If not found.
         """
-        if isinstance(key, str) and key in self._progression_names:
-            uid = self._progression_names[key]
-            return self.progressions[uid]
-
-        if isinstance(key, str):
-            try:
-                uid = ID.get_id(key)
+        with self._lock:
+            if isinstance(key, str) and key in self._progression_names:
+                uid = self._progression_names[key]
                 return self.progressions[uid]
-            except Exception as exc:
-                raise KeyError(f"Progression '{key}' not found in flow") from exc
 
-        uid = key.id if isinstance(key, Progression) else key
-        return self.progressions[uid]
+            if isinstance(key, str):
+                try:
+                    uid = ID.get_id(key)
+                    return self.progressions[uid]
+                except Exception as exc:
+                    raise ItemNotFoundError(
+                        f"Progression '{key}' not found in flow"
+                    ) from exc
+
+            uid = key.id if isinstance(key, Progression) else key
+            return self.progressions[uid]
 
     # ==================== Item Management ====================
 
