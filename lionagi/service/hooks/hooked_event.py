@@ -36,6 +36,8 @@ class HookedEvent(Event):
         """Execute the API call through the endpoint.
 
         Updates execution status and stores the response or error.
+        Uses ``self.status`` (the property setter) for terminal status
+        transitions so that ``completion_event`` is signalled.
         """
         start = anyio.current_time()
 
@@ -49,10 +51,10 @@ class HookedEvent(Event):
                     EventStatus.FAILED,
                     EventStatus.CANCELLED,
                 ):
-                    self.execution.status = h_ev.execution.status
                     self.execution.error = (
                         f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
                     )
+                    self.status = h_ev.execution.status
                     return
 
                 if h_ev._should_exit:
@@ -71,11 +73,11 @@ class HookedEvent(Event):
                     EventStatus.FAILED,
                     EventStatus.CANCELLED,
                 ):
-                    self.execution.status = h_ev.execution.status
                     self.execution.error = (
                         f"Post-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
                     )
                     self.execution.response = response  # Keep response even if hook failed
+                    self.status = h_ev.execution.status
                     return
 
                 if h_ev._should_exit:
@@ -85,22 +87,25 @@ class HookedEvent(Event):
                 await global_hook_logger.alog(h_ev)
 
             self.execution.response = response
-            self.execution.status = EventStatus.COMPLETED
+            self.status = EventStatus.COMPLETED
 
         except get_cancelled_exc_class():
             self.execution.error = "Invocation cancelled"
-            self.execution.status = EventStatus.CANCELLED
+            self.status = EventStatus.CANCELLED
             raise
 
         except Exception as e:
             self.execution.error = str(e)
-            self.execution.status = EventStatus.FAILED
+            self.status = EventStatus.FAILED
 
         finally:
             self.execution.duration = anyio.current_time() - start
 
     async def stream(self):
         """Stream the API response through the endpoint.
+
+        Uses ``self.status`` (the property setter) for terminal status
+        transitions so that ``completion_event`` is signalled.
 
         Yields:
             Streaming chunks from the API.
@@ -121,10 +126,10 @@ class HookedEvent(Event):
                     EventStatus.FAILED,
                     EventStatus.CANCELLED,
                 ):
-                    self.execution.status = h_ev.execution.status
                     self.execution.error = (
                         f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
                     )
+                    self.status = h_ev.execution.status
                     return
 
                 if h_ev._should_exit:
@@ -156,16 +161,16 @@ class HookedEvent(Event):
                     await global_hook_logger.alog(h_ev)
 
             self.execution.response = response
-            self.execution.status = EventStatus.COMPLETED
+            self.status = EventStatus.COMPLETED
 
         except get_cancelled_exc_class():
             self.execution.error = "Streaming cancelled"
-            self.execution.status = EventStatus.CANCELLED
+            self.status = EventStatus.CANCELLED
             raise
 
         except Exception as e:
             self.execution.error = str(e)
-            self.execution.status = EventStatus.FAILED
+            self.status = EventStatus.FAILED
 
         finally:
             self.execution.duration = anyio.current_time() - start

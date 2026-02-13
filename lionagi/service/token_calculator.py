@@ -59,8 +59,11 @@ class TokenCalculator:
         if not s_:
             return 0
 
+        # Always resolve encoding_name first so decoder creation works
+        # even when a custom tokenizer is provided without a decoder
+        encoding_name = get_encoding_name(encoding_name)
+
         if not callable(tokenizer):
-            encoding_name = get_encoding_name(encoding_name)
             tokenizer = tiktoken.get_encoding(encoding_name).encode
         if not callable(decoder):
             decoder = tiktoken.get_encoding(encoding_name).decode

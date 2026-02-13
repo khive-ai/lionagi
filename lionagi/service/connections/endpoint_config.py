@@ -100,16 +100,9 @@ class EndpointConfig(BaseModel):
                 return v.__class__
             if isinstance(v, dict | str):
                 from lionagi.libs.schema.load_pydantic_model_from_schema import (
-                    _HAS_DATAMODEL_CODE_GENERATOR,
                     load_pydantic_model_from_schema,
                 )
 
-                if not _HAS_DATAMODEL_CODE_GENERATOR:
-                    logger.warning(
-                        "datamodel-code-generator is not installed, "
-                        "request_options will not be validated"
-                    )
-                    return None
                 return load_pydantic_model_from_schema(v)
         except Exception as e:
             raise ValueError("Invalid request options") from e
