@@ -58,21 +58,30 @@ class Broadcaster:
         cls,
         callback: Callable[[Any], None] | Callable[[Any], Awaitable[None]],
     ) -> None:
-        """Add subscriber callback (idempotent, stored as weakref).
+        """Add subscriber callback (idempotent).
+
+        Bound methods are stored as weak references (via ``WeakMethod``)
+        so that the subscriber is automatically removed when the owning
+        object is garbage collected.
+
+        Plain functions, lambdas, and other non-bound callables are stored
+        as **strong** references because they have no associated object
+        whose lifetime should govern the subscription.  To unsubscribe a
+        plain function, call :meth:`unsubscribe` explicitly.
 
         Args:
             callback: Sync or async callable receiving the event.
-                      Bound methods use WeakMethod; functions use weakref.
         """
         with cls._lock:
-            for weak_ref in cls._subscribers:
-                if weak_ref() is callback:
+            for ref in cls._subscribers:
+                if ref() is callback:
                     return
             if hasattr(callback, "__self__"):
-                weak_callback = weakref.WeakMethod(callback)
+                # Bound method — weak reference prevents leaking the object
+                cls._subscribers.append(weakref.WeakMethod(callback))
             else:
-                weak_callback = weakref.ref(callback)
-            cls._subscribers.append(weak_callback)
+                # Plain function/lambda — strong reference (prevent silent GC)
+                cls._subscribers.append(lambda cb=callback: cb)
 
     @classmethod
     def unsubscribe(
