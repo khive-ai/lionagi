@@ -10,7 +10,6 @@ from pydantic import Field, PrivateAttr, field_serializer, field_validator, mode
 from typing_extensions import Self
 
 from lionagi._errors import ItemExistsError, RelationError
-from lionagi.protocols._concepts import Relational
 
 from .._concepts import Relational
 from ..generic.element import ID, Element

@@ -148,7 +148,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             return
 
         if config.track_updated_at:
-            ts = datetime.now(timezone.utc).isoformat()  # noqa: UP017
+            ts = datetime.now(tz=timezone.utc).isoformat()
             if self._has_real_field("updated_at"):
                 self.updated_at = ts
             else:
@@ -191,7 +191,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
                 "Enable with NodeConfig(soft_delete=True)."
             )
 
-        ts = datetime.now(timezone.utc).isoformat()  # noqa: UP017
+        ts = datetime.now(tz=timezone.utc).isoformat()
 
         if self._has_real_field("is_deleted"):
             self.is_deleted = True

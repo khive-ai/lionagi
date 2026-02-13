@@ -217,8 +217,4 @@ def create_node(
 
     # Create the subclass
     cls = type(name, (Node,), namespace)
-    cls.node_config = config
     return cls
-
-
-# File: lionagi/protocols/graph/node_factory.py

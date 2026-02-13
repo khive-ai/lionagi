@@ -53,7 +53,9 @@ class Execution:
         duration (float | None): Time (in seconds) the execution took,
             if known.
         response (Any): The result or output of the execution, if any.
-        error (str | None): An error message if the execution failed.
+        error (str | BaseException | None): An error message or exception
+            if the execution failed.  May hold an ``ExceptionGroup`` when
+            multiple errors are accumulated via :meth:`add_error`.
         retryable (bool | None): Whether a retry is safe after failure.
     """
 
@@ -64,7 +66,7 @@ class Execution:
         duration: float | None = None,
         response: Any = None,
         status: EventStatus = EventStatus.PENDING,
-        error: str | None = None,
+        error: str | BaseException | None = None,
         retryable: bool | None = None,
     ) -> None:
         """Initializes an execution instance.
@@ -73,7 +75,7 @@ class Execution:
             duration (float | None): The duration of the execution.
             response (Any): The result or output of the execution.
             status (EventStatus): The current status (default is PENDING).
-            error (str | None): An optional error message.
+            error (str | BaseException | None): An optional error or message.
             retryable (bool | None): Whether retry is safe (default None).
         """
         self.status = status

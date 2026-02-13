@@ -286,6 +286,3 @@ class Flow(Element, Generic[E, P]):
 
     def __len__(self) -> int:
         return len(self.items)
-
-
-# File: lionagi/protocols/generic/flow.py

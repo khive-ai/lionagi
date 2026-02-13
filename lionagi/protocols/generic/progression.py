@@ -592,6 +592,3 @@ def prog(order: Any, name: str = None, /) -> Progression:
         and name.
     """
     return Progression(order=order, name=name)
-
-
-# File: lionagi/protocols/generic/progression.py
