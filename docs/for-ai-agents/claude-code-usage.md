@@ -132,23 +132,43 @@ iModel(
 
 ## Context Management
 
-**CLI providers manage their own context.** Unlike API providers where Branch's
-MessageManager controls what the LLM sees via `progression=`, CLI agents
-(Claude Code, Gemini CLI, Codex) maintain their own conversation history
-internally through session resume. This is a fundamental architectural
-difference:
+CLI providers have **two layers of context**: the CLI agent's own session
+(managed via `--resume`) and the Branch's MessageManager (which records all
+exchanges in a Pile). Both are useful.
+
+**Within a session**, the CLI agent manages its own context -- lionagi
+automatically stores the `session_id` from each response and passes
+`--resume` on subsequent calls. You don't need to manually manage what
+the agent sees per-call.
+
+**Across sessions**, Branch's message history and `progression=` become
+essential. CLI sessions can grow too long (context window limits, token
+costs, accumulated tool output noise). When that happens, start a **fresh
+CLI instance** and use `progression=` to select which prior context to
+inject as the initial prompt:
+
+```python
+# Session grew too long -- rotate to a fresh CLI instance
+branch.chat_model = iModel(provider="claude_code", model="sonnet")
+
+# Use progression to carry forward only the relevant context
+recent = list(branch.msgs.progression)[-30:]
+await branch.communicate(
+    "Continue the analysis from where we left off.",
+    progression=recent,
+)
+```
+
+This pattern is especially important for **long-running branches** where
+you might strip provider-side action input/output from appearing in
+assistant content, then feed a curated history into a fresh session.
 
 | Aspect | API Providers | CLI Providers |
 |--------|--------------|---------------|
-| Context owner | Branch (MessageManager + Progression) | The CLI agent itself |
-| History mechanism | Messages stored in Pile, windowed via `progression=` | Session resume via `--resume` flag |
-| Compression | Narrow the Progression (sliding window) | Agent handles its own context management |
-| State across calls | Controlled by Branch | Controlled by session_id |
-
-**Do not use `progression=` windowing with CLI providers** -- the agent already
-manages its own conversation context. Branch still records messages for logging
-and inspection, but the CLI agent's session is the source of truth for what
-context it sees.
+| Per-call context | `progression=` controls every call | CLI agent manages via session resume |
+| Session rotation | N/A (stateless) | Start fresh iModel, use `progression=` for prior context |
+| Long-running | Slide the progression window | Rotate sessions + curate progression |
+| Branch records | Source of truth | Durable log + context source for fresh sessions |
 
 ### Session Lifecycle
 
@@ -300,11 +320,11 @@ except ValueError as e:
 | Aspect | API Providers | CLI Providers |
 |--------|--------------|---------------|
 | Auth | API key required | CLI tool handles auth |
-| Context owner | Branch (MessageManager + Progression) | The CLI agent itself (session resume) |
+| Context owner | Branch (Progression controls every call) | CLI agent within session; Branch across sessions |
 | Latency | Low (HTTP) | Higher (subprocess) |
 | Session state | Stateless | Persistent session_id (auto-updated) |
 | Concurrency | High (100 queue capacity) | Low (default 3) |
 | Clone behavior | Shared endpoint | Fresh endpoint copy |
 | Timeout | Provider default | 18000s (5 hours) |
 | Tool calling | Via function schemas | Via CLI tool's built-in tools |
-| `progression=` | Controls LLM context window | Not applicable (agent manages own context) |
+| `progression=` | Controls LLM context window per call | Used when rotating to a fresh session (context injection) |

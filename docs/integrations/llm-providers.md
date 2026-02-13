@@ -626,16 +626,29 @@ asyncio.run(main())
 
 ### Context and Session Management
 
-**CLI providers manage their own context.** Unlike API providers where
-Branch's MessageManager controls what the LLM sees via `progression=`,
-CLI agents maintain their own conversation history internally through
-session resume. Branch still records messages for logging and inspection,
-but the CLI agent's session is the source of truth for context.
+CLI providers have two layers of context:
 
-Do not use `progression=` windowing with CLI providers -- the agent
-handles its own context management.
+- **Within a session**: the CLI agent manages its own context via
+  `--resume`. lionagi stores the `session_id` automatically and passes
+  it on subsequent calls.
+- **Across sessions**: when a session grows too long, start a fresh CLI
+  instance and use `progression=` to select which prior messages to
+  inject as context. Branch's MessageManager is the durable record.
 
-Session lifecycle:
+```python
+model = iModel(provider="claude_code", model="sonnet")
+
+# Normal: session resume is automatic
+await branch.communicate("First task")
+await branch.communicate("Follow-up")  # resumes same session
+
+# Session too long -- rotate to fresh instance, carry context
+branch.chat_model = iModel(provider="claude_code", model="sonnet")
+recent = list(branch.msgs.progression)[-30:]
+await branch.communicate("Continue from here.", progression=recent)
+```
+
+Session management:
 
 1. First call creates a new session. The CLI returns a `session_id`.
 2. lionagi stores the `session_id` on the endpoint.
@@ -645,8 +658,6 @@ Session lifecycle:
    carries over the session ID.
 
 ```python
-model = iModel(provider="claude_code", model="sonnet")
-
 # Fresh copy, independent session
 new_model = model.copy()
 
