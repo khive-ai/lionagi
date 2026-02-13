@@ -66,9 +66,7 @@ class RateLimitedAPIProcessor(Processor):
                     # Adjust total tokens to reset capacity
                     current_borrowed = self._request_limiter.borrowed_tokens
                     if current_borrowed < self.limit_requests:
-                        self._request_limiter.total_tokens = (
-                            self.limit_requests
-                        )
+                        self._request_limiter.total_tokens = self.limit_requests
 
                 if self._token_limiter and self.limit_tokens:
                     # Reset token limiter capacity
@@ -108,36 +106,33 @@ class RateLimitedAPIProcessor(Processor):
             limit_tokens=limit_tokens,
             concurrency_limit=concurrency_limit,
         )
-        self._rate_limit_replenisher_task = asyncio.create_task(
-            self.start_replenishing()
-        )
+        self._rate_limit_replenisher_task = asyncio.create_task(self.start_replenishing())
         return self
 
     @override
-    async def request_permission(
-        self, required_tokens: int = None, **kwargs: Any
-    ) -> bool:
+    async def request_permission(self, required_tokens: int = None, **kwargs: Any) -> bool:
         # No limits configured, just check queue capacity
         if self._request_limiter is None and self._token_limiter is None:
             return self.queue.qsize() < self.queue_capacity
 
-        # Check request limit
-        if self._request_limiter:
-            # Try to acquire with timeout
-            with move_on_after(0.1) as scope:
-                await self._request_limiter.acquire()
-                if scope.cancelled_caught:
+        # Atomic check-then-acquire under lock to prevent race conditions
+        # between checking availability and acquiring tokens.
+        async with self._lock:
+            # Pre-check both budgets before acquiring anything
+            if self._request_limiter:
+                if self._request_limiter.available_tokens < 1:
                     return False
 
-        # Check token limit if required
-        if self._token_limiter and required_tokens:
-            # For token-based limiting, we need to acquire multiple tokens
-            # This is a simplified approach - in production you might want
-            # a more sophisticated token bucket algorithm
-            if self._token_limiter.available_tokens < required_tokens:
-                if self._request_limiter:
-                    self._request_limiter.release()
-                return False
+            if self._token_limiter and required_tokens:
+                if self._token_limiter.available_tokens < required_tokens:
+                    return False
+
+            # Both budgets sufficient — acquire request token
+            if self._request_limiter:
+                with move_on_after(0.01) as scope:
+                    await self._request_limiter.acquire()
+                if scope.cancelled_caught:
+                    return False
 
         return True
 
@@ -163,9 +158,7 @@ class RateLimitedAPIExecutor(Executor):
             "limit_tokens": limit_tokens,
             "concurrency_limit": concurrency_limit,
         }
-        super().__init__(
-            processor_config=config, strict_event_type=strict_event_type
-        )
+        super().__init__(processor_config=config, strict_event_type=strict_event_type)
         self.config = config
         self.interval = interval
         self.limit_requests = limit_requests

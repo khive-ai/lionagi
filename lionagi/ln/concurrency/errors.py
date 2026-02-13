@@ -45,9 +45,7 @@ def is_cancelled(exc: BaseException) -> bool:
     return isinstance(exc, anyio.get_cancelled_exc_class())
 
 
-async def shield(
-    func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
-) -> T:
+async def shield(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T:
     """Execute async function protected from outer cancellation.
 
     Args:

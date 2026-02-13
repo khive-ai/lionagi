@@ -79,9 +79,7 @@ def fuzzy_match_keys(
     # Get similarity function
     if isinstance(similarity_algo, str):
         if similarity_algo not in SIMILARITY_ALGO_MAP:
-            raise ValueError(
-                f"Unknown similarity algorithm: {similarity_algo}"
-            )
+            raise ValueError(f"Unknown similarity algorithm: {similarity_algo}")
         similarity_func = SIMILARITY_ALGO_MAP[similarity_algo]
     else:
         similarity_func = similarity_algo

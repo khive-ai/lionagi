@@ -76,9 +76,7 @@ class Operable:
         if len(names) != len(set(names)):
             from collections import Counter
 
-            duplicates = [
-                name for name, count in Counter(names).items() if count > 1
-            ]
+            duplicates = [name for name, count in Counter(names).items() if count > 1]
             raise ValueError(
                 f"Duplicate field names found: {duplicates}. Each spec must have a unique name."
             )
@@ -159,14 +157,10 @@ class Operable:
                     "Some specified fields are not allowed: "
                     f"{set(include).difference(self.allowed())}"
                 )
-            return tuple(
-                self.get(i) for i in include if self.get(i) is not Unset
-            )
+            return tuple(self.get(i) for i in include if self.get(i) is not Unset)
 
         if exclude:
-            _discards = {
-                self.get(i) for i in exclude if self.get(i) is not Unset
-            }
+            _discards = {self.get(i) for i in exclude if self.get(i) is not Unset}
             return tuple(s for s in self.__op_fields__ if s not in _discards)
 
         return self.__op_fields__

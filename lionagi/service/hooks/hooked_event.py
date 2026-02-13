@@ -50,7 +50,9 @@ class HookedEvent(Event):
                     EventStatus.CANCELLED,
                 ):
                     self.execution.status = h_ev.execution.status
-                    self.execution.error = f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
+                    self.execution.error = (
+                        f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
+                    )
                     return
 
                 if h_ev._should_exit:
@@ -70,10 +72,10 @@ class HookedEvent(Event):
                     EventStatus.CANCELLED,
                 ):
                     self.execution.status = h_ev.execution.status
-                    self.execution.error = f"Post-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
-                    self.execution.response = (
-                        response  # Keep response even if hook failed
+                    self.execution.error = (
+                        f"Post-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
                     )
+                    self.execution.response = response  # Keep response even if hook failed
                     return
 
                 if h_ev._should_exit:
@@ -120,7 +122,9 @@ class HookedEvent(Event):
                     EventStatus.CANCELLED,
                 ):
                     self.execution.status = h_ev.execution.status
-                    self.execution.error = f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
+                    self.execution.error = (
+                        f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
+                    )
                     return
 
                 if h_ev._should_exit:

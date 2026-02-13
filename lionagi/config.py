@@ -114,9 +114,7 @@ class AppSettings(BaseSettings, frozen=True):
         if not hasattr(self, key_name):
             if "ollama" in key_name.lower():
                 return "ollama"
-            raise AttributeError(
-                f"Secret key '{key_name}' not found in settings"
-            )
+            raise AttributeError(f"Secret key '{key_name}' not found in settings")
 
         secret = getattr(self, key_name)
         if secret is None:

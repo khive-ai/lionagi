@@ -90,20 +90,14 @@ def _validate_item_type(value, /) -> set[type[T]] | None:
                 members = union_members(subcls)
                 for m in members:
                     if not issubclass(m, Observable):
-                        raise ValidationError.from_value(
-                            m, expected="A subclass of Observable."
-                        )
+                        raise ValidationError.from_value(m, expected="A subclass of Observable.")
                     out.add(m)
             elif not issubclass(subcls, Observable):
-                raise ValidationError.from_value(
-                    subcls, expected="A subclass of Observable."
-                )
+                raise ValidationError.from_value(subcls, expected="A subclass of Observable.")
             else:
                 out.add(subcls)
         else:
-            raise ValidationError.from_value(
-                i, expected="A subclass of Observable."
-            )
+            raise ValidationError.from_value(i, expected="A subclass of Observable.")
 
     if len(value) != len(set(value)):
         raise ValidationError("Detected duplicated item types in item_type.")
@@ -112,9 +106,7 @@ def _validate_item_type(value, /) -> set[type[T]] | None:
         return out
 
 
-def _validate_progression(
-    value: Any, collections: dict[UUID, T], /
-) -> Progression:
+def _validate_progression(value: Any, collections: dict[UUID, T], /) -> Progression:
     if not value:
         return Progression(order=list(collections.keys()))
 
@@ -136,21 +128,15 @@ def _validate_progression(
     if len(value_set) != len(value):
         raise ValueError("There are duplicate elements in the order")
     if len(value_set) != len(collections.keys()):
-        raise ValueError(
-            "The length of the order does not match the length of the pile"
-        )
+        raise ValueError("The length of the order does not match the length of the pile")
 
     for i in value_set:
         if ID.get_id(i) not in collections.keys():
-            raise ValueError(
-                f"The order does not match the pile. {i} not found"
-            )
+            raise ValueError(f"The order does not match the pile. {i} not found")
     return prog or Progression(order=value)
 
 
-def _validate_collections(
-    value: Any, item_type: set | None, strict_type: bool, /
-) -> dict[str, T]:
+def _validate_collections(value: Any, item_type: set | None, strict_type: bool, /) -> dict[str, T]:
     if not value:
         return {}
 
@@ -224,7 +210,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     def __pydantic_extra__(self) -> dict[str, FieldInfo]:
         return {
-            "_lock": Field(default_factory=threading.Lock),
+            "_lock": Field(default_factory=threading.RLock),
             "_async": Field(default_factory=ConcurrencyLock),
         }
 
@@ -235,16 +221,12 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     def _validate_before(cls, data: dict[str, Any]) -> dict[str, Any]:
         item_type = _validate_item_type(data.get("item_type"))
         strict_type = data.get("strict_type", False)
-        collections = _validate_collections(
-            data.get("collections"), item_type, strict_type
-        )
+        collections = _validate_collections(data.get("collections"), item_type, strict_type)
         progression = None
         if "order" in data:
             progression = _validate_progression(data["order"], collections)
         else:
-            progression = _validate_progression(
-                data.get("progression"), collections
-            )
+            progression = _validate_progression(data.get("progression"), collections)
 
         return {
             "collections": collections,
@@ -370,9 +352,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             ValueError: If item not found.
         """
         if isinstance(item, int | slice):
-            raise TypeError(
-                "Invalid item type for remove, should be ID or Item(s)"
-            )
+            raise TypeError("Invalid item type for remove, should be ID or Item(s)")
         if item in self:
             self.pop(item)
             return
@@ -384,9 +364,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         Args:
             item: Item(s) to include.
         """
-        item_dict = _validate_collections(
-            item, self.item_type, self.strict_type
-        )
+        item_dict = _validate_collections(item, self.item_type, self.strict_type)
 
         item_order = []
         for i in item_dict.keys():
@@ -517,9 +495,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         except StopIteration:
             raise StopIteration("End of pile")
 
-    def __getitem__(
-        self, key: ID.Ref | ID.RefSeq | int | slice
-    ) -> Any | list | T:
+    def __getitem__(self, key: ID.Ref | ID.RefSeq | int | slice) -> Any | list | T:
         """Get item(s) by key.
 
         Args:
@@ -553,21 +529,15 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     def __ior__(self, other: Pile) -> Self:
         """In-place union."""
         if not isinstance(other, Pile):
-            raise TypeError(
-                f"Invalid type for Pile operation. expected <Pile>, got {type(other)}"
-            )
-        other = _validate_collections(
-            list(other), self.item_type, self.strict_type
-        )
+            raise TypeError(f"Invalid type for Pile operation. expected <Pile>, got {type(other)}")
+        other = _validate_collections(list(other), self.item_type, self.strict_type)
         self.include(other)
         return self
 
     def __or__(self, other: Pile) -> Pile:
         """Union."""
         if not isinstance(other, Pile):
-            raise TypeError(
-                f"Invalid type for Pile operation. expected <Pile>, got {type(other)}"
-            )
+            raise TypeError(f"Invalid type for Pile operation. expected <Pile>, got {type(other)}")
 
         result = self.__class__(
             items=self.values(),
@@ -580,9 +550,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     def __ixor__(self, other: Pile) -> Self:
         """In-place symmetric difference."""
         if not isinstance(other, Pile):
-            raise TypeError(
-                f"Invalid type for Pile operation. expected <Pile>, got {type(other)}"
-            )
+            raise TypeError(f"Invalid type for Pile operation. expected <Pile>, got {type(other)}")
 
         to_exclude = []
         for i in other:
@@ -597,9 +565,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     def __xor__(self, other: Pile) -> Pile:
         """Symmetric difference."""
         if not isinstance(other, Pile):
-            raise TypeError(
-                f"Invalid type for Pile operation. expected <Pile>, got {type(other)}"
-            )
+            raise TypeError(f"Invalid type for Pile operation. expected <Pile>, got {type(other)}")
 
         to_exclude = []
         for i in other:
@@ -619,9 +585,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     def __iand__(self, other: Pile) -> Self:
         """In-place intersection."""
         if not isinstance(other, Pile):
-            raise TypeError(
-                f"Invalid type for Pile operation. expected <Pile>, got {type(other)}"
-            )
+            raise TypeError(f"Invalid type for Pile operation. expected <Pile>, got {type(other)}")
 
         to_exclude = []
         for i in self.values():
@@ -633,9 +597,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     def __and__(self, other: Pile) -> Pile:
         """Intersection."""
         if not isinstance(other, Pile):
-            raise TypeError(
-                f"Invalid type for Pile operation. expected <Pile>, got {type(other)}"
-            )
+            raise TypeError(f"Invalid type for Pile operation. expected <Pile>, got {type(other)}")
 
         values = [i for i in self if i in other]
         return self.__class__(
@@ -776,19 +738,49 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         except StopAsyncIteration:
             raise StopAsyncIteration("End of pile")
 
+    def filter(self, predicate: Callable[[T], bool]) -> Pile[T]:
+        """Return a new Pile containing items matching the predicate.
+
+        Args:
+            predicate: A callable that takes an item and returns True/False.
+
+        Returns:
+            Pile[T]: A new Pile containing only matching items.
+        """
+        return self._filter_by_function(predicate)
+
+    def _filter_by_function(self, func: Callable[[T], bool]) -> Pile[T]:
+        """Internal filter implementation.
+
+        Args:
+            func: Callable predicate over items.
+
+        Returns:
+            Pile[T] with matching items in original order.
+        """
+        matched = []
+        for key in list(self.progression):
+            item = self.collections[key]
+            if func(item):
+                matched.append(item)
+        return self.__class__(
+            collections=matched,
+            item_type=self.item_type,
+            strict_type=self.strict_type,
+        )
+
     # private methods
     def _getitem(self, key: Any) -> Any | list | T:
         if key is None:
             raise ValueError("getitem key not provided.")
 
+        if callable(key) and not isinstance(key, (UUID, Element, type)):
+            return self._filter_by_function(key)
+
         if isinstance(key, int | slice):
             try:
                 result_ids = self.progression[key]
-                result_ids = (
-                    [result_ids]
-                    if not isinstance(result_ids, list)
-                    else result_ids
-                )
+                result_ids = [result_ids] if not isinstance(result_ids, list) else result_ids
                 result = []
                 for i in result_ids:
                     result.append(self.collections[i])
@@ -823,9 +815,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         key: ID.Ref | ID.RefSeq | int | slice,
         item: ID.Item | ID.ItemSeq,
     ) -> None:
-        item_dict = _validate_collections(
-            item, self.item_type, self.strict_type
-        )
+        item_dict = _validate_collections(item, self.item_type, self.strict_type)
 
         item_order = []
         for i in item_dict.keys():
@@ -940,9 +930,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         self.progression.clear()
 
     def _insert(self, index: int, item: ID.Item):
-        item_dict = _validate_collections(
-            item, self.item_type, self.strict_type
-        )
+        item_dict = _validate_collections(item, self.item_type, self.strict_type)
 
         item_order = []
         for i in item_dict.keys():
@@ -984,9 +972,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     def is_homogenous(self) -> bool:
         """Check if all items are same type."""
-        return len(self.collections) < 2 or all(
-            is_same_dtype(self.collections.values())
-        )
+        return len(self.collections) < 2 or all(is_same_dtype(self.collections.values()))
 
     @classmethod
     def list_adapters(cls) -> list[str]:
@@ -1040,9 +1026,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         return await super().adapt_to_async(obj_key=obj_key, many=many, **kw)
 
     @classmethod
-    async def adapt_from_async(
-        cls, obj: Any, obj_key: str, many=False, **kw: Any
-    ):
+    async def adapt_from_async(cls, obj: Any, obj_key: str, many=False, **kw: Any):
         """Asynchronously create from another format."""
         kw["adapt_meth"] = "from_dict"
         return await super().adapt_from_async(obj, obj_key, many=many, **kw)
@@ -1056,28 +1040,20 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 "pandas is required for to_df(). Please install it via `pip install pandas`."
             ) from e
 
-        df = DataFrameAdapter.to_obj(
-            list(self.collections.values()), adapt_meth="to_dict", **kw
-        )
+        df = DataFrameAdapter.to_obj(list(self.collections.values()), adapt_meth="to_dict", **kw)
         if columns:
             return df[columns]
         return df
 
-    @deprecated(
-        "to_csv_file is deprecated, use `pile.dump(fp, 'csv')` instead"
-    )
+    @deprecated("to_csv_file is deprecated, use `pile.dump(fp, 'csv')` instead")
     def to_csv_file(self, fp: str | Path, **kw: Any) -> None:
         """Save to CSV file."""
         csv_str = self.adapt_to("csv", many=True, **kw)
         with open(fp, "w") as f:
             f.write(csv_str)
 
-    @deprecated(
-        "to_json_file is deprecated, use `pile.dump(fp, 'json')` instead"
-    )
-    def to_json_file(
-        self, fp: str | Path, mode: str = "w", many: bool = False, **kw
-    ):
+    @deprecated("to_json_file is deprecated, use `pile.dump(fp, 'json')` instead")
+    def to_json_file(self, fp: str | Path, mode: str = "w", many: bool = False, **kw):
         """Export collection to JSON file.
 
         Args:
@@ -1114,9 +1090,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             case "parquet":
                 df.to_parquet(fp, engine="pyarrow", index=False, **kw)
             case "json":
-                out = df.to_json(
-                    fp, orient="records", lines=True, mode=mode, **kw
-                )
+                out = df.to_json(fp, orient="records", lines=True, mode=mode, **kw)
                 return out if out is not None else None
             case "csv":
                 out = df.to_csv(fp, index=False, mode=mode, **kw)
@@ -1166,17 +1140,10 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         if strict_type:
             meth = lambda item: type(item) in item_type
         else:
-            meth = (
-                lambda item: any(isinstance(item, t) for t in item_type)
-                is True
-            )
+            meth = lambda item: any(isinstance(item, t) for t in item_type) is True
 
         out = []
-        prog = (
-            list(self.progression)
-            if not reverse
-            else reversed(list(self.progression))
-        )
+        prog = list(self.progression) if not reverse else reversed(list(self.progression))
         for i in prog:
             item = self.collections[i]
             if meth(item):
@@ -1185,9 +1152,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 break
 
         if as_pile:
-            return self.__class__(
-                collections=out, item_type=item_type, strict_type=strict_type
-            )
+            return self.__class__(collections=out, item_type=item_type, strict_type=strict_type)
         return out
 
 

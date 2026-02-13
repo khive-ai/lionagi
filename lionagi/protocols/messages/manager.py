@@ -105,18 +105,12 @@ class MessageManager(Manager):
         If `instruction` is an existing Instruction, it is updated in place.
         Otherwise, a new instance is created.
         """
-        raw_params = {
-            k: v
-            for k, v in locals().items()
-            if k != "instruction" and v is not None
-        }
+        raw_params = {k: v for k, v in locals().items() if k != "instruction" and v is not None}
 
         handle_ctx = raw_params.get("handle_context", "extend")
 
         if isinstance(instruction, Instruction):
-            params = {
-                k: v for k, v in raw_params.items() if k != "handle_context"
-            }
+            params = {k: v for k, v in raw_params.items() if k != "handle_context"}
             ctx_value = params.pop("context", None)
             if ctx_value is not None:
                 if isinstance(ctx_value, list):
@@ -135,11 +129,7 @@ class MessageManager(Manager):
             return instruction
         else:
             # Build content dict for Instruction
-            content_dict = {
-                k: v
-                for k, v in raw_params.items()
-                if k not in ["sender", "recipient"]
-            }
+            content_dict = {k: v for k, v in raw_params.items() if k not in ["sender", "recipient"]}
             content_dict["handle_context"] = handle_ctx
             if instruction is not None:
                 content_dict["instruction"] = instruction
@@ -160,22 +150,14 @@ class MessageManager(Manager):
         Build or update an `AssistantResponse`. If `assistant_response` is an
         existing instance, it's updated. Otherwise, a new one is created.
         """
-        params = {
-            k: v
-            for k, v in locals().items()
-            if k != "assistant_response" and v is not None
-        }
+        params = {k: v for k, v in locals().items() if k != "assistant_response" and v is not None}
 
         if isinstance(assistant_response, AssistantResponse):
             assistant_response.update(**params)
             return assistant_response
 
         # Create new AssistantResponse
-        content_dict = (
-            {"assistant_response": assistant_response}
-            if assistant_response
-            else {}
-        )
+        content_dict = {"assistant_response": assistant_response} if assistant_response else {}
         return AssistantResponse(
             content=content_dict,
             sender=params.get("sender"),
@@ -204,11 +186,7 @@ class MessageManager(Manager):
         Returns:
             ActionRequest: The new or updated request object.
         """
-        params = {
-            k: v
-            for k, v in locals().items()
-            if k != "action_request" and v is not None
-        }
+        params = {k: v for k, v in locals().items() if k != "action_request" and v is not None}
 
         if isinstance(action_request, ActionRequest):
             action_request.update(**params)
@@ -258,9 +236,7 @@ class MessageManager(Manager):
                 "Error: please provide a corresponding action request for an action response."
             )
         if isinstance(action_response, ActionResponse):
-            action_response.update(
-                output=action_output, sender=sender, recipient=recipient
-            )
+            action_response.update(output=action_output, sender=sender, recipient=recipient)
             return action_response
 
         # Create new ActionResponse
@@ -270,9 +246,7 @@ class MessageManager(Manager):
             "output": action_output,
             "action_request_id": str(action_request.id),
         }
-        response = ActionResponse(
-            content=content_dict, sender=sender, recipient=recipient
-        )
+        response = ActionResponse(content=content_dict, sender=sender, recipient=recipient)
 
         # Update the request to reference this response
         action_request.content.action_response_id = str(response.id)
@@ -291,11 +265,7 @@ class MessageManager(Manager):
         Create or update a `System` message. If `system` is an instance, update.
         Otherwise, create a new System message.
         """
-        params = {
-            k: v
-            for k, v in locals().items()
-            if k != "system" and v is not None
-        }
+        params = {k: v for k, v in locals().items() if k != "system" and v is not None}
 
         if isinstance(system, System):
             system.update(**params)
@@ -380,9 +350,7 @@ class MessageManager(Manager):
                 recipient=recipient,
             )
 
-        elif action_request or (
-            action_function and action_arguments is not None
-        ):
+        elif action_request or (action_function and action_arguments is not None):
             _msg = self.create_action_request(
                 sender=sender,
                 recipient=recipient,
@@ -512,22 +480,16 @@ class MessageManager(Manager):
         Convenience method to strip 'tool_schemas' from the most recent Instruction.
         """
         if self.last_instruction:
-            self.messages[
-                self.last_instruction.id
-            ].content.tool_schemas.clear()
+            self.messages[self.last_instruction.id].content.tool_schemas.clear()
 
-    def concat_recent_action_responses_to_instruction(
-        self, instruction: Instruction
-    ) -> None:
+    def concat_recent_action_responses_to_instruction(self, instruction: Instruction) -> None:
         """
         Example method to merge the content of recent ActionResponses
         into an instruction's context.
         """
         for i in reversed(list(self.messages.progression)):
             if isinstance(self.messages[i], ActionResponse):
-                instruction.content.prompt_context.append(
-                    self.messages[i].content
-                )
+                instruction.content.prompt_context.append(self.messages[i].content)
             else:
                 break
 
@@ -544,10 +506,7 @@ class MessageManager(Manager):
         if progression == []:
             return []
         try:
-            return [
-                self.messages[mid].chat_msg
-                for mid in (progression or self.progression)
-            ]
+            return [self.messages[mid].chat_msg for mid in (progression or self.progression)]
         except Exception as e:
             raise ValueError(
                 "One or more messages in the requested progression are invalid."

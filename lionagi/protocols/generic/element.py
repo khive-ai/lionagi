@@ -83,18 +83,14 @@ class Element(BaseModel, Observable):
             return {}
         if not isinstance(val, dict):
             val = to_dict(val, recursive=True, suppress=True)
-        if "lion_class" in val and val["lion_class"] != cls.class_name(
-            full=True
-        ):
+        if "lion_class" in val and val["lion_class"] != cls.class_name(full=True):
             raise ValueError("Metadata class mismatch.")
         if not isinstance(val, dict):
             raise ValueError("Invalid metadata.")
         return val
 
     @field_validator("created_at", mode="before")
-    def _coerce_created_at(
-        cls, val: float | dt.datetime | str | None
-    ) -> float:
+    def _coerce_created_at(cls, val: float | dt.datetime | str | None) -> float:
         """Coerces `created_at` to a float-based timestamp."""
         if val is None:
             return ln.now_utc().timestamp()
@@ -120,9 +116,7 @@ class Element(BaseModel, Observable):
                 try:
                     return float(val)
                 except ValueError:
-                    raise ValueError(
-                        f"Invalid datetime string: {val}"
-                    ) from None
+                    raise ValueError(f"Invalid datetime string: {val}") from None
         try:
             return float(val)  # type: ignore
         except Exception:
@@ -148,9 +142,7 @@ class Element(BaseModel, Observable):
     def __eq__(self, other: Any) -> bool:
         """Compares two Element instances by their ID."""
         if not isinstance(other, Element):
-            raise NotImplementedError(
-                f"Cannot compare Element with {type(other)}"
-            )
+            return NotImplemented
         return self.id == other.id
 
     def __hash__(self) -> int:
@@ -178,9 +170,7 @@ class Element(BaseModel, Observable):
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
         return {k: v for k, v in dict_.items() if ln.not_sentinel(v)}
 
-    def to_dict(
-        self, mode: Literal["python", "json", "db"] = "python", **kw
-    ) -> dict:
+    def to_dict(self, mode: Literal["python", "json", "db"] = "python", **kw) -> dict:
         """Converts this Element to a dictionary."""
         if mode == "python":
             return self._to_dict(**kw)
@@ -211,14 +201,11 @@ class Element(BaseModel, Observable):
             if subcls != Element.class_name(full=True):
                 try:
                     # Attempt dynamic lookup by registry
-                    subcls_type: type[Element] = get_class(
-                        subcls.split(".")[-1]
-                    )
+                    subcls_type: type[Element] = get_class(subcls.split(".")[-1])
                     # If there's a custom from_dict, delegate to it
                     if (
                         hasattr(subcls_type, "from_dict")
-                        and subcls_type.from_dict.__func__
-                        != cls.from_dict.__func__
+                        and subcls_type.from_dict.__func__ != cls.from_dict.__func__
                     ):
                         return subcls_type.from_dict(data)
 
@@ -226,9 +213,7 @@ class Element(BaseModel, Observable):
                     mod, imp = subcls.rsplit(".", 1)
                     subcls_type = import_module(mod, import_name=imp)
                     data["metadata"] = metadata
-                    if hasattr(subcls_type, "from_dict") and (
-                        subcls_type is not cls
-                    ):
+                    if hasattr(subcls_type, "from_dict") and (subcls_type is not cls):
                         return subcls_type.from_dict(data)
         data["metadata"] = metadata
         return cls.model_validate(data)
@@ -237,9 +222,7 @@ class Element(BaseModel, Observable):
         """Converts this Element to a JSON string."""
         kw.pop("mode", None)
         dict_ = self._to_dict(**kw)
-        return ln.json_dumps(
-            dict_, default=DEFAULT_ELEMENT_SERIALIZER, decode=decode
-        )
+        return ln.json_dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER, decode=decode)
 
     @classmethod
     def from_json(cls, json_str: str) -> Element:

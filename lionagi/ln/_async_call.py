@@ -52,7 +52,6 @@ def _do_init() -> None:
         _MODEL_LIKE = (BaseModel,)
 
 
-
 def _validate_func(func: Any) -> Callable:
     """Extract and validate a single callable.
 
@@ -71,9 +70,7 @@ def _validate_func(func: Any) -> Callable:
     try:
         func_list = list(func)
     except TypeError:
-        raise ValueError(
-            "func must be callable or an iterable containing one callable."
-        )
+        raise ValueError("func must be callable or an iterable containing one callable.")
 
     if len(func_list) != 1 or not callable(func_list[0]):
         raise ValueError("Only one callable function is allowed.")
@@ -164,9 +161,7 @@ async def _execute_with_retry(
 
     while True:
         try:
-            result = await _call_with_timeout(
-                func, item, is_coro, timeout, **kwargs
-            )
+            result = await _call_with_timeout(func, item, is_coro, timeout, **kwargs)
             return index, result
 
         except get_cancelled_exc_class():
@@ -373,9 +368,7 @@ class AlcallParams(Params):
 
     kw: dict[str, Any] = Unset
 
-    async def __call__(
-        self, input_: list[Any], func: Callable[..., T], **kw
-    ) -> list[T]:
+    async def __call__(self, input_: list[Any], func: Callable[..., T], **kw) -> list[T]:
         kwargs = {**self.default_kw(), **kw}
         return await alcall(input_, func, **kwargs)
 
@@ -386,8 +379,6 @@ class BcallParams(AlcallParams):
 
     batch_size: int
 
-    async def __call__(
-        self, input_: list[Any], func: Callable[..., T], **kw
-    ) -> list[T]:
+    async def __call__(self, input_: list[Any], func: Callable[..., T], **kw) -> list[T]:
         kwargs = {**self.default_kw(), **kw}
         return await bcall(input_, func, self.batch_size, **kwargs)

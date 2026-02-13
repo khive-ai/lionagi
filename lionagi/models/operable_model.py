@@ -225,9 +225,7 @@ class OperableModel(HashableModel):
                 UNDEFINED,
                 PydanticUndefined,
             ]:
-                setattr(
-                    self, field_name, self.extra_fields[field_name].default
-                )
+                setattr(self, field_name, self.extra_fields[field_name].default)
                 return
             if self.extra_fields[field_name].default_factory is not UNDEFINED:
                 setattr(
@@ -338,16 +336,12 @@ class OperableModel(HashableModel):
         # Handle field_obj
         if field_obj:
             if not isinstance(field_obj, FieldInfo):
-                raise ValueError(
-                    "Invalid field_obj, should be a pydantic FieldInfo object"
-                )
+                raise ValueError("Invalid field_obj, should be a pydantic FieldInfo object")
             self.extra_fields[field_name] = field_obj
 
         if field_model:
             if not isinstance(field_model, FieldModel):
-                raise ValueError(
-                    "Invalid field_model, should be a FieldModel object"
-                )
+                raise ValueError("Invalid field_model, should be a FieldModel object")
             self.extra_fields[field_name] = field_model.create_field()
             self.extra_field_models[field_name] = field_model
 
@@ -557,9 +551,7 @@ class OperableModel(HashableModel):
             >>> user = NewModel(name="Alice", age=30)
         """
 
-        use_fields = (
-            set(use_fields) if use_fields else set(self.all_fields.keys())
-        )
+        use_fields = set(use_fields) if use_fields else set(self.all_fields.keys())
         if not use_fields.issubset(self.all_fields.keys()):
             raise ValueError("Invalid field names in use_fields")
 

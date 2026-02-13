@@ -138,17 +138,13 @@ class PydanticSpecAdapter(SpecAdapter):
 
         handle_mode = "raise" if strict else "force"
 
-        matched = fuzzy_match_keys(
-            data, model_cls.model_fields, handle_unmatched=handle_mode
-        )
+        matched = fuzzy_match_keys(data, model_cls.model_fields, handle_unmatched=handle_mode)
 
         # Filter out undefined values
         return {k: v for k, v in matched.items() if v != Undefined}
 
     @classmethod
-    def validate_model(
-        cls, model_cls: type["BaseModel"], data: dict
-    ) -> "BaseModel":
+    def validate_model(cls, model_cls: type["BaseModel"], data: dict) -> "BaseModel":
         """Validate dict data into Pydantic model instance."""
         return model_cls.model_validate(data)
 

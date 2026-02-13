@@ -52,9 +52,7 @@ class Message(BaseModel):
 
 
 class ToolDefinition(BaseModel):
-    name: str = Field(
-        ..., min_length=1, max_length=64, pattern="^[a-zA-Z0-9_-]+$"
-    )
+    name: str = Field(..., min_length=1, max_length=64, pattern="^[a-zA-Z0-9_-]+$")
     description: str | None = None
     input_schema: dict
 
@@ -107,9 +105,7 @@ class CreateMessageResponse(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: list[ContentBlockResponse]
     model: str
-    stop_reason: None | (
-        Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"]
-    ) = None
+    stop_reason: None | (Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"]) = None
     stop_sequence: str | None = None
     usage: Usage
 

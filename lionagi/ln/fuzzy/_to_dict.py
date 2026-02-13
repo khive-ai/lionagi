@@ -24,9 +24,7 @@ def _is_na(obj: Any) -> bool:
     }
 
 
-def _enum_class_to_dict(
-    enum_cls: type[_Enum], use_enum_values: bool
-) -> dict[str, Any]:
+def _enum_class_to_dict(enum_cls: type[_Enum], use_enum_values: bool) -> dict[str, Any]:
     members = dict(enum_cls.__members__)  # cheap, stable
     if use_enum_values:
         return {k: v.value for k, v in members.items()}
@@ -202,9 +200,7 @@ def _preprocess_recursive(
     # Custom objects
     if recursive_custom_types:
         with contextlib.suppress(Exception):
-            mapped = _object_to_mapping_like(
-                obj, prioritize_model_dump=prioritize_model_dump
-            )
+            mapped = _object_to_mapping_like(obj, prioritize_model_dump=prioritize_model_dump)
             return _preprocess_recursive(
                 mapped,
                 depth=depth + 1,
@@ -294,9 +290,7 @@ def _convert_top_level_to_dict(
         pass
 
     # Iterable (list/tuple/namedtuple/frozenset/…): enumerate
-    if isinstance(obj, Iterable) and not isinstance(
-        obj, (str, bytes, bytearray)
-    ):
+    if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes, bytearray)):
         return _enumerate_iterable(obj)
 
     # Dataclass fallback (reachable only if it wasn't caught above)
@@ -342,13 +336,9 @@ def to_dict(
             max_depth = 5
         else:
             if max_recursive_depth < 0:
-                raise ValueError(
-                    "max_recursive_depth must be a non-negative integer"
-                )
+                raise ValueError("max_recursive_depth must be a non-negative integer")
             if max_recursive_depth > 10:
-                raise ValueError(
-                    "max_recursive_depth must be less than or equal to 10"
-                )
+                raise ValueError("max_recursive_depth must be less than or equal to 10")
             max_depth = max_recursive_depth
 
         # Prepare one small dict to avoid repeated arg passing and lookups

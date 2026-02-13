@@ -43,9 +43,7 @@ def create_lionagi_async_postgres_adapter() -> type[AsyncAdapter]:
                 elif engine := kw.get("engine"):
                     await cls._ensure_table(engine, table)
 
-            return await super().to_obj(
-                subj, many=many, adapt_meth=adapt_meth, **kw
-            )
+            return await super().to_obj(subj, many=many, adapt_meth=adapt_meth, **kw)
 
         @classmethod
         async def _ensure_table(cls, engine_or_url, table_name: str):
@@ -65,9 +63,7 @@ def create_lionagi_async_postgres_adapter() -> type[AsyncAdapter]:
                     # Determine JSON type based on database
                     engine_url = str(engine.url)
                     json_type = (
-                        sa.dialects.postgresql.JSONB
-                        if "postgresql" in engine_url
-                        else sa.JSON
+                        sa.dialects.postgresql.JSONB if "postgresql" in engine_url else sa.JSON
                     )
 
                     # Create table with lionagi schema

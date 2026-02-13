@@ -35,21 +35,13 @@ class _ExaBase(BaseModel):
 
 
 class ContentsText(_ExaBase):
-    include_html_tags: bool | None = Field(
-        default=False, alias="includeHtmlTags"
-    )
-    max_characters: int | None = Field(
-        default=None, alias="maxCharacters"
-    )
+    include_html_tags: bool | None = Field(default=False, alias="includeHtmlTags")
+    max_characters: int | None = Field(default=None, alias="maxCharacters")
 
 
 class ContentsHighlights(_ExaBase):
-    highlights_per_url: int | None = Field(
-        default=1, alias="highlightsPerUrl"
-    )
-    num_sentences: int | None = Field(
-        default=5, alias="numSentences"
-    )
+    highlights_per_url: int | None = Field(default=1, alias="highlightsPerUrl")
+    num_sentences: int | None = Field(default=5, alias="numSentences")
     query: None | str = Field(default=None)
 
 
@@ -59,18 +51,14 @@ class ContentsSummary(_ExaBase):
 
 class ContentsExtras(_ExaBase):
     links: int | None = Field(default=None)
-    image_links: int | None = Field(
-        default=None, alias="imageLinks"
-    )
+    image_links: int | None = Field(default=None, alias="imageLinks")
 
 
 class Contents(_ExaBase):
     text: None | ContentsText = Field(default=None)
     highlights: None | ContentsHighlights = Field(default=None)
     summary: None | ContentsSummary = Field(default=None)
-    livecrawl: None | LivecrawlType = Field(
-        default=LivecrawlType.never
-    )
+    livecrawl: None | LivecrawlType = Field(default=LivecrawlType.never)
     livecrawl_timeout: int | None = Field(
         default=10000,
         alias="livecrawlTimeout",
@@ -86,9 +74,7 @@ class Contents(_ExaBase):
 
 
 class ExaSearchRequest(_ExaBase):
-    query: str = Field(
-        ..., description="What to search for."
-    )
+    query: str = Field(..., description="What to search for.")
     category: None | SearchCategory = Field(default=None)
     type: None | SearchType = Field(default=None)
     use_autoprompt: None | bool = Field(
@@ -96,29 +82,17 @@ class ExaSearchRequest(_ExaBase):
         alias="useAutoprompt",
         description="Auto-optimize query (neural/auto search only).",
     )
-    num_results: int | None = Field(
-        default=10, alias="numResults"
-    )
-    include_domains: None | list[str] = Field(
-        default=None, alias="includeDomains"
-    )
-    exclude_domains: None | list[str] = Field(
-        default=None, alias="excludeDomains"
-    )
+    num_results: int | None = Field(default=10, alias="numResults")
+    include_domains: None | list[str] = Field(default=None, alias="includeDomains")
+    exclude_domains: None | list[str] = Field(default=None, alias="excludeDomains")
     start_crawl_date: None | str = Field(
         default=None,
         alias="startCrawlDate",
         description="ISO date, e.g. '2023-01-01T00:00:00.000Z'.",
     )
-    end_crawl_date: None | str = Field(
-        default=None, alias="endCrawlDate"
-    )
-    start_published_date: None | str = Field(
-        default=None, alias="startPublishedDate"
-    )
-    end_published_date: None | str = Field(
-        default=None, alias="endPublishedDate"
-    )
+    end_crawl_date: None | str = Field(default=None, alias="endCrawlDate")
+    start_published_date: None | str = Field(default=None, alias="startPublishedDate")
+    end_published_date: None | str = Field(default=None, alias="endPublishedDate")
     include_text: None | list[str] = Field(
         default=None,
         alias="includeText",

@@ -47,9 +47,7 @@ async def chat(
             _act_res.append(msg)
 
         if isinstance(msg, AssistantResponse):
-            _use_msgs.append(
-                msg.model_copy(update={"content": msg.content.with_updates()})
-            )
+            _use_msgs.append(msg.model_copy(update={"content": msg.content.with_updates()}))
 
         if isinstance(msg, Instruction):
             j = msg.model_copy(update={"content": msg.content.with_updates()})
@@ -95,9 +93,7 @@ async def chat(
                 )
             else:
                 d_.append(k.content)
-        j.content.prompt_context.extend(
-            [z for z in d_ if z not in j.content.prompt_context]
-        )
+        j.content.prompt_context.extend([z for z in d_ if z not in j.content.prompt_context])
         _use_ins = j
 
     messages = _use_msgs
@@ -107,7 +103,9 @@ async def chat(
         for i in _use_msgs[1:]:
             if isinstance(i, AssistantResponse):
                 if isinstance(_msgs[-1], AssistantResponse):
-                    _msgs[-1].content.assistant_response = (
+                    _msgs[
+                        -1
+                    ].content.assistant_response = (
                         f"{_msgs[-1].content.assistant_response}\n\n{i.content.assistant_response}"
                     )
                 else:
@@ -130,14 +128,10 @@ async def chat(
         elif len(messages) >= 1:
             first_instruction = messages[0]
             if not isinstance(first_instruction, Instruction):
-                raise ValueError(
-                    "First message in progression must be an Instruction or System"
-                )
+                raise ValueError("First message in progression must be an Instruction or System")
             first_instruction = first_instruction.model_copy(
                 update={
-                    "content": first_instruction.content.with_updates(
-                        guidance=f(first_instruction)
-                    )
+                    "content": first_instruction.content.with_updates(guidance=f(first_instruction))
                 }
             )
             messages[0] = first_instruction
@@ -167,21 +161,15 @@ async def chat(
 
     if meth is imodel.invoke:
         # Only set if it's not the Unset sentinel value
-        if not chat_param._is_sentinel(
-            chat_param.include_token_usage_to_model
-        ):
-            kw["include_token_usage_to_model"] = (
-                chat_param.include_token_usage_to_model
-            )
+        if not chat_param._is_sentinel(chat_param.include_token_usage_to_model):
+            kw["include_token_usage_to_model"] = chat_param.include_token_usage_to_model
     api_call = await meth(**kw)
 
     branch._log_manager.log(api_call)
 
     # Surface API errors before trying to parse a null response
     if api_call.status == EventStatus.FAILED:
-        raise RuntimeError(
-            f"API call failed: {api_call.execution.error}"
-        )
+        raise RuntimeError(f"API call failed: {api_call.execution.error}")
 
     if return_ins_res_message:
         # Wrap result in `AssistantResponse` and return

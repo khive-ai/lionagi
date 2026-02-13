@@ -29,19 +29,13 @@ class PerplexityChatRequest(BaseModel):
     """Request body for Perplexity Chat Completions API."""
 
     model: PerplexityModels = Field(default=PerplexityModels.SONAR)
-    messages: list[PerplexityMessage] = Field(
-        ..., description="Conversation messages."
-    )
+    messages: list[PerplexityMessage] = Field(..., description="Conversation messages.")
     search_mode: Literal["default", "academic"] | None = Field(
         default=None,
         description="'academic' restricts to scholarly sources.",
     )
-    frequency_penalty: float | None = Field(
-        default=1, ge=0, le=2.0
-    )
-    presence_penalty: float | None = Field(
-        default=None, ge=0, le=2.0
-    )
+    frequency_penalty: float | None = Field(default=1, ge=0, le=2.0)
+    presence_penalty: float | None = Field(default=None, ge=0, le=2.0)
     max_tokens: int | None = Field(default=None)
     return_related_questions: bool | None = Field(default=False)
     search_domain_filter: list[Any] | None = Field(

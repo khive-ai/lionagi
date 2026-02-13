@@ -32,9 +32,7 @@ def match_endpoint(
         from .providers.exa_ import ExaSearchEndpoint
 
         return ExaSearchEndpoint(None, **kwargs)
-    if provider == "anthropic" and (
-        "messages" in endpoint or "chat" in endpoint
-    ):
+    if provider == "anthropic" and ("messages" in endpoint or "chat" in endpoint):
         from .providers.anthropic_ import AnthropicMessagesEndpoint
 
         return AnthropicMessagesEndpoint(None, **kwargs)

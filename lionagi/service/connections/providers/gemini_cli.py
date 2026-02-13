@@ -46,9 +46,7 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
         if k not in _GEMINI_HANDLER_PARAMS:
             raise ValueError(f"Invalid handler key: {k}")
         if not (v is None or callable(v)):
-            raise ValueError(
-                f"Handler value must be callable or None, got {type(v)}"
-            )
+            raise ValueError(f"Handler value must be callable or None, got {type(v)}")
 
 
 class GeminiCLIEndpoint(CLIEndpoint):
@@ -95,17 +93,13 @@ class GeminiCLIEndpoint(CLIEndpoint):
         request: GeminiCodeRequest = payload["request"]
         session: GeminiSession = GeminiSession()
 
-        async for chunk in stream_gemini_cli(
-            request, session, **self.gemini_handlers, **kwargs
-        ):
+        async for chunk in stream_gemini_cli(request, session, **self.gemini_handlers, **kwargs):
             if isinstance(chunk, dict):
                 if chunk.get("type") == "done":
                     break
             responses.append(chunk)
 
-        gemini_log.info(
-            f"Session {session.session_id} finished with {len(responses)} chunks"
-        )
+        gemini_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
 
         # Accumulate text from chunks, concatenating delta fragments
         parts = []

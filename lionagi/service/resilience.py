@@ -197,9 +197,7 @@ class CircuitBreaker:
                 if now - self.last_failure_time >= self.recovery_time:
                     await self._change_state(CircuitState.HALF_OPEN)
                 else:
-                    recovery_remaining = self.recovery_time - (
-                        now - self.last_failure_time
-                    )
+                    recovery_remaining = self.recovery_time - (now - self.last_failure_time)
                     self._metrics["rejected_count"] += 1
 
                     logger.warning(
@@ -224,9 +222,7 @@ class CircuitBreaker:
 
             return True
 
-    async def execute(
-        self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
-    ) -> T:
+    async def execute(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
         """
         Execute a coroutine with circuit breaker protection.
 
@@ -245,9 +241,7 @@ class CircuitBreaker:
         # Check if circuit allows this call
         can_proceed = await self._check_state()
         if not can_proceed:
-            remaining = self.recovery_time - (
-                time.time() - self.last_failure_time
-            )
+            remaining = self.recovery_time - (time.time() - self.last_failure_time)
             raise CircuitBreakerOpenError(
                 f"Circuit breaker '{self.name}' is open. Retry after {remaining:.2f} seconds",
                 retry_after=remaining,
@@ -271,10 +265,7 @@ class CircuitBreaker:
 
         except Exception as e:
             # Determine if this exception should count as a circuit failure
-            is_excluded = any(
-                isinstance(e, exc_type)
-                for exc_type in self.excluded_exceptions
-            )
+            is_excluded = any(isinstance(e, exc_type) for exc_type in self.excluded_exceptions)
 
             if not is_excluded:
                 async with self._lock:
@@ -310,7 +301,12 @@ class RetryConfig:
         backoff_factor: float = 2.0,
         jitter: bool = True,
         jitter_factor: float = 0.2,
-        retry_exceptions: tuple[type[Exception], ...] = (Exception,),
+        retry_exceptions: tuple[type[Exception], ...] = (
+            APIClientError,
+            CircuitBreakerOpenError,
+            ConnectionError,
+            TimeoutError,
+        ),
         exclude_exceptions: tuple[type[Exception], ...] = (),
     ):
         """
@@ -324,6 +320,7 @@ class RetryConfig:
             jitter: Whether to add randomness to delay timings.
             jitter_factor: How much randomness to add as a percentage.
             retry_exceptions: Tuple of exception types that should trigger retry.
+                Defaults to transient errors only (API, connection, timeout).
             exclude_exceptions: Tuple of exception types that should not be retried.
         """
         self.max_retries = max_retries
@@ -372,7 +369,12 @@ class RetryConfig:
 async def retry_with_backoff(
     func: Callable[..., Awaitable[T]],
     *args: Any,
-    retry_exceptions: tuple[type[Exception], ...] = (Exception,),
+    retry_exceptions: tuple[type[Exception], ...] = (
+        APIClientError,
+        CircuitBreakerOpenError,
+        ConnectionError,
+        TimeoutError,
+    ),
     exclude_exceptions: tuple[type[Exception], ...] = (),
     max_retries: int = 3,
     base_delay: float = 1.0,
@@ -412,25 +414,19 @@ async def retry_with_backoff(
             return await func(*args, **kwargs)
         except exclude_exceptions:
             # Don't retry these exceptions
-            logger.debug(
-                f"Not retrying {func.__name__} for excluded exception type"
-            )
+            logger.debug(f"Not retrying {func.__name__} for excluded exception type")
             raise
         except retry_exceptions as e:
             # No need to store the exception since we're raising it if max retries reached
             retries += 1
             if retries > max_retries:
-                logger.warning(
-                    f"Maximum retries ({max_retries}) reached for {func.__name__}"
-                )
+                logger.warning(f"Maximum retries ({max_retries}) reached for {func.__name__}")
                 raise
 
             # Calculate backoff with optional jitter
             if jitter:
                 # This is not used for cryptographic purposes, just for jitter
-                jitter_amount = random.uniform(
-                    1.0 - jitter_factor, 1.0 + jitter_factor
-                )  # noqa: S311
+                jitter_amount = random.uniform(1.0 - jitter_factor, 1.0 + jitter_factor)  # noqa: S311
                 current_delay = min(delay * jitter_amount, max_delay)
             else:
                 current_delay = min(delay, max_delay)
@@ -499,7 +495,12 @@ def with_retry(
     backoff_factor: float = 2.0,
     jitter: bool = True,
     jitter_factor: float = 0.2,
-    retry_exceptions: tuple[type[Exception], ...] = (Exception,),
+    retry_exceptions: tuple[type[Exception], ...] = (
+        APIClientError,
+        CircuitBreakerOpenError,
+        ConnectionError,
+        TimeoutError,
+    ),
     exclude_exceptions: tuple[type[Exception], ...] = (),
 ) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """

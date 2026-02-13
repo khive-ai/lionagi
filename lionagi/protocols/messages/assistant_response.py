@@ -40,9 +40,7 @@ def parse_assistant_response(
             # Anthropic standard
             if "content" in item:
                 content = item["content"]
-                content = (
-                    [content] if not isinstance(content, list) else content
-                )
+                content = [content] if not isinstance(content, list) else content
                 for c in content:
                     if isinstance(c, dict) and c.get("type") == "text":
                         text_contents.append(c["text"])
@@ -52,18 +50,12 @@ def parse_assistant_response(
             # OpenAI chat completions standard
             elif "choices" in item:
                 choices = item["choices"]
-                choices = (
-                    [choices] if not isinstance(choices, list) else choices
-                )
+                choices = [choices] if not isinstance(choices, list) else choices
                 for choice in choices:
                     if "message" in choice:
-                        text_contents.append(
-                            choice["message"].get("content") or ""
-                        )
+                        text_contents.append(choice["message"].get("content") or "")
                     elif "delta" in choice:
-                        text_contents.append(
-                            choice["delta"].get("content") or ""
-                        )
+                        text_contents.append(choice["delta"].get("content") or "")
 
             # OpenAI responses API standard
             elif "output" in item:
@@ -74,10 +66,7 @@ def parse_assistant_response(
                         content = out.get("content", [])
                         if isinstance(content, list):
                             for c in content:
-                                if (
-                                    isinstance(c, dict)
-                                    and c.get("type") == "output_text"
-                                ):
+                                if isinstance(c, dict) and c.get("type") == "output_text":
                                     text_contents.append(c.get("text", ""))
                                 elif isinstance(c, str):
                                     text_contents.append(c)
@@ -90,9 +79,7 @@ def parse_assistant_response(
             text_contents.append(item)
 
     text = "".join(text_contents)
-    model_response = (
-        model_responses[0] if len(model_responses) == 1 else model_responses
-    )
+    model_response = model_responses[0] if len(model_responses) == 1 else model_responses
 
     return text, model_response
 
@@ -137,9 +124,7 @@ class AssistantResponse(RoledMessage):
             return AssistantResponseContent.from_dict(v)
         if isinstance(v, AssistantResponseContent):
             return v
-        raise TypeError(
-            "content must be dict or AssistantResponseContent instance"
-        )
+        raise TypeError("content must be dict or AssistantResponseContent instance")
 
     @property
     def response(self) -> str:

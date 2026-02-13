@@ -139,9 +139,7 @@ class ClaudeCodeRequest(BaseModel):
                 if message["role"] != "system":
                     content = message["content"]
                     prompts.append(
-                        ln.json_dumps(content)
-                        if isinstance(content, (dict, list))
-                        else content
+                        ln.json_dumps(content) if isinstance(content, (dict, list)) else content
                     )
 
             prompt = "\n".join(prompts)
@@ -158,9 +156,7 @@ class ClaudeCodeRequest(BaseModel):
             data_["system_prompt"] = msg[0]["content"]
 
         if "append_system_prompt" in data and data["append_system_prompt"]:
-            data_["append_system_prompt"] = str(
-                data.get("append_system_prompt")
-            )
+            data_["append_system_prompt"] = str(data.get("append_system_prompt"))
 
         data_.update(data)
         return data_
@@ -175,14 +171,10 @@ class ClaudeCodeRequest(BaseModel):
 
         # Check for absolute paths or directory traversal attempts
         if ws_path.is_absolute():
-            raise ValueError(
-                f"Workspace path must be relative, got absolute: {self.ws}"
-            )
+            raise ValueError(f"Workspace path must be relative, got absolute: {self.ws}")
 
         if ".." in ws_path.parts:
-            raise ValueError(
-                f"Directory traversal detected in workspace path: {self.ws}"
-            )
+            raise ValueError(f"Directory traversal detected in workspace path: {self.ws}")
 
         # Resolve paths to handle symlinks and normalize
         repo_resolved = self.repo.resolve()
@@ -317,9 +309,7 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
         tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
 
         # Store detailed info
-        tool_details.append(
-            {"tool": tool_name, "id": tool_id, "input": tool_input}
-        )
+        tool_details.append({"tool": tool_name, "id": tool_id, "input": tool_input})
 
         # Categorize file operations and actions
         if tool_name in ["Read", "read"]:
@@ -339,9 +329,7 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
 
         elif tool_name in ["Bash", "bash"]:
             command = tool_input.get("command", "")
-            command_summary = (
-                command[:50] + "..." if len(command) > 50 else command
-            )
+            command_summary = command[:50] + "..." if len(command) > 50 else command
             key_actions.append(f"Ran: {command_summary}")
 
         elif tool_name in ["Glob", "glob"]:
@@ -370,23 +358,15 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
 
     # Deduplicate key actions
     key_actions = (
-        list(dict.fromkeys(key_actions))
-        if key_actions
-        else ["No specific actions detected"]
+        list(dict.fromkeys(key_actions)) if key_actions else ["No specific actions detected"]
     )
 
     # Deduplicate file paths
     for op_type in file_operations:
-        file_operations[op_type] = list(
-            dict.fromkeys(file_operations[op_type])
-        )
+        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
 
     # Extract result summary (first 200 chars)
-    result_summary = (
-        (session.result[:200] + "...")
-        if len(session.result) > 200
-        else session.result
-    )
+    result_summary = (session.result[:200] + "...") if len(session.result) > 200 else session.result
 
     return {
         "tool_counts": tool_counts,
@@ -463,13 +443,9 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
                 try:
                     fixed = repair_json(buffer)
                     yield json.loads(fixed)
-                    log.warning(
-                        "Repaired malformed JSON fragment at stream end"
-                    )
+                    log.warning("Repaired malformed JSON fragment at stream end")
                 except Exception:
-                    log.error(
-                        "Skipped unrecoverable JSON tail: %.120s…", buffer
-                    )
+                    log.error("Skipped unrecoverable JSON tail: %.120s…", buffer)
 
         # 4) propagate non-zero exit code
         if await proc.wait() != 0:
@@ -485,9 +461,7 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
 # --------------------------------------------------------------------------- SSE route
 async def stream_cc_cli_events(request: ClaudeCodeRequest):
     if not CLAUDE_CLI:
-        raise RuntimeError(
-            "Claude CLI binary not found (npm i -g @anthropic-ai/claude-code)"
-        )
+        raise RuntimeError("Claude CLI binary not found (npm i -g @anthropic-ai/claude-code)")
     async for obj in _ndjson_from_cli(request):
         yield obj
     yield {"type": "done"}

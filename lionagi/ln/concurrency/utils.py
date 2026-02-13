@@ -37,9 +37,7 @@ def is_coro_func(func: Callable[..., Any]) -> bool:
     return _is_coro_func_cached(func)
 
 
-async def run_sync(
-    func: Callable[P, R], *args: P.args, **kwargs: P.kwargs
-) -> R:
+async def run_sync(func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
     """Run synchronous function in thread pool without blocking event loop.
 
     Args:

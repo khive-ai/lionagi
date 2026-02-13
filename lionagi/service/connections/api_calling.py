@@ -25,9 +25,7 @@ class APICalling(HookedEvent):
         exclude=True,
     )
 
-    payload: dict = Field(
-        ..., description="Request payload to send to the API"
-    )
+    payload: dict = Field(..., description="Request payload to send to the API")
 
     headers: dict = Field(
         default_factory=dict,
@@ -54,14 +52,9 @@ class APICalling(HookedEvent):
             self.streaming = True
 
         # Add token usage information to the last message if requested
-        if (
-            self.include_token_usage_to_model
-            and self.endpoint.config.requires_tokens
-        ):
+        if self.include_token_usage_to_model and self.endpoint.config.requires_tokens:
             # Handle both messages format (chat completions) and input format (responses API)
-            if "messages" in self.payload and isinstance(
-                self.payload["messages"][-1], dict
-            ):
+            if "messages" in self.payload and isinstance(self.payload["messages"][-1], dict):
                 required_tokens = self.required_tokens
                 content = self.payload["messages"][-1]["content"]
                 # Model token limit mapping
@@ -80,9 +73,7 @@ class APICalling(HookedEvent):
                     "gemini": 1_000_000,
                 }
 
-                token_msg = (
-                    f"\n\nEstimated Current Token Usage: {required_tokens}"
-                )
+                token_msg = f"\n\nEstimated Current Token Usage: {required_tokens}"
 
                 # Find matching token limit
                 if "model" in self.payload:
@@ -138,9 +129,7 @@ class APICalling(HookedEvent):
                             messages.append(item)
             else:
                 return None
-            return TokenCalculator.calculate_message_tokens(
-                messages, **self.payload
-            )
+            return TokenCalculator.calculate_message_tokens(messages, **self.payload)
         # Handle embeddings endpoint
         elif "embed" in self.endpoint.config.endpoint:
             return TokenCalculator.calculate_embed_token(**self.payload)

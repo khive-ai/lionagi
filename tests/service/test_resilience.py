@@ -377,7 +377,7 @@ class TestRetryWithBackoff:
         async def flaky_func():
             attempts["count"] += 1
             if attempts["count"] < 3:
-                raise ValueError("Transient error")
+                raise ConnectionError("Transient error")
             return "success"
 
         result = await retry_with_backoff(
@@ -392,9 +392,9 @@ class TestRetryWithBackoff:
         """Test retry gives up after max attempts."""
 
         async def always_fails():
-            raise ValueError("Permanent error")
+            raise ConnectionError("Permanent error")
 
-        with pytest.raises(ValueError, match="Permanent error"):
+        with pytest.raises(ConnectionError, match="Permanent error"):
             await retry_with_backoff(
                 always_fails, max_retries=2, base_delay=0.01
             )
@@ -447,12 +447,12 @@ class TestRetryWithBackoff:
         delays = []
 
         async def func_that_tracks_delays():
-            raise ValueError("Error")
+            raise ConnectionError("Error")
 
         with patch("asyncio.sleep") as mock_sleep:
             mock_sleep.side_effect = lambda d: delays.append(d)
 
-            with pytest.raises(ValueError):
+            with pytest.raises(ConnectionError):
                 await retry_with_backoff(
                     func_that_tracks_delays,
                     max_retries=3,
@@ -473,12 +473,12 @@ class TestRetryWithBackoff:
         delays = []
 
         async def failing_func():
-            raise ValueError("Error")
+            raise ConnectionError("Error")
 
         with patch("asyncio.sleep") as mock_sleep:
             mock_sleep.side_effect = lambda d: delays.append(d)
 
-            with pytest.raises(ValueError):
+            with pytest.raises(ConnectionError):
                 await retry_with_backoff(
                     failing_func,
                     max_retries=5,
@@ -558,7 +558,7 @@ class TestWithRetryDecorator:
         async def flaky_func():
             attempts["count"] += 1
             if attempts["count"] < 2:
-                raise ValueError("Transient")
+                raise ConnectionError("Transient")
             return "success"
 
         result = await flaky_func()

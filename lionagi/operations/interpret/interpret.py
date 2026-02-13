@@ -51,9 +51,7 @@ async def interpret(
         "give additional instruction than what is explicitly stated."
     )
 
-    guidance = (
-        f"Domain hint: {intp_param.domain}. Desired style: {intp_param.style}."
-    )
+    guidance = f"Domain hint: {intp_param.domain}. Desired style: {intp_param.style}."
     if intp_param.sample_writing:
         guidance += f" Sample writing: {intp_param.sample_writing}"
 

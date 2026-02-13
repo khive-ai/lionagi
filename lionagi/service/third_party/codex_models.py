@@ -146,14 +146,10 @@ class CodexCodeRequest(BaseModel):
         ws_path = Path(self.ws)
 
         if ws_path.is_absolute():
-            raise ValueError(
-                f"Workspace path must be relative, got absolute: {self.ws}"
-            )
+            raise ValueError(f"Workspace path must be relative, got absolute: {self.ws}")
 
         if ".." in ws_path.parts:
-            raise ValueError(
-                f"Directory traversal detected in workspace path: {self.ws}"
-            )
+            raise ValueError(f"Directory traversal detected in workspace path: {self.ws}")
 
         repo_resolved = self.repo.resolve()
         result = (self.repo / ws_path).resolve()
@@ -263,28 +259,20 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
         tool_id = tool_use.get("id", "")
 
         tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
-        tool_details.append(
-            {"tool": tool_name, "id": tool_id, "input": tool_input}
-        )
+        tool_details.append({"tool": tool_name, "id": tool_id, "input": tool_input})
 
         if tool_name in ("read_file", "Read", "read"):
-            file_path = tool_input.get(
-                "path", tool_input.get("file_path", "unknown")
-            )
+            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
             file_operations["reads"].append(file_path)
             key_actions.append(f"Read {file_path}")
 
         elif tool_name in ("write_file", "create_file", "Write", "write"):
-            file_path = tool_input.get(
-                "path", tool_input.get("file_path", "unknown")
-            )
+            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
             file_operations["writes"].append(file_path)
             key_actions.append(f"Wrote {file_path}")
 
         elif tool_name in ("edit_file", "patch", "Edit", "edit"):
-            file_path = tool_input.get(
-                "path", tool_input.get("file_path", "unknown")
-            )
+            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
             file_operations["edits"].append(file_path)
             key_actions.append(f"Edited {file_path}")
 
@@ -296,9 +284,7 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
             "bash",
         ):
             command = tool_input.get("command", tool_input.get("cmd", ""))
-            command_summary = (
-                command[:50] + "..." if len(command) > 50 else command
-            )
+            command_summary = command[:50] + "..." if len(command) > 50 else command
             key_actions.append(f"Ran: {command_summary}")
 
         elif tool_name.startswith("mcp_") or tool_name.startswith("mcp__"):
@@ -308,22 +294,12 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
         else:
             key_actions.append(f"Used {tool_name}")
 
-    key_actions = (
-        list(dict.fromkeys(key_actions))
-        if key_actions
-        else ["No specific actions"]
-    )
+    key_actions = list(dict.fromkeys(key_actions)) if key_actions else ["No specific actions"]
 
     for op_type in file_operations:
-        file_operations[op_type] = list(
-            dict.fromkeys(file_operations[op_type])
-        )
+        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
 
-    result_summary = (
-        (session.result[:200] + "...")
-        if len(session.result) > 200
-        else session.result
-    )
+    result_summary = (session.result[:200] + "...") if len(session.result) > 200 else session.result
 
     return {
         "tool_counts": tool_counts,
@@ -348,9 +324,7 @@ async def _ndjson_from_cli(request: CodexCodeRequest):
     Robust against UTF-8 splits and uses json.JSONDecoder.raw_decode.
     """
     if CODEX_CLI is None:
-        raise RuntimeError(
-            "Codex CLI not found. Install with: npm i -g @openai/codex"
-        )
+        raise RuntimeError("Codex CLI not found. Install with: npm i -g @openai/codex")
 
     proc = await asyncio.create_subprocess_exec(
         CODEX_CLI,
@@ -476,9 +450,7 @@ async def stream_codex_cli(
 
         # -- thread / session start ------------------------------------------
         if typ in ("thread.started", "system", "init", "session.start"):
-            session.session_id = obj.get(
-                "thread_id", obj.get("session_id", obj.get("id"))
-            )
+            session.session_id = obj.get("thread_id", obj.get("session_id", obj.get("id")))
             session.model = obj.get("model")
             yield obj
 
@@ -500,9 +472,7 @@ async def stream_codex_cli(
                 tu = {
                     "id": item.get("id", item.get("call_id", "")),
                     "name": item.get("name", item.get("function", "")),
-                    "input": item.get(
-                        "arguments", item.get("input", item.get("args", {}))
-                    ),
+                    "input": item.get("arguments", item.get("input", item.get("args", {}))),
                 }
                 chunk.tool_use = tu
                 session.tool_uses.append(tu)
@@ -575,9 +545,7 @@ async def stream_codex_cli(
                                     "name",
                                     blk.get("function", {}).get("name", ""),
                                 ),
-                                "input": blk.get(
-                                    "input", blk.get("arguments", {})
-                                ),
+                                "input": blk.get("input", blk.get("arguments", {})),
                             }
                             chunk.tool_use = tu
                             session.tool_uses.append(tu)
@@ -587,16 +555,12 @@ async def stream_codex_cli(
             yield chunk
 
         elif typ in ("result", "response", "session.end"):
-            session.result = obj.get(
-                "result", obj.get("response", obj.get("text", ""))
-            ).strip()
+            session.result = obj.get("result", obj.get("response", obj.get("text", ""))).strip()
             session.usage = obj.get("usage", obj.get("stats", {}))
             session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
             session.num_turns = obj.get("num_turns", obj.get("turns"))
             session.duration_ms = obj.get("duration_ms", obj.get("duration"))
-            session.is_error = obj.get(
-                "is_error", obj.get("error") is not None
-            )
+            session.is_error = obj.get("is_error", obj.get("error") is not None)
 
         elif typ == "done":
             break

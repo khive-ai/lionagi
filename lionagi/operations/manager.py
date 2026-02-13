@@ -17,7 +17,5 @@ class OperationManager(Manager):
         if operation in self.registry and not update:
             raise ValueError(f"Operation '{operation}' is already registered.")
         if not is_coro_func(func):
-            raise ValueError(
-                f"Operation '{operation}' must be an async function."
-            )
+            raise ValueError(f"Operation '{operation}' must be an async function.")
         self.registry[operation] = func

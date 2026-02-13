@@ -94,9 +94,7 @@ async def acreate_path(
         ext = f".{ext.lstrip('.')}" if ext else ""
 
         if timestamp:
-            ts_str = datetime.now().strftime(
-                timestamp_format or "%Y%m%d%H%M%S"
-            )
+            ts_str = datetime.now().strftime(timestamp_format or "%Y%m%d%H%M%S")
             name = f"{ts_str}_{name}" if time_prefix else f"{name}_{ts_str}"
 
         if random_hash_digits > 0:
@@ -108,9 +106,7 @@ async def acreate_path(
         await full_path.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
 
         if await full_path.exists() and not file_exist_ok:
-            raise FileExistsError(
-                f"File {full_path} already exists and file_exist_ok is False."
-            )
+            raise FileExistsError(f"File {full_path} already exists and file_exist_ok is False.")
 
         return full_path
 
@@ -168,16 +164,10 @@ def import_module(
         ImportError: If the module cannot be imported.
     """
     try:
-        full_import_path = (
-            f"{package_name}.{module_name}" if module_name else package_name
-        )
+        full_import_path = f"{package_name}.{module_name}" if module_name else package_name
 
         if import_name:
-            import_name = (
-                [import_name]
-                if not isinstance(import_name, list)
-                else import_name
-            )
+            import_name = [import_name] if not isinstance(import_name, list) else import_name
             a = __import__(
                 full_import_path,
                 fromlist=import_name,
@@ -189,9 +179,7 @@ def import_module(
             return __import__(full_import_path)
 
     except ImportError as e:
-        raise ImportError(
-            f"Failed to import module {full_import_path}: {e}"
-        ) from e
+        raise ImportError(f"Failed to import module {full_import_path}: {e}") from e
 
 
 def is_import_installed(package_name: str) -> bool:
@@ -257,9 +245,7 @@ def load_type_from_string(type_str: str) -> type:
     if "." not in type_str:
         raise ValueError(f"Invalid type path (no module): {type_str}")
 
-    if not any(
-        type_str.startswith(prefix) for prefix in _ALLOWED_MODULE_PREFIXES
-    ):
+    if not any(type_str.startswith(prefix) for prefix in _ALLOWED_MODULE_PREFIXES):
         raise ValueError(
             f"Module '{type_str}' not in allowed prefixes: {sorted(_ALLOWED_MODULE_PREFIXES)}"
         )
@@ -384,9 +370,7 @@ def coerce_created_at(v: Any) -> datetime:
             return datetime.fromisoformat(v)
         raise ValueError(f"String '{v}' is neither timestamp nor ISO format")
 
-    raise ValueError(
-        f"Expected datetime/timestamp/string, got {type(v).__name__}"
-    )
+    raise ValueError(f"Expected datetime/timestamp/string, got {type(v).__name__}")
 
 
 # ---------------------------------------------------------------------------

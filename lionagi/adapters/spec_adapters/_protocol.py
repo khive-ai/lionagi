@@ -146,9 +146,7 @@ class SpecAdapter(ABC):
 
     @classmethod
     @abstractmethod
-    def fuzzy_match_fields(
-        cls, data: dict, model_cls: type, strict: bool = False
-    ) -> dict:
+    def fuzzy_match_fields(cls, data: dict, model_cls: type, strict: bool = False) -> dict:
         """Match data keys to model fields with fuzzy matching.
 
         Framework-specific method - each adapter must implement based on how
@@ -190,9 +188,7 @@ class SpecAdapter(ABC):
             data = cls.parse_json(text, fuzzy=fuzzy_parse)
 
             # Step 2: Fuzzy match fields
-            matched_data = cls.fuzzy_match_fields(
-                data, model_cls, strict=strict
-            )
+            matched_data = cls.fuzzy_match_fields(data, model_cls, strict=strict)
 
             # Step 3: Validate with framework-specific method
             instance = cls.validate_model(model_cls, matched_data)

@@ -49,9 +49,7 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
         if k not in _CLAUDE_HANDLER_PARAMS:
             raise ValueError(f"Invalid handler key: {k}")
         if not (v is None or callable(v)):
-            raise ValueError(
-                f"Handler value must be callable or None, got {type(v)}"
-            )
+            raise ValueError(f"Handler value must be callable or None, got {type(v)}")
 
 
 class ClaudeCodeCLIEndpoint(CLIEndpoint):
@@ -109,9 +107,7 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
                 system = chunk
             responses.append(chunk)
 
-        if request.auto_finish and not isinstance(
-            responses[-1], ClaudeSession
-        ):
+        if request.auto_finish and not isinstance(responses[-1], ClaudeSession):
             req2 = request.model_copy(deep=True)
             req2.prompt = "Please provide a the final result message only"
             req2.max_turns = 1
@@ -123,9 +119,7 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
                 responses.append(chunk)
                 if isinstance(chunk, ClaudeSession):
                     break
-        cc_log.info(
-            f"Session {session.session_id} finished with {len(responses)} chunks"
-        )
+        cc_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
         texts = []
         for i in session.chunks:
             if i.text is not None:

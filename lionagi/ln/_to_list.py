@@ -100,9 +100,7 @@ def to_list(
         """Recursively process list with flatten/dropna logic."""
         result: list[Any] = []
         for item in lst:
-            if dropna and (
-                item is None or isinstance(item, _SINGLETONE_TYPES)
-            ):
+            if dropna and (item is None or isinstance(item, _SINGLETONE_TYPES)):
                 continue
 
             is_iterable = isinstance(item, Iterable)
@@ -111,13 +109,9 @@ def to_list(
             if is_iterable and not should_skip:
                 item_list = list(item)
                 if flatten:
-                    result.extend(
-                        _process_list(item_list, flatten, dropna, skip_types)
-                    )
+                    result.extend(_process_list(item_list, flatten, dropna, skip_types))
                 else:
-                    result.append(
-                        _process_list(item_list, flatten, dropna, skip_types)
-                    )
+                    result.append(_process_list(item_list, flatten, dropna, skip_types))
             else:
                 result.append(item)
 
@@ -133,21 +127,13 @@ def to_list(
 
         if isinstance(input_, type) and issubclass(input_, _Enum):
             members = input_.__members__.values()
-            return (
-                [member.value for member in members]
-                if use_values
-                else list(members)
-            )
+            return [member.value for member in members] if use_values else list(members)
 
         if isinstance(input_, _BYTE_LIKE):
             return list(input_) if use_values else [input_]
 
         if isinstance(input_, Mapping):
-            return (
-                list(input_.values())
-                if use_values and hasattr(input_, "values")
-                else [input_]
-            )
+            return list(input_.values()) if use_values and hasattr(input_, "values") else [input_]
 
         if isinstance(input_, _MODEL_LIKE):
             return [input_]
@@ -161,12 +147,8 @@ def to_list(
         raise ValueError("unique=True requires flatten=True")
 
     initial_list = _to_list_type(input_, use_values=use_values)
-    skip_types: tuple[type, ...] = (
-        _SKIP_TYPE if flatten_tuple_set else _SKIP_TUPLE_SET
-    )
-    processed = _process_list(
-        initial_list, flatten=flatten, dropna=dropna, skip_types=skip_types
-    )
+    skip_types: tuple[type, ...] = _SKIP_TYPE if flatten_tuple_set else _SKIP_TUPLE_SET
+    processed = _process_list(initial_list, flatten=flatten, dropna=dropna, skip_types=skip_types)
 
     if unique:
         seen = set()

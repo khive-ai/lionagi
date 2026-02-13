@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import Callable
-from typing import Any, ClassVar
+import threading
+import weakref
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from lionagi.ln.concurrency.utils import is_coro_func
-from lionagi.protocols.generic.event import Event
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from lionagi.protocols.generic.event import Event
 
 logger = logging.getLogger(__name__)
 
@@ -13,49 +17,116 @@ __all__ = ("Broadcaster",)
 
 
 class Broadcaster:
-    """Real-time event broadcasting system for hook events. Should subclass to implement specific event types."""
+    """Singleton pub/sub with weakref-based automatic subscriber cleanup.
+
+    Subclass and set ``_event_type`` to define typed broadcasters.
+    Subscribers are stored as weakrefs (WeakMethod for bound methods)
+    so they are automatically cleaned up when the referenced object
+    is garbage collected.
+
+    Thread-safe: all subscriber mutations are protected by a class-level lock.
+
+    Example::
+
+        class OrderBroadcaster(Broadcaster):
+            _event_type = OrderEvent
+
+        OrderBroadcaster.subscribe(my_handler)
+        await OrderBroadcaster.broadcast(OrderEvent(...))
+    """
 
     _instance: ClassVar[Broadcaster | None] = None
-    _subscribers: ClassVar[list[Callable[[Any], None]]] = []
+    _subscribers: ClassVar[list[weakref.ref]] = []
     _event_type: ClassVar[type[Event]]
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+            return cls._instance
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Each subclass gets its own subscriber list, singleton slot, and lock."""
+        super().__init_subclass__(**kwargs)
+        cls._instance = None
+        cls._subscribers = []
+        cls._lock = threading.Lock()
 
     @classmethod
-    def subscribe(cls, callback: Callable[[Any], None]) -> None:
-        """Subscribe to hook events with sync callback."""
-        if callback not in cls._subscribers:
-            cls._subscribers.append(callback)
+    def subscribe(
+        cls,
+        callback: Callable[[Any], None] | Callable[[Any], Awaitable[None]],
+    ) -> None:
+        """Add subscriber callback (idempotent, stored as weakref).
+
+        Args:
+            callback: Sync or async callable receiving the event.
+                      Bound methods use WeakMethod; functions use weakref.
+        """
+        with cls._lock:
+            for weak_ref in cls._subscribers:
+                if weak_ref() is callback:
+                    return
+            if hasattr(callback, "__self__"):
+                weak_callback = weakref.WeakMethod(callback)
+            else:
+                weak_callback = weakref.ref(callback)
+            cls._subscribers.append(weak_callback)
 
     @classmethod
-    def unsubscribe(cls, callback: Callable[[Any], None]) -> None:
-        """Unsubscribe from hook events."""
-        if callback in cls._subscribers:
-            cls._subscribers.remove(callback)
+    def unsubscribe(
+        cls,
+        callback: Callable[[Any], None] | Callable[[Any], Awaitable[None]],
+    ) -> None:
+        """Remove subscriber callback.
+
+        Args:
+            callback: Previously subscribed callback to remove.
+        """
+        with cls._lock:
+            for weak_ref in list(cls._subscribers):
+                if weak_ref() is callback:
+                    cls._subscribers.remove(weak_ref)
+                    return
 
     @classmethod
-    async def broadcast(cls, event) -> None:
-        """Broadcast event to all subscribers."""
+    def _cleanup_dead_refs(
+        cls,
+    ) -> list:
+        """Prune dead weakrefs, return live callbacks. Must hold _lock."""
+        callbacks, alive_refs = [], []
+        for weak_ref in cls._subscribers:
+            if (cb := weak_ref()) is not None:
+                callbacks.append(cb)
+                alive_refs.append(weak_ref)
+        cls._subscribers[:] = alive_refs
+        return callbacks
+
+    @classmethod
+    async def broadcast(cls, event: Any) -> None:
+        """Broadcast event to all subscribers sequentially.
+
+        Args:
+            event: Event instance (must match _event_type).
+
+        Raises:
+            ValueError: If event type doesn't match _event_type.
+        """
         if not isinstance(event, cls._event_type):
-            raise ValueError(
-                f"Event must be of type {cls._event_type.__name__}"
-            )
-
-        for callback in cls._subscribers:
+            raise ValueError(f"Event must be of type {cls._event_type.__name__}")
+        with cls._lock:
+            callbacks = cls._cleanup_dead_refs()
+        for callback in callbacks:
             try:
-                if is_coro_func(callback):
-                    await callback(event)
-                else:
-                    callback(event)
+                result = callback(event)
+                if asyncio.iscoroutine(result):
+                    await result
             except Exception as e:
-                logger.error(
-                    f"Error in subscriber callback: {e}", exc_info=True
-                )
+                logger.error(f"Error in subscriber callback: {e}", exc_info=True)
 
     @classmethod
     def get_subscriber_count(cls) -> int:
-        """Get total number of subscribers."""
-        return len(cls._subscribers)
+        """Count live subscribers (triggers dead ref cleanup)."""
+        with cls._lock:
+            return len(cls._cleanup_dead_refs())

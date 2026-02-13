@@ -51,7 +51,6 @@ class TestBroadcaster:
 
         TestBroadcaster.subscribe(callback)
 
-        assert callback in TestBroadcaster._subscribers
         assert TestBroadcaster.get_subscriber_count() == 1
 
     def test_subscribe_prevents_duplicates(self):
@@ -80,7 +79,6 @@ class TestBroadcaster:
 
         TestBroadcaster.unsubscribe(callback)
         assert TestBroadcaster.get_subscriber_count() == 0
-        assert callback not in TestBroadcaster._subscribers
 
     def test_unsubscribe_nonexistent_callback_no_error(self):
         """Test that unsubscribing nonexistent callback doesn't raise error."""
@@ -274,10 +272,6 @@ class TestBroadcaster:
 
         assert BroadcasterA.get_subscriber_count() == 1
         assert BroadcasterB.get_subscriber_count() == 1
-        assert callback_a in BroadcasterA._subscribers
-        assert callback_a not in BroadcasterB._subscribers
-        assert callback_b in BroadcasterB._subscribers
-        assert callback_b not in BroadcasterA._subscribers
 
     @pytest.mark.asyncio
     async def test_broadcast_mixed_sync_async_callbacks(self):

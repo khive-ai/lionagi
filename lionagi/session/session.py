@@ -49,9 +49,7 @@ class Session(Node, Relational):
     default_branch: Any = Field(default=None, exclude=True)
     name: str = Field(default="Session")
     user: SenderRecipient | None = None
-    _operation_manager: OperationManager = PrivateAttr(
-        default_factory=OperationManager
-    )
+    _operation_manager: OperationManager = PrivateAttr(default_factory=OperationManager)
 
     @field_serializer("user")
     def _serialize_user(self, value: SenderRecipient | None) -> JsonValue:
@@ -78,9 +76,7 @@ class Session(Node, Relational):
         for i in branches:
             _take_in_branch(i)
 
-    def register_operation(
-        self, operation: str, func: Callable, *, update: bool = False
-    ):
+    def register_operation(self, operation: str, func: Callable, *, update: bool = False):
         self._operation_manager.register(operation, func, update=update)
 
     def operation(self, name: str = None, *, update: bool = False):
@@ -124,9 +120,7 @@ class Session(Node, Relational):
                 return branch
         return None
 
-    def get_branch(
-        self, branch: ID.Ref | str, default: Any = ..., /
-    ) -> Branch:
+    def get_branch(self, branch: ID.Ref | str, default: Any = ..., /) -> Branch:
         """Get a branch by its ID or name."""
 
         with contextlib.suppress(ItemNotFoundError, ValueError):
@@ -160,8 +154,7 @@ class Session(Node, Relational):
         params = {
             k: v
             for k, v in locals().items()
-            if k not in ("self", "as_default_branch", "kwargs")
-            and v is not None
+            if k not in ("self", "as_default_branch", "kwargs") and v is not None
         }
         branch = Branch(**params, **kwargs)  # type: ignore
         self.include_branches(branch)
@@ -177,11 +170,7 @@ class Session(Node, Relational):
         branch = ID.get_id(branch)
 
         if branch not in self.branches:
-            _s = (
-                str(branch)
-                if len(str(branch)) < 10
-                else str(branch)[:10] + "..."
-            )
+            _s = str(branch) if len(str(branch)) < 10 else str(branch)[:10] + "..."
             raise ItemNotFoundError(f"Branch {_s}.. does not exist.")
         branch: Branch = self.branches[branch]
 
@@ -273,9 +262,7 @@ class Session(Node, Relational):
             output_flatten=True,
             output_unique=True,
         )
-        return Pile(
-            collections=messages, item_type={RoledMessage}, strict_type=False
-        )
+        return Pile(collections=messages, item_type={RoledMessage}, strict_type=False)
 
     async def flow(
         self,

@@ -36,9 +36,7 @@ def prepare_parse_kws(
     similarity_algo="jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,
-    handle_unmatched: Literal[
-        "ignore", "raise", "remove", "fill", "force"
-    ] = "force",
+    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "force",
     fill_value: Any = None,
     fill_mapping: dict[str, Any] | None = None,
     strict: bool = False,
@@ -56,11 +54,7 @@ def prepare_parse_kws(
             stacklevel=2,
         )
 
-    response_format = (
-        operative.request_type
-        if operative
-        else response_format or request_type
-    )
+    response_format = operative.request_type if operative else response_format or request_type
     _alcall_params = get_default_call()
     max_retries = operative.max_retries if operative else max_retries or 3
 
@@ -80,9 +74,7 @@ def prepare_parse_kws(
             response_format=response_format or request_fields,
             fuzzy_match_params=fuzzy_params,
             handle_validation=handle_validation,
-            alcall_params=_alcall_params.with_updates(
-                retry_attempts=max_retries
-            ),
+            alcall_params=_alcall_params.with_updates(retry_attempts=max_retries),
             imodel=branch.parse_model,
             imodel_kw=kw,
         ),
@@ -174,9 +166,7 @@ def _validate_dict_or_model(
                 if isinstance(response_format, type)
                 else response_format
             )
-            dict_ = fuzzy_validate_mapping(
-                dict_, keys_, **fuzzy_match_params.to_dict()
-            )
+            dict_ = fuzzy_validate_mapping(dict_, keys_, **fuzzy_match_params.to_dict())
         elif fuzzy_match_params:
             keys_ = (
                 response_format.model_fields
@@ -190,9 +180,7 @@ def _validate_dict_or_model(
                 fill_value=None,
                 strict=False,
             )
-        if isinstance(response_format, type) and issubclass(
-            response_format, BaseModel
-        ):
+        if isinstance(response_format, type) and issubclass(response_format, BaseModel):
             return response_format.model_validate(dict_)
         return dict_
 

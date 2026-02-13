@@ -38,9 +38,7 @@ class InstructionContent(MessageContent):
     prompt_context: list[Any] = field(default_factory=list)
     plain_content: str | None = None
     tool_schemas: list[dict[str, Any]] = field(default_factory=list)
-    response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = (
-        None  # User input
-    )
+    response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = None  # User input
     _schema_dict: dict[str, Any] | None = field(
         default=None, repr=False
     )  # Internal: dict for prompting
@@ -58,9 +56,7 @@ class InstructionContent(MessageContent):
         context: list[Any] | None = None,  # backwards compat
         plain_content: str | None = None,
         tool_schemas: list[dict[str, Any]] | None = None,
-        response_format: (
-            type[BaseModel] | dict[str, Any] | BaseModel | None
-        ) = None,
+        response_format: (type[BaseModel] | dict[str, Any] | BaseModel | None) = None,
         images: list[str] | None = None,
         image_detail: Literal["low", "high", "auto"] | None = None,
     ):
@@ -74,9 +70,7 @@ class InstructionContent(MessageContent):
 
         if response_format is not None:
             # Extract model class
-            if isinstance(response_format, type) and issubclass(
-                response_format, BaseModel
-            ):
+            if isinstance(response_format, type) and issubclass(response_format, BaseModel):
                 model_class = response_format
             elif isinstance(response_format, BaseModel):
                 model_class = type(response_format)
@@ -85,9 +79,7 @@ class InstructionContent(MessageContent):
             if isinstance(response_format, dict):
                 schema_dict = response_format
             elif isinstance(response_format, BaseModel):
-                schema_dict = response_format.model_dump(
-                    mode="json", exclude_none=True
-                )
+                schema_dict = response_format.model_dump(mode="json", exclude_none=True)
             elif model_class:
                 # Generate dict from model class
                 from lionagi.libs.schema.breakdown_pydantic_annotation import (
@@ -109,18 +101,10 @@ class InstructionContent(MessageContent):
             "tool_schemas",
             tool_schemas if tool_schemas is not None else [],
         )
-        object.__setattr__(
-            self, "response_format", response_format
-        )  # Store original user input
-        object.__setattr__(
-            self, "_schema_dict", schema_dict
-        )  # Internal: dict for prompting
-        object.__setattr__(
-            self, "_model_class", model_class
-        )  # Internal: class for validation
-        object.__setattr__(
-            self, "images", images if images is not None else []
-        )
+        object.__setattr__(self, "response_format", response_format)  # Store original user input
+        object.__setattr__(self, "_schema_dict", schema_dict)  # Internal: dict for prompting
+        object.__setattr__(self, "_model_class", model_class)  # Internal: class for validation
+        object.__setattr__(self, "images", images if images is not None else [])
         object.__setattr__(self, "image_detail", image_detail)
 
     @property
@@ -168,9 +152,7 @@ class InstructionContent(MessageContent):
         # Determine how to apply context updates
         handle_context = data.get("handle_context", "extend")
         if handle_context not in {"extend", "replace"}:
-            raise ValueError(
-                "handle_context must be either 'extend' or 'replace'"
-            )
+            raise ValueError("handle_context must be either 'extend' or 'replace'")
 
         # Handle both "prompt_context" (new) and "context" (backwards compat)
         # Prioritize "context" if present (for backwards compat and update paths)
@@ -195,9 +177,7 @@ class InstructionContent(MessageContent):
             imgs = data.get("images") or []
             imgs_list = imgs if isinstance(imgs, list) else [imgs]
             inst.images.extend(imgs_list)
-            inst.image_detail = (
-                data.get("image_detail") or inst.image_detail or "auto"
-            )
+            inst.image_detail = data.get("image_detail") or inst.image_detail or "auto"
 
         # Response format handling
         response_format = data.get("response_format") or data.get(
@@ -210,9 +190,7 @@ class InstructionContent(MessageContent):
             valid_format = False
 
             # Extract model class
-            if isinstance(response_format, type) and issubclass(
-                response_format, BaseModel
-            ):
+            if isinstance(response_format, type) and issubclass(response_format, BaseModel):
                 model_class = response_format
                 valid_format = True
             elif isinstance(response_format, BaseModel):
@@ -224,9 +202,7 @@ class InstructionContent(MessageContent):
                 schema_dict = response_format
                 valid_format = True
             elif isinstance(response_format, BaseModel):
-                schema_dict = response_format.model_dump(
-                    mode="json", exclude_none=True
-                )
+                schema_dict = response_format.model_dump(mode="json", exclude_none=True)
                 valid_format = True
             elif model_class:
                 schema_dict = breakdown_pydantic_annotation(model_class)
@@ -287,11 +263,7 @@ class InstructionContent(MessageContent):
     @staticmethod
     def _format_image_item(idx: str, detail: str) -> dict[str, Any]:
         url = idx
-        if not (
-            idx.startswith("http://")
-            or idx.startswith("https://")
-            or idx.startswith("data:")
-        ):
+        if not (idx.startswith("http://") or idx.startswith("https://") or idx.startswith("data:")):
             url = f"data:image/jpeg;base64,{idx}"
         return {
             "type": "image_url",

@@ -77,9 +77,7 @@ class ActionResponse(RoledMessage):
             return ActionResponseContent.from_dict(v)
         if isinstance(v, ActionResponseContent):
             return v
-        raise TypeError(
-            "content must be dict or ActionResponseContent instance"
-        )
+        raise TypeError("content must be dict or ActionResponseContent instance")
 
     @property
     def function(self) -> str:

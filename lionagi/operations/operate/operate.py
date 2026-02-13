@@ -132,9 +132,7 @@ def prepare_operate_kw(
         # Create response model
         operative = Step.respond_operative(operative)
 
-    final_response_format = (
-        operative.response_type if operative else response_format
-    )
+    final_response_format = operative.response_type if operative else response_format
 
     # Build contexts
     chat_param = ChatParam(
@@ -173,9 +171,7 @@ def prepare_operate_kw(
         action_param = ActionParam(
             action_call_params=call_params or _get_default_call_params(),
             tools=tools,
-            strategy=action_strategy
-            or instruct.action_strategy
-            or "concurrent",
+            strategy=action_strategy or instruct.action_strategy or "concurrent",
             suppress_errors=True,
             verbose_action=verbose_action,
         )
@@ -329,9 +325,7 @@ async def operate(
         return result
 
     # Filter None values
-    action_response_models = [
-        r for r in action_response_models if r is not None
-    ]
+    action_response_models = [r for r in action_response_models if r is not None]
 
     if not action_response_models:
         return result
@@ -344,7 +338,5 @@ async def operate(
     # First set the response_model to the existing result
     operative.response_model = result
     # Then update it with action_responses
-    operative.update_response_model(
-        data={"action_responses": action_response_models}
-    )
+    operative.update_response_model(data={"action_responses": action_response_models})
     return operative.response_model
