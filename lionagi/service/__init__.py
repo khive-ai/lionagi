@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from lionagi.ln._lazy_init import lazy_import
 
 from .hooks import (
+    AssociatedEventInfo,
     AssosiatedEventInfo,
     HookDict,
     HookedEvent,
@@ -43,7 +44,8 @@ def __getattr__(name: str):
 
 __all__ = (
     "APICalling",
-    "AssosiatedEventInfo",
+    "AssociatedEventInfo",
+    "AssosiatedEventInfo",  # deprecated alias
     "Broadcaster",
     "Endpoint",
     "EndpointConfig",

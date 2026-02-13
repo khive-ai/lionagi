@@ -140,7 +140,7 @@ class TestOllamaModelManagement:
     """Test Ollama model checking and pulling."""
 
     @patch("lionagi.service.connections.providers.ollama_._HAS_OLLAMA", True)
-    def test_check_model_already_available(self, capsys):
+    def test_check_model_already_available(self, caplog):
         """Test _check_model when model is already available locally."""
         from lionagi.service.connections.providers.ollama_ import (
             OllamaChatEndpoint,
@@ -157,14 +157,14 @@ class TestOllamaModelManagement:
         mock_ollama.pull = MagicMock()
 
         endpoint = OllamaChatEndpoint()
-        endpoint._check_model("llama2")
+        with caplog.at_level("DEBUG", logger="lionagi.service.connections.providers.ollama_"):
+            endpoint._check_model("llama2")
 
         # Verify output shows no pulling occurred
-        captured = capsys.readouterr()
-        assert "not found locally" not in captured.out
+        assert "not found locally" not in caplog.text
 
     @patch("lionagi.service.connections.providers.ollama_._HAS_OLLAMA", True)
-    def test_check_model_not_available_pulls(self, capsys):
+    def test_check_model_not_available_pulls(self, caplog):
         """Test _check_model pulls model when not available locally."""
         from lionagi.service.connections.providers.ollama_ import (
             OllamaChatEndpoint,
@@ -183,14 +183,14 @@ class TestOllamaModelManagement:
         )
 
         endpoint = OllamaChatEndpoint()
-        endpoint._check_model("mistral")
+        with caplog.at_level("DEBUG", logger="lionagi.service.connections.providers.ollama_"):
+            endpoint._check_model("mistral")
 
-        captured = capsys.readouterr()
-        assert "not found locally" in captured.out
-        assert "successfully pulled" in captured.out
+        assert "not found locally" in caplog.text
+        assert "successfully pulled" in caplog.text
 
     @patch("lionagi.service.connections.providers.ollama_._HAS_OLLAMA", True)
-    def test_check_model_handles_exception(self, capsys):
+    def test_check_model_handles_exception(self, caplog):
         """Test _check_model handles exceptions gracefully."""
         from lionagi.service.connections.providers.ollama_ import (
             OllamaChatEndpoint,
@@ -204,12 +204,11 @@ class TestOllamaModelManagement:
 
         endpoint = OllamaChatEndpoint()
 
-        # Should not raise, but print warning
-        endpoint._check_model("llama2")
+        # Should not raise, but log warning
+        with caplog.at_level("DEBUG", logger="lionagi.service.connections.providers.ollama_"):
+            endpoint._check_model("llama2")
 
-        captured = capsys.readouterr()
-        assert "Warning" in captured.out
-        assert "Connection failed" in captured.out
+        assert "Connection failed" in caplog.text
 
     @patch("lionagi.service.connections.providers.ollama_._HAS_OLLAMA", True)
     @patch("tqdm.tqdm")
@@ -242,8 +241,8 @@ class TestOllamaModelManagement:
         assert mock_progress_bar.update.call_count == 3
 
     @patch("lionagi.service.connections.providers.ollama_._HAS_OLLAMA", True)
-    def test_pull_model_status_messages(self, capsys):
-        """Test _pull_model prints status messages without digest."""
+    def test_pull_model_status_messages(self, caplog):
+        """Test _pull_model logs status messages without digest."""
         from lionagi.service.connections.providers.ollama_ import (
             OllamaChatEndpoint,
         )
@@ -258,11 +257,11 @@ class TestOllamaModelManagement:
         mock_ollama.pull = MagicMock(return_value=iter(progress_data))
 
         endpoint = OllamaChatEndpoint()
-        endpoint._pull_model("llama2")
+        with caplog.at_level("DEBUG", logger="lionagi.service.connections.providers.ollama_"):
+            endpoint._pull_model("llama2")
 
-        captured = capsys.readouterr()
-        assert "pulling manifest" in captured.out
-        assert "verifying" in captured.out
+        assert "pulling manifest" in caplog.text
+        assert "verifying" in caplog.text
 
 
 class TestOllamaCall:
@@ -306,7 +305,7 @@ class TestOllamaCall:
 
     @pytest.mark.asyncio
     @patch("lionagi.service.connections.providers.ollama_._HAS_OLLAMA", True)
-    async def test_call_pulls_missing_model(self, capsys):
+    async def test_call_pulls_missing_model(self, caplog):
         """Test that call() pulls model if not available."""
         from lionagi.service.connections.providers.ollama_ import (
             OllamaChatEndpoint,
@@ -335,10 +334,10 @@ class TestOllamaCall:
                 "messages": [{"role": "user", "content": "hello"}],
             }
 
-            await endpoint.call(request)
+            with caplog.at_level("DEBUG", logger="lionagi.service.connections.providers.ollama_"):
+                await endpoint.call(request)
 
-            captured = capsys.readouterr()
-            assert "not found locally" in captured.out
+            assert "not found locally" in caplog.text
 
 
 class TestOllamaConfig:

@@ -102,7 +102,7 @@ def validate_boolean(x: Any, /) -> bool:
         try:
             x = str(x)
         except Exception as e:
-            raise TypeError(f"Cannot convert {type(x)} to boolean: {str(e)}")
+            raise TypeError(f"Cannot convert {type(x)} to boolean: {str(e)}") from e
 
     # Handle string inputs
     x_cleaned = str(x).strip().lower()

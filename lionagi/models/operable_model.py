@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 from typing import Any, TypeVar
 
 from pydantic import (
@@ -18,6 +19,8 @@ from lionagi.utils import UNDEFINED, is_same_dtype
 
 from .field_model import FieldModel
 from .hashable_model import HashableModel
+
+logger = logging.getLogger(__name__)
 from .model_params import ModelParams
 
 FieldName = TypeVar("FieldName", bound=str)
@@ -249,7 +252,7 @@ class OperableModel(HashableModel):
         """
         dict_ = self.model_dump()
         dict_.update(self._serialize_extra_fields(self.extra_fields))
-        print(dict_)
+        logger.debug("OperableModel.to_dict(): %s", dict_)
         return {k: v for k, v in dict_.items() if v is not UNDEFINED}
 
     @property

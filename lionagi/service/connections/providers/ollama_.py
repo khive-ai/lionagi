@@ -8,11 +8,15 @@ Ollama provides local model hosting with both native and OpenAI-compatible APIs.
 This module configures the OpenAI-compatible endpoint for consistency.
 """
 
+import logging
+
 from pydantic import BaseModel
 
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.utils import is_import_installed
+
+logger = logging.getLogger(__name__)
 
 __all__ = (
     "OllamaChatEndpoint",
@@ -106,7 +110,7 @@ class OllamaChatEndpoint(Endpoint):
                 bars[current_digest].close()
 
             if not digest:
-                print(progress.get("status"))
+                logger.info("%s", progress.get("status"))
                 continue
 
             if digest not in bars and (total := progress.get("total")):
@@ -127,8 +131,8 @@ class OllamaChatEndpoint(Endpoint):
             available_models = [i.model for i in self._list().models]
 
             if model not in available_models:
-                print(f"Model '{model}' not found locally. Pulling from Ollama registry...")
+                logger.info("Model '%s' not found locally. Pulling from Ollama registry...", model)
                 self._pull_model(model)
-                print(f"Model '{model}' successfully pulled.")
+                logger.info("Model '%s' successfully pulled.", model)
         except Exception as e:
-            print(f"Warning: Could not check/pull model '{model}': {e}")
+            logger.warning("Could not check/pull model '%s': %s", model, e)

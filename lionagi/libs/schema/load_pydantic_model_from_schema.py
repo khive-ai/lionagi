@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import logging
 import string
 import tempfile
 from pathlib import Path
@@ -12,6 +13,8 @@ from pydantic import BaseModel, PydanticUserError
 
 from lionagi import ln
 from lionagi.utils import is_import_installed
+
+logger = logging.getLogger(__name__)
 
 _HAS_DATAMODEL_CODE_GENERATOR = is_import_installed("datamodel_code_generator")
 
@@ -42,6 +45,14 @@ def load_pydantic_model_from_schema(
     """
     Generates a Pydantic model class dynamically from a JSON schema string or dict,
     and ensures it's fully resolved using model_rebuild() with the correct namespace.
+
+    Security Warning:
+        This function uses ``datamodel-code-generator`` to produce Python source
+        from the supplied JSON schema, then loads the generated module via
+        ``exec_module()``. Schema content (descriptions, defaults, enum values)
+        flows into the generated code **without sanitization**. Only call this
+        function with schemas from **trusted** sources. Do not pass user-supplied
+        or externally-fetched schemas without prior validation.
 
     Args:
         schema: The JSON schema as a string or a Python dictionary.
@@ -177,8 +188,9 @@ def load_pydantic_model_from_schema(
             try:
                 model_class = generated_module.Model  # Default fallback name
                 validate_base_model_class(model_class)
-                print(
-                    f"Warning: Model name '{resolved_model_name}' not found, falling back to 'Model'."
+                logger.warning(
+                    "Model name '%s' not found, falling back to 'Model'.",
+                    resolved_model_name,
                 )
             except AttributeError as e:
                 # List available Pydantic models found in the module for debugging

@@ -98,7 +98,7 @@ class Graph(Element, Relational, Generic[T]):
             self.internal_nodes.insert(len(self.internal_nodes), node)
             self.node_edge_mapping[_id] = {"in": {}, "out": {}}
         except ItemExistsError as e:
-            raise RelationError(f"Error adding node: {e}")
+            raise RelationError(f"Error adding node: {e}") from e
 
     @_graph_synchronized
     def add_edge(self, edge: Edge, /) -> None:
@@ -114,7 +114,7 @@ class Graph(Element, Relational, Generic[T]):
             self.node_edge_mapping[edge.head]["out"][edge.id] = edge.tail
             self.node_edge_mapping[edge.tail]["in"][edge.id] = edge.head
         except ItemExistsError as e:
-            raise RelationError(f"Error adding node: {e}")
+            raise RelationError(f"Error adding node: {e}") from e
 
     @_graph_synchronized
     def remove_node(self, node: ID[Node].Ref, /) -> None:

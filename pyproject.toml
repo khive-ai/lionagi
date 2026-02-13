@@ -122,18 +122,25 @@ all = [
 ]
 
 
-[tool.black]
-line-length = 79
-target-version = ['py310']
+[tool.ruff]
+target-version = "py310"
+line-length = 100
 
-[tool.isort]
-profile = "black"
-line_length = 79
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP", "N", "S", "A"]
+ignore = [
+    "N805",   # pydantic validator first-arg naming
+    "A004",   # ExceptionGroup stdlib shadowing (compat shim)
+    "UP035",  # typing imports needed for Python 3.10
+    "UP006",  # typing generics needed for Python 3.10
+    "UP007",  # X | Y union syntax needs 3.10+ (already using from __future__)
+    "S101",   # assert usage (fine in non-web library)
+    "E501",   # line length (handled by formatter)
+]
 
-[tool.flake8]
-ignore = ["E203", "W503", "E501", "E402"]
-max-line-length = 79
-exclude = [".git", "__pycache__", "build", "dist", ".venv"]
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "B904", "N"]
+"cookbooks/**" = ["S101", "B904", "N"]
 
 [tool.pytest.ini_options]
 addopts = "-q -ra --strict-config --strict-markers --tb=short --maxfail=5 -n auto --dist loadfile"

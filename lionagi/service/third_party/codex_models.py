@@ -160,13 +160,13 @@ class CodexCodeRequest(BaseModel):
             raise ValueError(
                 f"Workspace path escapes repository bounds. "
                 f"Repository: {repo_resolved}, Workspace: {result}"
-            )
+            ) from None
 
         return result
 
     def as_cmd_args(self) -> list[str]:
         """Build argument list for `codex exec` subcommand."""
-        args: list[str] = ["exec", "--json", self.prompt]
+        args: list[str] = ["exec", "--json", "--", self.prompt]
 
         if self.model:
             args += ["-m", self.model]

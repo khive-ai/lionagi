@@ -8,9 +8,12 @@ Provides clean dependency management and context inheritance for operation graph
 using Events for synchronization and CapacityLimiter for concurrency control.
 """
 
+import logging
 import os
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from lionagi.ln import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
@@ -175,14 +178,14 @@ class DependencyAwareExecutor:
                     )
 
         if self.verbose:
-            print(f"Pre-allocated {len(operations_needing_branches)} branches")
+            logger.debug("Pre-allocated %d branches", len(operations_needing_branches))
 
     async def _execute_operation(self, operation: Operation, limiter: CapacityLimiter):
         """Execute a single operation with dependency waiting."""
         # Skip if operation is already completed
         if operation.execution.status == EventStatus.COMPLETED:
             if self.verbose:
-                print(f"Skipping already completed operation: {str(operation.id)[:8]}")
+                logger.debug("Skipping already completed operation: %s", str(operation.id)[:8])
             # Ensure results are available for dependencies
             if operation.id not in self.results and hasattr(operation, "response"):
                 self.results[operation.id] = operation.response
@@ -200,7 +203,7 @@ class DependencyAwareExecutor:
                 self.skipped_operations.add(operation.id)
 
                 if self.verbose:
-                    print(f"Skipping operation due to edge conditions: {str(operation.id)[:8]}")
+                    logger.debug("Skipping operation due to edge conditions: %s", str(operation.id)[:8])
 
                 # Signal completion so dependent operations can proceed
                 self.completion_events[operation.id].set()
@@ -216,7 +219,7 @@ class DependencyAwareExecutor:
 
                 # Execute the operation
                 if self.verbose:
-                    print(f"Executing operation: {str(operation.id)[:8]}")
+                    logger.debug("Executing operation: %s", str(operation.id)[:8])
 
                 branch = self.operation_branches.get(operation.id, self.session.default_branch)
                 operation.execution.status = EventStatus.PROCESSING
@@ -232,7 +235,7 @@ class DependencyAwareExecutor:
                     self.context.update(operation.response["context"])
 
                 if self.verbose:
-                    print(f"Completed operation: {str(operation.id)[:8]}")
+                    logger.debug("Completed operation: %s", str(operation.id)[:8])
 
         except Exception as e:
             operation.execution.status = EventStatus.FAILED
@@ -240,7 +243,7 @@ class DependencyAwareExecutor:
             self.results[operation.id] = {"error": str(e)}
 
             if self.verbose:
-                print(f"Operation {str(operation.id)[:8]} failed: {e}")
+                logger.error("Operation %s failed: %s", str(operation.id)[:8], e)
 
         finally:
             # Signal completion regardless of success/failure/skip
@@ -295,7 +298,7 @@ class DependencyAwareExecutor:
         if operation.metadata.get("aggregation"):
             sources = operation.parameters.get("aggregation_sources", [])
             if self.verbose and sources:
-                print(f"Aggregation {str(operation.id)[:8]} waiting for {len(sources)} sources")
+                logger.debug("Aggregation %s waiting for %d sources", str(operation.id)[:8], len(sources))
 
             # Wait for ALL sources (sources are now strings from builder.py)
             for source_id_str in sources:
@@ -310,7 +313,7 @@ class DependencyAwareExecutor:
         predecessors = self.graph.get_predecessors(operation)
         for pred in predecessors:
             if self.verbose:
-                print(f"Operation {str(operation.id)[:8]} waiting for {str(pred.id)[:8]}")
+                logger.debug("Operation %s waiting for %s", str(operation.id)[:8], str(pred.id)[:8])
             await self.completion_events[pred.id].wait()
 
     def _prepare_operation(self, operation: Operation):
@@ -400,16 +403,18 @@ class DependencyAwareExecutor:
                     branch.metadata["pending_context_inheritance"] = False
 
                     if self.verbose:
-                        print(
-                            f"Operation {str(operation.id)[:8]} inherited context from {str(primary_dep_id)[:8]}"
+                        logger.debug(
+                            "Operation %s inherited context from %s",
+                            str(operation.id)[:8], str(primary_dep_id)[:8],
                         )
 
             return branch
 
         # Fallback to default branch (should not happen with proper pre-allocation)
         if self.verbose:
-            print(
-                f"Warning: Operation {str(operation.id)[:8]} using default branch (not pre-allocated)"
+            logger.warning(
+                "Operation %s using default branch (not pre-allocated)",
+                str(operation.id)[:8],
             )
 
         if hasattr(self, "_default_branch") and self._default_branch:
@@ -452,9 +457,9 @@ class DependencyAwareExecutor:
                 if node.execution.status != EventStatus.SKIPPED:
                     # Log warning but don't fail - status might not be perfectly synced
                     if self.verbose:
-                        print(
-                            f"Warning: Skipped operation {node.id} has status "
-                            f"{node.execution.status} instead of SKIPPED"
+                        logger.warning(
+                            "Skipped operation %s has status %s instead of SKIPPED",
+                            node.id, node.execution.status,
                         )
 
 

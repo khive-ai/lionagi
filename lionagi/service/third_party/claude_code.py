@@ -187,7 +187,7 @@ class ClaudeCodeRequest(BaseModel):
             raise ValueError(
                 f"Workspace path escapes repository bounds. "
                 f"Repository: {repo_resolved}, Workspace: {result}"
-            )
+            ) from None
 
         return result
 
@@ -205,7 +205,7 @@ class ClaudeCodeRequest(BaseModel):
                 raise ValueError(
                     f"With bypassPermissions, workspace must be within repository bounds. "
                     f"Repository: {repo_resolved}, Workspace: {cwd_resolved}"
-                )
+                ) from None
         return self
 
     # ------------------------ CLI helpers -----------------------------------

@@ -13,6 +13,8 @@ from lionagi.utils import to_list
 from .function_calling import FunctionCalling
 from .tool import FuncTool, FuncToolRef, Tool, ToolRef
 
+logger = logging.getLogger(__name__)
+
 
 class ActionManager(Manager):
     """
@@ -416,9 +418,9 @@ class ActionManager(Manager):
                 # Register using server reference
                 tools = await self.register_mcp_server({"server": server_name}, update=update)
                 all_tools[server_name] = tools
-                print(f"✅ Registered {len(tools)} tools from server '{server_name}'")
+                logger.info("Registered %d tools from server '%s'", len(tools), server_name)
             except Exception as e:
-                print(f"⚠️  Failed to register server '{server_name}': {e}")
+                logger.warning("Failed to register server '%s': %s", server_name, e)
                 all_tools[server_name] = []
 
         return all_tools
@@ -494,9 +496,9 @@ async def load_mcp_tools(
                 request_options=request_options,
                 update=update,
             )
-            print(f"✅ Loaded {len(tools_registered)} tools from {server_name}")
+            logger.info("Loaded %d tools from %s", len(tools_registered), server_name)
         except Exception as e:
-            print(f"⚠️  Failed to load server '{server_name}': {e}")
+            logger.warning("Failed to load server '%s': %s", server_name, e)
 
     # Return all registered tools as a list
     return list(manager.registry.values())

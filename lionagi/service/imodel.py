@@ -313,7 +313,7 @@ class iModel:
                         # Yield processed result if available, otherwise yield raw chunk
                         yield result if result is not None else i
                 except Exception as e:
-                    raise ValueError(f"Failed to stream API call: {e}")
+                    raise ValueError(f"Failed to stream API call: {e}") from e
                 finally:
                     yield self.executor.pile.pop(api_call.id)
         else:
@@ -323,7 +323,7 @@ class iModel:
                     # Yield processed result if available, otherwise yield raw chunk
                     yield result if result is not None else i
             except Exception as e:
-                raise ValueError(f"Failed to stream API call: {e}")
+                raise ValueError(f"Failed to stream API call: {e}") from e
             finally:
                 yield self.executor.pile.pop(api_call.id)
 
@@ -379,7 +379,7 @@ class iModel:
 
             return completed_call
         except Exception as e:
-            raise ValueError(f"Failed to invoke API call: {e}")
+            raise ValueError(f"Failed to invoke API call: {e}") from e
 
     @property
     def is_cli(self) -> bool:

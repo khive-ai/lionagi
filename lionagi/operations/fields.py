@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Any, Literal
 
@@ -6,6 +7,8 @@ from pydantic import BaseModel, Field, JsonValue, field_validator
 from lionagi.ln import extract_json, to_dict, to_list
 from lionagi.ln.types import Unset
 from lionagi.models import HashableModel
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_FIELDS = {}
 
@@ -211,7 +214,7 @@ class ActionRequestModel(HashableModel):
                     json_blocks = [extract_json(match, fuzzy_parse=True) for match in _d]
                     json_blocks = to_list(json_blocks, dropna=True)
 
-                print(json_blocks)
+                logger.debug("Parsed action request JSON blocks: %s", json_blocks)
 
             elif content and isinstance(content, dict):
                 json_blocks = [content]

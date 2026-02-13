@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -141,6 +142,7 @@ class MCPConnectionPool:
     _clients: dict[str, Any] = {}
     _configs: dict[str, dict] = {}
     _lock: asyncio.Lock | None = None
+    _lock_guard: threading.Lock = threading.Lock()
     _security: MCPSecurityConfig | None = None
 
     @classmethod
@@ -149,10 +151,13 @@ class MCPConnectionPool:
 
         This avoids binding the lock to an event loop at import time,
         which would fail if the module is imported before any event loop
-        is running (Python 3.10-3.11).
+        is running (Python 3.10-3.11). The threading.Lock guard prevents
+        a TOCTOU race if two threads call this concurrently.
         """
         if cls._lock is None:
-            cls._lock = asyncio.Lock()
+            with cls._lock_guard:
+                if cls._lock is None:
+                    cls._lock = asyncio.Lock()
         return cls._lock
 
     @classmethod
@@ -200,7 +205,7 @@ class MCPConnectionPool:
             with open(config_path) as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
-            raise json.JSONDecodeError(f"Invalid JSON in MCP config file: {e.msg}", e.doc, e.pos)
+            raise json.JSONDecodeError(f"Invalid JSON in MCP config file: {e.msg}", e.doc, e.pos) from e
 
         if not isinstance(data, dict):
             raise ValueError("MCP config must be a JSON object")
@@ -275,7 +280,7 @@ class MCPConnectionPool:
         try:
             from fastmcp import Client as FastMCPClient
         except ImportError:
-            raise ImportError("FastMCP not installed. Run: pip install fastmcp")
+            raise ImportError("FastMCP not installed. Run: pip install fastmcp") from None
 
         # Handle different config formats
         if "url" in config:
@@ -298,9 +303,13 @@ class MCPConnectionPool:
             env = os.environ.copy()
             env.update(config.get("env", {}))
 
-            # Security: filter sensitive environment variables
+            # Security: always filter known sensitive environment variables.
+            # When a security config is set, use its deny patterns;
+            # otherwise apply the default _SENSITIVE_ENV_PATTERNS.
             if cls._security is not None:
                 env = _filter_env(env, cls._security)
+            else:
+                env = _filter_env(env, MCPSecurityConfig())
 
             # Suppress server logging unless debug mode is enabled
             if not (

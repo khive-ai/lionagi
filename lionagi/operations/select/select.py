@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -9,6 +10,8 @@ from pydantic import BaseModel
 from lionagi.operations.fields import Instruct
 
 from .utils import SelectionModel, parse_selection, parse_to_representation
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -41,7 +44,7 @@ async def select(
         SelectionModel or (SelectionModel, Branch) tuple
     """
     if verbose:
-        print(f"Starting selection with up to {max_num_selections} choices.")
+        logger.debug("Starting selection with up to %d choices.", max_num_selections)
 
     # Handle branch creation for backwards compatibility
     if branch is None and branch_kwargs:
@@ -115,7 +118,7 @@ async def select_v1(
     )
 
     if verbose:
-        print(f"Received selection: {response_model.selected}")
+        logger.debug("Received selection: %s", response_model.selected)
 
     # Extract and normalize selected values
     selected = response_model

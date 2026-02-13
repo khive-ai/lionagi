@@ -11,7 +11,7 @@ from pydantic import Field, PrivateAttr, field_validator
 from lionagi.ln.concurrency import fail_after, get_cancelled_exc_class
 from lionagi.protocols.types import Event, EventStatus
 
-from ._types import AssosiatedEventInfo, HookEventTypes
+from ._types import AssociatedEventInfo, HookEventTypes
 from .hook_registry import HookRegistry
 
 
@@ -25,7 +25,7 @@ class HookEvent(Event):
     _should_exit: bool = PrivateAttr(False)
     _exit_cause: BaseException | None = PrivateAttr(None)
 
-    assosiated_event_info: AssosiatedEventInfo | None = None
+    assosiated_event_info: AssociatedEventInfo | None = None
 
     @field_validator("exit", mode="before")
     def _validate_exit(cls, v: Any) -> bool:
@@ -45,7 +45,7 @@ class HookEvent(Event):
                     **self.params,
                 )
 
-                self.assosiated_event_info = AssosiatedEventInfo(**meta)
+                self.assosiated_event_info = AssociatedEventInfo(**meta)
                 self._should_exit = se
                 self.execution.status = st
                 if isinstance(res, tuple) and len(res) == 2:
