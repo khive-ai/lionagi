@@ -133,19 +133,33 @@ branch = Branch(
 )
 ```
 
-### CLI-Based Providers
+### CLI-Based Providers (Coding Agents)
 
-CLI providers wrap agentic coding tools that run as subprocesses. They differ from API providers in several ways:
+CLI providers wrap agentic coding tools that run as **subprocesses** rather than
+HTTP requests. This enables agent-to-agent orchestration -- your outer agent
+uses lionagi to spawn and coordinate inner coding agents.
 
-- They spawn subprocesses instead of making HTTP requests
-- They maintain sessions with resume capability
-- They use NDJSON streaming over stdin/stdout
-- Default concurrency is limited (3 concurrent, queue capacity of 10)
+Key differences from API providers:
 
-**Claude Code** -- Uses installed `claude` CLI
+- **Subprocess execution** -- each call spawns the CLI binary and streams NDJSON
+  from stdout with incremental UTF-8 decoding
+- **Session persistence** -- the endpoint stores `session_id` and automatically
+  passes `--resume` on subsequent calls
+- **Conservative concurrency** -- 3 concurrent, queue capacity of 10
+- **No API key needed** -- the CLI tool handles its own authentication
+- **Event handlers** -- optional callbacks for streaming output
+  (`on_text`, `on_tool_use`, `on_final`, etc.)
+
+**Claude Code** -- Uses installed `claude` CLI (`npm i -g @anthropic-ai/claude-code`)
 
 ```python
-claude_code = iModel(provider="claude_code")
+claude_code = iModel(
+    provider="claude_code",
+    model="sonnet",                          # "sonnet" or "opus"
+    permission_mode="bypassPermissions",      # skip approval prompts
+    allowed_tools=["Read", "Grep", "Glob"],   # restrict tool access
+    max_turns=10,                            # conversation turn limit
+)
 
 branch = Branch(chat_model=claude_code)
 result = await branch.communicate("Refactor the auth module")
@@ -154,20 +168,34 @@ result = await branch.communicate("Refactor the auth module")
 **Gemini CLI** -- Uses installed `gemini` CLI
 
 ```python
-gemini_cli = iModel(provider="gemini_code")
+gemini_cli = iModel(
+    provider="gemini_code",
+    model="gemini-2.5-pro",
+    sandbox=True,                      # safety sandboxing (default)
+    approval_mode="auto_edit",         # "suggest", "auto_edit", "full_auto"
+)
 
 branch = Branch(chat_model=gemini_cli)
 result = await branch.communicate("Review this codebase")
 ```
 
-**Codex CLI** -- Uses installed `codex` CLI
+**Codex CLI** -- Uses installed `codex` CLI (`npm i -g codex`)
 
 ```python
-codex = iModel(provider="codex")
+codex = iModel(
+    provider="codex",
+    model="gpt-5.3-codex",
+    full_auto=True,                    # auto-approve with sandbox
+    sandbox="workspace-write",         # "read-only", "workspace-write", "danger-full-access"
+)
 
 branch = Branch(chat_model=codex)
 result = await branch.communicate("Write tests for the parser module")
 ```
+
+For full parameter references and orchestration patterns, see
+[LLM Provider Integration](../integrations/llm-providers.md#cli-providers-coding-agents)
+and [CLI Agent Providers](../for-ai-agents/claude-code-usage.md).
 
 ### OpenAI-Compatible Providers
 

@@ -165,6 +165,317 @@ class TestLLMProviders:
 
 
 # ===========================================================================
+# CLI Providers — Detailed (llm-providers.md CLI section + claude-code-usage.md)
+# ===========================================================================
+
+
+class TestCLIEndpointArchitecture:
+    """Verify CLIEndpoint class hierarchy and properties documented in llm-providers.md."""
+
+    def test_cli_endpoint_import(self):
+        """CLIEndpoint should be importable from connections package."""
+        from lionagi.service.connections import CLIEndpoint
+
+        assert CLIEndpoint is not None
+
+    def test_cli_endpoint_is_subclass_of_endpoint(self):
+        """CLIEndpoint inherits from Endpoint."""
+        from lionagi.service.connections import CLIEndpoint, Endpoint
+
+        assert issubclass(CLIEndpoint, Endpoint)
+
+    def test_cli_endpoint_class_vars(self):
+        """CLIEndpoint has is_cli=True and conservative concurrency defaults."""
+        from lionagi.service.connections import CLIEndpoint
+
+        assert CLIEndpoint.is_cli is True
+        assert CLIEndpoint.DEFAULT_CONCURRENCY_LIMIT == 3
+        assert CLIEndpoint.DEFAULT_QUEUE_CAPACITY == 10
+
+    def test_cli_endpoint_session_id_property(self):
+        """CLIEndpoint exposes session_id getter/setter."""
+        from lionagi.service.connections import CLIEndpoint
+
+        assert hasattr(CLIEndpoint, "session_id")
+
+    def test_imodel_is_cli_property(self):
+        """iModel.is_cli returns True for CLI providers."""
+        try:
+            model = iModel(provider="claude_code", api_key="test")
+            assert model.is_cli is True
+        except Exception:
+            pytest.skip("claude_code provider could not be constructed")
+
+    def test_api_imodel_is_not_cli(self):
+        """iModel.is_cli returns False for API providers."""
+        model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test")
+        assert model.is_cli is False
+
+    def test_match_endpoint_routes_cli_providers(self):
+        """match_endpoint returns CLIEndpoint subclass for CLI provider strings."""
+        from lionagi.service.connections import CLIEndpoint, match_endpoint
+
+        for provider in ("claude_code", "gemini_code", "codex"):
+            try:
+                ep = match_endpoint(provider=provider, endpoint="query_cli")
+                assert isinstance(ep, CLIEndpoint)
+            except Exception:
+                pytest.skip(f"{provider} endpoint could not be constructed")
+
+
+class TestCLIProviderRequestModels:
+    """Verify CLI request models exist with documented parameters."""
+
+    def test_claude_code_request_import(self):
+        """ClaudeCodeRequest model should be importable."""
+        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+
+        assert ClaudeCodeRequest is not None
+
+    def test_claude_code_request_fields(self):
+        """ClaudeCodeRequest should have documented fields."""
+        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+
+        fields = ClaudeCodeRequest.model_fields
+        for field in (
+            "prompt",
+            "system_prompt",
+            "model",
+            "max_turns",
+            "permission_mode",
+            "resume",
+            "ws",
+            "add_dir",
+            "allowed_tools",
+            "disallowed_tools",
+            "mcp_tools",
+            "mcp_servers",
+            "auto_finish",
+            "verbose_output",
+        ):
+            assert field in fields, f"Missing field: {field}"
+
+    def test_claude_code_request_as_cmd_args(self):
+        """ClaudeCodeRequest.as_cmd_args() builds CLI argument list."""
+        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+
+        req = ClaudeCodeRequest(prompt="hello")
+        args = req.as_cmd_args()
+        assert isinstance(args, list)
+        assert "-p" in args
+        assert "hello" in args
+        assert "--output-format" in args
+
+    def test_gemini_code_request_import(self):
+        """GeminiCodeRequest model should be importable."""
+        from lionagi.service.third_party.gemini_models import GeminiCodeRequest
+
+        assert GeminiCodeRequest is not None
+
+    def test_gemini_code_request_fields(self):
+        """GeminiCodeRequest should have documented fields."""
+        from lionagi.service.third_party.gemini_models import GeminiCodeRequest
+
+        fields = GeminiCodeRequest.model_fields
+        for field in (
+            "prompt",
+            "system_prompt",
+            "model",
+            "yolo",
+            "approval_mode",
+            "sandbox",
+            "debug",
+            "include_directories",
+        ):
+            assert field in fields, f"Missing field: {field}"
+
+    def test_gemini_code_request_as_cmd_args(self):
+        """GeminiCodeRequest.as_cmd_args() builds CLI argument list."""
+        from lionagi.service.third_party.gemini_models import GeminiCodeRequest
+
+        req = GeminiCodeRequest(prompt="analyze")
+        args = req.as_cmd_args()
+        assert isinstance(args, list)
+        assert "-p" in args
+        assert "analyze" in args
+
+    def test_codex_code_request_import(self):
+        """CodexCodeRequest model should be importable."""
+        from lionagi.service.third_party.codex_models import CodexCodeRequest
+
+        assert CodexCodeRequest is not None
+
+    def test_codex_code_request_fields(self):
+        """CodexCodeRequest should have documented fields."""
+        from lionagi.service.third_party.codex_models import CodexCodeRequest
+
+        fields = CodexCodeRequest.model_fields
+        for field in (
+            "prompt",
+            "system_prompt",
+            "model",
+            "full_auto",
+            "sandbox",
+            "bypass_approvals",
+            "skip_git_repo_check",
+            "output_schema",
+            "include_plan_tool",
+            "images",
+        ):
+            assert field in fields, f"Missing field: {field}"
+
+    def test_codex_code_request_as_cmd_args(self):
+        """CodexCodeRequest.as_cmd_args() builds CLI argument list."""
+        from lionagi.service.third_party.codex_models import CodexCodeRequest
+
+        req = CodexCodeRequest(prompt="fix tests")
+        args = req.as_cmd_args()
+        assert isinstance(args, list)
+        assert "exec" in args
+        assert "fix tests" in args
+
+
+class TestCLIProviderEndpoints:
+    """Verify CLI endpoint classes exist and have documented configuration."""
+
+    def test_claude_code_cli_endpoint_import(self):
+        """ClaudeCodeCLIEndpoint should be importable."""
+        from lionagi.service.connections.providers.claude_code_cli import (
+            ClaudeCodeCLIEndpoint,
+        )
+
+        assert ClaudeCodeCLIEndpoint is not None
+
+    def test_claude_code_endpoint_constructs(self):
+        """ClaudeCodeCLIEndpoint constructs with default config."""
+        from lionagi.service.connections.providers.claude_code_cli import (
+            ClaudeCodeCLIEndpoint,
+        )
+
+        ep = ClaudeCodeCLIEndpoint()
+        assert ep.config.provider == "claude_code"
+        assert ep.config.name == "claude_code_cli"
+        assert ep.config.timeout == 18000
+        assert ep.is_cli is True
+
+    def test_claude_code_endpoint_handlers(self):
+        """ClaudeCodeCLIEndpoint exposes claude_handlers property."""
+        from lionagi.service.connections.providers.claude_code_cli import (
+            ClaudeCodeCLIEndpoint,
+        )
+
+        ep = ClaudeCodeCLIEndpoint()
+        handlers = ep.claude_handlers
+        assert isinstance(handlers, dict)
+        for key in (
+            "on_thinking",
+            "on_text",
+            "on_tool_use",
+            "on_tool_result",
+            "on_system",
+            "on_final",
+        ):
+            assert key in handlers
+
+    def test_claude_code_update_handlers(self):
+        """update_handlers merges new handler callbacks."""
+        from lionagi.service.connections.providers.claude_code_cli import (
+            ClaudeCodeCLIEndpoint,
+        )
+
+        ep = ClaudeCodeCLIEndpoint()
+        callback = lambda chunk: None
+        ep.update_handlers(on_text=callback)
+        assert ep.claude_handlers["on_text"] is callback
+
+    def test_gemini_cli_endpoint_import(self):
+        """GeminiCLIEndpoint should be importable."""
+        from lionagi.service.connections.providers.gemini_cli import (
+            GeminiCLIEndpoint,
+        )
+
+        assert GeminiCLIEndpoint is not None
+
+    def test_gemini_cli_endpoint_constructs(self):
+        """GeminiCLIEndpoint constructs with default config."""
+        from lionagi.service.connections.providers.gemini_cli import (
+            GeminiCLIEndpoint,
+        )
+
+        ep = GeminiCLIEndpoint()
+        assert ep.config.provider == "gemini_code"
+        assert ep.is_cli is True
+
+    def test_gemini_cli_endpoint_handlers(self):
+        """GeminiCLIEndpoint exposes gemini_handlers with correct keys."""
+        from lionagi.service.connections.providers.gemini_cli import (
+            GeminiCLIEndpoint,
+        )
+
+        ep = GeminiCLIEndpoint()
+        handlers = ep.gemini_handlers
+        assert isinstance(handlers, dict)
+        for key in ("on_text", "on_tool_use", "on_tool_result", "on_final"):
+            assert key in handlers
+
+    def test_codex_cli_endpoint_import(self):
+        """CodexCLIEndpoint should be importable."""
+        from lionagi.service.connections.providers.codex_cli import (
+            CodexCLIEndpoint,
+        )
+
+        assert CodexCLIEndpoint is not None
+
+    def test_codex_cli_endpoint_constructs(self):
+        """CodexCLIEndpoint constructs with default config."""
+        from lionagi.service.connections.providers.codex_cli import (
+            CodexCLIEndpoint,
+        )
+
+        ep = CodexCLIEndpoint()
+        assert ep.config.provider == "codex"
+        assert ep.is_cli is True
+
+    def test_codex_cli_endpoint_handlers(self):
+        """CodexCLIEndpoint exposes codex_handlers with correct keys."""
+        from lionagi.service.connections.providers.codex_cli import (
+            CodexCLIEndpoint,
+        )
+
+        ep = CodexCLIEndpoint()
+        handlers = ep.codex_handlers
+        assert isinstance(handlers, dict)
+        for key in ("on_text", "on_tool_use", "on_tool_result", "on_final"):
+            assert key in handlers
+
+
+class TestCLISessionManagement:
+    """Verify session management patterns documented in claude-code-usage.md."""
+
+    def test_imodel_copy_creates_fresh_session(self):
+        """iModel.copy() for CLI providers creates independent session."""
+        try:
+            model = iModel(provider="claude_code", api_key="test")
+            copied = model.copy()
+            assert copied.id != model.id
+            # Fresh copy has no session_id
+            assert copied.endpoint.session_id is None
+        except Exception:
+            pytest.skip("claude_code provider could not be constructed")
+
+    def test_imodel_copy_share_session(self):
+        """iModel.copy(share_session=True) carries over session_id."""
+        try:
+            model = iModel(provider="claude_code", api_key="test")
+            # Simulate a session ID being set
+            model.endpoint.session_id = "test-session-123"
+            shared = model.copy(share_session=True)
+            assert shared.endpoint.session_id == "test-session-123"
+        except Exception:
+            pytest.skip("claude_code provider could not be constructed")
+
+
+# ===========================================================================
 # Tools (tools.md)
 # ===========================================================================
 

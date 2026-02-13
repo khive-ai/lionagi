@@ -82,10 +82,51 @@ iModel(
 iModel(
     provider="claude_code",
     model="sonnet",
-    permission_mode="bypassPermissions",  # "default" | "bypassPermissions"
+    permission_mode="bypassPermissions",  # "default" | "acceptEdits" | "bypassPermissions"
     allowed_tools=["Read", "Grep", "Glob", "Bash"],
+    disallowed_tools=["Write"],           # Block specific tools
     cli_display_theme="dark",             # "dark" | "light"
     max_turns=10,                         # Max conversation turns
+    max_thinking_tokens=16000,            # Thinking budget
+    continue_conversation=True,           # Continue previous session
+    system_prompt="You are a security auditor.",
+    append_system_prompt="Focus on OWASP Top 10.",  # Appended to existing system
+    mcp_tools=["browser", "filesystem"],  # MCP tool names to enable
+    mcp_config="/path/to/.mcp.json",      # MCP config file
+    add_dir="/shared/reference",          # Extra read-only directory
+)
+```
+
+### Gemini CLI-Specific Parameters
+
+```python
+iModel(
+    provider="gemini_code",
+    model="gemini-2.5-pro",
+    sandbox=True,                         # Safety sandboxing (default True)
+    approval_mode="auto_edit",            # "suggest" | "auto_edit" | "full_auto"
+    # yolo=True,                          # Auto-approve all -- emits safety warning
+    debug=False,
+    include_directories=["/extra/src"],   # Additional directories to include
+    system_prompt="You are a code analyst.",
+)
+```
+
+### Codex CLI-Specific Parameters
+
+```python
+iModel(
+    provider="codex",
+    model="gpt-5.3-codex",
+    full_auto=True,                       # Auto-approve with workspace-write sandbox
+    sandbox="workspace-write",            # "read-only" | "workspace-write" | "danger-full-access"
+    # bypass_approvals=True,              # Skip ALL approvals -- use with caution
+    skip_git_repo_check=False,
+    output_schema="/path/to/schema.json", # JSON Schema for structured output
+    include_plan_tool=True,               # Enable planning tool
+    images=["screenshot.png"],            # Attach images
+    config_overrides={"key": "value"},    # Custom config -c flags
+    system_prompt="You are a test engineer.",
 )
 ```
 

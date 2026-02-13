@@ -463,82 +463,210 @@ Exa supports search-specific parameters including `query`, `category`,
 
 ---
 
-## CLI Providers
+## CLI Providers (Coding Agents)
 
-CLI providers run coding agents as subprocesses. They differ from HTTP API
-providers in important ways:
+LionAGI integrates three CLI-based coding agents as first-class iModel providers.
+These wrap local CLI binaries (subprocess, not HTTP) and enable
+**agent-to-agent orchestration** -- your outer agent uses lionagi to spawn and
+coordinate inner coding agents.
 
-- They spawn heavy subprocesses, not HTTP requests.
-- They maintain session state with resume capability.
-- Concurrency defaults are conservative (`DEFAULT_CONCURRENCY_LIMIT = 3`,
-  `DEFAULT_QUEUE_CAPACITY = 10`).
-- They do not require API keys -- authentication is handled by the locally
-  installed CLI tool.
+### How CLI Endpoints Work
+
+CLI providers inherit from `CLIEndpoint`, a subclass of `Endpoint` that replaces
+HTTP transport with subprocess execution:
+
+- **Subprocess execution** -- each call spawns the CLI binary and streams NDJSON
+  from stdout, decoded incrementally (handles multibyte UTF-8 splits).
+- **Session persistence** -- the endpoint stores a `session_id` from the first
+  response and automatically passes `--resume` on subsequent calls.
+- **Conservative concurrency** -- `DEFAULT_CONCURRENCY_LIMIT = 3`,
+  `DEFAULT_QUEUE_CAPACITY = 10` (vs 100 for HTTP).
+- **No API key needed** -- authentication is handled by the installed CLI tool.
+- **Event handlers** -- optional callbacks (`on_text`, `on_tool_use`,
+  `on_tool_result`, `on_final`) fire as the subprocess streams output.
+
+```python
+from lionagi import iModel
+
+model = iModel(provider="claude_code", model="sonnet")
+
+# Check if a model uses a CLI endpoint
+model.is_cli  # True
+```
+
+### Prerequisites
+
+Each CLI provider requires its binary installed and on `PATH`:
+
+| Provider | Binary | Install Command |
+|----------|--------|----------------|
+| Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` |
+| Gemini CLI | `gemini` | `npm i -g @anthropic-ai/gemini-cli` |
+| Codex | `codex` | `npm i -g codex` |
+
+LionAGI detects availability at import time via `shutil.which()`.
 
 ### Claude Code CLI
 
-Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
-locally.
-
 ```python
 import asyncio
 from lionagi import Branch, iModel
 
 async def main():
-    branch = Branch(
-        chat_model=iModel(provider="claude_code", model="sonnet")
+    model = iModel(
+        provider="claude_code",
+        model="sonnet",                          # "sonnet" or "opus"
+        system_prompt="You are a code reviewer.", # system instructions
+        permission_mode="bypassPermissions",      # skip approval prompts
+        allowed_tools=["Read", "Grep", "Glob", "Bash"],
+        max_turns=10,                            # conversation turn limit
     )
-    result = await branch.chat(
-        instruction="Read the README and summarize the project."
-    )
+    branch = Branch(chat_model=model, name="reviewer")
+    result = await branch.communicate("Review src/auth.py for security issues")
     print(result)
 
 asyncio.run(main())
 ```
 
-The `model` parameter accepts `"sonnet"`, `"opus"`, or any string the Claude Code
-CLI recognizes.
+**Claude Code request parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model` | `str` | `"sonnet"` | `"sonnet"`, `"opus"`, or model ID |
+| `system_prompt` | `str` | None | System instructions for the agent |
+| `append_system_prompt` | `str` | None | Appended to existing system prompt |
+| `permission_mode` | `str` | None | `"default"`, `"acceptEdits"`, `"bypassPermissions"` |
+| `allowed_tools` | `list[str]` | None | Restrict to these tools only |
+| `disallowed_tools` | `list[str]` | `[]` | Block specific tools |
+| `max_turns` | `int` | None | Max conversation turns |
+| `max_thinking_tokens` | `int` | None | Thinking budget |
+| `continue_conversation` | `bool` | `False` | Continue previous session |
+| `resume` | `str` | None | Resume a specific session ID |
+| `ws` | `str` | None | Subdirectory within repo |
+| `add_dir` | `str` | None | Extra read-only directory mount |
+| `mcp_tools` | `list[str]` | `[]` | MCP tool names to enable |
+| `mcp_servers` | `dict` | `{}` | MCP server configurations |
+| `mcp_config` | `str\|Path` | None | Path to MCP config file |
+| `auto_finish` | `bool` | `False` | Auto-append result extraction if agent doesn't finish |
+| `verbose_output` | `bool` | `False` | Show full agent output |
+| `cli_include_summary` | `bool` | `False` | Include cost/usage summary |
 
 ### Gemini CLI
 
-Requires [Gemini CLI](https://github.com/google-gemini/gemini-cli) installed
-locally.
-
 ```python
 import asyncio
 from lionagi import Branch, iModel
 
 async def main():
-    branch = Branch(
-        chat_model=iModel(provider="gemini_code", model="gemini-2.5-pro")
+    model = iModel(
+        provider="gemini_code",
+        model="gemini-2.5-pro",
+        sandbox=True,                      # safety sandboxing (default)
+        approval_mode="auto_edit",         # "suggest", "auto_edit", "full_auto"
     )
-    result = await branch.chat(
-        instruction="Analyze the project structure."
-    )
+    branch = Branch(chat_model=model, name="gemini_agent")
+    result = await branch.communicate("Analyze the project structure")
     print(result)
 
 asyncio.run(main())
 ```
+
+**Gemini CLI request parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model` | `str` | `"gemini-2.5-pro"` | Gemini model name |
+| `system_prompt` | `str` | None | System instructions |
+| `sandbox` | `bool` | `True` | Enable sandbox protection |
+| `yolo` | `bool` | `False` | Auto-approve all actions (emits warning) |
+| `approval_mode` | `str` | None | `"suggest"`, `"auto_edit"`, `"full_auto"` |
+| `debug` | `bool` | `False` | Debug mode |
+| `include_directories` | `list[str]` | `[]` | Extra directories to include |
+| `ws` | `str` | None | Subdirectory within repo |
+| `verbose_output` | `bool` | `False` | Show full agent output |
+| `cli_include_summary` | `bool` | `False` | Include cost/usage summary |
 
 ### Codex CLI
 
-Requires [OpenAI Codex CLI](https://github.com/openai/codex) installed locally.
-
 ```python
 import asyncio
 from lionagi import Branch, iModel
 
 async def main():
-    branch = Branch(
-        chat_model=iModel(provider="codex", model="gpt-5.3-codex")
+    model = iModel(
+        provider="codex",
+        model="gpt-5.3-codex",
+        sandbox="workspace-write",         # "read-only", "workspace-write", "danger-full-access"
+        full_auto=True,                    # auto-approve with workspace-write sandbox
     )
-    result = await branch.chat(
-        instruction="Fix the failing tests in this project."
-    )
+    branch = Branch(chat_model=model, name="codex_agent")
+    result = await branch.communicate("Fix the failing tests in this project")
     print(result)
 
 asyncio.run(main())
 ```
+
+**Codex CLI request parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model` | `str` | `"gpt-5.3-codex"` | Codex model name |
+| `system_prompt` | `str` | None | System instructions |
+| `full_auto` | `bool` | `False` | Auto-approve with workspace-write sandbox |
+| `sandbox` | `str` | None | `"read-only"`, `"workspace-write"`, `"danger-full-access"` |
+| `bypass_approvals` | `bool` | `False` | Skip all approvals and sandbox |
+| `skip_git_repo_check` | `bool` | `False` | Don't require git repo |
+| `output_schema` | `str\|Path` | None | JSON Schema file for structured output |
+| `include_plan_tool` | `bool` | `False` | Enable planning tool |
+| `images` | `list[str]` | `[]` | Image attachments |
+| `config_overrides` | `dict` | `{}` | Custom config key-value overrides |
+| `ws` | `str` | None | Subdirectory within repo |
+| `verbose_output` | `bool` | `False` | Show full agent output |
+| `cli_include_summary` | `bool` | `False` | Include cost/usage summary |
+
+### Session Management
+
+CLI providers automatically manage session state:
+
+1. First call creates a new session.
+2. The endpoint stores `session_id` from the response.
+3. Subsequent calls pass `--resume` automatically.
+4. `iModel.copy()` creates a fresh session; `iModel.copy(share_session=True)`
+   carries over the session ID.
+
+```python
+model = iModel(provider="claude_code", model="sonnet")
+
+# Fresh copy, independent session
+new_model = model.copy()
+
+# Copy that resumes the same CLI session
+resumed = model.copy(share_session=True)
+```
+
+### Event Handlers
+
+Set callbacks to observe the agent's streaming output:
+
+```python
+model = iModel(provider="claude_code", model="sonnet")
+
+model.endpoint.update_handlers(
+    on_text=lambda chunk: print(f"Text: {chunk.text}"),
+    on_tool_use=lambda chunk: print(f"Tool: {chunk}"),
+    on_thinking=lambda chunk: print(f"Thinking: {chunk.text}"),
+    on_final=lambda session: print(f"Done: {session.result}"),
+)
+```
+
+| Provider | Available Handlers |
+|----------|-------------------|
+| `claude_code` | `on_thinking`, `on_text`, `on_tool_use`, `on_tool_result`, `on_system`, `on_final` |
+| `gemini_code` | `on_text`, `on_tool_use`, `on_tool_result`, `on_final` |
+| `codex` | `on_text`, `on_tool_use`, `on_tool_result`, `on_final` |
+
+For more on multi-agent orchestration patterns with CLI providers, see
+[CLI Agent Providers](../for-ai-agents/claude-code-usage.md).
 
 ---
 
