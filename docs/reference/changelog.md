@@ -2,21 +2,63 @@
 
 All notable changes to LionAGI are documented here.
 
-## [Unreleased]
+## [0.20.0] - 2026-02-13
 
 ### Added
 
-- Comprehensive documentation overhaul with streamlined examples
-- Migration guides for AutoGen, CrewAI, and LangChain
-- Enterprise-focused cookbook examples
-- Integration guides for tools, vector stores, and MCP servers
+- **Core primitives hardening** (krons-informed Tier 1 + Tier 2 migration):
+  - `NodeConfig` dataclass and `create_node` factory for typed node creation
+  - Node lifecycle methods: `freeze()`, `unfreeze()`, `validate_content()`
+  - `Flow` container with ordered progression tracking
+  - `Broadcaster` pub/sub pattern with topic-based subscriptions
+  - Graph algorithms: `topological_sort()`, `find_path()`, `get_tails()`
+  - `Event.completion_event` — lazily-created `asyncio.Event` signalled on terminal status transitions (COMPLETED, FAILED, CANCELLED, ABORTED, SKIPPED)
+  - `Event.status` property setter with automatic `completion_event` signalling
+  - `EventStatus.ABORTED` status
+  - `Execution.add_error()` with `ExceptionGroup` accumulation (capped at 100 errors)
+  - `Execution.retryable` flag for safe retry signalling
+  - `Event.assert_completed()` for status assertions
+  - `Pile.filter()` with callable predicates
+  - `Progression.popleft()` — O(1) via deque-backed `order` field
+  - `Progression.__contains__` — O(1) membership via internal set
+  - Deprecation warnings for silently-ignored legacy params in `step.py` and `operate.py`
+  - Comprehensive documentation overhaul with 187 doc example tests
+  - Migration guides for AutoGen, CrewAI, and LangChain
+  - Enterprise-focused cookbook examples
+  - Integration guides for tools, vector stores, and MCP servers
 
 ### Changed
 
-- Simplified tool integration: functions can be passed directly without
-  `func_to_tool` wrapper
+- **`Progression.order`**: Migrated from `list` to `collections.deque` for O(1) `popleft()`
+- **`iModel.invoke()`**: Replaced busy-polling loop with `asyncio.wait_for(completion_event.wait())` for efficient async waiting
+- **`load_pydantic_model_from_schema()`**: Rewritten to use `pydantic.create_model()` instead of `exec_module()` code generation (CWE-94 remediation)
+- **`HookedEvent`**: Terminal status transitions now use `self.status` property setter to signal `completion_event`
+- `raise exc` → `raise exc from cause` across 39 call sites (B904 compliance)
+- 11 `print()` statements replaced with `logging.getLogger(__name__)`
+- Simplified tool integration: functions can be passed directly without `func_to_tool` wrapper
 - Documentation style updated to focus on practical, production-ready patterns
-- Tool API streamlined for better developer experience
+
+### Fixed
+
+- **TokenCalculator**: Always resolve `encoding_name` via `get_encoding_name()` before checking if tokenizer is callable, fixing content token counting
+- **MCP `ConnectionPool`**: Lazy `asyncio.Lock` initialization to avoid event-loop-bound instantiation
+- **Broadcaster**: Strong references for subscriber lambdas to prevent premature GC
+- **ExceptionGroup serialization**: Depth cap (100) and cycle detection in `Execution.to_dict()`
+
+### Security
+
+- Removed CWE-94 code injection vector in `load_pydantic_model_from_schema` — no longer generates and executes Python source at runtime
+
+## [0.19.2] - 2025-12-15
+
+### Added
+
+- CLI provider documentation: CLIEndpoint architecture, request parameters, session management
+- Context management docs for session rotation
+
+### Changed
+
+- Documentation improvements across CLI provider coverage
 
 ## [0.15.11] - 2025-08-24
 

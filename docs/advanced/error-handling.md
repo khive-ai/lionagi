@@ -126,7 +126,7 @@ for node in builder.get_graph().internal_nodes.values():
 ```
 
 Possible statuses: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`,
-`CANCELLED`, `SKIPPED`.
+`CANCELLED`, `SKIPPED`, `ABORTED`.
 
 ### Partial Success in Flows
 
@@ -159,6 +159,44 @@ skipped rather than failed:
 ```python
 from lionagi.protocols.graph.edge import Edge, EdgeCondition
 ```
+
+### Waiting for Event Completion
+
+Every `Event` exposes a `completion_event` (`asyncio.Event`) that is
+automatically set when the event reaches a terminal status. Use this
+instead of polling:
+
+```python
+import asyncio
+
+# Wait for an event to finish (with timeout)
+try:
+    await asyncio.wait_for(event.completion_event.wait(), timeout=30.0)
+except asyncio.TimeoutError:
+    print("Event did not complete in time")
+
+# Assert success after waiting
+event.assert_completed()  # Raises RuntimeError if not COMPLETED
+```
+
+The `completion_event` is lazily created on first access and is signalled
+by the `status` property setter whenever the status transitions to
+`COMPLETED`, `FAILED`, `CANCELLED`, `ABORTED`, or `SKIPPED`.
+
+### Error Accumulation
+
+When multiple errors occur during event processing, they are accumulated
+into an `ExceptionGroup` (Python 3.11+) via `execution.add_error()`:
+
+```python
+exec = event.execution
+exec.add_error(ValueError("first"))
+exec.add_error(TypeError("second"))
+# exec.error is now an ExceptionGroup with both exceptions
+```
+
+Error accumulation is capped at 100 errors to prevent unbounded memory
+growth.
 
 ## Provider Fallback Pattern
 

@@ -1483,13 +1483,14 @@ async with pile:
 ## Progression
 
 Ordered sequence of UUIDs, decoupled from storage. Multiple progressions can
-index the same `Pile` without copying data.
+index the same `Pile` without copying data. Internally backed by
+`collections.deque` for O(1) `popleft()` and `append()`.
 
 ### Constructor
 
 ```python
 Progression(
-    order: list[UUID] = [],
+    order: deque[UUID] = deque(),
     name: str | None = None,
 )
 ```
@@ -1503,7 +1504,7 @@ Progression(
 | `prog.insert(index, item)` | Insert at position. |
 | `prog.remove(item)` | Remove first occurrence. |
 | `prog.pop(index=-1)` | Remove and return by index. |
-| `prog.popleft()` | Remove and return from front. |
+| `prog.popleft()` | O(1) remove and return from front. |
 | `prog.include(item)` | Add if not present. |
 | `prog.exclude(item)` | Remove if present. |
 | `prog.clear()` | Remove all. |
@@ -1511,7 +1512,7 @@ Progression(
 | `prog.count(item)` | Count occurrences. |
 | `prog.extend(other)` | Extend from another Progression. |
 | `len(prog)` | Length. |
-| `item in prog` | Membership test. |
+| `item in prog` | O(1) membership test (via internal set). |
 | `prog + other` | Concatenation (new Progression). |
 | `prog - other` | Difference (new Progression). |
 
