@@ -13,12 +13,22 @@ These recipes are production-ready implementations that demonstrate LionAGI patt
   documents
 - [Research Synthesis](research-synthesis.md) - Aggregate multiple sources into
   insights
+- [ReAct Research Agent](react-agent.md) - Step-by-step reasoning with tool use
+
+### Data & Extraction
+
+- [Structured Extraction](structured-extraction.md) - Type-safe data extraction
+  with Pydantic models
+- [Multi-Provider Evaluation](multi-provider-eval.md) - Compare and score outputs
+  across LLM providers
 
 ### Business Applications
 
 - [HR Automation](hr-automation.md) - Multi-agent HR workflow system
 - [Code Review Crew](code-review-crew.md) - Parallel code analysis with quality
   gates
+- [Content Generation](content-generation.md) - Multi-stage drafting, review,
+  and refinement pipelines
 
 ### Creative Work
 

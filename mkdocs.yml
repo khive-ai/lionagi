@@ -190,6 +190,10 @@ nav:
       - Cookbook:
           - cookbook/index.md
           - Claim Extraction: cookbook/claim-extraction.md
+          - Structured Extraction: cookbook/structured-extraction.md
+          - ReAct Agent: cookbook/react-agent.md
+          - Multi-Provider Eval: cookbook/multi-provider-eval.md
+          - Content Generation: cookbook/content-generation.md
           - HR Automation: cookbook/hr-automation.md
           - Code Review: cookbook/code-review-crew.md
           - Data Persistence: cookbook/data-persistence.md
