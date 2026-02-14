@@ -61,6 +61,10 @@
          <lastmod>2026-02-14</lastmod>
     </url>
     <url>
+         <loc>https://lionagi.ai/cookbook/content-generation/</loc>
+         <lastmod>2026-02-14</lastmod>
+    </url>
+    <url>
          <loc>https://lionagi.ai/cookbook/data-persistence/</loc>
          <lastmod>2026-02-14</lastmod>
     </url>
@@ -69,7 +73,19 @@
          <lastmod>2026-02-14</lastmod>
     </url>
     <url>
+         <loc>https://lionagi.ai/cookbook/multi-provider-eval/</loc>
+         <lastmod>2026-02-14</lastmod>
+    </url>
+    <url>
+         <loc>https://lionagi.ai/cookbook/react-agent/</loc>
+         <lastmod>2026-02-14</lastmod>
+    </url>
+    <url>
          <loc>https://lionagi.ai/cookbook/research-synthesis/</loc>
+         <lastmod>2026-02-14</lastmod>
+    </url>
+    <url>
+         <loc>https://lionagi.ai/cookbook/structured-extraction/</loc>
          <lastmod>2026-02-14</lastmod>
     </url>
     <url>
