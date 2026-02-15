@@ -7,7 +7,6 @@ from lionagi.protocols.types import Edge, Graph, Pile
 
 from .test_graph_base import create_test_node
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -79,14 +78,12 @@ def cyclic_graph():
 def branching_dag():
     """DAG with multiple paths of different lengths:
 
-        A -> B -> D -> F
-        A -> C -> E -> F
-        B -> E
+    A -> B -> D -> F
+    A -> C -> E -> F
+    B -> E
     """
     graph = Graph()
-    a, b, c, d, e, f = (
-        create_test_node(n) for n in ("A", "B", "C", "D", "E", "F")
-    )
+    a, b, c, d, e, f = (create_test_node(n) for n in ("A", "B", "C", "D", "E", "F"))
     all_nodes = [a, b, c, d, e, f]
     for node in all_nodes:
         graph.add_node(node)
@@ -231,9 +228,7 @@ class TestTopologicalSort:
         result_ids = [n.id for n in result]
         # A must come before B, B before C, C before D
         for i in range(len(nodes) - 1):
-            assert result_ids.index(nodes[i].id) < result_ids.index(
-                nodes[i + 1].id
-            )
+            assert result_ids.index(nodes[i].id) < result_ids.index(nodes[i + 1].id)
 
     def test_diamond_dag_valid_order(self, diamond_dag):
         graph, nodes, _ = diamond_dag

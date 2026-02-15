@@ -62,9 +62,7 @@ def mock_response():
             },
         }
     )
-    response.text = AsyncMock(
-        return_value=json.dumps(response.json.return_value)
-    )
+    response.text = AsyncMock(return_value=json.dumps(response.json.return_value))
     return response
 
 
@@ -86,9 +84,7 @@ def mock_anthropic_response():
             "usage": {"input_tokens": 10, "output_tokens": 20},
         }
     )
-    response.text = AsyncMock(
-        return_value=json.dumps(response.json.return_value)
-    )
+    response.text = AsyncMock(return_value=json.dumps(response.json.return_value))
     return response
 
 

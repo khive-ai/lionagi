@@ -1,7 +1,7 @@
 """Tests for lionagi.service.resilience module - Circuit breakers, retry logic, timeouts."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -209,9 +209,7 @@ class TestCircuitBreakerExecution:
     @pytest.mark.asyncio
     async def test_execute_excluded_exceptions_dont_count(self):
         """Test excluded exceptions don't increment failure count."""
-        cb = CircuitBreaker(
-            failure_threshold=2, excluded_exceptions={KeyError}
-        )
+        cb = CircuitBreaker(failure_threshold=2, excluded_exceptions={KeyError})
 
         async def func_with_excluded_error():
             raise KeyError("excluded")
@@ -380,9 +378,7 @@ class TestRetryWithBackoff:
                 raise ConnectionError("Transient error")
             return "success"
 
-        result = await retry_with_backoff(
-            flaky_func, max_retries=5, base_delay=0.01
-        )
+        result = await retry_with_backoff(flaky_func, max_retries=5, base_delay=0.01)
 
         assert result == "success"
         assert attempts["count"] == 3
@@ -395,9 +391,7 @@ class TestRetryWithBackoff:
             raise ConnectionError("Permanent error")
 
         with pytest.raises(ConnectionError, match="Permanent error"):
-            await retry_with_backoff(
-                always_fails, max_retries=2, base_delay=0.01
-            )
+            await retry_with_backoff(always_fails, max_retries=2, base_delay=0.01)
 
     @pytest.mark.asyncio
     async def test_retry_with_exclude_exceptions(self):
@@ -570,9 +564,7 @@ class TestWithRetryDecorator:
         """Test decorator doesn't retry excluded exceptions."""
         attempts = {"count": 0}
 
-        @with_retry(
-            max_retries=3, exclude_exceptions=(KeyError,), base_delay=0.01
-        )
+        @with_retry(max_retries=3, exclude_exceptions=(KeyError,), base_delay=0.01)
         async def func_with_excluded():
             attempts["count"] += 1
             raise KeyError("No retry")

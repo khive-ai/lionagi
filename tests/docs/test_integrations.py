@@ -52,9 +52,7 @@ class TestLLMProviders:
 
     def test_gemini_imodel_constructs(self):
         """Gemini provider should construct with gemini-2.5-flash."""
-        model = iModel(
-            provider="gemini", model="gemini-2.5-flash", api_key="test"
-        )
+        model = iModel(provider="gemini", model="gemini-2.5-flash", api_key="test")
         assert model is not None
         assert model.endpoint is not None
 
@@ -131,9 +129,7 @@ class TestLLMProviders:
 
     def test_imodel_copy_returns_new_instance(self):
         """iModel.copy() should return a distinct iModel with a new ID."""
-        original = iModel(
-            provider="openai", model="gpt-4o-mini", api_key="test"
-        )
+        original = iModel(provider="openai", model="gpt-4o-mini", api_key="test")
         copied = original.copy()
         assert copied is not original
         assert isinstance(copied, iModel)

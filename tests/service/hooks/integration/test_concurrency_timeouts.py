@@ -110,9 +110,7 @@ class TestParallelInvocations:
         assert hook_event2._should_exit is False
 
     @pytest.mark.anyio
-    async def test_parallel_hooked_events_isolated(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_parallel_hooked_events_isolated(self, patch_cancellation, patch_logger):
         """Test that parallel HookedEvent invocations don't interfere."""
 
         async def pre_hook(ev, **kw):
@@ -133,15 +131,9 @@ class TestParallelInvocations:
         # Create multiple concurrent events
         events = []
         for i in range(5):
-            event = ConcurrentTestEvent(
-                invoke_delay=0.01, invoke_result=f"result_{i}"
-            )
-            event.create_pre_invoke_hook(
-                hook_registry=registry, exit_hook=False
-            )
-            event.create_post_invoke_hook(
-                hook_registry=registry, exit_hook=False
-            )
+            event = ConcurrentTestEvent(invoke_delay=0.01, invoke_result=f"result_{i}")
+            event.create_pre_invoke_hook(hook_registry=registry, exit_hook=False)
+            event.create_post_invoke_hook(hook_registry=registry, exit_hook=False)
             events.append(event)
 
         # Run all concurrently
@@ -163,9 +155,7 @@ class TestParallelInvocations:
         assert len(patch_logger) == 10
 
     @pytest.mark.anyio
-    async def test_parallel_registry_calls_independent(
-        self, patch_cancellation
-    ):
+    async def test_parallel_registry_calls_independent(self, patch_cancellation):
         """Test that parallel registry calls are independent."""
         call_count = 0
 
@@ -175,9 +165,7 @@ class TestParallelInvocations:
             call_count += 1
             return f"call_{call_count}"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: counting_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: counting_hook})
 
         # Make multiple concurrent calls
         tasks = []
@@ -215,18 +203,14 @@ class TestTimeoutBehavior:
             await anyio.sleep(1.0)  # This should be interrupted
             return "should_not_reach"
 
-        with patch(
-            "lionagi.service.hooks.hook_event.fail_after"
-        ) as mock_fail_after:
+        with patch("lionagi.service.hooks.hook_event.fail_after") as mock_fail_after:
             # Make fail_after raise cancellation immediately when constructed
             def fake_fail_after(timeout):
                 raise MyCancelled("timeout")
 
             mock_fail_after.side_effect = fake_fail_after
 
-            registry = HookRegistry(
-                hooks={HookEventTypes.PreInvocation: slow_hook}
-            )
+            registry = HookRegistry(hooks={HookEventTypes.PreInvocation: slow_hook})
             hook_event = HookEvent(
                 registry=registry,
                 hook_type=HookEventTypes.PreInvocation,
@@ -254,12 +238,8 @@ class TestTimeoutBehavior:
             await anyio.sleep(1.0)  # This will timeout
             return "slow_done"
 
-        fast_registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: fast_hook}
-        )
-        slow_registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: slow_hook}
-        )
+        fast_registry = HookRegistry(hooks={HookEventTypes.PreInvocation: fast_hook})
+        slow_registry = HookRegistry(hooks={HookEventTypes.PreInvocation: slow_hook})
 
         fast_event = HookEvent(
             registry=fast_registry,
@@ -310,27 +290,19 @@ class TestNoDeadlocks:
             await anyio.sleep(0.01)
             return "calling_result"
 
-        registry1 = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: nested_hook}
-        )
-        registry2 = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: calling_hook}
-        )
+        registry1 = HookRegistry(hooks={HookEventTypes.PreInvocation: nested_hook})
+        registry2 = HookRegistry(hooks={HookEventTypes.PostInvocation: calling_hook})
 
         # Create events that use different registries
         event1 = ConcurrentTestEvent(invoke_delay=0.01)
         event1.create_pre_invoke_hook(hook_registry=registry1, exit_hook=False)
 
         event2 = ConcurrentTestEvent(invoke_delay=0.01)
-        event2.create_post_invoke_hook(
-            hook_registry=registry2, exit_hook=False
-        )
+        event2.create_post_invoke_hook(hook_registry=registry2, exit_hook=False)
 
         # Run concurrently - should not deadlock
         start_time = anyio.current_time()
-        results = await asyncio.gather(
-            event1.invoke(), event2.invoke(), return_exceptions=True
-        )
+        results = await asyncio.gather(event1.invoke(), event2.invoke(), return_exceptions=True)
         end_time = anyio.current_time()
 
         # Should complete in reasonable time (not hang)
@@ -342,17 +314,13 @@ class TestNoDeadlocks:
         assert not isinstance(results[1], Exception)
 
     @pytest.mark.anyio
-    async def test_high_concurrency_no_resource_exhaustion(
-        self, patch_cancellation
-    ):
+    async def test_high_concurrency_no_resource_exhaustion(self, patch_cancellation):
         """Test high concurrency doesn't exhaust resources."""
 
         async def simple_hook(ev, **kw):
             return "simple"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: simple_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: simple_hook})
 
         # Create many concurrent hook events
         hook_events = []
@@ -378,9 +346,7 @@ class TestNoDeadlocks:
         # All should succeed
         assert len(results) == 50
         for i, result in enumerate(results):
-            assert not isinstance(
-                result, Exception
-            ), f"Event {i} failed: {result}"
+            assert not isinstance(result, Exception), f"Event {i} failed: {result}"
 
         # Should complete in reasonable time
         assert end_time - start_time < 5.0  # Generous timeout for CI
@@ -402,9 +368,7 @@ class TestPerformanceSmoke:
         async def timing_hook(ev, **kw):
             return "timed"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: timing_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: timing_hook})
 
         # Measure multiple invocations
         for _ in range(10):
@@ -437,9 +401,7 @@ class TestPerformanceSmoke:
         async def metadata_hook(ev, **kw):
             return "metadata_test"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: metadata_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: metadata_hook})
 
         start_time = anyio.current_time()
 
@@ -464,9 +426,7 @@ class TestPerformanceSmoke:
         for i, ((res, se, st), meta) in enumerate(results):
             assert meta["event_id"] == f"large_event_{i}"
             assert meta["event_created_at"] == i * 1000.0
-            assert (
-                meta["lion_class"] == "tests.service.hooks.conftest.FakeEvent"
-            )
+            assert meta["lion_class"] == "tests.service.hooks.conftest.FakeEvent"
 
     @pytest.mark.anyio
     async def test_error_handling_performance(self, patch_cancellation):
@@ -478,9 +438,7 @@ class TestPerformanceSmoke:
                 raise RuntimeError("planned failure")
             return "success"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: sometimes_failing_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: sometimes_failing_hook})
 
         start_time = anyio.current_time()
 
@@ -502,12 +460,8 @@ class TestPerformanceSmoke:
         assert total_time < 2.0  # Generous allowance for error handling
 
         # Check that we got expected mix of success/failure
-        successes = sum(
-            1 for (res, se, st), _ in results if st == EventStatus.COMPLETED
-        )
-        failures = sum(
-            1 for (res, se, st), _ in results if st == EventStatus.CANCELLED
-        )
+        successes = sum(1 for (res, se, st), _ in results if st == EventStatus.COMPLETED)
+        failures = sum(1 for (res, se, st), _ in results if st == EventStatus.CANCELLED)
 
         assert successes == 25  # Half should succeed
         assert failures == 25  # Half should fail

@@ -1,7 +1,7 @@
 """Pydantic adapter for Spec system."""
 
 import functools
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from lionagi.ln.types import Unset, is_sentinel
 

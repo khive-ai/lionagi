@@ -6,8 +6,6 @@
 import pytest
 
 from lionagi.operations.builder import ExpansionStrategy, OperationGraphBuilder
-from lionagi.protocols.generic.event import EventStatus
-from lionagi.protocols.graph.edge import Edge
 
 
 class TestExpansionStrategy:
@@ -17,14 +15,8 @@ class TestExpansionStrategy:
         """Test all expansion strategy enum values."""
         assert ExpansionStrategy.CONCURRENT.value == "concurrent"
         assert ExpansionStrategy.SEQUENTIAL.value == "sequential"
-        assert (
-            ExpansionStrategy.SEQUENTIAL_CONCURRENT_CHUNK.value
-            == "sequential_concurrent_chunk"
-        )
-        assert (
-            ExpansionStrategy.CONCURRENT_SEQUENTIAL_CHUNK.value
-            == "concurrent_sequential_chunk"
-        )
+        assert ExpansionStrategy.SEQUENTIAL_CONCURRENT_CHUNK.value == "sequential_concurrent_chunk"
+        assert ExpansionStrategy.CONCURRENT_SEQUENTIAL_CHUNK.value == "concurrent_sequential_chunk"
 
 
 class TestOperationGraphBuilderBasics:
@@ -47,9 +39,7 @@ class TestOperationGraphBuilderBasics:
     def test_add_operation_basic(self):
         """Test adding a basic operation."""
         builder = OperationGraphBuilder()
-        node_id = builder.add_operation(
-            operation="chat", instruction="Hello world"
-        )
+        node_id = builder.add_operation(operation="chat", instruction="Hello world")
 
         assert node_id is not None
         assert node_id in builder._operations
@@ -64,9 +54,7 @@ class TestOperationGraphBuilderBasics:
     def test_add_operation_with_reference_id(self):
         """Test adding operation with reference ID."""
         builder = OperationGraphBuilder()
-        node_id = builder.add_operation(
-            operation="chat", node_id="ref_1", instruction="Test"
-        )
+        node_id = builder.add_operation(operation="chat", node_id="ref_1", instruction="Test")
 
         node = builder._operations[node_id]
         assert node.metadata.get("reference_id") == "ref_1"
@@ -79,9 +67,7 @@ class TestOperationGraphBuilderBasics:
         """Test adding operation with branch ID."""
         builder = OperationGraphBuilder()
         branch_id = "12345678-1234-5678-1234-567812345678"
-        node_id = builder.add_operation(
-            operation="chat", branch=branch_id, instruction="Test"
-        )
+        node_id = builder.add_operation(operation="chat", branch=branch_id, instruction="Test")
 
         node = builder._operations[node_id]
         assert str(node.branch_id) == branch_id
@@ -148,9 +134,7 @@ class TestOperationGraphBuilderExpansion:
         """Test concurrent expansion from result."""
         builder = OperationGraphBuilder()
 
-        source_id = builder.add_operation(
-            operation="operate", instruction="Generate ideas"
-        )
+        source_id = builder.add_operation(operation="operate", instruction="Generate ideas")
 
         # Mock result items
         items = ["idea1", "idea2", "idea3"]
@@ -189,9 +173,7 @@ class TestOperationGraphBuilderExpansion:
         """Test sequential expansion from result."""
         builder = OperationGraphBuilder()
 
-        source_id = builder.add_operation(
-            operation="operate", instruction="Generate ideas"
-        )
+        source_id = builder.add_operation(operation="operate", instruction="Generate ideas")
 
         items = ["item1", "item2"]
 
@@ -215,9 +197,7 @@ class TestOperationGraphBuilderExpansion:
             field2: int
 
         builder = OperationGraphBuilder()
-        source_id = builder.add_operation(
-            operation="operate", instruction="Test"
-        )
+        source_id = builder.add_operation(operation="operate", instruction="Test")
 
         items = [
             TestModel(field1="value1", field2=1),
@@ -239,9 +219,7 @@ class TestOperationGraphBuilderExpansion:
     def test_expand_with_inherit_context(self):
         """Test expansion with context inheritance."""
         builder = OperationGraphBuilder()
-        source_id = builder.add_operation(
-            operation="operate", instruction="Source"
-        )
+        source_id = builder.add_operation(operation="operate", instruction="Source")
 
         items = ["item1", "item2"]
 
@@ -260,9 +238,7 @@ class TestOperationGraphBuilderExpansion:
     def test_expand_with_chain_context(self):
         """Test expansion with chained context inheritance."""
         builder = OperationGraphBuilder()
-        source_id = builder.add_operation(
-            operation="operate", instruction="Source"
-        )
+        source_id = builder.add_operation(operation="operate", instruction="Source")
 
         items = ["item1", "item2", "item3"]
 
@@ -326,9 +302,7 @@ class TestOperationGraphBuilderAggregation:
 
         # Verify edges
         edges = [
-            e
-            for e in builder.graph.internal_edges
-            if e.tail == agg_id and "aggregate" in e.label
+            e for e in builder.graph.internal_edges if e.tail == agg_id and "aggregate" in e.label
         ]
         assert len(edges) == 3
 
@@ -348,9 +322,7 @@ class TestOperationGraphBuilderAggregation:
         )
 
         # Aggregate from current heads
-        agg_id = builder.add_aggregation(
-            operation="operate", instruction="Combine all"
-        )
+        agg_id = builder.add_aggregation(operation="operate", instruction="Combine all")
 
         node = builder._operations[agg_id]
         assert node.parameters["aggregation_count"] == 3
@@ -547,9 +519,7 @@ class TestOperationGraphBuilderState:
         """Test get_node_by_reference returns None when not found."""
         builder = OperationGraphBuilder()
 
-        builder.add_operation(
-            operation="chat", node_id="ref1", instruction="Test"
-        )
+        builder.add_operation(operation="chat", node_id="ref1", instruction="Test")
 
         assert builder.get_node_by_reference("nonexistent") is None
 
@@ -591,9 +561,7 @@ class TestOperationGraphBuilderVisualization:
         """Test visualize_state tracks expansions correctly."""
         builder = OperationGraphBuilder()
 
-        source_id = builder.add_operation(
-            operation="operate", instruction="Source"
-        )
+        source_id = builder.add_operation(operation="operate", instruction="Source")
 
         items = ["a", "b", "c"]
         new_ids = builder.expand_from_result(
@@ -647,9 +615,7 @@ class TestOperationGraphBuilderComplexScenarios:
         builder = OperationGraphBuilder()
 
         # Initial analysis
-        start_id = builder.add_operation(
-            operation="operate", instruction="Analyze input"
-        )
+        start_id = builder.add_operation(operation="operate", instruction="Analyze input")
 
         # Conditional branch
         cond_result = builder.add_conditional_branch(

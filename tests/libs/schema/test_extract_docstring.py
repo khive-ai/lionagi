@@ -6,8 +6,6 @@
 import pytest
 
 from lionagi.libs.schema.extract_docstring import (
-    _extract_docstring_details_google,
-    _extract_docstring_details_rest,
     extract_docstring,
 )
 
@@ -162,9 +160,7 @@ class TestExtractDocstringGoogle:
             """
             pass
 
-        description, params = extract_docstring(
-            empty_lines_func, style="google"
-        )
+        description, params = extract_docstring(empty_lines_func, style="google")
 
         assert "x" in params
         assert "y" in params
@@ -411,9 +407,7 @@ class TestExtractDocstringGeneral:
             """
             pass
 
-        description, params = extract_docstring(
-            calculate_statistics, style="google"
-        )
+        description, params = extract_docstring(calculate_statistics, style="google")
 
         assert "Calculate statistical measures" in description
         assert "data" in params

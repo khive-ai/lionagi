@@ -15,7 +15,6 @@ import pytest
 from lionagi.ln.concurrency._compat import ExceptionGroup
 from lionagi.protocols.generic.event import Event, EventStatus, Execution
 
-
 # ---------------------------------------------------------------------------
 # 1. Execution.retryable field
 # ---------------------------------------------------------------------------
@@ -222,9 +221,7 @@ class TestSerializeExceptionGroup:
     def test_to_dict_with_exception_group_error(self):
         """Verify to_dict serializes ExceptionGroup error via _serialize_exception_group."""
         ex = Execution(status=EventStatus.FAILED)
-        ex.error = ExceptionGroup(
-            "combined", [ValueError("a"), TypeError("b")]
-        )
+        ex.error = ExceptionGroup("combined", [ValueError("a"), TypeError("b")])
         d = ex.to_dict()
         assert isinstance(d["error"], dict)
         assert d["error"]["error"] == "ExceptionGroup"

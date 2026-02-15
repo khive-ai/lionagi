@@ -11,7 +11,7 @@ import time
 import tracemalloc
 from collections.abc import Callable
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, TypeVar
 
 import psutil
 import pytest
@@ -144,9 +144,7 @@ class TestPerformanceMonitor:
         """Get all collected performance metrics."""
         return self.metrics.copy()
 
-    def get_slow_tests(
-        self, threshold: float = 1.0
-    ) -> dict[str, dict[str, Any]]:
+    def get_slow_tests(self, threshold: float = 1.0) -> dict[str, dict[str, Any]]:
         """
         Get tests that exceed duration threshold.
 
@@ -162,9 +160,7 @@ class TestPerformanceMonitor:
             if metrics.get("duration", 0) > threshold
         }
 
-    def get_memory_heavy_tests(
-        self, threshold: float = 50.0
-    ) -> dict[str, dict[str, Any]]:
+    def get_memory_heavy_tests(self, threshold: float = 50.0) -> dict[str, dict[str, Any]]:
         """
         Get tests that exceed memory usage threshold.
 
@@ -186,9 +182,7 @@ class TestPerformanceMonitor:
             return "No performance metrics collected."
 
         total_tests = len(self.metrics)
-        total_duration = sum(
-            m.get("duration", 0) for m in self.metrics.values()
-        )
+        total_duration = sum(m.get("duration", 0) for m in self.metrics.values())
         avg_duration = total_duration / total_tests if total_tests > 0 else 0
 
         slow_tests = self.get_slow_tests(1.0)
@@ -221,7 +215,7 @@ Top 5 Slowest Tests:
             report += f"  {name}: {duration:.2f}s, {memory:.1f}MB\n"
 
         if slow_tests:
-            report += f"\nSlow Tests Details:\n"
+            report += "\nSlow Tests Details:\n"
             for name, metrics in slow_tests.items():
                 duration = metrics.get("duration", 0)
                 memory = metrics.get("memory_rss", 0)
@@ -366,9 +360,7 @@ class PerformanceRegression:
 
         metrics = monitor.get_metrics(test_name)
         if not metrics:
-            raise AssertionError(
-                f"No performance metrics found for test: {test_name}"
-            )
+            raise AssertionError(f"No performance metrics found for test: {test_name}")
 
         duration = metrics.get("duration", 0)
         if duration > max_duration:
@@ -407,11 +399,7 @@ class PerformanceRegression:
             baseline_value = baseline_metrics.get(metric_name, 0)
 
             if baseline_value > 0:
-                percentage_change = (
-                    (current_value - baseline_value) / baseline_value
-                ) * 100
-                regressions[metric_name] = (
-                    percentage_change > tolerance_percent
-                )
+                percentage_change = ((current_value - baseline_value) / baseline_value) * 100
+                regressions[metric_name] = percentage_change > tolerance_percent
 
         return regressions

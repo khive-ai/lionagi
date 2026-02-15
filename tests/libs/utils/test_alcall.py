@@ -15,9 +15,9 @@ from lionagi.ln import AlcallParams, BcallParams, alcall, bcall
 
 # Import ExceptionGroup for Python 3.11+
 if sys.version_info >= (3, 11):
-    from builtins import BaseExceptionGroup, ExceptionGroup
+    from builtins import BaseExceptionGroup
 else:
-    from exceptiongroup import BaseExceptionGroup, ExceptionGroup
+    from exceptiongroup import BaseExceptionGroup
 
 
 # =============================================================================
@@ -371,9 +371,7 @@ class TestAlcallOutputProcessing:
             return [x, x * 2]
 
         inputs = [1, 2, 3]
-        results = await alcall(
-            inputs, func_returning_list, output_flatten=True
-        )
+        results = await alcall(inputs, func_returning_list, output_flatten=True)
         assert results == [1, 2, 2, 4, 3, 6]
 
     @pytest.mark.anyio

@@ -2,8 +2,6 @@
 LNDL Parser - Parse tokens into Abstract Syntax Tree
 """
 
-from typing import List, Optional, Union
-
 from .ast_nodes import *
 from .lexer import Lexer, Token, TokenType
 
@@ -14,9 +12,7 @@ class ParseError(Exception):
     def __init__(self, message: str, token: Token):
         self.message = message
         self.token = token
-        super().__init__(
-            f"Parse error at line {token.line}, column {token.column}: {message}"
-        )
+        super().__init__(f"Parse error at line {token.line}, column {token.column}: {message}")
 
 
 class Parser:
@@ -101,10 +97,7 @@ class Parser:
             return self.parse_do_statement()
 
         # Assignment statement: var = expression (without 'let' keyword)
-        elif (
-            self.match(TokenType.ID)
-            and self.peek_token().type == TokenType.ASSIGN
-        ):
+        elif self.match(TokenType.ID) and self.peek_token().type == TokenType.ASSIGN:
             return self.parse_assignment_statement()
 
         # Expression statement (function calls, etc.)
@@ -133,9 +126,7 @@ class Parser:
         content = ""
         while not self.match(TokenType.LVAR_END):
             if self.match(TokenType.EOF):
-                raise ParseError(
-                    "Unclosed cognitive variable", self.current_token()
-                )
+                raise ParseError("Unclosed cognitive variable", self.current_token())
             # Collect content (this is simplified - in practice you'd handle this better)
             content += self.current_token().value + " "
             self.advance()
@@ -250,9 +241,7 @@ class Parser:
         """Parse relational expressions: >, <, >=, <= (higher precedence)"""
         expr = self.parse_arithmetic()
 
-        while self.match(
-            TokenType.GT, TokenType.LT, TokenType.GTE, TokenType.LTE
-        ):
+        while self.match(TokenType.GT, TokenType.LT, TokenType.GTE, TokenType.LTE):
             operator = self.current_token().value
             self.advance()
             right = self.parse_arithmetic()

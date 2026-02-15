@@ -22,14 +22,14 @@ class SearchServiceGroup(ServiceGroup):
         load_dotenv()
         super().__init__(config=config)
         logger.info(
-            f"[LLMServiceGroup] Initialized.",
+            "[LLMServiceGroup] Initialized.",
         )
         self.imodels = {}
 
     @operation(name="exa_search", schema=ExaSearchRequest)
     async def exa_search(self, request: ExaSearchRequest):
         """Performs a search using Exa's search endpoint."""
-        if not "exa_search" in self.imodels:
+        if "exa_search" not in self.imodels:
             self.imodels["exa_search"] = iModel(
                 provider="exa",
                 endpoint="search",
@@ -55,7 +55,7 @@ class SearchServiceGroup(ServiceGroup):
     @operation(name="perplexity_search", schema=PerplexityChatRequest)
     async def perplexity_search(self, request: PerplexityChatRequest):
         """Performs a search using Perplexity's chat completion endpoint."""
-        if not "perplexity_search" in self.imodels:
+        if "perplexity_search" not in self.imodels:
             self.imodels["perplexity_search"] = iModel(
                 provider="perplexity",
                 endpoint="chat",

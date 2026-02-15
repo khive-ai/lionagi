@@ -6,8 +6,6 @@ import_module (dynamic imports), and utility functions.
 Target: >95% coverage for _utils.py (currently 36.21%)
 """
 
-from pathlib import Path
-
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -66,9 +64,7 @@ class TestAcreatePath:
     @pytest.mark.anyio
     async def test_acreate_path_backslash_raises(self, tmp_path):
         """Test acreate_path raises ValueError for backslash in filename."""
-        with pytest.raises(
-            ValueError, match="cannot contain directory separators"
-        ):
+        with pytest.raises(ValueError, match="cannot contain directory separators"):
             await acreate_path(directory=tmp_path, filename="test\\file.txt")
 
     @pytest.mark.anyio
@@ -90,9 +86,7 @@ class TestAcreatePath:
         assert result.suffix == ".log"
 
     @pytest.mark.anyio
-    async def test_acreate_path_extension_overrides_filename_ext(
-        self, tmp_path
-    ):
+    async def test_acreate_path_extension_overrides_filename_ext(self, tmp_path):
         """Test explicit extension parameter overrides filename extension."""
         result = await acreate_path(
             directory=tmp_path,
@@ -274,9 +268,7 @@ class TestGetBins:
 
     @pytest.mark.property
     @given(
-        strings=st.lists(
-            st.text(min_size=1, max_size=50), min_size=1, max_size=20
-        ),
+        strings=st.lists(st.text(min_size=1, max_size=50), min_size=1, max_size=20),
         upper=st.integers(min_value=10, max_value=200),
     )
     @settings(max_examples=50)
@@ -294,9 +286,7 @@ class TestGetBins:
             # Allow single oversized item
             if len(bin_) == 1:
                 continue
-            assert (
-                bin_length < upper
-            )  # Note: < not <=, based on source code logic
+            assert bin_length < upper  # Note: < not <=, based on source code logic
 
 
 # =============================================================================

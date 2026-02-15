@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+from ._lazy_init import LazyInit
 from ._to_list import to_list
 from .concurrency import (
     BaseExceptionGroup,
@@ -25,7 +26,6 @@ from .concurrency import (
     run_sync,
     sleep,
 )
-from ._lazy_init import LazyInit
 from .types import ModelConfig, Params, T, Unset, not_sentinel
 
 _lazy = LazyInit()

@@ -20,9 +20,7 @@ def run_command(cmd, description=""):
     """Run a command and handle errors."""
     print(f"🔄 {description}")
     try:
-        result = subprocess.run(
-            cmd, shell=True, check=True, capture_output=True, text=True
-        )
+        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
         if result.stdout.strip():
             print(f"   {result.stdout.strip()}")
         return True
@@ -166,9 +164,7 @@ def add_post_processing():
     with open(models_file, "w") as f:
         f.write("\n".join(new_lines))
 
-    print(
-        "   ✓ Added imports, warnings suppression, type aliases, and discriminator fixes"
-    )
+    print("   ✓ Added imports, warnings suppression, type aliases, and discriminator fixes")
     return True
 
 
@@ -246,35 +242,23 @@ def main():
     # Step 4: Verify generation
     verification_passed = verify_generation()
     if not verification_passed:
-        print(
-            "⚠️  Warning: Generated models have Pydantic compatibility issues"
-        )
+        print("⚠️  Warning: Generated models have Pydantic compatibility issues")
         print("   Known issues:")
         print("   - Discriminated union conflicts in complex schemas")
-        print(
-            "   - This is a compatibility issue between datamodel-code-generator"
-        )
+        print("   - This is a compatibility issue between datamodel-code-generator")
         print("     and the current OpenAI schema complexity")
-        print(
-            "   - Models can still be used for type hints and basic validation"
-        )
-        print(
-            "   - Consider using openai-python package directly for runtime usage"
-        )
+        print("   - Models can still be used for type hints and basic validation")
+        print("   - Consider using openai-python package directly for runtime usage")
 
     # Step 5: Show file information
     get_file_info()
 
     print("\n✅ OpenAI models update completed!")
-    print(
-        f"✅ Verification: {'PASSED' if verification_passed else 'FAILED (see warnings above)'}"
-    )
+    print(f"✅ Verification: {'PASSED' if verification_passed else 'FAILED (see warnings above)'}")
     print("\n📝 Notes:")
     print("   - File is configured to be ignored by git")
     print("   - Will be regenerated during CI/CD build processes")
-    print(
-        "   - Use for type hints; consider openai-python for runtime validation"
-    )
+    print("   - Use for type hints; consider openai-python for runtime validation")
 
 
 if __name__ == "__main__":

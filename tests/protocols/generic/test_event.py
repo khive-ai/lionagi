@@ -59,9 +59,6 @@ def test_event_serialization():
     assert serialized["execution"]["response"] == {"result": "success"}
 
 
-import pytest_asyncio
-
-
 @pytest.mark.asyncio
 async def test_event_invoke_not_implemented():
     event = Event()

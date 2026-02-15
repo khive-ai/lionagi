@@ -149,9 +149,7 @@ class TestCodeReviewCrew:
         assert result.severity == "high"
 
         # Empty issues list is valid
-        clean = ReviewResult(
-            issues=[], severity="low", recommendation="Code looks good."
-        )
+        clean = ReviewResult(issues=[], severity="low", recommendation="Code looks good.")
         assert len(clean.issues) == 0
 
     def test_builder_exists(self):
@@ -204,13 +202,10 @@ class TestClaimExtraction:
         assert "claim extraction" in branch.system.rendered
 
     @pytest.mark.asyncio
-    async def test_extraction_with_mocked_branch(
-        self, mocked_branch_structured
-    ):
+    async def test_extraction_with_mocked_branch(self, mocked_branch_structured):
         """Branch with tools for extraction patterns returns a result."""
         result = await mocked_branch_structured.communicate(
-            "Extract claims from: The sun is a star located at the center "
-            "of the solar system."
+            "Extract claims from: The sun is a star located at the center of the solar system."
         )
         assert result is not None
 
@@ -412,9 +407,7 @@ class TestHRAutomation:
         )
 
         # Step 1: screening
-        screen_result = await screener.communicate(
-            "Review this resume: 5 years Python experience."
-        )
+        screen_result = await screener.communicate("Review this resume: 5 years Python experience.")
         assert screen_result is not None
 
         # Step 2: evaluation using screening result as context

@@ -37,9 +37,7 @@ class TestSelectionModelClass:
         assert "{max_num_selections}" in prompt
         assert "{choices}" in prompt
 
-        formatted = prompt.format(
-            max_num_selections=3, choices=["a", "b", "c"]
-        )
+        formatted = prompt.format(max_num_selections=3, choices=["a", "b", "c"])
         assert "3" in formatted
         assert "['a', 'b', 'c']" in formatted
 

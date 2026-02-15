@@ -2,10 +2,8 @@
 LNDL Lexer - Clean tokenization for cognitive programming
 """
 
-import re
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional
 
 
 class TokenType(Enum):
@@ -129,9 +127,7 @@ class Lexer:
     def read_identifier(self) -> str:
         """Read identifier or keyword"""
         result = ""
-        while self.current_char() and (
-            self.current_char().isalnum() or self.current_char() in "_"
-        ):
+        while self.current_char() and (self.current_char().isalnum() or self.current_char() in "_"):
             result += self.current_char()
             self.advance()
         return result
@@ -139,9 +135,7 @@ class Lexer:
     def read_number(self) -> str:
         """Read number (int or float)"""
         result = ""
-        while self.current_char() and (
-            self.current_char().isdigit() or self.current_char() == "."
-        ):
+        while self.current_char() and (self.current_char().isdigit() or self.current_char() == "."):
             result += self.current_char()
             self.advance()
         return result
@@ -206,9 +200,7 @@ class Lexer:
 
             # Newlines
             if self.current_char() == "\n":
-                self.tokens.append(
-                    Token(TokenType.NEWLINE, "\n", self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.NEWLINE, "\n", self.line, self.column))
                 self.advance()
                 continue
 
@@ -230,10 +222,7 @@ class Lexer:
 
             # Cognitive variable end: <lvar/>
             if self.text[self.pos : self.pos + 6] == "<lvar/":
-                if (
-                    self.pos + 6 < len(self.text)
-                    and self.text[self.pos + 6] == ">"
-                ):
+                if self.pos + 6 < len(self.text) and self.text[self.pos + 6] == ">":
                     self.tokens.append(
                         Token(
                             TokenType.LVAR_END,
@@ -253,9 +242,7 @@ class Lexer:
                 self.column += 3
 
                 # Skip optional language identifier (like 'lndl')
-                while (
-                    self.current_char() and self.current_char() not in "\n\r"
-                ):
+                while self.current_char() and self.current_char() not in "\n\r":
                     self.advance()
 
                 # Skip the rest - we'll just ignore code block markers
@@ -280,9 +267,7 @@ class Lexer:
                 else:
                     token_type = TokenType.ID
 
-                self.tokens.append(
-                    Token(token_type, identifier, start_line, start_column)
-                )
+                self.tokens.append(Token(token_type, identifier, start_line, start_column))
                 continue
 
             # Numbers
@@ -291,9 +276,7 @@ class Lexer:
                 start_line = self.line
                 start_column = self.column
                 number = self.read_number()
-                self.tokens.append(
-                    Token(TokenType.NUM, number, start_line, start_column)
-                )
+                self.tokens.append(Token(TokenType.NUM, number, start_line, start_column))
                 continue
 
             # Strings
@@ -302,80 +285,48 @@ class Lexer:
                 start_line = self.line
                 start_column = self.column
                 string_val = self.read_string()
-                self.tokens.append(
-                    Token(TokenType.STR, string_val, start_line, start_column)
-                )
+                self.tokens.append(Token(TokenType.STR, string_val, start_line, start_column))
                 continue
 
             # Single character tokens
             char = self.current_char()
             if char == ";":
-                self.tokens.append(
-                    Token(TokenType.SEMI, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.SEMI, char, self.line, self.column))
             elif char == ",":
-                self.tokens.append(
-                    Token(TokenType.COMMA, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.COMMA, char, self.line, self.column))
             elif char == "(":
-                self.tokens.append(
-                    Token(TokenType.LPAREN, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.LPAREN, char, self.line, self.column))
             elif char == ")":
-                self.tokens.append(
-                    Token(TokenType.RPAREN, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.RPAREN, char, self.line, self.column))
             elif char == "*":
-                self.tokens.append(
-                    Token(TokenType.STAR, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.STAR, char, self.line, self.column))
             elif char == "=":
                 if self.peek_char() == "=":
-                    self.tokens.append(
-                        Token(TokenType.EQ, "==", self.line, self.column)
-                    )
+                    self.tokens.append(Token(TokenType.EQ, "==", self.line, self.column))
                     self.advance()  # Skip second =
                 else:
-                    self.tokens.append(
-                        Token(TokenType.ASSIGN, char, self.line, self.column)
-                    )
+                    self.tokens.append(Token(TokenType.ASSIGN, char, self.line, self.column))
             elif char == ">":
                 if self.peek_char() == "=":
-                    self.tokens.append(
-                        Token(TokenType.GTE, ">=", self.line, self.column)
-                    )
+                    self.tokens.append(Token(TokenType.GTE, ">=", self.line, self.column))
                     self.advance()
                 else:
-                    self.tokens.append(
-                        Token(TokenType.GT, char, self.line, self.column)
-                    )
+                    self.tokens.append(Token(TokenType.GT, char, self.line, self.column))
             elif char == "<":
                 if self.peek_char() == "=":
-                    self.tokens.append(
-                        Token(TokenType.LTE, "<=", self.line, self.column)
-                    )
+                    self.tokens.append(Token(TokenType.LTE, "<=", self.line, self.column))
                     self.advance()
                 else:
-                    self.tokens.append(
-                        Token(TokenType.LT, char, self.line, self.column)
-                    )
+                    self.tokens.append(Token(TokenType.LT, char, self.line, self.column))
             elif char == "+":
-                self.tokens.append(
-                    Token(TokenType.PLUS, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.PLUS, char, self.line, self.column))
             elif char == "-":
-                self.tokens.append(
-                    Token(TokenType.MINUS, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.MINUS, char, self.line, self.column))
             elif char == ":":
-                self.tokens.append(
-                    Token(TokenType.COLON, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.COLON, char, self.line, self.column))
             else:
                 # Unknown character
-                self.tokens.append(
-                    Token(TokenType.UNKNOWN, char, self.line, self.column)
-                )
+                self.tokens.append(Token(TokenType.UNKNOWN, char, self.line, self.column))
 
             self.advance()
 

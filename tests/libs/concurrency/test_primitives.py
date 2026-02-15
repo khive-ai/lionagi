@@ -1,5 +1,3 @@
-import time
-
 import anyio
 import pytest
 

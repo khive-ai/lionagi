@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import BaseModel
 
-from lionagi.operations.fields import ActionResponseModel
 from lionagi.operations.ReAct.utils import (
     Analysis,
     PlannedAction,
@@ -59,9 +58,7 @@ def make_mocked_branch_for_react():
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4o-mini", api_key="test_key"
-    )
+    mock_chat_model = iModel(provider="openai", model="gpt-4o-mini", api_key="test_key")
     mock_chat_model.invoke = mock_invoke
 
     branch.chat_model = mock_chat_model
@@ -106,11 +103,7 @@ async def test_single_tool_invocation():
         # First: ReActAnalysis with tool call
         first_analysis = ReActAnalysis(
             analysis="Need to calculate 6 * 7",
-            planned_actions=[
-                PlannedAction(
-                    action_type="multiply", description="Calculate 6 * 7"
-                )
-            ],
+            planned_actions=[PlannedAction(action_type="multiply", description="Calculate 6 * 7")],
             extension_needed=False,
         )
 
@@ -139,9 +132,7 @@ async def test_multiple_tool_calls_sequential_strategy():
         # Round 1: First tool call with sequential strategy
         round1 = ReActAnalysis(
             analysis="Calculate 100 * 5",
-            planned_actions=[
-                PlannedAction(action_type="multiply", description="100 * 5")
-            ],
+            planned_actions=[PlannedAction(action_type="multiply", description="100 * 5")],
             extension_needed=True,
             action_strategy="sequential",
         )
@@ -149,9 +140,7 @@ async def test_multiple_tool_calls_sequential_strategy():
         # Round 2: Second tool call
         round2 = ReActAnalysis(
             analysis="Now divide by 10",
-            planned_actions=[
-                PlannedAction(action_type="divide", description="500 / 10")
-            ],
+            planned_actions=[PlannedAction(action_type="divide", description="500 / 10")],
             extension_needed=False,
             action_strategy="sequential",
         )
@@ -428,12 +417,8 @@ async def test_max_extensions_clamped_to_100():
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         # Create chain that stops after 2 rounds
-        round1 = ReActAnalysis(
-            analysis="Round 1", planned_actions=[], extension_needed=True
-        )
-        round2 = ReActAnalysis(
-            analysis="Round 2", planned_actions=[], extension_needed=False
-        )
+        round1 = ReActAnalysis(analysis="Round 1", planned_actions=[], extension_needed=True)
+        round2 = ReActAnalysis(analysis="Round 2", planned_actions=[], extension_needed=False)
         final = Analysis(answer="Done")
 
         mock_operate.side_effect = [round1, round2, final]
@@ -471,9 +456,7 @@ async def test_react_with_real_tools_integration():
         # Simulate realistic ReAct flow
         analysis = ReActAnalysis(
             analysis="Calculate (20 * 3) / 4",
-            planned_actions=[
-                PlannedAction(action_type="multiply", description="20 * 3")
-            ],
+            planned_actions=[PlannedAction(action_type="multiply", description="20 * 3")],
             extension_needed=False,
         )
 
@@ -498,12 +481,8 @@ async def test_branch_state_consistency():
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         # Multi-round ReAct
-        round1 = ReActAnalysis(
-            analysis="Step 1", planned_actions=[], extension_needed=True
-        )
-        round2 = ReActAnalysis(
-            analysis="Step 2", planned_actions=[], extension_needed=False
-        )
+        round1 = ReActAnalysis(analysis="Step 1", planned_actions=[], extension_needed=True)
+        round2 = ReActAnalysis(analysis="Step 2", planned_actions=[], extension_needed=False)
         final = Analysis(answer="Final")
 
         mock_operate.side_effect = [round1, round2, final]
@@ -525,9 +504,7 @@ async def test_clear_messages_parameter():
     branch = make_mocked_branch_for_react()
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
-        analysis = ReActAnalysis(
-            analysis="Analysis", planned_actions=[], extension_needed=False
-        )
+        analysis = ReActAnalysis(analysis="Analysis", planned_actions=[], extension_needed=False)
         final = Analysis(answer="Answer")
 
         mock_operate.side_effect = [analysis, final]
@@ -556,11 +533,7 @@ async def test_react_with_async_tool_registration():
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         analysis = ReActAnalysis(
             analysis="Search for information",
-            planned_actions=[
-                PlannedAction(
-                    action_type="async_search", description="Search query"
-                )
-            ],
+            planned_actions=[PlannedAction(action_type="async_search", description="Search query")],
             extension_needed=False,
         )
 
@@ -594,9 +567,7 @@ async def test_invalid_tool_response_handling():
     ):
         analysis = ReActAnalysis(
             analysis="Call tool",
-            planned_actions=[
-                PlannedAction(action_type="multiply", description="Test")
-            ],
+            planned_actions=[PlannedAction(action_type="multiply", description="Test")],
             extension_needed=False,
         )
 
@@ -724,9 +695,7 @@ async def test_react_with_custom_response_format():
         )
 
         # Final answer with custom format
-        custom_result = CustomResult(
-            calculation=42.0, explanation="The answer is 42"
-        )
+        custom_result = CustomResult(calculation=42.0, explanation="The answer is 42")
 
         mock_operate.side_effect = [analysis, custom_result]
 
@@ -748,12 +717,8 @@ async def test_return_analysis_parameter():
     branch = make_mocked_branch_for_react()
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
-        round1 = ReActAnalysis(
-            analysis="Step 1", planned_actions=[], extension_needed=True
-        )
-        round2 = ReActAnalysis(
-            analysis="Step 2", planned_actions=[], extension_needed=False
-        )
+        round1 = ReActAnalysis(analysis="Step 1", planned_actions=[], extension_needed=True)
+        round2 = ReActAnalysis(analysis="Step 2", planned_actions=[], extension_needed=False)
         final = Analysis(answer="Final")
 
         mock_operate.side_effect = [round1, round2, final]
@@ -783,9 +748,7 @@ async def test_reasoning_effort_parameter():
             planned_actions=[],
             extension_needed=True,
         )
-        round2 = ReActAnalysis(
-            analysis="Continue", planned_actions=[], extension_needed=False
-        )
+        round2 = ReActAnalysis(analysis="Continue", planned_actions=[], extension_needed=False)
         final = Analysis(answer="Result")
 
         mock_operate.side_effect = [analysis, round2, final]
@@ -845,9 +808,7 @@ async def test_react_with_many_extensions():
                 ReActAnalysis(
                     analysis=f"Round {i + 1}",
                     planned_actions=[],
-                    extension_needed=(
-                        True if i < 9 else False
-                    ),  # Last one stops
+                    extension_needed=(True if i < 9 else False),  # Last one stops
                 )
             )
 

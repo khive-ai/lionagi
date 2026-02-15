@@ -41,12 +41,8 @@ def patch_cancellation(monkeypatch):
     """Monkeypatch get_cancelled_exc_class to return our test exception."""
     from lionagi.service.hooks import hook_event, hook_registry
 
-    monkeypatch.setattr(
-        hook_event, "get_cancelled_exc_class", lambda: MyCancelled
-    )
-    monkeypatch.setattr(
-        hook_registry, "get_cancelled_exc_class", lambda: MyCancelled
-    )
+    monkeypatch.setattr(hook_event, "get_cancelled_exc_class", lambda: MyCancelled)
+    monkeypatch.setattr(hook_registry, "get_cancelled_exc_class", lambda: MyCancelled)
     return MyCancelled
 
 

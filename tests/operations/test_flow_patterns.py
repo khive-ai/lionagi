@@ -18,8 +18,8 @@ from uuid import uuid4
 
 import pytest
 
-from lionagi.operations.fields import Instruct
 from lionagi.operations.builder import OperationGraphBuilder
+from lionagi.operations.fields import Instruct
 from lionagi.operations.flow import flow
 from lionagi.session.session import Session
 
@@ -31,9 +31,7 @@ class MockClaudeCode:
         self.name = name
         self.call_count = 0
 
-    async def __call__(
-        self, messages: list[dict[str, Any]], **kwargs
-    ) -> dict[str, Any]:
+    async def __call__(self, messages: list[dict[str, Any]], **kwargs) -> dict[str, Any]:
         """Simulate model call."""
         self.call_count += 1
 
@@ -127,9 +125,7 @@ async def test_dynamic_fanout_pattern():
                     ]
                 )
         # Subsequent calls do research
-        return MagicMock(
-            result=f"Research complete: {kwargs.get('instruction', 'unknown')}"
-        )
+        return MagicMock(result=f"Research complete: {kwargs.get('instruction', 'unknown')}")
 
     orc_branch.operate = AsyncMock(side_effect=mock_operate)
 
@@ -177,9 +173,7 @@ async def test_dynamic_fanout_pattern():
     orc_branch.clone = MagicMock(side_effect=mock_clone)
     orc_branch._message_manager = MagicMock()
     orc_branch._message_manager.pile = MagicMock()
-    orc_branch._message_manager.pile.__iter__ = MagicMock(
-        return_value=iter([])
-    )
+    orc_branch._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
 
     # Create session
     session = Session(default_branch=orc_branch)
@@ -215,9 +209,7 @@ async def test_dynamic_fanout_pattern():
             async def research(**kwargs):
                 return MagicMock(
                     result=f"Research {idx} complete",
-                    data={
-                        "findings": [f"finding_{idx}_1", f"finding_{idx}_2"]
-                    },
+                    data={"findings": [f"finding_{idx}_1", f"finding_{idx}_2"]},
                 )
 
             return research
@@ -262,9 +254,7 @@ async def test_dynamic_fanout_pattern():
     result2 = await session.flow(builder.get_graph())
 
     # Verify results
-    assert (
-        len(result2["completed_operations"]) == 5
-    )  # root + 3 research + 1 synthesis
+    assert len(result2["completed_operations"]) == 5  # root + 3 research + 1 synthesis
     assert synthesis in result2["operation_results"]
 
     # Verify root was not re-executed by checking branch call count
@@ -285,9 +275,7 @@ async def test_context_inheritance_pattern():
         context_trace.append(
             {
                 "op_id": op_id,
-                "context": (
-                    context.copy() if isinstance(context, dict) else context
-                ),
+                "context": (context.copy() if isinstance(context, dict) else context),
             }
         )
 
@@ -358,9 +346,7 @@ async def test_context_inheritance_pattern():
         cloned._message_manager.pile = MagicMock()
         cloned._message_manager.pile.clear = MagicMock()
         cloned._message_manager.pile.append = MagicMock()
-        cloned._message_manager.pile.__iter__ = MagicMock(
-            return_value=iter([])
-        )
+        cloned._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
         cloned.metadata = {}
 
         # Mock get_operation for cloned branch too
@@ -401,9 +387,7 @@ async def test_context_inheritance_pattern():
 
     # Check that results are propagated
     # Second operation should have result from first
-    assert any(
-        "result" in str(trace["context"]) for trace in context_trace[1:]
-    )
+    assert any("result" in str(trace["context"]) for trace in context_trace[1:])
 
 
 @pytest.mark.asyncio
@@ -436,9 +420,7 @@ async def test_branch_pool_efficiency():
     for layer_idx in range(4):
         current_layer = []
         for i in range(5):
-            deps = (
-                prev_layer[-2:] if prev_layer else []
-            )  # Depend on last 2 from previous layer
+            deps = prev_layer[-2:] if prev_layer else []  # Depend on last 2 from previous layer
             op = builder.add_operation(
                 "operate",
                 depends_on=deps,
@@ -454,9 +436,7 @@ async def test_branch_pool_efficiency():
     default_branch.operate = AsyncMock(return_value="result")
     default_branch._message_manager = MagicMock()
     default_branch._message_manager.pile = MagicMock()
-    default_branch._message_manager.pile.__iter__ = MagicMock(
-        return_value=iter([])
-    )
+    default_branch._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
     default_branch.metadata = {}
 
     # Track clones
@@ -497,9 +477,7 @@ async def test_branch_pool_efficiency():
 
     # Branches should be pre-allocated for operations that need them
     # With our dependency tree, many operations will need new branches
-    assert (
-        clone_count >= 10
-    ), f"Expected many clones for complex dependency tree, got {clone_count}"
+    assert clone_count >= 10, f"Expected many clones for complex dependency tree, got {clone_count}"
 
 
 @pytest.mark.asyncio
@@ -520,12 +498,8 @@ async def test_mixed_operation_types():
     # Different operation types
     op1 = builder.add_operation("operate", instruction="Do something")
     op2 = builder.add_operation("parse", depends_on=[op1], text="Parse this")
-    op3 = builder.add_operation(
-        "communicate", depends_on=[op1], message="Send this"
-    )
-    op4 = builder.add_operation(
-        "chat", depends_on=[op2, op3], prompt="Chat about results"
-    )
+    op3 = builder.add_operation("communicate", depends_on=[op1], message="Send this")
+    op4 = builder.add_operation("chat", depends_on=[op2, op3], prompt="Chat about results")
 
     # Create async wrappers for each operation type
     async def operate_wrapper(**kw):
@@ -577,9 +551,7 @@ async def test_mixed_operation_types():
         cloned._message_manager = MagicMock()
         cloned._message_manager.pile = MagicMock()
         cloned._message_manager.pile.clear = MagicMock()
-        cloned._message_manager.pile.__iter__ = MagicMock(
-            return_value=iter([])
-        )
+        cloned._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
         cloned.metadata = {}
 
         # Mock get_operation for cloned branch too
@@ -626,9 +598,7 @@ async def test_flow_with_existing_graph():
     # Phase 1: Initial analysis
     analyze = builder.add_operation(
         "operate",
-        instruct=Instruct(
-            instruction="Analyze the codebase", context="lionagi"
-        ),
+        instruct=Instruct(instruction="Analyze the codebase", context="lionagi"),
     )
 
     # Phase 2: Parallel investigations based on analysis
@@ -644,9 +614,7 @@ async def test_flow_with_existing_graph():
 
     # Phase 3: Deep dive into specific issues
     issues_ops = []
-    for inv_op in investigate_ops[
-        :2
-    ]:  # Only first 2 investigations yield issues
+    for inv_op in investigate_ops[:2]:  # Only first 2 investigations yield issues
         for i in range(2):
             op = builder.add_operation(
                 "operate",
@@ -687,9 +655,7 @@ async def test_flow_with_existing_graph():
         if not instruction:
             # When Instruct object is converted to dict, it goes into kwargs directly
             instruction = kwargs.get("instruction", "")
-            if not instruction and hasattr(
-                kwargs.get("context"), "instruction"
-            ):
+            if not instruction and hasattr(kwargs.get("context"), "instruction"):
                 instruction = kwargs["context"].instruction
 
         if "Analyze" in instruction:
@@ -701,11 +667,7 @@ async def test_flow_with_existing_graph():
                 # If context is a string, check kwargs for area
                 area = "unknown"
             else:
-                area = (
-                    context.get("area", "unknown")
-                    if isinstance(context, dict)
-                    else "unknown"
-                )
+                area = context.get("area", "unknown") if isinstance(context, dict) else "unknown"
             return {"issues_found": 2 if area != "protocols" else 0}
         elif "Fix issue" in instruction:
             return {"fix_applied": True}
@@ -741,9 +703,7 @@ async def test_flow_with_existing_graph():
         cloned._message_manager = MagicMock()
         cloned._message_manager.pile = MagicMock()
         cloned._message_manager.pile.clear = MagicMock()
-        cloned._message_manager.pile.__iter__ = MagicMock(
-            return_value=iter([])
-        )
+        cloned._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
         cloned.metadata = {}
 
         # Mock get_operation for cloned branch too
@@ -764,9 +724,7 @@ async def test_flow_with_existing_graph():
     session.default_branch = branch
 
     # Execute the complete flow
-    result = await flow(
-        session, builder.get_graph(), max_concurrent=5, verbose=False
-    )
+    result = await flow(session, builder.get_graph(), max_concurrent=5, verbose=False)
 
     # Verify execution
     assert len(result["completed_operations"]) == 9  # 1 + 3 + 4 + 1

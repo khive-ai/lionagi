@@ -113,9 +113,7 @@ class TestGraphPerformance:
             if node.id in graph.internal_nodes:
                 graph.remove_node(node)
 
-        assert len(graph.internal_nodes) == num_operations - len(
-            nodes_to_remove
-        )
+        assert len(graph.internal_nodes) == num_operations - len(nodes_to_remove)
 
 
 @pytest.mark.asyncio
@@ -269,14 +267,8 @@ class TestGraphAdvancedOperations:
 
         assert len(graph.internal_nodes) == 1
         assert len(graph.internal_edges) == 1
-        assert (
-            len(graph.internal_nodes[node.id].content["large_property"])
-            == 1000000
-        )
-        assert (
-            len(graph.internal_edges[edge.id].properties.get("large_property"))
-            == 1000000
-        )
+        assert len(graph.internal_nodes[node.id].content["large_property"]) == 1000000
+        assert len(graph.internal_edges[edge.id].properties.get("large_property")) == 1000000
 
     def test_graph_stress(self):
         """Test graph under stress conditions"""
@@ -296,10 +288,7 @@ class TestGraphAdvancedOperations:
             if operation == "add_edge":
                 head = random.choice(nodes)
                 tail = random.choice(nodes)
-                if (
-                    head.id in graph.internal_nodes
-                    and tail.id in graph.internal_nodes
-                ):
+                if head.id in graph.internal_nodes and tail.id in graph.internal_nodes:
                     try:
                         edge = Edge(head=head, tail=tail)
                         graph.add_edge(edge)

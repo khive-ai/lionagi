@@ -13,8 +13,6 @@ import json
 import pytest
 
 from lionagi.operations.builder import OperationGraphBuilder
-from lionagi.operations.flow import flow
-from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
 
@@ -60,9 +58,7 @@ async def test_aggregation_with_UUID_serialization():
 
     # Verify all sources are JSON serializable strings
     for source in sources:
-        assert isinstance(
-            source, str
-        ), f"Source should be string, got {type(source)}"
+        assert isinstance(source, str), f"Source should be string, got {type(source)}"
         # Should be able to JSON serialize
         json.dumps(source)  # This would fail if it were UUID
 

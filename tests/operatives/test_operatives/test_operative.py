@@ -68,9 +68,7 @@ class TestOperative:
         operative = Operative(base_type=SampleModel)
 
         # First set initial model with valid JSON
-        response_model = operative.update_response_model(
-            text='{"name": "test", "value": 42}'
-        )
+        response_model = operative.update_response_model(text='{"name": "test", "value": 42}')
 
         # Update with new data
         data = {"name": "updated"}
@@ -92,9 +90,7 @@ class TestOperative:
 
     def test_retry_behavior(self):
         """Test auto retry behavior for validation."""
-        operative = Operative(
-            base_type=SampleModel, auto_retry_parse=True, max_retries=3
-        )
+        operative = Operative(base_type=SampleModel, auto_retry_parse=True, max_retries=3)
 
         # Valid input should clear retry flag
         valid_text = '{"name": "test", "value": 42}'

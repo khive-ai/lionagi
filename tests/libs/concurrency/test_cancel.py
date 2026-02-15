@@ -19,9 +19,7 @@ async def test_fail_after_zero_deadline_raises_fast(anyio_backend):
     with pytest.raises(TimeoutError):
         with fail_after(0):
             await anyio.sleep(0.001)
-    assert (
-        time.perf_counter() - t0
-    ) < 0.5  # should trip reasonably quickly (CI-friendly)
+    assert (time.perf_counter() - t0) < 0.5  # should trip reasonably quickly (CI-friendly)
 
 
 @pytest.mark.anyio
@@ -57,9 +55,7 @@ async def test_nested_scopes_fail_after_inside_move_on_after(anyio_backend):
         with pytest.raises(TimeoutError):
             with fail_after(0.01):
                 await anyio.sleep(0.05)
-    assert (
-        outer.cancelled_caught is False
-    )  # inner raised before outer deadline
+    assert outer.cancelled_caught is False  # inner raised before outer deadline
 
 
 @pytest.mark.anyio

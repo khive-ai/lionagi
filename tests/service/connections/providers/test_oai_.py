@@ -3,7 +3,7 @@
 
 import asyncio
 import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -74,9 +74,7 @@ class TestOpenAIIntegration:
         """Test OpenAI payload for reasoning models (o1 series)."""
         payload, headers = reasoning_imodel.endpoint.create_payload(
             {
-                "messages": [
-                    {"role": "user", "content": "Solve this complex problem"}
-                ],
+                "messages": [{"role": "user", "content": "Solve this complex problem"}],
                 "model": "o1-preview",
                 "temperature": 0.7,  # Should be filtered out
                 "max_tokens": 100,
@@ -85,9 +83,7 @@ class TestOpenAIIntegration:
         )
 
         assert payload["model"] == "o1-preview"
-        assert (
-            payload["messages"][0]["content"] == "Solve this complex problem"
-        )
+        assert payload["messages"][0]["content"] == "Solve this complex problem"
         assert payload["max_tokens"] == 100
         # Note: Parameter filtering may not be implemented for reasoning models yet
 
@@ -113,9 +109,7 @@ class TestOpenAIIntegration:
         assert payload["messages"][1]["role"] == "user"
 
     @pytest.mark.asyncio
-    async def test_openai_api_calling_creation(
-        self, openai_imodel, mock_response
-    ):
+    async def test_openai_api_calling_creation(self, openai_imodel, mock_response):
         """Test creating APICalling for OpenAI."""
         api_call = openai_imodel.create_api_calling(
             messages=[{"role": "user", "content": "Hello, GPT!"}],
@@ -129,9 +123,7 @@ class TestOpenAIIntegration:
         assert api_call.payload["max_tokens"] == 100
 
     @pytest.mark.asyncio
-    async def test_openai_successful_invoke(
-        self, openai_imodel, mock_response
-    ):
+    async def test_openai_successful_invoke(self, openai_imodel, mock_response):
         """Test successful OpenAI API invocation."""
         with patch.object(
             openai_imodel.endpoint,
@@ -145,10 +137,7 @@ class TestOpenAIIntegration:
 
         assert result is not None
         assert result.response["choices"][0]["message"]["role"] == "assistant"
-        assert (
-            "Test response"
-            in result.response["choices"][0]["message"]["content"]
-        )
+        assert "Test response" in result.response["choices"][0]["message"]["content"]
 
     @pytest.mark.asyncio
     async def test_openai_streaming(self, openai_imodel):
@@ -165,9 +154,7 @@ class TestOpenAIIntegration:
             for chunk in chunks:
                 yield chunk
 
-        with patch.object(
-            openai_imodel.endpoint, "stream", return_value=mock_openai_stream()
-        ):
+        with patch.object(openai_imodel.endpoint, "stream", return_value=mock_openai_stream()):
             chunks = []
             async for chunk in openai_imodel.stream(
                 messages=[{"role": "user", "content": "Hello"}],
@@ -186,9 +173,7 @@ class TestOpenAIIntegration:
 
     def test_openai_url_construction(self):
         """Test OpenAI URL construction."""
-        endpoint = match_endpoint(
-            provider="openai", endpoint="chat", model="gpt-4.1-mini"
-        )
+        endpoint = match_endpoint(provider="openai", endpoint="chat", model="gpt-4.1-mini")
 
         url = endpoint.config.full_url
         assert "api.openai.com" in url
@@ -215,24 +200,16 @@ class TestOpenAIIntegration:
             assert payload["model"] == model
 
     @pytest.mark.asyncio
-    async def test_openai_parallel_requests(
-        self, openai_imodel, mock_response
-    ):
+    async def test_openai_parallel_requests(self, openai_imodel, mock_response):
         """Test parallel requests to OpenAI API."""
 
-        async def mock_request_with_delay(
-            request, cache_control=False, **kwargs
-        ):
+        async def mock_request_with_delay(request, cache_control=False, **kwargs):
             await asyncio.sleep(0.1)
             response = mock_response.json.return_value.copy()
-            response["id"] = (
-                f"chatcmpl-{request['messages'][0]['content'][-1]}"
-            )
+            response["id"] = f"chatcmpl-{request['messages'][0]['content'][-1]}"
             return response
 
-        with patch.object(
-            openai_imodel.endpoint, "call", side_effect=mock_request_with_delay
-        ):
+        with patch.object(openai_imodel.endpoint, "call", side_effect=mock_request_with_delay):
             tasks = []
             for i in range(3):
                 task = asyncio.create_task(
@@ -269,9 +246,7 @@ class TestOpenAIIntegration:
 
         payload, _ = openai_imodel.endpoint.create_payload(
             {
-                "messages": [
-                    {"role": "user", "content": "What's the weather?"}
-                ],
+                "messages": [{"role": "user", "content": "What's the weather?"}],
                 "model": "gpt-4.1-mini",
                 "tools": tools,
                 "tool_choice": "auto",
@@ -293,9 +268,7 @@ class TestOpenAIIntegration:
 
         assert payload["response_format"] == {"type": "json_object"}
 
-    def test_openai_reasoning_model_parameter_filtering(
-        self, reasoning_imodel
-    ):
+    def test_openai_reasoning_model_parameter_filtering(self, reasoning_imodel):
         """Test parameter filtering for reasoning models."""
         # These parameters should be filtered out for o1 models
         forbidden_params = {
@@ -310,9 +283,7 @@ class TestOpenAIIntegration:
 
         payload, _ = reasoning_imodel.endpoint.create_payload(
             {
-                "messages": [
-                    {"role": "user", "content": "Complex reasoning task"}
-                ],
+                "messages": [{"role": "user", "content": "Complex reasoning task"}],
                 "model": "o1-preview",
                 "max_tokens": 1000,  # This should be kept
                 **forbidden_params,
@@ -333,10 +304,7 @@ class TestOpenAIIntegration:
                 model="gpt-4.1-mini",
             )
 
-        assert (
-            imodel.endpoint.config.base_url
-            == "https://custom.openai.proxy.com/v1"
-        )
+        assert imodel.endpoint.config.base_url == "https://custom.openai.proxy.com/v1"
 
     @pytest.mark.asyncio
     async def test_openai_error_handling(self, openai_imodel):
@@ -349,9 +317,7 @@ class TestOpenAIIntegration:
             "call",
             side_effect=aiohttp.ClientError("Rate limit exceeded"),
         ):
-            result = await openai_imodel.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+            result = await openai_imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
 
             # The invoke method returns a failed APICalling object instead of raising
             assert result.status == EventStatus.FAILED
@@ -407,19 +373,13 @@ class TestGeminiIntegration:
     def test_gemini_endpoint_configuration(self, gemini_imodel):
         """Test that Gemini endpoint is configured correctly."""
         assert gemini_imodel.endpoint.config.provider == "gemini"
-        assert (
-            "generativelanguage.googleapis.com"
-            in gemini_imodel.endpoint.config.base_url
-        )
+        assert "generativelanguage.googleapis.com" in gemini_imodel.endpoint.config.base_url
 
     def test_gemini_config_defaults(self):
         """Test _get_gemini_config returns correct defaults."""
         config = _get_gemini_config()
         assert config.provider == "gemini"
-        assert (
-            config.base_url
-            == "https://generativelanguage.googleapis.com/v1beta/openai"
-        )
+        assert config.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
         assert config.endpoint == "chat/completions"
         assert config.auth_type == "bearer"
         assert config.method == "POST"
@@ -465,17 +425,13 @@ class TestGeminiIntegration:
 
     def test_gemini_match_endpoint_routing(self):
         """Test that match_endpoint routes 'gemini' + 'chat' correctly."""
-        endpoint = match_endpoint(
-            provider="gemini", endpoint="chat", model="gemini-2.5-flash"
-        )
+        endpoint = match_endpoint(provider="gemini", endpoint="chat", model="gemini-2.5-flash")
         assert isinstance(endpoint, GeminiChatEndpoint)
         assert endpoint.config.provider == "gemini"
 
     def test_gemini_url_construction(self):
         """Test Gemini URL construction."""
-        endpoint = match_endpoint(
-            provider="gemini", endpoint="chat", model="gemini-2.5-flash"
-        )
+        endpoint = match_endpoint(provider="gemini", endpoint="chat", model="gemini-2.5-flash")
         url = endpoint.config.full_url
         assert "generativelanguage.googleapis.com" in url
         assert "chat/completions" in url
@@ -493,9 +449,7 @@ class TestGeminiIntegration:
         assert model.endpoint.config.provider == "gemini"
 
     @pytest.mark.asyncio
-    async def test_gemini_api_calling_creation(
-        self, gemini_imodel, mock_response
-    ):
+    async def test_gemini_api_calling_creation(self, gemini_imodel, mock_response):
         """Test creating APICalling for Gemini."""
         api_call = gemini_imodel.create_api_calling(
             messages=[{"role": "user", "content": "Hello, Gemini!"}],
@@ -509,9 +463,7 @@ class TestGeminiIntegration:
         assert api_call.payload["max_tokens"] == 100
 
     @pytest.mark.asyncio
-    async def test_gemini_successful_invoke(
-        self, gemini_imodel, mock_response
-    ):
+    async def test_gemini_successful_invoke(self, gemini_imodel, mock_response):
         """Test successful Gemini API invocation."""
         with patch.object(
             gemini_imodel.endpoint,
