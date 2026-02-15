@@ -1,7 +1,5 @@
 """Tests for MCP security configuration."""
 
-import os
-
 import pytest
 
 from lionagi.service.connections.mcp.wrapper import (
@@ -24,9 +22,7 @@ class TestMCPSecurityConfig:
 
     def test_custom_allowlist(self):
         """Custom allowlist restricts commands."""
-        config = MCPSecurityConfig(
-            command_allowlist=frozenset({"node", "python"})
-        )
+        config = MCPSecurityConfig(command_allowlist=frozenset({"node", "python"}))
         assert "node" in config.command_allowlist
         assert "python" in config.command_allowlist
 
@@ -71,9 +67,7 @@ class TestFilterEnv:
 
     def test_custom_deny_patterns(self):
         """Custom deny patterns are respected."""
-        config = MCPSecurityConfig(
-            env_denylist_patterns=frozenset({"CUSTOM_SECRET"})
-        )
+        config = MCPSecurityConfig(env_denylist_patterns=frozenset({"CUSTOM_SECRET"}))
         env = {
             "CUSTOM_SECRET_KEY": "hidden",
             "PATH": "/usr/bin",
@@ -105,33 +99,25 @@ class TestValidateCommand:
 
     def test_allowlist_blocks_unlisted(self):
         """Commands not in allowlist are blocked."""
-        config = MCPSecurityConfig(
-            command_allowlist=frozenset({"node", "python"})
-        )
+        config = MCPSecurityConfig(command_allowlist=frozenset({"node", "python"}))
         with pytest.raises(ValueError, match="not in allowlist"):
             _validate_command("bash", config)
 
     def test_allowlist_permits_listed(self):
         """Commands in allowlist are permitted."""
-        config = MCPSecurityConfig(
-            command_allowlist=frozenset({"node", "python"})
-        )
+        config = MCPSecurityConfig(command_allowlist=frozenset({"node", "python"}))
         _validate_command("node", config)
         _validate_command("python", config)
 
     def test_path_separator_rejected_bare_in_allowlist(self):
         """Path commands rejected even when bare name is in allowlist."""
-        config = MCPSecurityConfig(
-            command_allowlist=frozenset({"node"})
-        )
+        config = MCPSecurityConfig(command_allowlist=frozenset({"node"}))
         with pytest.raises(ValueError, match="path separator"):
             _validate_command("/usr/bin/node", config)
 
     def test_path_separator_rejected_bare_not_in_allowlist(self):
         """Path commands rejected when bare name not in allowlist either."""
-        config = MCPSecurityConfig(
-            command_allowlist=frozenset({"python"})
-        )
+        config = MCPSecurityConfig(command_allowlist=frozenset({"python"}))
         with pytest.raises(ValueError, match="not in allowlist"):
             _validate_command("/usr/bin/node", config)
 

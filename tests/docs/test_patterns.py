@@ -120,12 +120,8 @@ class TestFanOutIn:
         )
 
         # Simulate aggregating expert responses into context
-        combined = "\n".join(
-            f"Expert {i+1}: {r}" for i, r in enumerate(expert_responses)
-        )
-        result = await synthesizer.communicate(
-            f"Synthesize these reviews:\n{combined}"
-        )
+        combined = "\n".join(f"Expert {i + 1}: {r}" for i, r in enumerate(expert_responses))
+        result = await synthesizer.communicate(f"Synthesize these reviews:\n{combined}")
         assert isinstance(result, str)
         assert len(result) > 0
 
@@ -299,9 +295,7 @@ class TestTournamentValidation:
         )
 
         # All solvers answer concurrently
-        solutions = await asyncio.gather(
-            *(s.communicate("Solve: 2x + 1 = 7") for s in solvers)
-        )
+        solutions = await asyncio.gather(*(s.communicate("Solve: 2x + 1 = 7") for s in solvers))
         assert len(solutions) == 3
         assert all("Solution" in s for s in solutions)
 
@@ -363,16 +357,12 @@ class TestConditionalFlows:
         )
 
         # Step 1: classify
-        classification = await classifier.communicate(
-            "Analyze this algorithm."
-        )
+        classification = await classifier.communicate("Analyze this algorithm.")
         assert "technical" in classification
 
         # Step 2: route based on classification
         if "technical" in classification:
-            result = await technical.communicate(
-                "Deep dive into the algorithm."
-            )
+            result = await technical.communicate("Deep dive into the algorithm.")
         else:
             result = await general.communicate("Summarize the topic.")
 

@@ -7,7 +7,6 @@ adapted to any framework (Pydantic, attrs, dataclasses, etc.) via adapters.
 from __future__ import annotations
 
 import contextlib
-import inspect
 import os
 import threading
 from collections import OrderedDict

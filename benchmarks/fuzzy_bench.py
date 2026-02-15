@@ -52,9 +52,7 @@ async def _bench_once(fn: Callable[[], None]) -> float:
     return time.perf_counter() - t0
 
 
-async def _bench_repeat(
-    name: str, repeat: int, fn: Callable[[], None]
-) -> Stat:
+async def _bench_repeat(name: str, repeat: int, fn: Callable[[], None]) -> Stat:
     runs = []
     for _ in range(repeat):
         runs.append(await _bench_once(fn))
@@ -151,9 +149,7 @@ def scenario_string_similarity_bulk_2000() -> Callable[[], None]:
 
     def _run():
         for _ in range(2000):
-            string_similarity(
-                word, candidates, algorithm="jaro_winkler", threshold=0.6
-            )
+            string_similarity(word, candidates, algorithm="jaro_winkler", threshold=0.6)
 
     return _run
 
@@ -243,20 +239,14 @@ def compare_results(current: dict[str, Any], baseline: dict[str, Any]) -> str:
             delta = float("inf")
         else:
             delta = (cur_med - base_med) / base_med
-        lines.append(
-            f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}"
-        )
+        lines.append(f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}")
     return "\n".join(lines)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Fuzzy utilities micro-benchmarks"
-    )
+    parser = argparse.ArgumentParser(description="Fuzzy utilities micro-benchmarks")
     parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument(
-        "--json", action="store_true", help="Print JSON to stdout"
-    )
+    parser.add_argument("--json", action="store_true", help="Print JSON to stdout")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument(
         "--compare",
@@ -289,9 +279,7 @@ def main() -> None:
 
     if args.compare:
         try:
-            baseline = json.loads(
-                Path(args.compare).read_text(encoding="utf-8")
-            )
+            baseline = json.loads(Path(args.compare).read_text(encoding="utf-8"))
             print()
             print(compare_results(payload, baseline))
         except Exception as e:

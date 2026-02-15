@@ -408,9 +408,7 @@ class TestMutabilityAfterRoundTrip:
         flow, nodes, _ = _flow_with_progression(3, "existing")
         d = flow.to_dict()
         flow2 = Flow.from_dict(d)
-        new_prog = Progression(
-            order=[nodes[0].id, nodes[1].id], name="new-stage"
-        )
+        new_prog = Progression(order=[nodes[0].id, nodes[1].id], name="new-stage")
         flow2.add_progression(new_prog)
         assert len(flow2.progressions) == 2
         assert flow2.get_progression("new-stage").id == new_prog.id

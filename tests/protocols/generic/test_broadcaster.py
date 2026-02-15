@@ -3,13 +3,11 @@
 
 """Tests for Broadcaster (lionagi/service/broadcaster.py)."""
 
-import asyncio
 import gc
 
 import pytest
 
 from lionagi.service.broadcaster import Broadcaster
-
 
 # ---------------------------------------------------------------------------
 # Helpers -- fresh event/broadcaster types per test to avoid cross-pollution

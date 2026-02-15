@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from lionagi.protocols.generic.event import Event, EventStatus
+from lionagi.protocols.generic.event import Event
 from lionagi.protocols.generic.processor import Processor
 
 

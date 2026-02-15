@@ -17,7 +17,7 @@ Usage Examples:
     )
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from unittest.mock import AsyncMock
 
 from lionagi.protocols.generic.event import EventStatus
@@ -168,9 +168,7 @@ class LionAGIMockFactory:
     @staticmethod
     def create_mocked_session(
         branches: list[str] | None = None,
-        default_branch_response: (
-            str | dict[str, Any]
-        ) = "mocked_response_string",
+        default_branch_response: (str | dict[str, Any]) = "mocked_response_string",
     ):
         """
         Create a Session with multiple mocked branches.
@@ -213,9 +211,7 @@ class LionAGIMockFactory:
             APICalling instance configured for error testing
         """
         api_call = LionAGIMockFactory.create_api_calling_mock(
-            response_data={
-                "error": {"message": error_message, "code": error_code}
-            },
+            response_data={"error": {"message": error_message, "code": error_code}},
             status=status,
         )
 

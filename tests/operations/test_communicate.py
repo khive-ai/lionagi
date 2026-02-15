@@ -40,9 +40,7 @@ def make_mocked_branch_for_communicate():
         return fake_call
 
     async_mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
+    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
     mock_chat_model.invoke = async_mock_invoke
 
     branch.chat_model = mock_chat_model
@@ -56,9 +54,7 @@ async def test_communicate_no_validation():
     """
     branch = make_mocked_branch_for_communicate()
 
-    result = await branch.communicate(
-        instruction="User says hi", skip_validation=True
-    )
+    result = await branch.communicate(instruction="User says hi", skip_validation=True)
     assert result == '{"data":"mocked_response_string"}'
 
     # If your updated code doesn't store messages, or does so differently, adjust accordingly:

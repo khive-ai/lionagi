@@ -77,17 +77,13 @@ async def test_completion_stream_with_limit(anyio_backend):
 
     async def tracked_task(x):
         current_running["count"] += 1
-        current_running["max"] = max(
-            current_running["max"], current_running["count"]
-        )
+        current_running["max"] = max(current_running["max"], current_running["count"])
         await anyio.sleep(0.01)
         current_running["count"] -= 1
         return x
 
     LIMIT = 3
-    async with CompletionStream(
-        [tracked_task(i) for i in range(10)], limit=LIMIT
-    ) as stream:
+    async with CompletionStream([tracked_task(i) for i in range(10)], limit=LIMIT) as stream:
         async for idx, result in stream:
             pass
 
@@ -102,17 +98,13 @@ async def test_completion_stream_limit_none_allows_all_concurrent(
 
     async def tracked_task(x):
         current_running["count"] += 1
-        current_running["max"] = max(
-            current_running["max"], current_running["count"]
-        )
+        current_running["max"] = max(current_running["max"], current_running["count"])
         await anyio.sleep(0.01)
         current_running["count"] -= 1
         return x
 
     NUM_TASKS = 8
-    async with CompletionStream(
-        [tracked_task(i) for i in range(NUM_TASKS)], limit=None
-    ) as stream:
+    async with CompletionStream([tracked_task(i) for i in range(NUM_TASKS)], limit=None) as stream:
         async for idx, result in stream:
             pass
 
@@ -133,9 +125,7 @@ async def test_completion_stream_early_break_exits_cleanly(anyio_backend):
         await anyio.sleep(0.001)
         return x
 
-    async with CompletionStream(
-        [task(i) for i in range(20)], limit=5
-    ) as stream:
+    async with CompletionStream([task(i) for i in range(20)], limit=5) as stream:
         async for idx, result in stream:
             consumed.append(result)
             if idx == 0:
@@ -157,9 +147,7 @@ async def test_completion_stream_consume_all_results(anyio_backend):
         await anyio.sleep(0.001)
         return x * 2
 
-    async with CompletionStream(
-        [task(i) for i in range(10)], limit=3
-    ) as stream:
+    async with CompletionStream([task(i) for i in range(10)], limit=3) as stream:
         async for idx, result in stream:
             results.append(result)
 
@@ -185,16 +173,13 @@ async def test_completion_stream_exception_propagation(anyio_backend):
 
     # Exceptions in tasks are wrapped in ExceptionGroup by task group
     with pytest.raises(ExceptionGroup) as exc_info:
-        async with CompletionStream(
-            [failing_task(i) for i in range(10)], limit=5
-        ) as stream:
+        async with CompletionStream([failing_task(i) for i in range(10)], limit=5) as stream:
             async for idx, result in stream:
                 pass
 
     # Verify the ValueError is in the exception group
     assert any(
-        isinstance(e, ValueError) and "Task 3 failed" in str(e)
-        for e in exc_info.value.exceptions
+        isinstance(e, ValueError) and "Task 3 failed" in str(e) for e in exc_info.value.exceptions
     )
 
 
@@ -234,9 +219,7 @@ async def test_completion_stream_exception_early_in_iteration(anyio_backend):
         return x
 
     with pytest.raises(ExceptionGroup) as exc_info:
-        async with CompletionStream(
-            [task(i) for i in range(10)], limit=3
-        ) as stream:
+        async with CompletionStream([task(i) for i in range(10)], limit=3) as stream:
             async for idx, result in stream:
                 pass
 
@@ -267,9 +250,7 @@ async def test_completion_stream_not_in_context_manager_raises(anyio_backend):
         warnings.simplefilter("ignore", RuntimeWarning)
         stream = CompletionStream([dummy_task(i) for i in range(3)])
 
-        with pytest.raises(
-            RuntimeError, match="must be used as async context manager"
-        ):
+        with pytest.raises(RuntimeError, match="must be used as async context manager"):
             async for idx, result in stream:
                 pass
 
@@ -315,9 +296,7 @@ async def test_completion_stream_handles_slow_tasks(anyio_backend):
         return x
 
     results = []
-    async with CompletionStream(
-        [task(i) for i in range(10)], limit=3
-    ) as stream:
+    async with CompletionStream([task(i) for i in range(10)], limit=3) as stream:
         async for idx, result in stream:
             results.append((idx, result))
 
@@ -397,9 +376,7 @@ async def test_completion_stream_with_immediate_results(anyio_backend):
         return x * 2
 
     results = {}
-    async with CompletionStream(
-        [instant_task(i) for i in range(5)], limit=2
-    ) as stream:
+    async with CompletionStream([instant_task(i) for i in range(5)], limit=2) as stream:
         async for idx, result in stream:
             results[idx] = result
 
@@ -427,9 +404,7 @@ async def test_completion_stream_realistic_workload(anyio_backend):
     TASKS = 20
     LIMIT = 5
 
-    async with CompletionStream(
-        [mixed_speed_task(i) for i in range(TASKS)], limit=LIMIT
-    ) as stream:
+    async with CompletionStream([mixed_speed_task(i) for i in range(TASKS)], limit=LIMIT) as stream:
         async for idx, result in stream:
             results.append(result)
 
@@ -447,9 +422,7 @@ async def test_completion_stream_partial_consumption_then_break(anyio_backend):
         await anyio.sleep(0.001)
         return x
 
-    async with CompletionStream(
-        [task(i) for i in range(10)], limit=3
-    ) as stream:
+    async with CompletionStream([task(i) for i in range(10)], limit=3) as stream:
         # Consume first 3 results then break
         count = 0
         async for idx, result in stream:

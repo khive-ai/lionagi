@@ -6,7 +6,7 @@ from 50% to 80%+. Focuses on embedding validation, serialization,
 adaptation, and registration functionality.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import orjson
 import pytest
@@ -244,12 +244,8 @@ class TestNodeAdaptation:
         """Test async adapt_to with postgres adapter."""
         node = Node(content="test")
 
-        with patch(
-            "lionagi.protocols.graph.node._ensure_postgres_adapter"
-        ) as mock_ensure:
-            with patch.object(
-                Node.__bases__[-2], "adapt_to_async"
-            ) as mock_adapt:
+        with patch("lionagi.protocols.graph.node._ensure_postgres_adapter") as mock_ensure:
+            with patch.object(Node.__bases__[-2], "adapt_to_async") as mock_adapt:
                 mock_adapt.return_value = {"adapted": "data"}
 
                 result = await node.adapt_to_async("lionagi_async_pg")
@@ -280,19 +276,13 @@ class TestNodeAdaptation:
         """Test async adapt_from with postgres adapter."""
         test_data = {"test": "data"}
 
-        with patch(
-            "lionagi.protocols.graph.node._ensure_postgres_adapter"
-        ) as mock_ensure:
+        with patch("lionagi.protocols.graph.node._ensure_postgres_adapter") as mock_ensure:
             # Need to patch the superclass method to avoid infinite recursion
-            with patch.object(
-                Node.__bases__[-2], "adapt_from_async"
-            ) as mock_adapt:
+            with patch.object(Node.__bases__[-2], "adapt_from_async") as mock_adapt:
                 mock_node = Node()
                 mock_adapt.return_value = mock_node
 
-                result = await Node.adapt_from_async(
-                    test_data, "lionagi_async_pg"
-                )
+                result = await Node.adapt_from_async(test_data, "lionagi_async_pg")
 
                 # Should have called _ensure_postgres_adapter
                 mock_ensure.assert_called_once()
@@ -316,9 +306,7 @@ class TestNodeRegistration:
     def test_pydantic_init_subclass_calls_super(self):
         """Test that __pydantic_init_subclass__ calls super()."""
         # Mock the super().__pydantic_init_subclass__ to verify it's called
-        with patch.object(
-            Node.__bases__[0], "__pydantic_init_subclass__"
-        ) as mock_super:
+        with patch.object(Node.__bases__[0], "__pydantic_init_subclass__") as mock_super:
 
             class TestSubclass(Node):
                 pass
@@ -348,18 +336,14 @@ class TestPostgresAdapterIntegration:
         if hasattr(Node, "_postgres_adapter_checked"):
             delattr(Node, "_postgres_adapter_checked")
 
-        with patch(
-            "lionagi.adapters._utils.check_async_postgres_available"
-        ) as mock_check:
+        with patch("lionagi.adapters._utils.check_async_postgres_available") as mock_check:
             mock_check.return_value = True
 
             # Mock the import of the adapter
             with patch(
                 "lionagi.adapters.async_postgres_adapter.LionAGIAsyncPostgresAdapter"
             ) as mock_adapter:
-                with patch.object(
-                    Node, "register_async_adapter"
-                ) as mock_register:
+                with patch.object(Node, "register_async_adapter") as mock_register:
                     _ensure_postgres_adapter()
 
                     # Should have checked availability
@@ -377,9 +361,7 @@ class TestPostgresAdapterIntegration:
         if hasattr(Node, "_postgres_adapter_checked"):
             delattr(Node, "_postgres_adapter_checked")
 
-        with patch(
-            "lionagi.adapters._utils.check_async_postgres_available"
-        ) as mock_check:
+        with patch("lionagi.adapters._utils.check_async_postgres_available") as mock_check:
             mock_check.return_value = False
 
             with patch.object(Node, "register_async_adapter") as mock_register:
@@ -400,9 +382,7 @@ class TestPostgresAdapterIntegration:
         if hasattr(Node, "_postgres_adapter_checked"):
             delattr(Node, "_postgres_adapter_checked")
 
-        with patch(
-            "lionagi.adapters._utils.check_async_postgres_available"
-        ) as mock_check:
+        with patch("lionagi.adapters._utils.check_async_postgres_available") as mock_check:
             mock_check.return_value = True
 
             with patch.object(Node, "register_async_adapter"):

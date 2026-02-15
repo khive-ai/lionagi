@@ -16,9 +16,7 @@ def patch_cancel(monkeypatch):
     """Auto-patch cancellation class for all tests in this module."""
     from lionagi.service.hooks import hook_registry
 
-    monkeypatch.setattr(
-        hook_registry, "get_cancelled_exc_class", lambda: MyCancelled
-    )
+    monkeypatch.setattr(hook_registry, "get_cancelled_exc_class", lambda: MyCancelled)
     yield
     # auto-unpatch
 
@@ -34,9 +32,7 @@ class TestPreEventCreateMatrix:
             return FakeEvent("created", 1.0)
 
         registry = HookRegistry(hooks={HookEventTypes.PreEventCreate: hook})
-        res, se, st = await registry.pre_event_create(
-            FakeEventType, exit=False
-        )
+        res, se, st = await registry.pre_event_create(FakeEventType, exit=False)
 
         assert se is False
         assert st == EventStatus.COMPLETED
@@ -50,15 +46,11 @@ class TestPreEventCreateMatrix:
             raise MyCancelled("cancelled")
 
         registry = HookRegistry(hooks={HookEventTypes.PreEventCreate: hook})
-        res, se, st = await registry.pre_event_create(
-            FakeEventType, exit=False
-        )
+        res, se, st = await registry.pre_event_create(FakeEventType, exit=False)
 
         assert se is True
         assert st == EventStatus.CANCELLED
-        assert (
-            isinstance(res, tuple) and len(res) == 2
-        )  # (UNDEFINED, exception)
+        assert isinstance(res, tuple) and len(res) == 2  # (UNDEFINED, exception)
 
     @pytest.mark.anyio
     async def test_pre_event_create_other_exception_respects_exit_policy(self):
@@ -70,9 +62,7 @@ class TestPreEventCreateMatrix:
         registry = HookRegistry(hooks={HookEventTypes.PreEventCreate: hook})
 
         # exit=False -> should_exit=False
-        res, se, st = await registry.pre_event_create(
-            FakeEventType, exit=False
-        )
+        res, se, st = await registry.pre_event_create(FakeEventType, exit=False)
         assert se is False
         assert st == EventStatus.CANCELLED
         assert isinstance(res, RuntimeError)
@@ -203,9 +193,7 @@ class TestStreamHandlerMatrix:
             return f"handled {ch}"
 
         registry = HookRegistry(stream_handlers={"test": handler})
-        res, se, st = await registry.handle_streaming_chunk(
-            "test", "chunk_data", exit=False
-        )
+        res, se, st = await registry.handle_streaming_chunk("test", "chunk_data", exit=False)
 
         assert se is False
         assert st is None  # Stream handlers return None for status
@@ -219,9 +207,7 @@ class TestStreamHandlerMatrix:
             raise MyCancelled("stream cancelled")
 
         registry = HookRegistry(stream_handlers={"test": handler})
-        res, se, st = await registry.handle_streaming_chunk(
-            "test", "chunk_data", exit=False
-        )
+        res, se, st = await registry.handle_streaming_chunk("test", "chunk_data", exit=False)
 
         assert se is True
         assert st == EventStatus.CANCELLED
@@ -239,17 +225,13 @@ class TestStreamHandlerMatrix:
         registry = HookRegistry(stream_handlers={"test": handler})
 
         # exit=False -> should_exit=False, status=ABORTED
-        res, se, st = await registry.handle_streaming_chunk(
-            "test", "chunk_data", exit=False
-        )
+        res, se, st = await registry.handle_streaming_chunk("test", "chunk_data", exit=False)
         assert se is False
         assert st == EventStatus.ABORTED
         assert isinstance(res, RuntimeError)
 
         # exit=True -> should_exit=True, status=ABORTED
-        res, se, st = await registry.handle_streaming_chunk(
-            "test", "chunk_data", exit=True
-        )
+        res, se, st = await registry.handle_streaming_chunk("test", "chunk_data", exit=True)
         assert se is True
         assert st == EventStatus.ABORTED
         assert isinstance(res, RuntimeError)
@@ -281,16 +263,12 @@ class TestMatrixParameterized:
         else:
             event_like = FakeEvent()
 
-        (res, se, st), _ = await registry.call(
-            event_like, hook_type=hook_type, exit=False
-        )
+        (res, se, st), _ = await registry.call(event_like, hook_type=hook_type, exit=False)
         assert se is True
         assert st == EventStatus.CANCELLED
 
         # Test with exit=True
-        (res, se, st), _ = await registry.call(
-            event_like, hook_type=hook_type, exit=True
-        )
+        (res, se, st), _ = await registry.call(event_like, hook_type=hook_type, exit=True)
         assert se is True
         assert st == EventStatus.CANCELLED
 
@@ -303,9 +281,7 @@ class TestMatrixParameterized:
             (HookEventTypes.PostInvocation, EventStatus.ABORTED),
         ],
     )
-    async def test_non_cancelled_exceptions_respect_exit_policy(
-        self, hook_type, expected_status
-    ):
+    async def test_non_cancelled_exceptions_respect_exit_policy(self, hook_type, expected_status):
         """Non-cancelled exceptions respect the exit policy and use correct status."""
 
         async def hook(*args, **kw):
@@ -319,16 +295,12 @@ class TestMatrixParameterized:
             event_like = FakeEvent()
 
         # Test with exit=False -> should_exit=False
-        (res, se, st), _ = await registry.call(
-            event_like, hook_type=hook_type, exit=False
-        )
+        (res, se, st), _ = await registry.call(event_like, hook_type=hook_type, exit=False)
         assert se is False
         assert st == expected_status
 
         # Test with exit=True -> should_exit=True
-        (res, se, st), _ = await registry.call(
-            event_like, hook_type=hook_type, exit=True
-        )
+        (res, se, st), _ = await registry.call(event_like, hook_type=hook_type, exit=True)
         assert se is True
         assert st == expected_status
 
@@ -356,9 +328,7 @@ class TestMatrixParameterized:
 
         # Test with different exit policies - normal completion ignores exit
         for exit_val in [False, True]:
-            (res, se, st), _ = await registry.call(
-                event_like, hook_type=hook_type, exit=exit_val
-            )
+            (res, se, st), _ = await registry.call(event_like, hook_type=hook_type, exit=exit_val)
             assert se is False
             assert st == EventStatus.COMPLETED
             assert res == "success"

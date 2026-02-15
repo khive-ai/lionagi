@@ -14,10 +14,7 @@ def test_systemcontent_initialization():
     """Test basic initialization of SystemContent dataclass"""
     # Default initialization
     content = SystemContent()
-    assert (
-        content.system_message
-        == "You are a helpful AI assistant. Let's think step by step."
-    )
+    assert content.system_message == "You are a helpful AI assistant. Let's think step by step."
     assert content.system_datetime is None
 
     # Custom message
@@ -26,9 +23,7 @@ def test_systemcontent_initialization():
     assert content.system_datetime is None
 
     # With datetime
-    content = SystemContent(
-        system_message="Test message", system_datetime="2024-01-01T12:00"
-    )
+    content = SystemContent(system_message="Test message", system_datetime="2024-01-01T12:00")
     assert content.system_message == "Test message"
     assert content.system_datetime == "2024-01-01T12:00"
 
@@ -56,9 +51,7 @@ def test_systemcontent_rendered_without_datetime():
 
 def test_systemcontent_rendered_with_datetime():
     """Test rendered property with datetime"""
-    content = SystemContent(
-        system_message="Test message", system_datetime="2024-01-01T12:00"
-    )
+    content = SystemContent(system_message="Test message", system_datetime="2024-01-01T12:00")
 
     rendered = content.rendered
     assert "System Time: 2024-01-01T12:00" in rendered
@@ -122,10 +115,7 @@ def test_systemcontent_from_dict_empty():
     data = {}
     content = SystemContent.from_dict(data)
 
-    assert (
-        content.system_message
-        == "You are a helpful AI assistant. Let's think step by step."
-    )
+    assert content.system_message == "You are a helpful AI assistant. Let's think step by step."
     assert content.system_datetime is None
 
 
@@ -135,10 +125,7 @@ def test_systemcontent_from_dict_partial():
     content = SystemContent.from_dict(data)
 
     # Should use default system_message
-    assert (
-        content.system_message
-        == "You are a helpful AI assistant. Let's think step by step."
-    )
+    assert content.system_message == "You are a helpful AI assistant. Let's think step by step."
     assert content.system_datetime == "2024-01-01T12:00"
 
 
@@ -162,9 +149,7 @@ def test_system_initialization():
 def test_system_with_datetime_true():
     """Test System with datetime generation (datetime=True)"""
     system_msg = "Test system message"
-    system = System(
-        content={"system_message": system_msg, "system_datetime": True}
-    )
+    system = System(content={"system_message": system_msg, "system_datetime": True})
 
     assert "System Time:" in system.rendered
     assert system_msg in system.rendered
@@ -177,9 +162,7 @@ def test_system_with_datetime_true():
 
 def test_system_with_datetime_false():
     """Test System with datetime=False"""
-    system = System(
-        content={"system_message": "Test", "system_datetime": False}
-    )
+    system = System(content={"system_message": "Test", "system_datetime": False})
 
     assert system.content.system_datetime is None
     assert "System Time:" not in system.rendered
@@ -196,9 +179,7 @@ def test_system_with_datetime_none():
 def test_system_with_custom_datetime():
     """Test System with custom datetime string"""
     custom_datetime = "2024-01-01T12:00:00"
-    system = System(
-        content={"system_message": "Test", "system_datetime": custom_datetime}
-    )
+    system = System(content={"system_message": "Test", "system_datetime": custom_datetime})
 
     assert system.content.system_datetime == custom_datetime
     assert custom_datetime in system.rendered
@@ -285,9 +266,7 @@ def test_system_validation():
 
 def test_system_serialization():
     """Test System serialization"""
-    system = System(
-        content={"system_message": "Test message", "system_datetime": True}
-    )
+    system = System(content={"system_message": "Test message", "system_datetime": True})
 
     serialized = system.model_dump()
 
@@ -312,8 +291,7 @@ def test_system_content_validator_with_none():
 
     assert isinstance(system.content, SystemContent)
     assert (
-        system.content.system_message
-        == "You are a helpful AI assistant. Let's think step by step."
+        system.content.system_message == "You are a helpful AI assistant. Let's think step by step."
     )
 
 
@@ -332,9 +310,7 @@ def test_system_content_validator_with_dict():
 
 def test_system_content_validator_with_systemcontent():
     """Test System content validator handles SystemContent instance"""
-    content = SystemContent(
-        system_message="Custom message", system_datetime="2024-01-01T12:00"
-    )
+    content = SystemContent(system_message="Custom message", system_datetime="2024-01-01T12:00")
     system = System(content=content)
 
     assert system.content is content
@@ -367,9 +343,7 @@ def test_system_complete_workflow():
 
     # Verify structure
     assert isinstance(system.content, SystemContent)
-    assert (
-        system.content.system_message == "You are an expert Python developer."
-    )
+    assert system.content.system_message == "You are an expert Python developer."
     assert system.content.system_datetime is not None
 
     # Verify rendering
@@ -384,10 +358,7 @@ def test_system_complete_workflow():
 
     # Verify serialization
     serialized = system.model_dump()
-    assert (
-        serialized["content"]["system_message"]
-        == "You are an expert Python developer."
-    )
+    assert serialized["content"]["system_message"] == "You are an expert Python developer."
     assert serialized["content"]["system_datetime"] is not None
 
 

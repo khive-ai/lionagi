@@ -1,6 +1,5 @@
 """Simple test file to verify chunk functions work correctly."""
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -23,18 +22,14 @@ def test_chunk_by_chars_basic():
     chunks = chunk_by_chars(text, chunk_size=30, overlap=0.2, threshold=5)
     assert len(chunks) == 4
     # Verify all text is captured
-    full_text = "".join(chunks).replace(
-        "".join(set("".join(chunks)) - set(text)), ""
-    )
+    full_text = "".join(chunks).replace("".join(set("".join(chunks)) - set(text)), "")
     assert set(full_text) == set(text)
 
 
 def test_chunk_by_tokens_basic():
     """Test basic token chunking."""
     tokens = [f"token{i}" for i in range(50)]
-    chunks = chunk_by_tokens(
-        tokens, chunk_size=15, overlap=0.1, threshold=3, return_tokens=True
-    )
+    chunks = chunk_by_tokens(tokens, chunk_size=15, overlap=0.1, threshold=3, return_tokens=True)
     assert len(chunks) == 4
     # Verify first and last tokens are present
     assert "token0" in chunks[0][0]
@@ -177,9 +172,7 @@ def test_edge_cases():
     assert result == ["abc"]
 
     # Empty token list - returns two empty strings (same quirk)
-    result = chunk_by_tokens(
-        [], chunk_size=10, overlap=0, threshold=0, return_tokens=False
-    )
+    result = chunk_by_tokens([], chunk_size=10, overlap=0, threshold=0, return_tokens=False)
     assert result == ["", ""]
 
     # Single token

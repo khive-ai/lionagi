@@ -205,7 +205,9 @@ class MCPConnectionPool:
             with open(config_path) as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
-            raise json.JSONDecodeError(f"Invalid JSON in MCP config file: {e.msg}", e.doc, e.pos) from e
+            raise json.JSONDecodeError(
+                f"Invalid JSON in MCP config file: {e.msg}", e.doc, e.pos
+            ) from e
 
         if not isinstance(data, dict):
             raise ValueError("MCP config must be a JSON object")

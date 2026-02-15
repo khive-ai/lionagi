@@ -37,9 +37,7 @@ logger.add(sys.stderr, level="INFO")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not HAS_CODEX_CLI:
-        raise RuntimeError(
-            "Codex CLI not found. Install with: npm i -g @openai/codex"
-        )
+        raise RuntimeError("Codex CLI not found. Install with: npm i -g @openai/codex")
     logger.info(f"Codex CLI found: {CODEX_CLI}")
     logger.info("Codex CLI Proxy API started successfully")
     yield
@@ -65,9 +63,7 @@ async def query(request: CodexCodeRequest):
         return await endpoint._call(payload={"request": request}, headers={})
     except Exception as e:
         logger.error(f"Error processing request: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Internal server error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @app.exception_handler(Exception)
@@ -94,12 +90,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Codex CLI Proxy API Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
-    parser.add_argument(
-        "--port", type=int, default=8001, help="Port to bind to"
-    )
-    parser.add_argument(
-        "--reload", action="store_true", help="Enable auto-reload"
-    )
+    parser.add_argument("--port", type=int, default=8001, help="Port to bind to")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     args = parser.parse_args()
 
     uvicorn.run(

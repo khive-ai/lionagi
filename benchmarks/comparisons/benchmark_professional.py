@@ -46,8 +46,6 @@ import sys
 import textwrap
 from datetime import datetime
 
-import psutil
-
 RUNS = 20
 # Turn this on if you want to ALSO benchmark the common "ecosystem" cost versions
 # (e.g., LangGraph+LangChain community fake LLM). Left OFF by default for parity.
@@ -562,9 +560,7 @@ def _p95(vals):
     s = sorted(vals)
     k = 0.95 * (len(s) - 1)
     f, c = math.floor(k), math.ceil(k)
-    return (
-        float(s[int(k)]) if f == c else float(s[f] + (k - f) * (s[c] - s[f]))
-    )
+    return float(s[int(k)]) if f == c else float(s[f] + (k - f) * (s[c] - s[f]))
 
 
 def _trimmed_mean(vals, proportion_to_cut=0.1):
@@ -657,9 +653,7 @@ def run_case(label, code, mode):
 
         except subprocess.TimeoutExpired as e:
             end_time = datetime.now()
-            print(
-                f"TIMEOUT in {label} run {run_number + 1}: exceeded {e.timeout}s"
-            )
+            print(f"TIMEOUT in {label} run {run_number + 1}: exceeded {e.timeout}s")
             individual_runs.append(
                 {
                     "framework": label,
@@ -709,9 +703,7 @@ def run_case(label, code, mode):
                 }
             )
         except Exception as e:
-            print(
-                f"UNEXPECTED ERROR in {label} run {run_number + 1}: {str(e)}"
-            )
+            print(f"UNEXPECTED ERROR in {label} run {run_number + 1}: {str(e)}")
             individual_runs.append(
                 {
                     "framework": label,
@@ -876,9 +868,7 @@ def feature_parity_matrix():
     )
     print("-" * 120)
     for r in rows:
-        print(
-            f"{r[0]:<16} {r[1]:<38} {r[2]:<10} {r[3]:<10} {r[4]:<8} {r[5]:<10} {r[6]}"
-        )
+        print(f"{r[0]:<16} {r[1]:<38} {r[2]:<10} {r[3]:<10} {r[4]:<8} {r[5]:<10} {r[6]}")
 
 
 def main():
@@ -932,25 +922,17 @@ def main():
         # Build a list of (result, runs)
         cat_results = []
         for framework, code in category_data["cases"].items():
-            modes = (
-                ["cold"]
-                if category_name == "imports"
-                else ["cold", "construct"]
-            )
+            modes = ["cold"] if category_name == "imports" else ["cold", "construct"]
             for mode in modes:
                 result, runs = run_case(framework, code, mode)
                 if result:
                     # Attach category metadata and store
                     result["category"] = category_name
-                    result["category_description"] = category_data[
-                        "description"
-                    ]
+                    result["category_description"] = category_data["description"]
                     all_results.append(result)
                     for run in runs:
                         run["category"] = category_name
-                        run["category_description"] = category_data[
-                            "description"
-                        ]
+                        run["category_description"] = category_data["description"]
                     all_runs.extend(runs)
                     cat_results.append((result, runs))
 
@@ -1070,9 +1052,7 @@ def main():
 
             # Run the report generator with our files
             old_argv = sys.argv
-            sys.argv = [
-                "generate_benchmark_report.py"
-            ]  # Mock argv to avoid argparse conflicts
+            sys.argv = ["generate_benchmark_report.py"]  # Mock argv to avoid argparse conflicts
 
             report_args = ReportArgs(
                 summary=summary_csv,
@@ -1098,9 +1078,7 @@ def main():
 
         except ImportError:
             print("  ⚠️  Could not import generate_benchmark_report.py")
-            print(
-                "  ℹ️  Make sure generate_benchmark_report.py is in the same directory"
-            )
+            print("  ℹ️  Make sure generate_benchmark_report.py is in the same directory")
         except Exception as e:
             print(f"  ❌ Report generation failed: {e}")
 

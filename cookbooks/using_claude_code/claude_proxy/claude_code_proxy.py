@@ -49,13 +49,9 @@ def check_claude_code():
     try:
         from lionagi.service.third_party.claude_code import CLAUDE_CLI
 
-        result = subprocess.run(
-            [CLAUDE_CLI, "--version"], capture_output=True, text=True
-        )
+        result = subprocess.run([CLAUDE_CLI, "--version"], capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(
-                f"Claude Code not found, please install it first:\n"
-            )
+            raise RuntimeError("Claude Code not found, please install it first:\n")
         logger.info(f"Claude Code found: {result.stdout.strip()}")
     except Exception as e:
         logger.error(f"Claude Code check failed: {e}")
@@ -78,9 +74,7 @@ async def query(request: ClaudeCodeRequest):
         return await endpoint._call(payload={"request": request}, headers={})
     except Exception as e:
         logger.error(f"Error processing request: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Internal server error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 # Error handling
@@ -107,16 +101,10 @@ if __name__ == "__main__":
     # Parse command line arguments
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Claude Code Proxy API Server"
-    )
+    parser = argparse.ArgumentParser(description="Claude Code Proxy API Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
-    parser.add_argument(
-        "--port", type=int, default=8000, help="Port to bind to"
-    )
-    parser.add_argument(
-        "--reload", action="store_true", help="Enable auto-reload"
-    )
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     args = parser.parse_args()
 
     # Run server

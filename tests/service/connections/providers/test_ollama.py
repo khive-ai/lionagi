@@ -40,9 +40,7 @@ class TestOllamaEndpointConfiguration:
             OllamaChatEndpoint,
         )
 
-        with pytest.raises(
-            ModuleNotFoundError, match="ollama is not installed"
-        ):
+        with pytest.raises(ModuleNotFoundError, match="ollama is not installed"):
             OllamaChatEndpoint()
 
     @patch("lionagi.service.connections.providers.ollama_._HAS_OLLAMA", True)
@@ -126,9 +124,7 @@ class TestOllamaPayloadCreation:
             reasoning_effort: str = "medium"
 
         endpoint = OllamaChatEndpoint()
-        request = TestRequest(
-            model="llama2", messages=[{"role": "user", "content": "test"}]
-        )
+        request = TestRequest(model="llama2", messages=[{"role": "user", "content": "test"}])
 
         payload, headers = endpoint.create_payload(request)
 
@@ -177,9 +173,7 @@ class TestOllamaModelManagement:
         mock_ollama.reset_mock()
         mock_ollama.list = MagicMock(return_value=mock_models_response)
         mock_ollama.pull = MagicMock(
-            return_value=iter(
-                [{"status": "pulling manifest"}, {"status": "success"}]
-            )
+            return_value=iter([{"status": "pulling manifest"}, {"status": "success"}])
         )
 
         endpoint = OllamaChatEndpoint()
@@ -197,9 +191,7 @@ class TestOllamaModelManagement:
         )
 
         mock_ollama.reset_mock()
-        mock_ollama.list = MagicMock(
-            side_effect=ConnectionError("Connection failed")
-        )
+        mock_ollama.list = MagicMock(side_effect=ConnectionError("Connection failed"))
         mock_ollama.pull = MagicMock()
 
         endpoint = OllamaChatEndpoint()
@@ -365,9 +357,7 @@ class TestOllamaConfig:
             _get_ollama_config,
         )
 
-        config = _get_ollama_config(
-            base_url="http://custom-host:9999/v1", name="custom_ollama"
-        )
+        config = _get_ollama_config(base_url="http://custom-host:9999/v1", name="custom_ollama")
 
         assert config.base_url == "http://custom-host:9999/v1"
         assert config.name == "custom_ollama"

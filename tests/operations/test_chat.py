@@ -62,9 +62,7 @@ class TestAssistantResponseConsolidation:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "New question", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "New question", chat_ctx, return_ins_res_message=False)
 
         assert isinstance(result, str)
         assert "Mocked" in result
@@ -116,9 +114,7 @@ class TestAssistantResponseConsolidation:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "Q3", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "Q3", chat_ctx, return_ins_res_message=False)
 
         assert isinstance(result, str)
 
@@ -127,14 +123,10 @@ class TestSystemMessageHandling:
     """Test system message integration into instructions."""
 
     @pytest.mark.asyncio
-    async def test_chat_system_message_with_empty_progression(
-        self, make_mocked_branch_for_chat
-    ):
+    async def test_chat_system_message_with_empty_progression(self, make_mocked_branch_for_chat):
         """Verify system message handling with no prior messages."""
         # Create branch with system message
-        branch = make_mocked_branch_for_chat(
-            system="You are a helpful assistant"
-        )
+        branch = make_mocked_branch_for_chat(system="You are a helpful assistant")
 
         # Empty progression
         chat_ctx = ChatParam(
@@ -153,16 +145,12 @@ class TestSystemMessageHandling:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "Test question", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "Test question", chat_ctx, return_ins_res_message=False)
 
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_chat_system_message_with_existing_progression(
-        self, make_mocked_branch_for_chat
-    ):
+    async def test_chat_system_message_with_existing_progression(self, make_mocked_branch_for_chat):
         """Verify system message prepended to first instruction."""
         # Create branch with system message
         branch = make_mocked_branch_for_chat(system="You are helpful")
@@ -197,9 +185,7 @@ class TestSystemMessageHandling:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "New question", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "New question", chat_ctx, return_ins_res_message=False)
 
         assert isinstance(result, str)
 
@@ -239,9 +225,7 @@ class TestSystemMessageHandling:
             ValueError,
             match="First message in progression must be an Instruction",
         ):
-            await chat(
-                branch, "Question", chat_ctx, return_ins_res_message=False
-            )
+            await chat(branch, "Question", chat_ctx, return_ins_res_message=False)
 
 
 class TestActionResponseIntegration:
@@ -305,9 +289,7 @@ class TestActionResponseIntegration:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "New question", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "New question", chat_ctx, return_ins_res_message=False)
 
         assert isinstance(result, str)
 
@@ -362,9 +344,7 @@ class TestActionResponseIntegration:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "Continue", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "Continue", chat_ctx, return_ins_res_message=False)
 
         assert isinstance(result, str)
 
@@ -373,9 +353,7 @@ class TestStreamModeHandling:
     """Test stream vs invoke selection."""
 
     @pytest.mark.asyncio
-    async def test_chat_uses_stream_when_kwarg_set(
-        self, make_mocked_branch_for_chat
-    ):
+    async def test_chat_uses_stream_when_kwarg_set(self, make_mocked_branch_for_chat):
         """Verify imodel.stream called when stream=True."""
         branch = make_mocked_branch_for_chat()
 
@@ -425,9 +403,7 @@ class TestStreamModeHandling:
             imodel_kw={"stream": True},  # Stream mode
         )
 
-        result = await chat(
-            branch, "Test", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "Test", chat_ctx, return_ins_res_message=False)
 
         # Verify stream was called
         branch.chat_model.stream.assert_called_once()
@@ -460,9 +436,7 @@ class TestReturnFormats:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "Test", chat_ctx, return_ins_res_message=True
-        )
+        result = await chat(branch, "Test", chat_ctx, return_ins_res_message=True)
 
         # Should return tuple
         assert isinstance(result, tuple)
@@ -494,9 +468,7 @@ class TestReturnFormats:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "Test", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "Test", chat_ctx, return_ins_res_message=False)
 
         # Should return string
         assert isinstance(result, str)
@@ -512,9 +484,7 @@ class TestChatContextParameters:
     """Test ChatContext parameter handling and fallbacks."""
 
     @pytest.mark.asyncio
-    async def test_chat_sender_recipient_fallback_logic(
-        self, make_mocked_branch_for_chat
-    ):
+    async def test_chat_sender_recipient_fallback_logic(self, make_mocked_branch_for_chat):
         """Verify sender/recipient default resolution."""
         branch = make_mocked_branch_for_chat()
         branch.user = "test_user"
@@ -536,9 +506,7 @@ class TestChatContextParameters:
             imodel_kw={},
         )
 
-        ins, resp = await chat(
-            branch, "Test", chat_ctx, return_ins_res_message=True
-        )
+        ins, resp = await chat(branch, "Test", chat_ctx, return_ins_res_message=True)
 
         # Verify sender/recipient were set correctly
         assert ins.sender == branch.user or ins.sender == "user"
@@ -565,9 +533,7 @@ class TestChatContextParameters:
             imodel_kw={},
         )
 
-        result = await chat(
-            branch, "Describe image", chat_ctx, return_ins_res_message=False
-        )
+        result = await chat(branch, "Describe image", chat_ctx, return_ins_res_message=False)
 
         assert isinstance(result, str)
 

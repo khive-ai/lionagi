@@ -107,7 +107,7 @@ async def select_v1(
     # Add choice representations to context
     context = instruct_dict.get("context", None) or []
     context = [context] if not isinstance(context, list) else context
-    context.extend([{k: v} for k, v in zip(selections, contents)])
+    context.extend([{k: v} for k, v in zip(selections, contents, strict=False)])
     instruct_dict["context"] = context
 
     # Call branch.operate with SelectionModel as response format

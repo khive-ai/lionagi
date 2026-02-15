@@ -37,9 +37,7 @@ def make_mocked_branch_for_react():
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
+    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
     mock_chat_model.invoke = mock_invoke
 
     branch.chat_model = mock_chat_model

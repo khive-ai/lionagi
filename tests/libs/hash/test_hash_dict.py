@@ -74,9 +74,7 @@ class TestGenerateHashableRepresentation:
 
     def test_frozenset_comparable_elements(self):
         # Covers L59
-        rep = hash_utils._generate_hashable_representation(
-            frozenset({3, 1, 2})
-        )
+        rep = hash_utils._generate_hashable_representation(frozenset({3, 1, 2}))
         assert rep == (hash_utils._TYPE_MARKER_FROZENSET, (1, 2, 3))
 
     def test_frozenset_uncomparable_elements_fallback_sort(self):
@@ -105,18 +103,12 @@ class TestGenerateHashableRepresentation:
     def test_other_types_str_fallback(self):
         # Covers L79
         obj = TestGenerateHashableRepresentation.CustomObjectStr("data")
-        assert (
-            hash_utils._generate_hashable_representation(obj)
-            == "CustomStr(data)"
-        )
+        assert hash_utils._generate_hashable_representation(obj) == "CustomStr(data)"
 
     def test_other_types_repr_fallback(self):
         # Covers L80-L81
         obj = TestGenerateHashableRepresentation.CustomObjectRepr("data")
-        assert (
-            hash_utils._generate_hashable_representation(obj)
-            == "CustomRepr(data)"
-        )
+        assert hash_utils._generate_hashable_representation(obj) == "CustomRepr(data)"
 
     class CustomObjectBothFail:
         """Object that fails both str() and repr()."""
@@ -162,10 +154,7 @@ class TestGenerateHashableRepresentation:
             expected_inner_dict_rep,
         )
 
-        assert (
-            hash_utils._generate_hashable_representation(struct_instance)
-            == expected_rep
-        )
+        assert hash_utils._generate_hashable_representation(struct_instance) == expected_rep
 
     def test_pydantic_model_representation(self):
         from pydantic import BaseModel
@@ -192,10 +181,7 @@ class TestGenerateHashableRepresentation:
             expected_inner_dict_rep,
         )
 
-        assert (
-            hash_utils._generate_hashable_representation(model_instance)
-            == expected_rep
-        )
+        assert hash_utils._generate_hashable_representation(model_instance) == expected_rep
 
 
 class TestHashDict:
@@ -247,9 +233,7 @@ class TestHashDict:
             value: int
 
         m1 = Model(name="test", value=1)
-        m2 = Model(
-            value=1, name="test"
-        )  # Different field order in instantiation
+        m2 = Model(value=1, name="test")  # Different field order in instantiation
         m3 = Model(name="test", value=2)
 
         assert hash_utils.hash_dict(m1) == hash_utils.hash_dict(m2)
@@ -258,9 +242,7 @@ class TestHashDict:
     def test_hash_dict_strict_mode(self):
         # Covers L110
         # Create a mutable object (list) inside a dict
-        data_copy_for_hash = {
-            "a": [1, 2]
-        }  # Ensure we hash a copy for comparison
+        data_copy_for_hash = {"a": [1, 2]}  # Ensure we hash a copy for comparison
 
         # Hash with strict=True
         # The variable hash_val_strict was previously assigned but not used.
@@ -277,33 +259,25 @@ class TestHashDict:
 
         # To test it properly, we need to see if the hash of the original, modified object is different.
         original_data_mutated = {"a": [1, 2]}  # Start fresh for this
-        hash_before_mutation_strict = hash_utils.hash_dict(
-            original_data_mutated, strict=True
-        )
+        hash_before_mutation_strict = hash_utils.hash_dict(original_data_mutated, strict=True)
         original_data_mutated["a"].append(3)  # Mutate it
-        hash_after_mutation_strict = hash_utils.hash_dict(
-            original_data_mutated, strict=True
-        )
+        hash_after_mutation_strict = hash_utils.hash_dict(original_data_mutated, strict=True)
 
         assert hash_before_mutation_strict != hash_after_mutation_strict
 
         # And confirm that if strict was False, the hash would be based on the current state
         original_data_mutated_nostrict = {"a": [1, 2]}
         # hash_utils._generate_hashable_representation will process current state
-        hash_nostrict_before = hash_utils.hash_dict(
-            original_data_mutated_nostrict, strict=False
-        )
+        hash_nostrict_before = hash_utils.hash_dict(original_data_mutated_nostrict, strict=False)
         original_data_mutated_nostrict["a"].append(3)
-        hash_nostrict_after = hash_utils.hash_dict(
-            original_data_mutated_nostrict, strict=False
-        )
+        hash_nostrict_after = hash_utils.hash_dict(original_data_mutated_nostrict, strict=False)
         assert hash_nostrict_before != hash_nostrict_after
 
         # Check that the initial strict hash is repeatable
         data_for_repeat = {"a": [1, 2]}
-        assert hash_utils.hash_dict(
-            data_for_repeat, strict=True
-        ) == hash_utils.hash_dict({"a": [1, 2]}, strict=True)
+        assert hash_utils.hash_dict(data_for_repeat, strict=True) == hash_utils.hash_dict(
+            {"a": [1, 2]}, strict=True
+        )
 
     def test_unhashable_representation_raises_typeerror(self):
         # Covers L116-L117
@@ -324,9 +298,7 @@ class TestHashDict:
                     ]  # Lists are not hashable
                 return original_generator(item)  # Fallback for other calls
 
-            hash_utils._generate_hashable_representation = (
-                mock_unhashable_generator
-            )
+            hash_utils._generate_hashable_representation = mock_unhashable_generator
 
             with pytest.raises(
                 TypeError,

@@ -8,9 +8,7 @@ validation, and test data management.
 import asyncio
 import time
 from collections.abc import AsyncGenerator, Callable
-from typing import Any, Dict, List, Optional, TypeVar, Union
-
-import pytest
+from typing import Any, TypeVar
 
 from lionagi.protocols.generic.element import UUID
 from lionagi.protocols.generic.event import EventStatus
@@ -51,9 +49,7 @@ class AsyncTestHelpers:
                 return
             await asyncio.sleep(interval)
 
-        message = (
-            error_message or f"Condition not met within {timeout} seconds"
-        )
+        message = error_message or f"Condition not met within {timeout} seconds"
         raise AssertionError(message)
 
     @staticmethod
@@ -113,9 +109,7 @@ class AsyncTestHelpers:
             return await coro(*args, **kwargs)
 
     @staticmethod
-    async def wait_for_all(
-        tasks: list[asyncio.Task], timeout: float = 10.0
-    ) -> list[Any]:
+    async def wait_for_all(tasks: list[asyncio.Task], timeout: float = 10.0) -> list[Any]:
         """
         Wait for all tasks to complete with timeout.
 
@@ -164,9 +158,7 @@ class AsyncTestHelpers:
                 # Check for leaked tasks
                 final_tasks = len(asyncio.all_tasks())
                 if final_tasks > initial_tasks:
-                    remaining_tasks = [
-                        task for task in asyncio.all_tasks() if not task.done()
-                    ]
+                    remaining_tasks = [task for task in asyncio.all_tasks() if not task.done()]
                     print(
                         f"Warning: {len(remaining_tasks)} tasks not cleaned up: {remaining_tasks}"
                     )
@@ -202,9 +194,7 @@ class ValidationHelpers:
             check_timestamp: Whether to validate timestamp fields
         """
         if expected_type:
-            assert isinstance(
-                node, expected_type
-            ), f"Expected {expected_type}, got {type(node)}"
+            assert isinstance(node, expected_type), f"Expected {expected_type}, got {type(node)}"
 
         # Check for Node-like structure (either Node subclass or has required attributes)
         if not isinstance(node, Node):
@@ -213,21 +203,17 @@ class ValidationHelpers:
                 assert hasattr(node, "id"), "Object missing 'id' field"
         else:
             # For actual Node objects, do full validation
-            assert isinstance(
-                node, Node
-            ), f"Expected Node subclass, got {type(node)}"
+            assert isinstance(node, Node), f"Expected Node subclass, got {type(node)}"
 
         if check_id:
             assert hasattr(node, "id"), "Object missing 'id' field"
             assert node.id is not None, "Object 'id' field is None"
-            assert isinstance(
-                node.id, (str, UUID)
-            ), f"Object 'id' should be string or UUID, got {type(node.id)}"
+            assert isinstance(node.id, (str, UUID)), (
+                f"Object 'id' should be string or UUID, got {type(node.id)}"
+            )
 
         if check_timestamp and hasattr(node, "timestamp"):
-            assert (
-                node.timestamp is not None
-            ), "Object 'timestamp' field is None"
+            assert node.timestamp is not None, "Object 'timestamp' field is None"
 
     @staticmethod
     def assert_api_response_structure(
@@ -247,22 +233,16 @@ class ValidationHelpers:
             execution = response.execution
 
             if check_status:
-                assert hasattr(
-                    execution, "status"
-                ), "Response missing execution.status"
-                assert isinstance(
-                    execution.status, EventStatus
-                ), f"Invalid status type: {type(execution.status)}"
+                assert hasattr(execution, "status"), "Response missing execution.status"
+                assert isinstance(execution.status, EventStatus), (
+                    f"Invalid status type: {type(execution.status)}"
+                )
 
-            assert hasattr(
-                execution, "response"
-            ), "Response missing execution.response"
+            assert hasattr(execution, "response"), "Response missing execution.response"
 
         if required_fields:
             for field in required_fields:
-                assert hasattr(
-                    response, field
-                ), f"Response missing required field: {field}"
+                assert hasattr(response, field), f"Response missing required field: {field}"
 
     @staticmethod
     def assert_pydantic_model_valid(
@@ -277,9 +257,7 @@ class ValidationHelpers:
         """
         # Check it's a Pydantic model
         assert hasattr(model_instance, "model_dump"), "Not a Pydantic model"
-        assert hasattr(
-            model_instance, "model_validate"
-        ), "Not a Pydantic model"
+        assert hasattr(model_instance, "model_validate"), "Not a Pydantic model"
 
         # Validate serialization works
         dumped = model_instance.model_dump()
@@ -289,9 +267,9 @@ class ValidationHelpers:
         if expected_fields:
             for field_name, expected_value in expected_fields.items():
                 actual_value = getattr(model_instance, field_name)
-                assert (
-                    actual_value == expected_value
-                ), f"Field {field_name}: expected {expected_value}, got {actual_value}"
+                assert actual_value == expected_value, (
+                    f"Field {field_name}: expected {expected_value}, got {actual_value}"
+                )
 
     @staticmethod
     def assert_error_handling(
@@ -309,28 +287,28 @@ class ValidationHelpers:
         """
         # Check for error structure
         if hasattr(error_response, "execution"):
-            assert (
-                error_response.execution.status == EventStatus.FAILED
-            ), "Error response should have FAILED status"
+            assert error_response.execution.status == EventStatus.FAILED, (
+                "Error response should have FAILED status"
+            )
 
         # Check error content
         if hasattr(error_response, "error"):
             error_data = error_response.error
 
             if expected_error_type:
-                assert (
-                    "type" in error_data or "code" in error_data
-                ), "Error response missing type/code"
+                assert "type" in error_data or "code" in error_data, (
+                    "Error response missing type/code"
+                )
                 error_type = error_data.get("type") or error_data.get("code")
-                assert expected_error_type in str(
-                    error_type
-                ), f"Expected error type '{expected_error_type}', got '{error_type}'"
+                assert expected_error_type in str(error_type), (
+                    f"Expected error type '{expected_error_type}', got '{error_type}'"
+                )
 
             if expected_message_contains:
                 message = error_data.get("message", "")
-                assert (
-                    expected_message_contains in message
-                ), f"Expected '{expected_message_contains}' in error message: '{message}'"
+                assert expected_message_contains in message, (
+                    f"Expected '{expected_message_contains}' in error message: '{message}'"
+                )
 
 
 class TestDataHelpers:

@@ -2,13 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
 
-from lionagi.protocols.generic.event import EventStatus
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
@@ -62,9 +60,7 @@ class TestEndpoint:
 
     def test_endpoint_initialization_invalid_config_type(self):
         """Test endpoint initialization with invalid config type raises ValueError (line 47)."""
-        with pytest.raises(
-            ValueError, match="Config must be a dict or EndpointConfig"
-        ):
+        with pytest.raises(ValueError, match="Config must be a dict or EndpointConfig"):
             Endpoint(config="invalid_config_type")
 
     def test_request_options_setter(self, openai_config):
@@ -85,9 +81,7 @@ class TestEndpoint:
         request = {"messages": [{"role": "user", "content": "test"}]}
         extra_headers = {"X-Custom-Header": "custom-value"}
 
-        payload, headers = endpoint.create_payload(
-            request, extra_headers=extra_headers
-        )
+        payload, headers = endpoint.create_payload(request, extra_headers=extra_headers)
 
         assert "X-Custom-Header" in headers
         assert headers["X-Custom-Header"] == "custom-value"
@@ -97,9 +91,7 @@ class TestEndpoint:
         endpoint = Endpoint(config=openai_config)
         request = {"messages": [{"role": "user", "content": "test"}]}
 
-        payload, headers = endpoint.create_payload(
-            request, temperature=0.9, max_tokens=500
-        )
+        payload, headers = endpoint.create_payload(request, temperature=0.9, max_tokens=500)
 
         assert payload["temperature"] == 0.9
         assert payload["max_tokens"] == 500
@@ -142,9 +134,7 @@ class TestEndpoint:
             sessions_created.append(session)
             return session
 
-        with patch.object(
-            endpoint, "_create_http_session", side_effect=mock_create_session
-        ):
+        with patch.object(endpoint, "_create_http_session", side_effect=mock_create_session):
             # Simulate multiple concurrent requests
             tasks = []
             for i in range(3):
@@ -155,10 +145,7 @@ class TestEndpoint:
 
         # Verify each call created its own session
         assert len(sessions_created) == 3
-        assert all(
-            session is not sessions_created[0]
-            for session in sessions_created[1:]
-        )
+        assert all(session is not sessions_created[0] for session in sessions_created[1:])
 
     def test_create_payload_openai(self, openai_config):
         """Test payload creation for OpenAI endpoint."""
@@ -201,9 +188,7 @@ class TestEndpoint:
         assert headers["anthropic-version"] == "2023-06-01"
 
     @pytest.mark.asyncio
-    async def test_http_request_session_cleanup(
-        self, openai_config, mock_response
-    ):
+    async def test_http_request_session_cleanup(self, openai_config, mock_response):
         """Test that HTTP sessions are properly cleaned up."""
         # Disable OpenAI compatibility for pure HTTP test
         openai_config.openai_compatible = False
@@ -258,29 +243,20 @@ class TestEndpoint:
             return {
                 "id": f"response-{payload['messages'][0]['content']}",
                 "choices": [
-                    {
-                        "message": {
-                            "content": f"Response to {payload['messages'][0]['content']}"
-                        }
-                    }
+                    {"message": {"content": f"Response to {payload['messages'][0]['content']}"}}
                 ],
             }
 
-        with patch.object(
-            endpoint, "call", side_effect=mock_request_with_delay
-        ):
+        with patch.object(endpoint, "call", side_effect=mock_request_with_delay):
             # Create multiple concurrent requests
             requests = [
-                {"messages": [{"role": "user", "content": f"Message {i}"}]}
-                for i in range(3)
+                {"messages": [{"role": "user", "content": f"Message {i}"}]} for i in range(3)
             ]
 
             tasks = []
             for req in requests:
                 payload, headers = endpoint.create_payload(req)
-                task = asyncio.create_task(
-                    endpoint.call(payload, headers, delay=0.05)
-                )
+                task = asyncio.create_task(endpoint.call(payload, headers, delay=0.05))
                 tasks.append(task)
 
             responses = await asyncio.gather(*tasks)
@@ -288,9 +264,7 @@ class TestEndpoint:
         # Verify each response corresponds to its request
         for i, response in enumerate(responses):
             assert f"Message {i}" in response["id"]
-            assert (
-                f"Message {i}" in response["choices"][0]["message"]["content"]
-            )
+            assert f"Message {i}" in response["choices"][0]["message"]["content"]
 
     @pytest.mark.asyncio
     async def test_sdk_vs_http_transport(self, openai_config):
@@ -331,9 +305,7 @@ class TestEndpoint:
         }
         custom_headers = {"X-Custom": "header"}
 
-        with patch.object(
-            endpoint, "_call", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"response": "success"}
             await endpoint.call(
                 ready_payload,
@@ -353,9 +325,7 @@ class TestEndpoint:
         retry_config = RetryConfig(max_retries=3, base_delay=0.01)
         endpoint = Endpoint(config=openai_config, retry_config=retry_config)
 
-        with patch.object(
-            endpoint, "_call", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"response": "success"}
             request = {"messages": [{"role": "user", "content": "test"}]}
             result = await endpoint.call(request)
@@ -366,16 +336,10 @@ class TestEndpoint:
         """Test call with circuit_breaker (lines 207-218)."""
         from lionagi.service.resilience import CircuitBreaker
 
-        circuit_breaker = CircuitBreaker(
-            failure_threshold=3, recovery_time=1.0
-        )
-        endpoint = Endpoint(
-            config=openai_config, circuit_breaker=circuit_breaker
-        )
+        circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_time=1.0)
+        endpoint = Endpoint(config=openai_config, circuit_breaker=circuit_breaker)
 
-        with patch.object(
-            endpoint, "_call", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"response": "success"}
             request = {"messages": [{"role": "user", "content": "test"}]}
             result = await endpoint.call(request)
@@ -386,9 +350,7 @@ class TestEndpoint:
         """Test call with both circuit_breaker and retry_config (lines 200-201, 209-212)."""
         from lionagi.service.resilience import CircuitBreaker, RetryConfig
 
-        circuit_breaker = CircuitBreaker(
-            failure_threshold=3, recovery_time=1.0
-        )
+        circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_time=1.0)
         retry_config = RetryConfig(max_retries=2, base_delay=0.01)
         endpoint = Endpoint(
             config=openai_config,
@@ -396,9 +358,7 @@ class TestEndpoint:
             retry_config=retry_config,
         )
 
-        with patch.object(
-            endpoint, "_call", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"response": "success"}
             request = {"messages": [{"role": "user", "content": "test"}]}
             result = await endpoint.call(request)
@@ -409,9 +369,7 @@ class TestEndpoint:
         """Test call with cache_control (lines 222-242)."""
         endpoint = Endpoint(config=openai_config)
 
-        with patch.object(
-            endpoint, "_call", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"response": "cached"}
             request = {"messages": [{"role": "user", "content": "test"}]}
             # First call - should cache
@@ -425,16 +383,10 @@ class TestEndpoint:
         """Test call with cache_control and circuit_breaker (lines 229-236)."""
         from lionagi.service.resilience import CircuitBreaker
 
-        circuit_breaker = CircuitBreaker(
-            failure_threshold=3, recovery_time=1.0
-        )
-        endpoint = Endpoint(
-            config=openai_config, circuit_breaker=circuit_breaker
-        )
+        circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_time=1.0)
+        endpoint = Endpoint(config=openai_config, circuit_breaker=circuit_breaker)
 
-        with patch.object(
-            endpoint, "_call", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"response": "success"}
             request = {"messages": [{"role": "user", "content": "test"}]}
             result = await endpoint.call(request, cache_control=True)
@@ -448,9 +400,7 @@ class TestEndpoint:
         retry_config = RetryConfig(max_retries=2, base_delay=0.01)
         endpoint = Endpoint(config=openai_config, retry_config=retry_config)
 
-        with patch.object(
-            endpoint, "_call", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"response": "success"}
             request = {"messages": [{"role": "user", "content": "test"}]}
             result = await endpoint.call(request, cache_control=True)
@@ -470,9 +420,7 @@ class TestEndpoint:
                 raise aiohttp.ClientError("Network error")
             return {"success": True, "call": call_count}
 
-        with patch.object(
-            endpoint, "call", side_effect=mock_request_with_errors
-        ):
+        with patch.object(endpoint, "call", side_effect=mock_request_with_errors):
             # Create three concurrent requests
             tasks = []
             for i in range(3):
@@ -592,9 +540,7 @@ class TestEndpoint:
             request = {"messages": [{"role": "user", "content": "test"}]}
             extra_headers = {"X-Stream-Header": "value"}
             chunks = []
-            async for chunk in endpoint.stream(
-                request, extra_headers=extra_headers
-            ):
+            async for chunk in endpoint.stream(request, extra_headers=extra_headers):
                 chunks.append(chunk)
             assert len(chunks) == 1
 
@@ -603,9 +549,7 @@ class TestEndpoint:
         from lionagi.service.resilience import CircuitBreaker, RetryConfig
 
         retry_config = RetryConfig(max_retries=3, base_delay=0.1)
-        circuit_breaker = CircuitBreaker(
-            failure_threshold=5, recovery_time=2.0
-        )
+        circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_time=2.0)
         endpoint = Endpoint(
             config=openai_config,
             retry_config=retry_config,
@@ -626,9 +570,7 @@ class TestEndpoint:
 
         # Create endpoint with resilience patterns
         retry_config = RetryConfig(max_retries=3, base_delay=0.1)
-        circuit_breaker = CircuitBreaker(
-            failure_threshold=5, recovery_time=2.0
-        )
+        circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_time=2.0)
         original_endpoint = Endpoint(
             config=openai_config,
             retry_config=retry_config,
@@ -645,6 +587,5 @@ class TestEndpoint:
         assert restored_endpoint.retry_config is not None
         assert restored_endpoint.circuit_breaker is not None
         assert (
-            restored_endpoint.retry_config.max_retries
-            == original_endpoint.retry_config.max_retries
+            restored_endpoint.retry_config.max_retries == original_endpoint.retry_config.max_retries
         )

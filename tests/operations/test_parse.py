@@ -10,9 +10,9 @@ from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.operations.parse.parse import (
     _validate_dict_or_model,
     get_default_call,
+    prepare_parse_kws,
 )
 from lionagi.operations.parse.parse import parse as _parse
-from lionagi.operations.parse.parse import prepare_parse_kws
 from lionagi.operations.types import ParseParam
 
 
@@ -45,9 +45,7 @@ class TestBasicParsing:
     """P0: Core parsing functionality."""
 
     @pytest.mark.asyncio
-    async def test_parse_with_basemodel_direct_validation(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_with_basemodel_direct_validation(self, make_mocked_branch_for_parse):
         """Test immediate successful validation without LLM call."""
         branch = make_mocked_branch_for_parse()
 
@@ -83,9 +81,7 @@ class TestBasicParsing:
         assert result.get("age") == 25 or result.get("user_age") == 25
 
     @pytest.mark.asyncio
-    async def test_parse_dict_without_fuzzy_params(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_dict_without_fuzzy_params(self, make_mocked_branch_for_parse):
         """Test dict validation when fuzzy_match_params is None."""
         branch = make_mocked_branch_for_parse()
 
@@ -116,9 +112,7 @@ class TestBasicParsing:
         assert result.summary == "Mocked summary"
 
     @pytest.mark.asyncio
-    async def test_parse_error_handling_raise_mode(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_error_handling_raise_mode(self, make_mocked_branch_for_parse):
         """Test handle_validation='raise' throws ValueError on failure."""
         branch = make_mocked_branch_for_parse()
 
@@ -156,9 +150,7 @@ class TestBasicParsing:
                     )
 
     @pytest.mark.asyncio
-    async def test_parse_error_handling_return_none(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_error_handling_return_none(self, make_mocked_branch_for_parse):
         """Test handle_validation='return_none' returns None on failure."""
         branch = make_mocked_branch_for_parse()
 
@@ -197,9 +189,7 @@ class TestBasicParsing:
                 assert result is None
 
     @pytest.mark.asyncio
-    async def test_parse_error_handling_return_value(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_error_handling_return_value(self, make_mocked_branch_for_parse):
         """Test handle_validation='return_value' returns original text."""
         branch = make_mocked_branch_for_parse()
 
@@ -253,9 +243,7 @@ class TestAdvancedFeatures:
         """Test deprecation warning for suppress_conversion_errors."""
         branch = make_mocked_branch_for_parse()
 
-        with pytest.warns(
-            DeprecationWarning, match="suppress_conversion_errors"
-        ):
+        with pytest.warns(DeprecationWarning, match="suppress_conversion_errors"):
             await parse(
                 branch,
                 text='{"name": "Test", "age": 25}',
@@ -264,9 +252,7 @@ class TestAdvancedFeatures:
             )
 
     @pytest.mark.asyncio
-    async def test_parse_return_res_message_success(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_return_res_message_success(self, make_mocked_branch_for_parse):
         """Test return_res_message returns tuple on direct validation."""
         branch = make_mocked_branch_for_parse()
 
@@ -284,9 +270,7 @@ class TestAdvancedFeatures:
         assert res_msg is None
 
     @pytest.mark.asyncio
-    async def test_parse_return_res_message_with_llm(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_return_res_message_with_llm(self, make_mocked_branch_for_parse):
         """Test return_res_message includes AssistantResponse after LLM."""
         branch = make_mocked_branch_for_parse()
 
@@ -315,21 +299,14 @@ class TestAdvancedFeatures:
             "handle_unmatched": "ignore",
         }
 
-        result = _validate_dict_or_model(
-            text, response_format, fuzzy_params_dict
-        )
+        result = _validate_dict_or_model(text, response_format, fuzzy_params_dict)
 
         assert isinstance(result, dict)
         # Fuzzy matching should map usr_name → name
-        assert (
-            result.get("name") == "Charlie"
-            or result.get("usr_name") == "Charlie"
-        )
+        assert result.get("name") == "Charlie" or result.get("usr_name") == "Charlie"
 
     @pytest.mark.asyncio
-    async def test_parse_alcall_params_as_dict(
-        self, make_mocked_branch_for_parse
-    ):
+    async def test_parse_alcall_params_as_dict(self, make_mocked_branch_for_parse):
         """Test parse converts alcall_params dict to AlcallParams."""
         branch = make_mocked_branch_for_parse()
 
@@ -375,7 +352,7 @@ def make_mocked_branch_for_parse():
     """Factory fixture for creating branches with mocked parse responses."""
 
     def _make_branch():
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock
 
         from lionagi.protocols.generic.event import EventStatus
         from lionagi.service.connections.api_calling import APICalling

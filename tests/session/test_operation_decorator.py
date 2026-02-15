@@ -43,10 +43,7 @@ async def test_operation_decorator_custom_name():
     # Check that operation was registered with custom name
     assert "custom_operation" in session._operation_manager.registry
     assert "some_function" not in session._operation_manager.registry
-    assert (
-        session._operation_manager.registry["custom_operation"]
-        == some_function
-    )
+    assert session._operation_manager.registry["custom_operation"] == some_function
 
 
 @pytest.mark.asyncio
@@ -134,9 +131,7 @@ async def test_operation_decorator_update_flag():
         return {"version": 1}
 
     # Try to register again without update flag (should raise error)
-    with pytest.raises(
-        ValueError, match="Operation 'test_op' is already registered"
-    ):
+    with pytest.raises(ValueError, match="Operation 'test_op' is already registered"):
 
         @session.operation(update=False)
         async def test_op(**kwargs):
@@ -170,6 +165,4 @@ def test_operation_decorator_preserves_function():
     assert "Original docstring" in original_func.__doc__
 
     # And should be registered
-    assert (
-        session._operation_manager.registry["original_func"] == original_func
-    )
+    assert session._operation_manager.registry["original_func"] == original_func

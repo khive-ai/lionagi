@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
 import statistics
 import sys
@@ -51,9 +50,7 @@ async def _bench_once(fn: Callable[[], Coroutine[Any, Any, Any]]) -> float:
     return time.perf_counter() - t0
 
 
-async def _bench_repeat(
-    name: str, repeat: int, fn: Callable[[], Coroutine[Any, Any, Any]]
-) -> Stat:
+async def _bench_repeat(name: str, repeat: int, fn: Callable[[], Coroutine[Any, Any, Any]]) -> Stat:
     runs = []
     for _ in range(repeat):
         runs.append(await _bench_once(fn))
@@ -73,9 +70,7 @@ def scenario_gather_100_yield() -> Callable[[], Coroutine[Any, Any, Any]]:
     return _run
 
 
-def scenario_bounded_map_2000_limit_100() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_bounded_map_2000_limit_100() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         async def mapper(x: int):
             # Async no-op to measure scheduler+pattern overhead
@@ -87,9 +82,7 @@ def scenario_bounded_map_2000_limit_100() -> (
     return _run
 
 
-def scenario_completion_stream_1000_limit_100() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_completion_stream_1000_limit_100() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         async def work(i: int):
             await anyio.sleep(0)
@@ -103,9 +96,7 @@ def scenario_completion_stream_1000_limit_100() -> (
     return _run
 
 
-def scenario_race_first_completion_10() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_race_first_completion_10() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         async def fast():
             await anyio.sleep(0)
@@ -120,9 +111,7 @@ def scenario_race_first_completion_10() -> (
     return _run
 
 
-def scenario_cancel_propagation_500() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_cancel_propagation_500() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         async def bad():
             await anyio.sleep(0.01)
@@ -146,9 +135,7 @@ def scenario_cancel_propagation_500() -> (
     return _run
 
 
-def scenario_taskgroup_start_1000_noop() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_taskgroup_start_1000_noop() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         async def noop():
             await anyio.sleep(0)
@@ -211,23 +198,15 @@ def compare_results(current: dict[str, Any], baseline: dict[str, Any]) -> str:
             delta = float("inf")
         else:
             delta = (cur_med - base_med) / base_med
-        lines.append(
-            f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}"
-        )
+        lines.append(f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}")
     return "\n".join(lines)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Concurrency micro-benchmarks"
-    )
-    parser.add_argument(
-        "--backend", choices=["asyncio", "trio"], default="asyncio"
-    )
+    parser = argparse.ArgumentParser(description="Concurrency micro-benchmarks")
+    parser.add_argument("--backend", choices=["asyncio", "trio"], default="asyncio")
     parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument(
-        "--json", action="store_true", help="Print JSON to stdout"
-    )
+    parser.add_argument("--json", action="store_true", help="Print JSON to stdout")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument(
         "--compare",
@@ -238,9 +217,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Run benchmarks under selected backend
-    results = anyio.run(
-        run_benchmarks_async, args.repeat, backend=args.backend
-    )
+    results = anyio.run(run_benchmarks_async, args.repeat, backend=args.backend)
 
     payload: dict[str, Any] = {
         "meta": {
@@ -268,9 +245,7 @@ def main() -> None:
     # Optional comparison
     if args.compare:
         try:
-            baseline = json.loads(
-                Path(args.compare).read_text(encoding="utf-8")
-            )
+            baseline = json.loads(Path(args.compare).read_text(encoding="utf-8"))
             print()
             print(compare_results(payload, baseline))
         except Exception as e:

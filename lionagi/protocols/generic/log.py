@@ -93,7 +93,7 @@ class Log(Element):
         else:
             content = to_dict(content, recursive=True, suppress=True)
 
-        if content is {}:
+        if content == {}:
             logger.warning(
                 "No content to log, or original data was of invalid type. Making an empty log..."
             )

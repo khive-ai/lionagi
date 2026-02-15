@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 
@@ -22,9 +21,7 @@ def compare(
     """
     lines = []
     norm_note = f" (normalized by {normalize_by})" if normalize_by else ""
-    lines.append(
-        f"Threshold: {threshold:.0%} (negative = faster, positive = slower){norm_note}"
-    )
+    lines.append(f"Threshold: {threshold:.0%} (negative = faster, positive = slower){norm_note}")
     ok = True
 
     cur_results = current.get("results", {})
@@ -67,12 +64,7 @@ def compare(
         else:
             delta = (cur_med - base_med) / base_med
         line = f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}"
-        if (
-            normalize_by
-            and name != normalize_by
-            and cur_anchor
-            and base_anchor
-        ):
+        if normalize_by and name != normalize_by and cur_anchor and base_anchor:
             line += f" (normalized by {normalize_by})"
         lines.append(line)
         if delta > threshold:
@@ -103,9 +95,7 @@ def main() -> int:
     current_path = Path(args.current)
 
     if not baseline_path.exists():
-        print(
-            f"[ci_compare] Baseline missing: {baseline_path}. Skipping gating."
-        )
+        print(f"[ci_compare] Baseline missing: {baseline_path}. Skipping gating.")
         return 0
     if not current_path.exists():
         print(f"[ci_compare] Current results missing: {current_path}.")

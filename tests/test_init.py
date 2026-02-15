@@ -58,12 +58,8 @@ class TestMainImports:
         then regular names are sorted alphabetically.
         """
         # Separate dunder names from regular names
-        dunder_names = [
-            name for name in lionagi.__all__ if name.startswith("__")
-        ]
-        regular_names = [
-            name for name in lionagi.__all__ if not name.startswith("__")
-        ]
+        dunder_names = [name for name in lionagi.__all__ if name.startswith("__")]
+        regular_names = [name for name in lionagi.__all__ if not name.startswith("__")]
 
         # Check dunder names are sorted
         assert tuple(dunder_names) == tuple(sorted(dunder_names))
@@ -72,9 +68,7 @@ class TestMainImports:
         assert tuple(regular_names) == tuple(sorted(regular_names))
 
         # Check dunder names come before regular names
-        expected_exports = tuple(sorted(dunder_names)) + tuple(
-            sorted(regular_names)
-        )
+        expected_exports = tuple(sorted(dunder_names)) + tuple(sorted(regular_names))
         assert lionagi.__all__ == expected_exports
 
     @pytest.mark.parametrize("export_name", EXPECTED_EXPORTS)
@@ -164,7 +158,7 @@ class TestLazyLoadingBehavior:
         """Test that multiple imports return same cached object."""
         obj1 = lionagi.iModel
         obj2 = lionagi.iModel
-        obj3 = getattr(lionagi, "iModel")
+        obj3 = lionagi.iModel
         assert obj1 is obj2 is obj3
 
     def test_all_protocol_types_importable(self):

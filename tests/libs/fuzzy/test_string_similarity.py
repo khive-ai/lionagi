@@ -52,17 +52,13 @@ def test_string_similarity_jaro_winkler():
 
 def test_string_similarity_threshold():
     """Test string_similarity with threshold"""
-    result = string_similarity(
-        "hello", ["hello", "help", "world"], threshold=0.9
-    )
+    result = string_similarity("hello", ["hello", "help", "world"], threshold=0.9)
     assert isinstance(result, list)
 
 
 def test_string_similarity_most_similar():
     """Test return_most_similar option"""
-    result = string_similarity(
-        "hello", ["hello", "help", "world"], return_most_similar=True
-    )
+    result = string_similarity("hello", ["hello", "help", "world"], return_most_similar=True)
     assert isinstance(result, str)
 
 
@@ -90,33 +86,25 @@ def test_string_similarity_custom_function():
     def custom_sim(s1, s2):
         return 1.0 if s1 == s2 else 0.0
 
-    result = string_similarity(
-        "hello", ["hello", "world"], algorithm=custom_sim
-    )
+    result = string_similarity("hello", ["hello", "world"], algorithm=custom_sim)
     assert "hello" in result
 
 
 def test_string_similarity_case_sensitive():
     """Test case sensitive matching"""
-    result = string_similarity(
-        "Hello", ["hello", "Hello"], case_sensitive=True
-    )
+    result = string_similarity("Hello", ["hello", "Hello"], case_sensitive=True)
     assert "Hello" in result
 
 
 def test_string_similarity_hamming():
     """Test hamming algorithm"""
-    result = string_similarity(
-        "hello", ["hello", "hallo"], algorithm="hamming"
-    )
+    result = string_similarity("hello", ["hello", "hallo"], algorithm="hamming")
     assert "hello" in result
 
 
 def test_string_similarity_no_matches():
     """Test when no matches found"""
-    result = string_similarity(
-        "hello", ["xyz", "abc"], threshold=0.9, algorithm="levenshtein"
-    )
+    result = string_similarity("hello", ["xyz", "abc"], threshold=0.9, algorithm="levenshtein")
     assert result is None
 
 

@@ -44,9 +44,7 @@ class TestFuzzyValidatePydantic:
     def test_extract_json_exception(self):
         """Test extract_json raising exception (lines 29-30)."""
         # Pass None to cause extract_json to fail
-        with pytest.raises(
-            ValidationError, match="Failed to extract valid JSON"
-        ):
+        with pytest.raises(ValidationError, match="Failed to extract valid JSON"):
             fuzzy_validate_pydantic(None, SimpleModel)
 
     def test_json_with_fuzzy_parse(self):
@@ -92,9 +90,7 @@ class TestFuzzyValidatePydantic:
     def test_fuzzy_match_with_params_instance(self):
         """Test fuzzy match with FuzzyMatchKeysParams instance (lines 44-45)."""
         text = '{"nam": "Eve", "ag": 28, "emal": "eve@example.com"}'
-        params = FuzzyMatchKeysParams(
-            similarity_threshold=0.75, handle_unmatched="remove"
-        )
+        params = FuzzyMatchKeysParams(similarity_threshold=0.75, handle_unmatched="remove")
         result = fuzzy_validate_pydantic(
             text, SimpleModel, fuzzy_match=True, fuzzy_match_params=params
         )
@@ -153,9 +149,7 @@ class TestFuzzyValidateMapping:
 
     def test_simple_dict_input(self):
         """Test basic dict input validation."""
-        result = fuzzy_validate_mapping(
-            {"name": "Alice", "age": 30}, ["name", "age"]
-        )
+        result = fuzzy_validate_mapping({"name": "Alice", "age": 30}, ["name", "age"])
         assert result == {"name": "Alice", "age": 30}
 
     def test_json_string_input(self):
@@ -196,9 +190,7 @@ class TestFuzzyValidateMapping:
     def test_dict_with_model_dump(self):
         """Test object with model_dump method (lines 126-129)."""
         model = SimpleModel(name="Frank", age=40, email="frank@example.com")
-        result = fuzzy_validate_mapping(
-            model, ["name", "age"], handle_unmatched="remove"
-        )
+        result = fuzzy_validate_mapping(model, ["name", "age"], handle_unmatched="remove")
         assert result["name"] == "Frank"
         assert result["age"] == 40
 
@@ -281,9 +273,7 @@ class TestFuzzyValidateMapping:
     def test_handle_unmatched_ignore(self):
         """Test handle_unmatched='ignore' keeps extra keys."""
         data = {"name": "Henry", "age": 50, "extra": "value"}
-        result = fuzzy_validate_mapping(
-            data, ["name", "age"], handle_unmatched="ignore"
-        )
+        result = fuzzy_validate_mapping(data, ["name", "age"], handle_unmatched="ignore")
         assert result["name"] == "Henry"
         assert result["age"] == 50
         assert result["extra"] == "value"
@@ -291,9 +281,7 @@ class TestFuzzyValidateMapping:
     def test_handle_unmatched_remove(self):
         """Test handle_unmatched='remove' removes extra keys."""
         data = {"name": "Iris", "age": 32, "extra": "value"}
-        result = fuzzy_validate_mapping(
-            data, ["name", "age"], handle_unmatched="remove"
-        )
+        result = fuzzy_validate_mapping(data, ["name", "age"], handle_unmatched="remove")
         assert result == {"name": "Iris", "age": 32}
         assert "extra" not in result
 
@@ -576,9 +564,7 @@ class TestCoverageTargets:
 
             # Test with suppress=False (lines 134-137)
             mock_to_dict.return_value = "still_not_a_dict"
-            with pytest.raises(
-                ValueError, match="Failed to convert input to dictionary"
-            ):
+            with pytest.raises(ValueError, match="Failed to convert input to dictionary"):
                 fuzzy_validate_mapping(
                     {"test": "data"},
                     ["key1"],
@@ -602,9 +588,7 @@ class TestCoverageTargets:
             assert result == {"key1": "default", "key2": "default"}
 
             # Test with suppress=False (lines 142-143)
-            with pytest.raises(
-                ValueError, match="Failed to convert input to dictionary"
-            ):
+            with pytest.raises(ValueError, match="Failed to convert input to dictionary"):
                 fuzzy_validate_mapping(
                     {"test": "data"},
                     ["key1"],

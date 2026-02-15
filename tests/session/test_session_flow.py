@@ -13,18 +13,15 @@ Test Coverage:
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID
 
 import pytest
-from pydantic import BaseModel
 
 from lionagi.operations.builder import OperationGraphBuilder
-from lionagi.operations.flow import flow
 from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
-from lionagi.protocols.messages import Instruction, MessageRole
+from lionagi.protocols.messages import Instruction
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.providers.oai_ import _get_oai_config
@@ -62,9 +59,7 @@ def make_mock_branch(name: str = "TestBranch") -> Branch:
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
+    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
     mock_chat_model.invoke = mock_invoke
 
     branch.chat_model = mock_chat_model
@@ -91,18 +86,10 @@ def make_simple_graph(num_nodes: int = 3) -> tuple[Graph, list[Operation]]:
 def make_parallel_graph() -> tuple[Graph, dict[str, Operation]]:
     """Create a diamond-shaped graph for parallel execution testing."""
     ops = {
-        "start": Operation(
-            operation="chat", parameters={"instruction": "Start"}
-        ),
-        "branch_a": Operation(
-            operation="chat", parameters={"instruction": "Branch A"}
-        ),
-        "branch_b": Operation(
-            operation="chat", parameters={"instruction": "Branch B"}
-        ),
-        "merge": Operation(
-            operation="chat", parameters={"instruction": "Merge"}
-        ),
+        "start": Operation(operation="chat", parameters={"instruction": "Start"}),
+        "branch_a": Operation(operation="chat", parameters={"instruction": "Branch A"}),
+        "branch_b": Operation(operation="chat", parameters={"instruction": "Branch B"}),
+        "merge": Operation(operation="chat", parameters={"instruction": "Merge"}),
     }
 
     graph = Graph()
@@ -155,15 +142,11 @@ class TestBasicFlowExecution:
         # Create parallel graph
         graph, ops = make_parallel_graph()
 
-        result = await session.flow(
-            graph, parallel=True, max_concurrent=3, verbose=False
-        )
+        result = await session.flow(graph, parallel=True, max_concurrent=3, verbose=False)
 
         # Verify all operations completed
         assert len(result["completed_operations"]) == 4
-        assert all(
-            op.id in result["completed_operations"] for op in ops.values()
-        )
+        assert all(op.id in result["completed_operations"] for op in ops.values())
 
     @pytest.mark.asyncio
     async def test_flow_context_passing_between_operations(self):
@@ -188,9 +171,7 @@ class TestBasicFlowExecution:
         graph.add_edge(Edge(head=op1.id, tail=op2.id))
 
         initial_context = {"global_key": "global_value"}
-        result = await session.flow(
-            graph, context=initial_context, parallel=False
-        )
+        result = await session.flow(graph, context=initial_context, parallel=False)
 
         # Verify context propagation
         assert "global_key" in result["final_context"]
@@ -219,9 +200,7 @@ class TestBasicFlowExecution:
         branch = make_mock_branch()
         session.include_branches(branch)
 
-        op = Operation(
-            operation="chat", parameters={"instruction": "Solo task"}
-        )
+        op = Operation(operation="chat", parameters={"instruction": "Solo task"})
         graph = Graph()
         graph.add_node(op)
 
@@ -386,12 +365,8 @@ class TestBranchManagement:
         """Test creating new branch with custom iModel."""
         session = Session()
 
-        custom_model = iModel(
-            provider="openai", model="gpt-4o", api_key="test"
-        )
-        new_branch = session.new_branch(
-            name="CustomModelBranch", imodel=custom_model
-        )
+        custom_model = iModel(provider="openai", model="gpt-4o", api_key="test")
+        new_branch = session.new_branch(name="CustomModelBranch", imodel=custom_model)
 
         assert new_branch.chat_model.model_name == "gpt-4o"
 
@@ -400,9 +375,7 @@ class TestBranchManagement:
         session = Session()
         old_default = session.default_branch
 
-        new_branch = session.new_branch(
-            name="NewDefaultBranch", as_default_branch=True
-        )
+        new_branch = session.new_branch(name="NewDefaultBranch", as_default_branch=True)
 
         assert session.default_branch is new_branch
         assert session.default_branch is not old_default
@@ -500,9 +473,7 @@ class TestEdgeCasesAndErrors:
         session.include_branches(branch)
         session.default_branch = branch
 
-        op = Operation(
-            operation="chat", parameters={"instruction": "Will fail"}
-        )
+        op = Operation(operation="chat", parameters={"instruction": "Will fail"})
         graph = Graph()
         graph.add_node(op)
 
@@ -523,10 +494,7 @@ class TestEdgeCasesAndErrors:
 
         # Create multiple independent operations
         ops = [
-            Operation(
-                operation="chat", parameters={"instruction": f"Task {i}"}
-            )
-            for i in range(5)
+            Operation(operation="chat", parameters={"instruction": f"Task {i}"}) for i in range(5)
         ]
 
         graph = Graph()
@@ -534,9 +502,7 @@ class TestEdgeCasesAndErrors:
             graph.add_node(op)
 
         # Execute with max_concurrent=2
-        result = await session.flow(
-            graph, parallel=True, max_concurrent=2, verbose=False
-        )
+        result = await session.flow(graph, parallel=True, max_concurrent=2, verbose=False)
 
         # All operations should complete
         assert len(result["completed_operations"]) == 5
@@ -560,9 +526,7 @@ class TestEdgeCasesAndErrors:
         graph.add_node(op2)
         graph.add_edge(Edge(head=op1.id, tail=op2.id))
 
-        result = await session.flow(
-            graph, context={"initial": "context"}, parallel=False
-        )
+        result = await session.flow(graph, context={"initial": "context"}, parallel=False)
 
         # op2 should have inherited context from op1
         assert op2.parameters.get("context") is not None
@@ -756,9 +720,7 @@ class TestSessionFlowIntegration:
         analysis_branch = make_mock_branch("Analysis")
         summary_branch = make_mock_branch("Summary")
 
-        session.include_branches(
-            [research_branch, analysis_branch, summary_branch]
-        )
+        session.include_branches([research_branch, analysis_branch, summary_branch])
 
         # Create workflow graph
         op_research = Operation(
@@ -822,13 +784,9 @@ class TestSessionFlowIntegration:
         # Build graph using builder
         builder = OperationGraphBuilder("TestWorkflow")
         op1 = builder.add_operation("process_data", branch=branch1)
-        op2 = builder.add_operation(
-            "validate_data", branch=branch2, depends_on=[op1]
-        )
+        op2 = builder.add_operation("validate_data", branch=branch2, depends_on=[op1])
 
-        result = await session.flow(
-            builder.get_graph(), parallel=False, verbose=False
-        )
+        result = await session.flow(builder.get_graph(), parallel=False, verbose=False)
 
         assert len(result["completed_operations"]) == 2
 
@@ -928,9 +886,7 @@ class TestSessionFlowAsyncEdgeCases:
         graph, ops = make_simple_graph(3)
 
         # Start flow and cancel after short delay
-        task = asyncio.create_task(
-            session.flow(graph, parallel=True, verbose=False)
-        )
+        task = asyncio.create_task(session.flow(graph, parallel=True, verbose=False))
 
         # Cancel after brief delay
         await asyncio.sleep(0.1)
@@ -973,9 +929,7 @@ class TestSessionFlowAsyncEdgeCases:
 
         # Apply timeout to flow execution - should raise TimeoutError
         with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(
-                session.flow(graph, parallel=False, verbose=False), timeout=0.5
-            )
+            await asyncio.wait_for(session.flow(graph, parallel=False, verbose=False), timeout=0.5)
 
     @pytest.mark.asyncio
     async def test_error_propagation_across_parallel_branches(self):
@@ -1102,9 +1056,7 @@ class TestSessionFlowAsyncEdgeCases:
         for op in [op_fast, op_medium, op_slow]:
             graph.add_node(op)
 
-        result = await session.flow(
-            graph, parallel=True, max_concurrent=3, verbose=False
-        )
+        result = await session.flow(graph, parallel=True, max_concurrent=3, verbose=False)
 
         # All operations should complete despite potential timing differences
         assert len(result["completed_operations"]) == 3

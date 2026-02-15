@@ -159,9 +159,7 @@ class TestBroadcaster:
 
         SpecificBroadcaster.subscribe(callback)
 
-        with pytest.raises(
-            ValueError, match="Event must be of type SampleEvent"
-        ):
+        with pytest.raises(ValueError, match="Event must be of type SampleEvent"):
             await SpecificBroadcaster.broadcast(wrong_event)
 
         # Callback should not have been called
@@ -174,9 +172,7 @@ class TestBroadcaster:
         class TestBroadcaster(Broadcaster):
             _event_type = SampleEvent
 
-        failing_callback = MagicMock(
-            side_effect=RuntimeError("Callback error")
-        )
+        failing_callback = MagicMock(side_effect=RuntimeError("Callback error"))
         successful_callback = MagicMock()
         event = SampleEvent()
 
@@ -197,9 +193,7 @@ class TestBroadcaster:
         class TestBroadcaster(Broadcaster):
             _event_type = SampleEvent
 
-        failing_callback = AsyncMock(
-            side_effect=RuntimeError("Async callback error")
-        )
+        failing_callback = AsyncMock(side_effect=RuntimeError("Async callback error"))
         successful_callback = AsyncMock()
         event = SampleEvent()
 

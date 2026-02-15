@@ -37,9 +37,7 @@ def make_mocked_branch_for_operate():
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
+    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
     mock_chat_model.invoke = mock_invoke
 
     branch.chat_model = mock_chat_model
@@ -121,9 +119,7 @@ async def test_operate_with_actions_preserves_response_data():
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke_with_actions)
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
+    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
     mock_chat_model.invoke = mock_invoke
     branch.chat_model = mock_chat_model
 
@@ -145,9 +141,7 @@ async def test_operate_with_actions_preserves_response_data():
     # CRITICAL: Result should have BOTH original response data AND action_responses
     assert hasattr(result, "answer"), "Original 'answer' field missing"
     assert hasattr(result, "confidence"), "Original 'confidence' field missing"
-    assert hasattr(
-        result, "action_responses"
-    ), "action_responses field missing"
+    assert hasattr(result, "action_responses"), "action_responses field missing"
 
     # Verify original data is preserved
     assert result.answer == "42"
