@@ -3,8 +3,6 @@
 
 """Tests for function_to_schema utility."""
 
-import pytest
-
 from lionagi.libs.schema.function_to_schema import (
     FunctionSchema,
     function_to_schema,
@@ -190,9 +188,7 @@ class TestFunctionToSchema:
             pass
 
         custom_desc = "Custom function description."
-        schema = function_to_schema(
-            func_with_desc, func_description=custom_desc
-        )
+        schema = function_to_schema(func_with_desc, func_description=custom_desc)
 
         assert schema["function"]["description"] == custom_desc
 
@@ -212,19 +208,11 @@ class TestFunctionToSchema:
             "x": "Custom description for x.",
             "y": "Custom description for y.",
         }
-        schema = function_to_schema(
-            func_with_params, parametert_description=custom_params
-        )
+        schema = function_to_schema(func_with_params, parametert_description=custom_params)
 
         params = schema["function"]["parameters"]
-        assert (
-            params["properties"]["x"]["description"]
-            == "Custom description for x."
-        )
-        assert (
-            params["properties"]["y"]["description"]
-            == "Custom description for y."
-        )
+        assert params["properties"]["x"]["description"] == "Custom description for x."
+        assert params["properties"]["y"]["description"] == "Custom description for y."
 
     def test_strict_mode_enabled(self):
         """Test schema generation with strict mode enabled."""
@@ -283,15 +271,11 @@ class TestFunctionToSchema:
             "required": ["custom_param"],
         }
 
-        schema = function_to_schema(
-            custom_func, request_options=custom_options
-        )
+        schema = function_to_schema(custom_func, request_options=custom_options)
 
         params = schema["function"]["parameters"]
         assert "custom_param" in params["properties"]
-        assert (
-            "x" not in params["properties"]
-        )  # Original params should be replaced
+        assert "x" not in params["properties"]  # Original params should be replaced
 
     def test_return_as_object(self):
         """Test schema generation returning FunctionSchema object."""
@@ -318,9 +302,7 @@ class TestFunctionToSchema:
     def test_multiple_parameters_all_types(self):
         """Test function with multiple parameters of different types."""
 
-        def multi_type_func(
-            a: int, b: str, c: float, d: bool, e: list, f: dict, g: tuple
-        ):
+        def multi_type_func(a: int, b: str, c: float, d: bool, e: list, f: dict, g: tuple):
             """Function with multiple parameter types.
 
             Args:
@@ -384,9 +366,7 @@ class TestFunctionToSchema:
 
         schema = function_to_schema(multiline_func)
 
-        x_desc = schema["function"]["parameters"]["properties"]["x"][
-            "description"
-        ]
+        x_desc = schema["function"]["parameters"]["properties"]["x"]["description"]
         # Should combine multiline descriptions
         assert "multiline description" in x_desc
 
@@ -434,9 +414,7 @@ class TestFunctionSchema:
             description="Test function.",
             parameters={
                 "type": "object",
-                "properties": {
-                    "x": {"type": "number", "description": "Parameter x."}
-                },
+                "properties": {"x": {"type": "number", "description": "Parameter x."}},
                 "required": ["x"],
             },
         )

@@ -16,17 +16,13 @@ class TestHookEventBasicBehavior:
     """Test basic HookEvent behavior and state management."""
 
     @pytest.mark.anyio
-    async def test_normal_hook_execution_sets_correct_state(
-        self, patch_cancellation
-    ):
+    async def test_normal_hook_execution_sets_correct_state(self, patch_cancellation):
         """Test that normal hook execution sets correct execution state."""
 
         async def successful_hook(ev, **kw):
             return "hook_result"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: successful_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: successful_hook})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -64,9 +60,7 @@ class TestHookEventBasicBehavior:
         async def failing_hook(ev, **kw):
             raise RuntimeError("hook failed")
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: failing_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: failing_hook})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -79,31 +73,23 @@ class TestHookEventBasicBehavior:
         await hook_event.invoke()
 
         # Check that hook exception is recorded
-        assert (
-            hook_event.execution.status == EventStatus.CANCELLED
-        )  # From registry
+        assert hook_event.execution.status == EventStatus.CANCELLED  # From registry
         assert hook_event.execution.response is None
         assert "hook failed" in hook_event.execution.error
         assert hook_event._exit_cause is not None
         assert isinstance(hook_event._exit_cause, RuntimeError)
 
         # Check exit behavior - should respect exit policy (False in this case)
-        assert (
-            hook_event._should_exit is False
-        )  # exit=False, so should not exit
+        assert hook_event._should_exit is False  # exit=False, so should not exit
 
     @pytest.mark.anyio
-    async def test_hook_exception_with_exit_true_sets_should_exit(
-        self, patch_cancellation
-    ):
+    async def test_hook_exception_with_exit_true_sets_should_exit(self, patch_cancellation):
         """Test that hook exceptions with exit=True set should_exit=True."""
 
         async def failing_hook(ev, **kw):
             raise RuntimeError("hook failed")
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: failing_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: failing_hook})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -126,9 +112,7 @@ class TestHookEventBasicBehavior:
         async def hook_returning_exception(ev, **kw):
             return test_exception
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: hook_returning_exception}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: hook_returning_exception})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -153,9 +137,7 @@ class TestHookEventBasicBehavior:
         async def hook_returning_tuple(ev, **kw):
             return ("UNDEFINED", test_exception)
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: hook_returning_tuple}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: hook_returning_tuple})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -183,9 +165,7 @@ class TestHookEventCancellation:
         async def cancelling_hook(ev, **kw):
             raise MyCancelled("test cancellation")
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: cancelling_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: cancelling_hook})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -200,18 +180,14 @@ class TestHookEventCancellation:
             await hook_event.invoke()
 
     @pytest.mark.anyio
-    async def test_timeout_cancellation(
-        self, patch_cancellation, patch_timeout
-    ):
+    async def test_timeout_cancellation(self, patch_cancellation, patch_timeout):
         """Test that timeouts cause cancellation."""
 
         async def slow_hook(ev, **kw):
             # This won't actually run because patch_timeout immediately raises
             return "should not reach this"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: slow_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: slow_hook})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -230,9 +206,7 @@ class TestHookEventDispatchErrorPolicy:
     """Test HookEvent behavior on registry/dispatch errors."""
 
     @pytest.mark.anyio
-    async def test_dispatch_error_respects_exit_policy_false(
-        self, patch_cancellation
-    ):
+    async def test_dispatch_error_respects_exit_policy_false(self, patch_cancellation):
         """Test that dispatch errors respect exit=False policy."""
         # Create registry without the hook to cause dispatch error
         registry = HookRegistry()
@@ -249,15 +223,11 @@ class TestHookEventDispatchErrorPolicy:
 
         # Should not exit because exit=False
         assert hook_event._should_exit is False
-        assert (
-            hook_event.execution.status == EventStatus.CANCELLED
-        )  # Dispatch errors are CANCELLED
+        assert hook_event.execution.status == EventStatus.CANCELLED  # Dispatch errors are CANCELLED
         assert hook_event._exit_cause is not None
 
     @pytest.mark.anyio
-    async def test_dispatch_error_respects_exit_policy_true(
-        self, patch_cancellation
-    ):
+    async def test_dispatch_error_respects_exit_policy_true(self, patch_cancellation):
         """Test that dispatch errors respect exit=True policy."""
         # Create registry without the hook to cause dispatch error
         registry = HookRegistry()
@@ -274,9 +244,7 @@ class TestHookEventDispatchErrorPolicy:
 
         # Should exit because exit=True
         assert hook_event._should_exit is True
-        assert (
-            hook_event.execution.status == EventStatus.CANCELLED
-        )  # Dispatch errors are CANCELLED
+        assert hook_event.execution.status == EventStatus.CANCELLED  # Dispatch errors are CANCELLED
         assert hook_event._exit_cause is not None
 
 
@@ -290,9 +258,7 @@ class TestHookEventMetadata:
         async def dummy_hook(ev, **kw):
             return "ok"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: dummy_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: dummy_hook})
         event = FakeEvent("meta_test", 999.5)
         hook_event = HookEvent(
             registry=registry,
@@ -316,9 +282,7 @@ class TestHookEventMetadata:
         assert info["event_created_at"] == 999.5
 
     @pytest.mark.anyio
-    async def test_metadata_for_pre_event_create_type(
-        self, patch_cancellation
-    ):
+    async def test_metadata_for_pre_event_create_type(self, patch_cancellation):
         """Test metadata for pre_event_create (event type, not instance)."""
 
         async def dummy_hook(ev_type, **kw):
@@ -326,9 +290,7 @@ class TestHookEventMetadata:
 
         from tests.service.hooks.conftest import FakeEventType
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreEventCreate: dummy_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreEventCreate: dummy_hook})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreEventCreate,
@@ -342,9 +304,7 @@ class TestHookEventMetadata:
 
         # Pre event create should only have lion_class
         info = hook_event.assosiated_event_info
-        assert (
-            info["lion_class"] == "tests.service.hooks.conftest.FakeEventType"
-        )
+        assert info["lion_class"] == "tests.service.hooks.conftest.FakeEventType"
         assert len(info) == 1  # Only lion_class for event types
 
 
@@ -397,9 +357,7 @@ class TestHookEventValidation:
             captured_params.update(kw)
             return "ok"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: param_capturing_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: param_capturing_hook})
         hook_event = HookEvent(
             registry=registry,
             hook_type=HookEventTypes.PreInvocation,
@@ -417,6 +375,4 @@ class TestHookEventValidation:
         # Check that custom params were forwarded
         assert captured_params["custom_param"] == "test_value"
         assert captured_params["another_param"] == 42
-        assert (
-            captured_params["exit"] is False
-        )  # exit should also be forwarded
+        assert captured_params["exit"] is False  # exit should also be forwarded

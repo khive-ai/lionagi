@@ -574,9 +574,7 @@ class TestNodeRestore:
         assert r.version == 2
 
     def test_restore_with_by_param(self):
-        cls = create_node(
-            "Rest", soft_delete=True, track_updated_at=True
-        )
+        cls = create_node("Rest", soft_delete=True, track_updated_at=True)
         r = cls()
         r.soft_delete(by="admin")
         r.restore(by="manager")

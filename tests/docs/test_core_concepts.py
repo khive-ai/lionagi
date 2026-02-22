@@ -112,9 +112,7 @@ class TestBranchConstruction:
     def test_branch_with_system_and_name(self):
         from lionagi import Branch
 
-        branch = Branch(
-            system="You are a research assistant.", name="researcher"
-        )
+        branch = Branch(system="You are a research assistant.", name="researcher")
         assert branch.name == "researcher"
         assert branch.system is not None
 
@@ -138,9 +136,7 @@ class TestIModelConstruction:
     def test_openai_provider(self):
         from lionagi import iModel
 
-        model = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         assert model is not None
         assert model.endpoint is not None
 
@@ -429,18 +425,14 @@ class TestMessageTypeConstruction:
     def test_action_request_construct(self):
         from lionagi.protocols.messages import ActionRequest
 
-        ar = ActionRequest(
-            content={"function": "search", "arguments": {"query": "test"}}
-        )
+        ar = ActionRequest(content={"function": "search", "arguments": {"query": "test"}})
         assert ar.function == "search"
         assert ar.arguments == {"query": "test"}
 
     def test_assistant_response_construct(self):
         from lionagi.protocols.messages import AssistantResponse
 
-        resp = AssistantResponse(
-            content={"assistant_response": "Here is the answer."}
-        )
+        resp = AssistantResponse(content={"assistant_response": "Here is the answer."})
         assert resp.role.value == "assistant"
 
     def test_message_role_enum(self):
@@ -506,9 +498,7 @@ class TestMockedSession:
         from lionagi.session.session import Session
 
         session = Session()
-        mock_model = LionAGIMockFactory.create_mocked_imodel(
-            response="mocked session response"
-        )
+        mock_model = LionAGIMockFactory.create_mocked_imodel(response="mocked session response")
         for branch_name in ("researcher", "writer", "reviewer"):
             branch = session.new_branch(name=branch_name)
             branch.chat_model = mock_model

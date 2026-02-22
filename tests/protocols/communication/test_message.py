@@ -177,9 +177,7 @@ def test_roled_message_initialization():
 
 def test_roled_message_initialization_from_string():
     """Test RoledMessage initialization with string content."""
-    message = _MockMessage(
-        role=MessageRole.USER, content="Hello World", sender="user"
-    )
+    message = _MockMessage(role=MessageRole.USER, content="Hello World", sender="user")
 
     assert message.content.text == "Hello World"
     assert message.rendered == "Hello World"
@@ -214,17 +212,13 @@ def test_roled_message_content_always_message_content():
 def test_roled_message_role_validation_enum():
     """Test role validation with MessageRole enum values."""
     for role in MessageRole:
-        message = _MockMessage(
-            role=role, content=_MockContent(text="test"), sender="user"
-        )
+        message = _MockMessage(role=role, content=_MockContent(text="test"), sender="user")
         assert message.role == role
 
 
 def test_roled_message_role_validation_string():
     """Test role validation with string values."""
-    message = _MockMessage(
-        role="user", content=_MockContent(text="test"), sender="user"
-    )
+    message = _MockMessage(role="user", content=_MockContent(text="test"), sender="user")
     assert message.role == MessageRole.USER
 
 
@@ -305,9 +299,7 @@ def test_roled_message_rendered_property():
 
 def test_roled_message_chat_msg_property():
     """Test RoledMessage chat_msg property."""
-    message = _MockMessage(
-        role=MessageRole.USER, content=_MockContent(text="Hello")
-    )
+    message = _MockMessage(role=MessageRole.USER, content=_MockContent(text="Hello"))
 
     chat_msg = message.chat_msg
     assert chat_msg is not None
@@ -319,18 +311,14 @@ def test_roled_message_chat_msg_property_error_handling():
     """Test chat_msg property returns None on error."""
     # This test assumes chat_msg can fail gracefully
     # In practice, it should work for valid messages
-    message = _MockMessage(
-        role=MessageRole.USER, content=_MockContent(text="Hello")
-    )
+    message = _MockMessage(role=MessageRole.USER, content=_MockContent(text="Hello"))
 
     assert message.chat_msg is not None
 
 
 def test_roled_message_image_content_property():
     """Test image_content property returns None for text content."""
-    message = _MockMessage(
-        role=MessageRole.USER, content=_MockContent(text="Hello")
-    )
+    message = _MockMessage(role=MessageRole.USER, content=_MockContent(text="Hello"))
 
     # For simple text content, image_content should be None
     assert message.image_content is None
@@ -444,9 +432,7 @@ def test_roled_message_to_dict():
 
 def test_roled_message_serialization_to_dict():
     """Test serialization of RoledMessage to dict."""
-    message = _MockMessage(
-        role=MessageRole.USER, content=_MockContent(text="test"), sender="user"
-    )
+    message = _MockMessage(role=MessageRole.USER, content=_MockContent(text="test"), sender="user")
 
     serialized = message.to_dict()
     assert "role" in serialized
@@ -528,9 +514,7 @@ def test_message_workflow_complete():
 
 def test_message_content_immutability_via_update():
     """Test that content updates create new instances via from_dict()."""
-    message = _MockMessage(
-        role=MessageRole.USER, content=_MockContent(text="Original")
-    )
+    message = _MockMessage(role=MessageRole.USER, content=_MockContent(text="Original"))
 
     original_content = message.content
     message.update(text="Updated")

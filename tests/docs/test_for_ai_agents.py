@@ -71,9 +71,7 @@ class TestOrchestrationGuide:
             """A helper tool."""
             return x
 
-        model = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         branch = Branch(
             system="You are an assistant.",
             name="full_branch",
@@ -135,9 +133,7 @@ class TestOrchestrationGuide:
         """Multiple branches can use different iModels."""
         from lionagi import Branch, iModel
 
-        model_a = iModel(
-            provider="openai", model="gpt-4o", api_key="test-key-a"
-        )
+        model_a = iModel(provider="openai", model="gpt-4o", api_key="test-key-a")
         model_b = iModel(
             provider="anthropic",
             model="claude-3-5-sonnet-20241022",
@@ -203,9 +199,7 @@ class TestSelfImprovement:
         from lionagi import Branch
 
         assert hasattr(Branch, "from_dict")
-        assert isinstance(
-            inspect.getattr_static(Branch, "from_dict"), classmethod
-        )
+        assert isinstance(inspect.getattr_static(Branch, "from_dict"), classmethod)
 
     def test_clone_returns_branch_instance(self):
         """branch.clone() returns a new Branch instance."""
@@ -294,9 +288,7 @@ class TestPatternSelection:
 
         branch = Branch()
         for method_name in self.EXPECTED_METHODS:
-            assert hasattr(
-                branch, method_name
-            ), f"Branch missing method: {method_name}"
+            assert hasattr(branch, method_name), f"Branch missing method: {method_name}"
 
     def test_all_branch_operations_are_callable(self):
         """All 7 documented Branch operations are callable."""
@@ -314,9 +306,9 @@ class TestPatternSelection:
         branch = Branch()
         for method_name in self.EXPECTED_METHODS:
             method = getattr(branch, method_name)
-            assert inspect.iscoroutinefunction(
-                method
-            ), f"Branch.{method_name} is not a coroutine function"
+            assert inspect.iscoroutinefunction(method), (
+                f"Branch.{method_name} is not a coroutine function"
+            )
 
     def test_communicate_signature(self):
         """branch.communicate accepts instruction as first positional arg."""
@@ -384,9 +376,7 @@ class TestClaudeCodeUsage:
         """Multiple branches can model different agent roles."""
         from lionagi import Branch, iModel
 
-        model = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
 
         researcher = Branch(
             system="You are a research agent.",
@@ -416,9 +406,7 @@ class TestClaudeCodeUsage:
         """Fan-out: multiple branches maintain independent state."""
         from lionagi import Branch, iModel
 
-        model = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
 
         branches = []
         for i in range(3):

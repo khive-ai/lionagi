@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any
 
 import pytest
 
@@ -131,9 +130,7 @@ def test_action_request_from_dict_invalid_function():
         "arguments": {},
     }
 
-    with pytest.raises(
-        ValueError, match="Function must be a string or callable"
-    ):
+    with pytest.raises(ValueError, match="Function must be a string or callable"):
         ActionRequestContent.from_dict(data)
 
 

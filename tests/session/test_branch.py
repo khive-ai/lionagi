@@ -1,15 +1,13 @@
 import pytest
 from pydantic import BaseModel
 
-from lionagi.operations.fields import ActionResponseModel, Instruct
-from lionagi.operations.operate.operative import Operative
+from lionagi.operations.fields import ActionResponseModel
 from lionagi.protocols.types import (
     ActionRequest,
     AssistantResponse,
     Instruction,
     LogManagerConfig,
     MessageRole,
-    RoledMessage,
 )
 from lionagi.service.manager import iModel
 from lionagi.session.branch import Branch
@@ -223,9 +221,7 @@ async def test_invoke_action_no_tools(branch_with_mock_imodel: Branch):
     If we pass an ActionRequest referencing an unregistered tool,
     we expect an error ActionResponseModel + a Log error about 'not registered'.
     """
-    req = ActionRequest(
-        content={"function": "unregistered_tool", "arguments": {"x": 1}}
-    )
+    req = ActionRequest(content={"function": "unregistered_tool", "arguments": {"x": 1}})
     resp = await branch_with_mock_imodel.act(req)
 
     # Now returns error response instead of empty list
@@ -237,9 +233,7 @@ async def test_invoke_action_no_tools(branch_with_mock_imodel: Branch):
 
     # logs => check the last entry for 'not registered'
     assert len(branch_with_mock_imodel.logs) == 1
-    assert "not registered" in (
-        branch_with_mock_imodel.logs[-1].content["error"] or ""
-    )
+    assert "not registered" in (branch_with_mock_imodel.logs[-1].content["error"] or "")
 
 
 @pytest.mark.asyncio
@@ -254,9 +248,7 @@ async def test_invoke_action_ok(branch_with_mock_imodel: Branch):
     # register the tool
     branch_with_mock_imodel.acts.register_tool(echo_tool)
 
-    req = ActionRequest(
-        content={"function": "echo_tool", "arguments": {"text": "hello"}}
-    )
+    req = ActionRequest(content={"function": "echo_tool", "arguments": {"text": "hello"}})
     resp = await branch_with_mock_imodel.act(req)
     # Should get ActionResponseModel with output = "ECHO: hello"
     assert resp is not None
@@ -279,9 +271,7 @@ async def test_invoke_action_suppress_errors(branch_with_mock_imodel: Branch):
     req = ActionRequest(content={"function": "fail_tool", "arguments": {}})
 
     result = await branch_with_mock_imodel.act(req, suppress_errors=True)
-    assert result == [
-        ActionResponseModel(function="fail_tool", arguments={}, output=None)
-    ]
+    assert result == [ActionResponseModel(function="fail_tool", arguments={}, output=None)]
     logs = branch_with_mock_imodel.logs
     assert len(logs) == 1
     assert logs[-1].content["execution"]["response"] is None

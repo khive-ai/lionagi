@@ -220,7 +220,7 @@ def visualize_graph(
 
     # Enhanced legend
     from matplotlib.lines import Line2D
-    from matplotlib.patches import Patch, Rectangle
+    from matplotlib.patches import Patch
 
     legend_elements = [
         Patch(facecolor="#90EE90", edgecolor="black", label="Executed"),

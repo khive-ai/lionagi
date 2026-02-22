@@ -13,12 +13,8 @@ Covers:
 - Complex predicates (metadata checks)
 """
 
-from typing import Any
-
 import pytest
-from pydantic import Field
 
-from lionagi.protocols.generic.element import Element
 from lionagi.protocols.generic.pile import Pile
 from lionagi.protocols.graph.node import Node
 
@@ -283,9 +279,7 @@ class TestComplexPredicates:
             nodes.append(n)
 
         p = Pile(collections=nodes)
-        result = p.filter(
-            lambda x: x.metadata.get("tag") == "important"
-        )
+        result = p.filter(lambda x: x.metadata.get("tag") == "important")
         assert len(result) == 3  # values 0, 2, 4
         for item in result:
             assert item.metadata["tag"] == "important"
@@ -299,10 +293,7 @@ class TestComplexPredicates:
             Node(content="gamma"),
         ]
         p = Pile(collections=nodes)
-        result = p.filter(
-            lambda x: isinstance(x.content, str)
-            and x.content.startswith("alpha")
-        )
+        result = p.filter(lambda x: isinstance(x.content, str) and x.content.startswith("alpha"))
         assert len(result) == 2
         contents = [item.content for item in result]
         assert "alpha" in contents

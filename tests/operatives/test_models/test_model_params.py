@@ -64,10 +64,7 @@ class TestModelParams:
         instance = model_class()
 
         assert instance.test_field == "test"
-        assert (
-            model_class.model_fields["test_field"].description
-            == "A test field"
-        )
+        assert model_class.model_fields["test_field"].description == "A test field"
 
     def test_model_with_validators(self):
         """Test model creation with field validators."""
@@ -118,9 +115,7 @@ class TestModelParams:
 
     def test_field_descriptions(self):
         """Test field description handling."""
-        field_model = FieldModel(
-            name="test_field", annotation=str, default="test"
-        )
+        field_model = FieldModel(name="test_field", annotation=str, default="test")
 
         params = ModelParams(
             name="TestModel",
@@ -129,10 +124,7 @@ class TestModelParams:
         )
 
         model_class = params.create_new_model()
-        assert (
-            model_class.model_fields["test_field"].description
-            == "Updated description"
-        )
+        assert model_class.model_fields["test_field"].description == "Updated description"
 
     def test_config_dict(self):
         """Test config dictionary handling."""
@@ -159,17 +151,13 @@ class TestModelParams:
             base_field: str = "base"
 
         # With inheritance
-        params = ModelParams(
-            name="TestModel", base_type=CustomBase, inherit_base=True
-        )
+        params = ModelParams(name="TestModel", base_type=CustomBase, inherit_base=True)
 
         model_class = params.create_new_model()
         assert issubclass(model_class, CustomBase)
 
         # Without inheritance
-        params = ModelParams(
-            name="TestModel", base_type=CustomBase, inherit_base=False
-        )
+        params = ModelParams(name="TestModel", base_type=CustomBase, inherit_base=False)
 
         model_class = params.create_new_model()
         assert not issubclass(model_class, CustomBase)
@@ -219,9 +207,7 @@ class TestModelParams:
                 default="test",
                 validator=validate_length,
             ),
-            FieldModel(
-                name="optional_field", annotation=str | None, default=None
-            ),
+            FieldModel(name="optional_field", annotation=str | None, default=None),
         ]
         a = Field(default="regular")
         a.annotation = str
@@ -280,9 +266,9 @@ def test_empty_parameter_fields(empty_value):
     )
     model_class = params.create_new_model()
     # If there's no base_type or field_models, the model should effectively have no fields
-    assert (
-        len(model_class.model_fields) == 0
-    ), "Expected no fields in the newly created model when parameter_fields is empty."
+    assert len(model_class.model_fields) == 0, (
+        "Expected no fields in the newly created model when parameter_fields is empty."
+    )
 
 
 def test_empty_field_models():
@@ -303,9 +289,7 @@ def test_empty_field_models():
     assert instance.param_field == 123
 
 
-@pytest.mark.parametrize(
-    "exclude_value", [["ex_field"], ["a", "b"], ["x", "y"]]
-)
+@pytest.mark.parametrize("exclude_value", [["ex_field"], ["a", "b"], ["x", "y"]])
 def test_exclude_fields_various_collections(exclude_value):
     """
     Test passing exclude_fields as a list of field names.
@@ -328,9 +312,7 @@ def test_exclude_fields_various_collections(exclude_value):
 
     # Fields listed in exclude_value should not exist
     for field_name in exclude_value:
-        assert not hasattr(
-            instance, field_name
-        ), f"Field '{field_name}' should have been excluded."
+        assert not hasattr(instance, field_name), f"Field '{field_name}' should have been excluded."
 
 
 def test_partial_overlap_field_descriptions():
@@ -349,10 +331,7 @@ def test_partial_overlap_field_descriptions():
         field_descriptions={"desc_field": "Updated description"},
     )
     model_class = params.create_new_model()
-    assert (
-        model_class.model_fields["desc_field"].description
-        == "Updated description"
-    )
+    assert model_class.model_fields["desc_field"].description == "Updated description"
     # The other field should not have any description
     assert not model_class.model_fields["no_desc_field"].description
 
@@ -456,6 +435,6 @@ def test_extend_use_keys_after_validation():
 
     # Only 'test_field' should appear
     assert "test_field" in model_class.model_fields
-    assert (
-        "non_existent" not in model_class.model_fields
-    ), "Keys not present in parameter_fields/field_models should not appear in the final model."
+    assert "non_existent" not in model_class.model_fields, (
+        "Keys not present in parameter_fields/field_models should not appear in the final model."
+    )

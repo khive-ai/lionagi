@@ -225,9 +225,7 @@ def test_parse_assistant_response_list_of_strings():
 
 def test_parse_assistant_response_empty_content():
     """Test parsing response with empty/null content"""
-    response = OpenAIChatResponse(
-        choices=[OpenAIChoice(message=OpenAIMessage(content=None))]
-    )
+    response = OpenAIChatResponse(choices=[OpenAIChoice(message=OpenAIMessage(content=None))])
 
     text, model_response = parse_assistant_response(response)
 
@@ -310,9 +308,7 @@ def test_assistant_response_initialization():
 
 def test_assistant_response_initialization_with_dict_content():
     """Test initialization with dictionary content"""
-    response = AssistantResponse(
-        content={"assistant_response": "Dict content"}
-    )
+    response = AssistantResponse(content={"assistant_response": "Dict content"})
 
     assert isinstance(response.content, AssistantResponseContent)
     assert response.content.assistant_response == "Dict content"
@@ -328,9 +324,7 @@ def test_assistant_response_initialization_with_none_content():
 
 def test_assistant_response_content_validation_invalid_type():
     """Test content validation raises TypeError for invalid types"""
-    with pytest.raises(
-        TypeError, match="content must be dict or AssistantResponseContent"
-    ):
+    with pytest.raises(TypeError, match="content must be dict or AssistantResponseContent"):
         AssistantResponse(content="invalid string")
 
 
@@ -360,9 +354,7 @@ def test_from_response_anthropic():
 
     assistant_response = AssistantResponse.from_response(response)
 
-    assert (
-        assistant_response.content.assistant_response == "Anthropic response"
-    )
+    assert assistant_response.content.assistant_response == "Anthropic response"
     assert "model_response" in assistant_response.metadata
     assert isinstance(assistant_response.model_response, dict)
 
@@ -370,9 +362,7 @@ def test_from_response_anthropic():
 def test_from_response_openai_chat():
     """Test from_response with OpenAI chat format"""
     response = OpenAIChatResponse(
-        choices=[
-            OpenAIChoice(message=OpenAIMessage(content="OpenAI response"))
-        ]
+        choices=[OpenAIChoice(message=OpenAIMessage(content="OpenAI response"))]
     )
 
     assistant_response = AssistantResponse.from_response(
@@ -390,9 +380,7 @@ def test_from_response_raw_string():
     """Test from_response with raw string"""
     assistant_response = AssistantResponse.from_response("Plain text response")
 
-    assert (
-        assistant_response.content.assistant_response == "Plain text response"
-    )
+    assert assistant_response.content.assistant_response == "Plain text response"
     assert assistant_response.model_response == "Plain text response"
 
 
@@ -420,9 +408,7 @@ def test_from_response_default_recipient():
 def test_from_response_custom_recipient():
     """Test from_response with custom recipient"""
     response = "Test"
-    assistant_response = AssistantResponse.from_response(
-        response, recipient="system"
-    )
+    assistant_response = AssistantResponse.from_response(response, recipient="system")
 
     assert assistant_response.recipient == MessageRole.SYSTEM
 
@@ -443,11 +429,7 @@ def test_from_response_preserves_all_formats():
                 output=[
                     OpenAIOutputMessage(
                         type="message",
-                        content=[
-                            OpenAIOutputText(
-                                type="output_text", text="Responses API"
-                            )
-                        ],
+                        content=[OpenAIOutputText(type="output_text", text="Responses API")],
                     )
                 ]
             ),
@@ -478,9 +460,7 @@ def test_model_response_property_access():
 
 def test_model_response_property_empty():
     """Test model_response property returns empty dict if not set"""
-    response = AssistantResponse(
-        content=AssistantResponseContent(assistant_response="Test")
-    )
+    response = AssistantResponse(content=AssistantResponseContent(assistant_response="Test"))
 
     assert response.model_response == {}
 
@@ -516,9 +496,7 @@ def test_assistant_response_complete_workflow():
     )
 
     # Create AssistantResponse
-    response = AssistantResponse.from_response(
-        api_response, sender="assistant", recipient="user"
-    )
+    response = AssistantResponse.from_response(api_response, sender="assistant", recipient="user")
 
     # Verify all properties
     assert response.role == MessageRole.ASSISTANT
@@ -532,15 +510,9 @@ def test_assistant_response_streaming_simulation():
     """Test handling streaming-like responses"""
     # Simulate stream chunks
     chunks = [
-        OpenAIChatResponse(
-            choices=[OpenAIChoice(delta=OpenAIDelta(content="Hello"))]
-        ),
-        OpenAIChatResponse(
-            choices=[OpenAIChoice(delta=OpenAIDelta(content=" "))]
-        ),
-        OpenAIChatResponse(
-            choices=[OpenAIChoice(delta=OpenAIDelta(content="world"))]
-        ),
+        OpenAIChatResponse(choices=[OpenAIChoice(delta=OpenAIDelta(content="Hello"))]),
+        OpenAIChatResponse(choices=[OpenAIChoice(delta=OpenAIDelta(content=" "))]),
+        OpenAIChatResponse(choices=[OpenAIChoice(delta=OpenAIDelta(content="world"))]),
     ]
 
     response = AssistantResponse.from_response(chunks)
@@ -567,9 +539,7 @@ def test_assistant_response_content_rendering():
 
 def test_assistant_response_role_immutable():
     """Test that role is always ASSISTANT"""
-    response = AssistantResponse(
-        content=AssistantResponseContent(assistant_response="Test")
-    )
+    response = AssistantResponse(content=AssistantResponseContent(assistant_response="Test"))
 
     assert response.role == MessageRole.ASSISTANT
     # Role should be set at class level
@@ -618,9 +588,7 @@ def test_from_response_with_complex_nested_structure():
 
     assistant_response = AssistantResponse.from_response(complex_response)
 
-    assert (
-        assistant_response.content.assistant_response == "Part 1 Part 2 Part 3"
-    )
+    assert assistant_response.content.assistant_response == "Part 1 Part 2 Part 3"
     assert "content" in assistant_response.model_response
     assert "metadata" in assistant_response.model_response
 

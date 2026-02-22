@@ -1,4 +1,3 @@
-import random
 import time
 
 import anyio
@@ -8,7 +7,6 @@ from lionagi.ln.concurrency import (
     bounded_map,
     fail_after,
     gather,
-    get_cancelled_exc_class,
     race,
     retry,
 )
@@ -117,9 +115,7 @@ async def test_gather_return_exceptions_true(anyio_backend):
         raise ValueError(f"error_{x}")
 
     # Mix successes and failures
-    results = await gather(
-        success(1), failure(2), success(3), failure(4), return_exceptions=True
-    )
+    results = await gather(success(1), failure(2), success(3), failure(4), return_exceptions=True)
 
     assert len(results) == 4
     assert results[0] == "result_1"
@@ -141,9 +137,7 @@ async def test_gather_return_exceptions_preserves_order(anyio_backend):
             return i
         raise RuntimeError(f"error_{i}")
 
-    results = await gather(
-        *[task(i) for i in range(6)], return_exceptions=True
-    )
+    results = await gather(*[task(i) for i in range(6)], return_exceptions=True)
 
     assert len(results) == 6
     for i in range(6):
@@ -171,9 +165,7 @@ async def test_bounded_map_respects_limit(anyio_backend):
     async def worker(x):
         nonlocal current_concurrency, max_observed_concurrency
         current_concurrency += 1
-        max_observed_concurrency = max(
-            max_observed_concurrency, current_concurrency
-        )
+        max_observed_concurrency = max(max_observed_concurrency, current_concurrency)
 
         await anyio.sleep(0.001)  # Minimal sleep
 
@@ -195,9 +187,7 @@ async def test_bounded_map_with_return_exceptions(anyio_backend):
             raise ValueError(f"error_{x}")
         return x * 2
 
-    results = await bounded_map(
-        worker, range(9), limit=3, return_exceptions=True
-    )
+    results = await bounded_map(worker, range(9), limit=3, return_exceptions=True)
 
     assert len(results) == 9
     for i in range(9):
@@ -371,9 +361,7 @@ async def test_retry_eventual_success(anyio_backend):
             raise ConnectionError(f"Attempt {attempts['count']} failed")
         return "success"
 
-    result = await retry(
-        flaky, attempts=5, base_delay=0.001, retry_on=(ConnectionError,)
-    )
+    result = await retry(flaky, attempts=5, base_delay=0.001, retry_on=(ConnectionError,))
 
     assert result == "success"
     assert attempts["count"] == 3  # Succeeded on third attempt

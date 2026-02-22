@@ -54,9 +54,7 @@ class TestFieldModel:
                 raise ValueError("Value must be positive")
             return value
 
-        field = FieldModel(
-            name="test_field", annotation=int, validator=validate_positive
-        )
+        field = FieldModel(name="test_field", annotation=int, validator=validate_positive)
 
         validator_dict = field.field_validator
         assert isinstance(validator_dict, dict)
@@ -70,9 +68,7 @@ class TestFieldModel:
                 raise ValueError("Value must be between 0 and 100")
             return value
 
-        field = FieldModel(
-            name="test_field", annotation=int, validator=validate_range
-        )
+        field = FieldModel(name="test_field", annotation=int, validator=validate_range)
 
         validator_dict = field.field_validator
         assert isinstance(validator_dict, dict)
@@ -102,9 +98,7 @@ class TestFieldModel:
 
     def test_field_with_alias(self):
         """Test field with alias configuration."""
-        field = FieldModel(
-            name="test_field", alias="test_alias", alias_priority=2
-        )
+        field = FieldModel(name="test_field", alias="test_alias", alias_priority=2)
 
         field_info = field.create_field()
         assert field_info.alias == "test_alias"
@@ -126,9 +120,7 @@ class TestFieldModel:
         field = FieldModel(name="test_field", default="test")
 
         # Test that extra fields are allowed
-        field_with_extra = FieldModel(
-            name="test_field", default="test", custom_attr="value"
-        )
+        field_with_extra = FieldModel(name="test_field", default="test", custom_attr="value")
         assert hasattr(field_with_extra, "custom_attr")
 
     def test_field_to_dict(self):
@@ -171,9 +163,7 @@ class TestFieldModel:
 
     def test_field_with_examples(self):
         """Test field with examples."""
-        field = FieldModel(
-            name="test_field", examples=["example1", "example2"]
-        )
+        field = FieldModel(name="test_field", examples=["example1", "example2"])
 
         field_info = field.create_field()
         assert field_info.examples == ["example1", "example2"]
@@ -195,9 +185,7 @@ def test_both_default_and_default_factory():
     def factory_func():
         return "factory_value"
 
-    with pytest.raises(
-        ValueError, match="Cannot have both default and default_factory"
-    ):
+    with pytest.raises(ValueError, match="Cannot have both default and default_factory"):
         FieldModel(
             name="conflicting_field",
             default="some_value",
@@ -222,9 +210,7 @@ def test_exclude_field_behavior():
     """
     field = FieldModel(name="excluded_field", exclude=True)
     info = field.create_field()
-    assert (
-        info.exclude is True
-    ), "Expected the field's FieldInfo to have exclude=True"
+    assert info.exclude is True, "Expected the field's FieldInfo to have exclude=True"
 
 
 @pytest.mark.parametrize(
@@ -238,9 +224,7 @@ def test_exclude_field_behavior():
         ),  # The first element is a string instead of int
     ],
 )
-def test_type_mismatch_between_annotation_and_default(
-    annotation, default_value
-):
+def test_type_mismatch_between_annotation_and_default(annotation, default_value):
     """
     Test providing a default value that doesn't match the annotation type
     (e.g., str default for an int annotation).
@@ -249,9 +233,7 @@ def test_type_mismatch_between_annotation_and_default(
     but it may cause an error once integrated in an actual Pydantic model.
     We'll simply confirm the mismatch is stored or accepted at this step.
     """
-    field = FieldModel(
-        name="mismatch_field", annotation=annotation, default=default_value
-    )
+    field = FieldModel(name="mismatch_field", annotation=annotation, default=default_value)
     info = field.create_field()
     # The FieldInfo has the mismatch, but Pydantic doesn't strictly validate here in FieldModel alone.
     # You might consider implementing your own check if you want to raise an error now.

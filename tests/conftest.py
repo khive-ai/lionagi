@@ -22,9 +22,7 @@ def ensure_fake_lionagi(monkeypatch):
     # ln: provide lcall (with optional flatten) and json_dumps
     ln_ns = types.SimpleNamespace()
 
-    def lcall(
-        items, func, *args, flatten=False, output_flatten=False, **kwargs
-    ):
+    def lcall(items, func, *args, flatten=False, output_flatten=False, **kwargs):
         results = []
         for x in items:
             r = func(x, *args, **kwargs)
@@ -61,9 +59,7 @@ def ensure_fake_lionagi(monkeypatch):
             self.metadata = metadata
 
         def __repr__(self):
-            return (
-                f"Node(content={self.content!r}, metadata={self.metadata!r})"
-            )
+            return f"Node(content={self.content!r}, metadata={self.metadata!r})"
 
     node_mod.Node = Node
 
@@ -200,9 +196,7 @@ def mock_response():
 
     response = MagicMock()
     response.json.return_value = {
-        "choices": [
-            {"message": {"content": "Test response", "role": "assistant"}}
-        ],
+        "choices": [{"message": {"content": "Test response", "role": "assistant"}}],
         "model": "gpt-4.1-mini",
         "usage": {
             "total_tokens": 50,

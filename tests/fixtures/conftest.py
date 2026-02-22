@@ -4,8 +4,6 @@ Shared Fixtures for LionAGI Test Suite
 Provides pytest fixtures that can be used across all test modules.
 """
 
-from typing import Any, Dict, List
-
 import pytest
 
 from tests.utils.helpers import (
@@ -108,9 +106,7 @@ def performance_benchmark():
     """Fixture for performance benchmarking across test session."""
     benchmarks = {}
 
-    def record_benchmark(
-        test_name: str, duration: float, memory_usage: float = None
-    ):
+    def record_benchmark(test_name: str, duration: float, memory_usage: float = None):
         benchmarks[test_name] = {
             "duration": duration,
             "memory_usage": memory_usage,
@@ -121,9 +117,7 @@ def performance_benchmark():
 
     # Return object with methods
     class BenchmarkRecorder:
-        def record(
-            self, test_name: str, duration: float, memory_usage: float = None
-        ):
+        def record(self, test_name: str, duration: float, memory_usage: float = None):
             record_benchmark(test_name, duration, memory_usage)
 
         def get_all(self):

@@ -195,7 +195,7 @@ class SpecAdapter(ABC):
 
             return instance
 
-        except (ValueError, TypeError, KeyError, AttributeError) as e:
+        except (ValueError, TypeError, KeyError, AttributeError):
             # Catch validation-related exceptions only
             # ValueError: JSON/parsing errors, validation failures
             # TypeError: Type mismatches during validation

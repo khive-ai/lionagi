@@ -92,9 +92,7 @@ class TestSelectBasic:
         mock_branch_instance.operate = AsyncMock(side_effect=mock_operate)
 
         # When branch is None and branch_kwargs provided
-        with patch(
-            "lionagi.session.branch.Branch", return_value=mock_branch_instance
-        ):
+        with patch("lionagi.session.branch.Branch", return_value=mock_branch_instance):
             result = await select(
                 branch=None,
                 instruct={"instruction": "Select"},
@@ -386,9 +384,7 @@ class TestSelectV1InstructHandling:
         """Test with Instruct object."""
         from lionagi.operations.fields import Instruct
 
-        instruct = Instruct(
-            instruction="Choose the best", context={"data": "value"}
-        )
+        instruct = Instruct(instruction="Choose the best", context={"data": "value"})
 
         branch = MagicMock(spec=Branch)
 

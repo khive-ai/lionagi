@@ -46,9 +46,7 @@ async def _bench_once(fn: Callable[[], Coroutine[Any, Any, Any]]) -> float:
     return time.perf_counter() - t0
 
 
-async def _bench_repeat(
-    name: str, repeat: int, fn: Callable[[], Coroutine[Any, Any, Any]]
-) -> Stat:
+async def _bench_repeat(name: str, repeat: int, fn: Callable[[], Coroutine[Any, Any, Any]]) -> Stat:
     runs = []
     for _ in range(repeat):
         runs.append(await _bench_once(fn))
@@ -58,9 +56,7 @@ async def _bench_repeat(
 # --- Scenario implementations ---
 
 
-def scenario_alcall_async_noop_1000_conc_100() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_alcall_async_noop_1000_conc_100() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         async def noop(x):
             await anyio.sleep(0)
@@ -72,9 +68,7 @@ def scenario_alcall_async_noop_1000_conc_100() -> (
     return _run
 
 
-def scenario_alcall_sync_noop_1000_conc_64() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_alcall_sync_noop_1000_conc_64() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         def noop(x):
             return x
@@ -85,9 +79,7 @@ def scenario_alcall_sync_noop_1000_conc_64() -> (
     return _run
 
 
-def scenario_bcall_async_noop_1000_batch_50() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_bcall_async_noop_1000_batch_50() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         async def noop(x):
             await anyio.sleep(0)
@@ -95,17 +87,13 @@ def scenario_bcall_async_noop_1000_batch_50() -> (
 
         input_ = list(range(1000))
         # Consume the generator to exercise batching path. Ensure no timeout.
-        async for _ in bcall(
-            input_, noop, 50, max_concurrent=100, retry_timeout=None
-        ):
+        async for _ in bcall(input_, noop, 50, max_concurrent=100, retry_timeout=None):
             pass
 
     return _run
 
 
-def scenario_to_list_flatten_nested_10000() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_to_list_flatten_nested_10000() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         # Build moderately nested structure
         nested = [[i, (i, {i, i + 1})] for i in range(5000)]
@@ -115,16 +103,10 @@ def scenario_to_list_flatten_nested_10000() -> (
     return _run
 
 
-def scenario_to_list_flatten_unique_2000_mixed() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_to_list_flatten_unique_2000_mixed() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         mixed = [
-            (
-                {"a": i, "b": i % 5}
-                if i % 3 == 0
-                else (i, i % 7) if i % 3 == 1 else [i, i]
-            )
+            ({"a": i, "b": i % 5} if i % 3 == 0 else (i, i % 7) if i % 3 == 1 else [i, i])
             for i in range(2000)
         ]
         to_list(
@@ -138,17 +120,12 @@ def scenario_to_list_flatten_unique_2000_mixed() -> (
     return _run
 
 
-def scenario_hash_dict_complex_1000() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_hash_dict_complex_1000() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         obj = {
             "ints": list(range(50)),
             "floats": [i / 10 for i in range(50)],
-            "nested": {
-                f"k{i}": {"v": i, "arr": list(range(i % 10))}
-                for i in range(50)
-            },
+            "nested": {f"k{i}": {"v": i, "arr": list(range(i % 10))} for i in range(50)},
             "mix": [{"i": i, "t": (i, str(i))} for i in range(50)],
         }
         for _ in range(1000):
@@ -157,15 +134,12 @@ def scenario_hash_dict_complex_1000() -> (
     return _run
 
 
-def scenario_json_dumps_medium_1000() -> (
-    Callable[[], Coroutine[Any, Any, Any]]
-):
+def scenario_json_dumps_medium_1000() -> Callable[[], Coroutine[Any, Any, Any]]:
     async def _run():
         obj = {
             "name": "benchmark",
             "items": [
-                {"id": i, "text": f"item-{i}", "values": list(range(10))}
-                for i in range(200)
+                {"id": i, "text": f"item-{i}", "values": list(range(10))} for i in range(200)
             ],
             "flags": {"a": True, "b": False, "n": None},
         }
@@ -236,23 +210,15 @@ def compare_results(current: dict[str, Any], baseline: dict[str, Any]) -> str:
             delta = float("inf")
         else:
             delta = (cur_med - base_med) / base_med
-        lines.append(
-            f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}"
-        )
+        lines.append(f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}")
     return "\n".join(lines)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="LN function micro-benchmarks"
-    )
-    parser.add_argument(
-        "--backend", choices=["asyncio", "trio"], default="asyncio"
-    )
+    parser = argparse.ArgumentParser(description="LN function micro-benchmarks")
+    parser.add_argument("--backend", choices=["asyncio", "trio"], default="asyncio")
     parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument(
-        "--json", action="store_true", help="Print JSON to stdout"
-    )
+    parser.add_argument("--json", action="store_true", help="Print JSON to stdout")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument(
         "--compare",
@@ -263,9 +229,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Run under selected backend to ensure alcall/bcall operate deterministically
-    results = anyio.run(
-        run_benchmarks_async, args.repeat, backend=args.backend
-    )
+    results = anyio.run(run_benchmarks_async, args.repeat, backend=args.backend)
 
     payload: dict[str, Any] = {
         "meta": {
@@ -291,9 +255,7 @@ def main() -> None:
 
     if args.compare:
         try:
-            baseline = json.loads(
-                Path(args.compare).read_text(encoding="utf-8")
-            )
+            baseline = json.loads(Path(args.compare).read_text(encoding="utf-8"))
             print()
             print(compare_results(payload, baseline))
         except Exception as e:

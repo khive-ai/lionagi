@@ -50,9 +50,7 @@ def mixed_type_graph():
 
     # Create different types of edges
     edge1 = WeightedEdge(head=node_a1, tail=node_b1, weight=5.0)
-    edge2 = LabeledEdge(
-        head=node_a2, tail=node_b2, labels=["test", "connection"]
-    )
+    edge2 = LabeledEdge(head=node_a2, tail=node_b2, labels=["test", "connection"])
 
     # Add edges
     for edge in [edge1, edge2]:

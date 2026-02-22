@@ -39,9 +39,7 @@ class TestValidateHooks:
     def test_validate_hooks_rejects_bad_key_type(self):
         """Test that validate_hooks rejects non-HookEventTypes keys."""
         with pytest.raises(ValidationError):
-            validate_hooks(
-                {"pre_invocation": lambda e: None}
-            )  # string instead of enum
+            validate_hooks({"pre_invocation": lambda e: None})  # string instead of enum
 
         with pytest.raises(ValidationError):
             validate_hooks({42: lambda e: None})  # int key
@@ -89,9 +87,7 @@ class TestValidateStreamHandlers:
             validate_stream_handlers({42: lambda ev, ct, ch: None})  # int key
 
         with pytest.raises(ValidationError):
-            validate_stream_handlers(
-                {None: lambda ev, ct, ch: None}
-            )  # None key
+            validate_stream_handlers({None: lambda ev, ct, ch: None})  # None key
 
     def test_validate_stream_handlers_accepts_string_and_type_keys(self):
         """Test that validate_stream_handlers accepts both string and type keys."""

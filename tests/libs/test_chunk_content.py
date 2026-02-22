@@ -1,8 +1,6 @@
 # tests/libs/test_chunk_content.py
 import importlib
 
-import pytest
-
 
 def test_chunk_content_chars_dicts(mod_paths, ensure_fake_lionagi):
     mod = importlib.import_module(mod_paths["chunk_mod"])

@@ -1,6 +1,5 @@
 """Tests for lionagi.service.connections.mcp.wrapper module."""
 
-import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
@@ -28,9 +27,7 @@ class TestMCPConnectionPoolContextManager:
         """Test __aexit__ calls cleanup."""
         pool = MCPConnectionPool()
 
-        with patch.object(
-            MCPConnectionPool, "cleanup", new_callable=AsyncMock
-        ) as mock_cleanup:
+        with patch.object(MCPConnectionPool, "cleanup", new_callable=AsyncMock) as mock_cleanup:
             await pool.__aexit__(None, None, None)
             mock_cleanup.assert_called_once()
 
@@ -40,9 +37,7 @@ class TestMCPConnectionPoolLoadConfig:
 
     def test_load_config_file_not_found(self):
         """Test raises FileNotFoundError if config file doesn't exist."""
-        with pytest.raises(
-            FileNotFoundError, match="MCP config file not found"
-        ):
+        with pytest.raises(FileNotFoundError, match="MCP config file not found"):
             MCPConnectionPool.load_config("nonexistent.json")
 
     def test_load_config_invalid_json(self):
@@ -60,9 +55,7 @@ class TestMCPConnectionPoolLoadConfig:
 
         with patch("builtins.open", mock_open(read_data=json_data)):
             with patch.object(Path, "exists", return_value=True):
-                with pytest.raises(
-                    ValueError, match="MCP config must be a JSON object"
-                ):
+                with pytest.raises(ValueError, match="MCP config must be a JSON object"):
                     MCPConnectionPool.load_config(".mcp.json")
 
     def test_load_config_mcpservers_not_dict(self):
@@ -71,20 +64,14 @@ class TestMCPConnectionPoolLoadConfig:
 
         with patch("builtins.open", mock_open(read_data=json_data)):
             with patch.object(Path, "exists", return_value=True):
-                with pytest.raises(
-                    ValueError, match="mcpServers must be a dictionary"
-                ):
+                with pytest.raises(ValueError, match="mcpServers must be a dictionary"):
                     MCPConnectionPool.load_config(".mcp.json")
 
     def test_load_config_success(self):
         """Test successfully loads config."""
         MCPConnectionPool._configs = {}  # Reset configs
 
-        config_data = {
-            "mcpServers": {
-                "test_server": {"command": "python", "args": ["server.py"]}
-            }
-        }
+        config_data = {"mcpServers": {"test_server": {"command": "python", "args": ["server.py"]}}}
         json_data = json.dumps(config_data)
 
         with patch("builtins.open", mock_open(read_data=json_data)):
@@ -121,15 +108,11 @@ class TestMCPConnectionPoolGetClient:
     @pytest.mark.asyncio
     async def test_get_client_with_server_reference_success(self):
         """Test successfully gets client with server reference."""
-        MCPConnectionPool._configs = {
-            "test_server": {"command": "python", "args": ["server.py"]}
-        }
+        MCPConnectionPool._configs = {"test_server": {"command": "python", "args": ["server.py"]}}
 
         server_config = {"server": "test_server"}
         mock_client = AsyncMock()
-        mock_client.is_connected.return_value = (
-            False  # Force new client creation
-        )
+        mock_client.is_connected.return_value = False  # Force new client creation
 
         with patch.object(
             MCPConnectionPool, "_create_client", return_value=mock_client
@@ -160,9 +143,7 @@ class TestMCPConnectionPoolGetClient:
         # Pre-populate pool with connected client
         mock_client = MagicMock()
         mock_client.is_connected.return_value = True
-        cache_key = (
-            f"inline:{inline_config.get('command')}:{id(inline_config)}"
-        )
+        cache_key = f"inline:{inline_config.get('command')}:{id(inline_config)}"
         MCPConnectionPool._clients[cache_key] = mock_client
 
         with patch.object(MCPConnectionPool, "_create_client") as mock_create:
@@ -178,16 +159,12 @@ class TestMCPConnectionPoolGetClient:
         # Pre-populate pool with disconnected client
         stale_client = MagicMock()
         stale_client.is_connected.return_value = False
-        cache_key = (
-            f"inline:{inline_config.get('command')}:{id(inline_config)}"
-        )
+        cache_key = f"inline:{inline_config.get('command')}:{id(inline_config)}"
         MCPConnectionPool._clients[cache_key] = stale_client
 
         new_client = AsyncMock()
 
-        with patch.object(
-            MCPConnectionPool, "_create_client", return_value=new_client
-        ):
+        with patch.object(MCPConnectionPool, "_create_client", return_value=new_client):
             client = await MCPConnectionPool.get_client(inline_config)
             assert client is new_client
             # Stale client should be removed
@@ -211,9 +188,7 @@ class TestMCPConnectionPoolCreateClient:
         """Test raises ValueError if neither url nor command provided."""
         config = {"some_other_key": "value"}
 
-        with pytest.raises(
-            ValueError, match="Config must have either 'url' or 'command'"
-        ):
+        with pytest.raises(ValueError, match="Config must have either 'url' or 'command'"):
             await MCPConnectionPool._create_client(config)
 
     @pytest.mark.asyncio
@@ -274,9 +249,7 @@ class TestMCPConnectionPoolCreateClient:
         config = {"command": "python", "args": "not_a_list"}  # Invalid
 
         with patch("fastmcp.Client"):
-            with pytest.raises(
-                ValueError, match="Config 'args' must be a list"
-            ):
+            with pytest.raises(ValueError, match="Config 'args' must be a list"):
                 await MCPConnectionPool._create_client(config)
 
     @pytest.mark.asyncio
@@ -382,15 +355,11 @@ class TestCreateMCPTool:
         mock_result.content = [MagicMock(text="result text")]
         mock_client.call_tool.return_value = mock_result
 
-        with patch.object(
-            MCPConnectionPool, "get_client", return_value=mock_client
-        ):
+        with patch.object(MCPConnectionPool, "get_client", return_value=mock_client):
             tool = create_mcp_tool(mcp_config, tool_name)
             result = await tool(arg1="value1")
 
-            mock_client.call_tool.assert_called_once_with(
-                tool_name, {"arg1": "value1"}
-            )
+            mock_client.call_tool.assert_called_once_with(tool_name, {"arg1": "value1"})
             assert result == "result text"
 
     @pytest.mark.asyncio
@@ -406,9 +375,7 @@ class TestCreateMCPTool:
         mock_result = "result"
         mock_client.call_tool.return_value = mock_result
 
-        with patch.object(
-            MCPConnectionPool, "get_client", return_value=mock_client
-        ):
+        with patch.object(MCPConnectionPool, "get_client", return_value=mock_client):
             tool = create_mcp_tool(mcp_config, tool_name)
             await tool()
 
@@ -425,9 +392,7 @@ class TestCreateMCPTool:
         mock_result = [{"type": "text", "text": "dict result"}]
         mock_client.call_tool.return_value = mock_result
 
-        with patch.object(
-            MCPConnectionPool, "get_client", return_value=mock_client
-        ):
+        with patch.object(MCPConnectionPool, "get_client", return_value=mock_client):
             tool = create_mcp_tool(mcp_config, tool_name)
             result = await tool()
 
@@ -443,9 +408,7 @@ class TestCreateMCPTool:
         mock_result = {"custom": "data"}
         mock_client.call_tool.return_value = mock_result
 
-        with patch.object(
-            MCPConnectionPool, "get_client", return_value=mock_client
-        ):
+        with patch.object(MCPConnectionPool, "get_client", return_value=mock_client):
             tool = create_mcp_tool(mcp_config, tool_name)
             result = await tool()
 

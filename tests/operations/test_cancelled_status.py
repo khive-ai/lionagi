@@ -126,12 +126,8 @@ async def test_cancelled_vs_failed_status():
         await asyncio.sleep(10)
         return "should_not_reach_here"
 
-    branch_cancelled.chat = (
-        slow_method  # Use real async function, not AsyncMock
-    )
-    branch_cancelled.get_operation = MagicMock(
-        return_value=branch_cancelled.chat
-    )
+    branch_cancelled.chat = slow_method  # Use real async function, not AsyncMock
+    branch_cancelled.get_operation = MagicMock(return_value=branch_cancelled.chat)
 
     op_cancelled = Operation(operation="chat")
     task = asyncio.create_task(op_cancelled.invoke(branch_cancelled))

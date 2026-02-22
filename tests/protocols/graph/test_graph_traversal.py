@@ -256,6 +256,4 @@ class TestGraphTraversalEdgeCases:
         edges = graph.find_node_edge(node1, direction="out")
         assert len(edges) == 2
         assert isinstance(edges, Pile)
-        assert all(
-            edge.head == node1.id and edge.tail == node2.id for edge in edges
-        )
+        assert all(edge.head == node1.id and edge.tail == node2.id for edge in edges)

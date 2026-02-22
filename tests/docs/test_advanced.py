@@ -215,10 +215,7 @@ class TestErrorHandling:
             error_code="rate_limit_error",
         )
         assert mock is not None
-        assert (
-            mock.execution.response["error"]["message"]
-            == "Rate limit exceeded"
-        )
+        assert mock.execution.response["error"]["message"] == "Rate limit exceeded"
 
     @pytest.mark.asyncio
     async def test_sequential_imodel_responses(self):
@@ -259,9 +256,7 @@ class TestFlowComposition:
         from lionagi import Builder
 
         builder = Builder()
-        node_id = builder.add_operation(
-            "communicate", instruction="Summarize the document"
-        )
+        node_id = builder.add_operation("communicate", instruction="Summarize the document")
         assert node_id is not None
 
     def test_builder_get_graph_returns_graph(self):

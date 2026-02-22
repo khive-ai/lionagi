@@ -203,7 +203,9 @@ class DependencyAwareExecutor:
                 self.skipped_operations.add(operation.id)
 
                 if self.verbose:
-                    logger.debug("Skipping operation due to edge conditions: %s", str(operation.id)[:8])
+                    logger.debug(
+                        "Skipping operation due to edge conditions: %s", str(operation.id)[:8]
+                    )
 
                 # Signal completion so dependent operations can proceed
                 self.completion_events[operation.id].set()
@@ -298,7 +300,9 @@ class DependencyAwareExecutor:
         if operation.metadata.get("aggregation"):
             sources = operation.parameters.get("aggregation_sources", [])
             if self.verbose and sources:
-                logger.debug("Aggregation %s waiting for %d sources", str(operation.id)[:8], len(sources))
+                logger.debug(
+                    "Aggregation %s waiting for %d sources", str(operation.id)[:8], len(sources)
+                )
 
             # Wait for ALL sources (sources are now strings from builder.py)
             for source_id_str in sources:
@@ -405,7 +409,8 @@ class DependencyAwareExecutor:
                     if self.verbose:
                         logger.debug(
                             "Operation %s inherited context from %s",
-                            str(operation.id)[:8], str(primary_dep_id)[:8],
+                            str(operation.id)[:8],
+                            str(primary_dep_id)[:8],
                         )
 
             return branch
@@ -459,7 +464,8 @@ class DependencyAwareExecutor:
                     if self.verbose:
                         logger.warning(
                             "Skipped operation %s has status %s instead of SKIPPED",
-                            node.id, node.execution.status,
+                            node.id,
+                            node.execution.status,
                         )
 
 

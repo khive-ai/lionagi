@@ -1,13 +1,10 @@
 # tests/libs/test_chunk_api.py
 import importlib
-from pathlib import Path
 
 import pytest
 
 
-def test_chunk_with_direct_text_returns_strings(
-    mod_paths, ensure_fake_lionagi
-):
+def test_chunk_with_direct_text_returns_strings(mod_paths, ensure_fake_lionagi):
     api = importlib.import_module(mod_paths["api_mod"])
     out = api.chunk(
         text="one two three four five six seven",
@@ -22,9 +19,7 @@ def test_chunk_with_direct_text_returns_strings(
     assert all(isinstance(x, str) for x in out)
 
 
-def test_chunk_with_file_path_reads_and_chunks(
-    mod_paths, ensure_fake_lionagi, tmp_path
-):
+def test_chunk_with_file_path_reads_and_chunks(mod_paths, ensure_fake_lionagi, tmp_path):
     api = importlib.import_module(mod_paths["api_mod"])
     f = tmp_path / "doc.txt"
     f.write_text(" ".join(str(i) for i in range(30)), encoding="utf-8")
@@ -42,9 +37,7 @@ def test_chunk_with_file_path_reads_and_chunks(
     assert all(isinstance(x, str) for x in out)
 
 
-def test_chunk_with_directory_and_filter(
-    mod_paths, ensure_fake_lionagi, tmp_path
-):
+def test_chunk_with_directory_and_filter(mod_paths, ensure_fake_lionagi, tmp_path):
     api = importlib.import_module(mod_paths["api_mod"])
     d = tmp_path / "in"
     d.mkdir()
@@ -119,9 +112,7 @@ def test_chunk_output_file_json(mod_paths, ensure_fake_lionagi, tmp_path):
     assert len(res) == 2  # 6 tokens with chunk_size=3
 
 
-def test_chunk_output_file_parquet_ok(
-    mod_paths, ensure_fake_lionagi, tmp_path
-):
+def test_chunk_output_file_parquet_ok(mod_paths, ensure_fake_lionagi, tmp_path):
     pytest.importorskip("pyarrow")  # Skip if pyarrow not installed
     pytest.importorskip("pandas")  # Also need pandas for parquet
     api = importlib.import_module(mod_paths["api_mod"])
@@ -144,9 +135,7 @@ def test_chunk_output_file_parquet_ok(
     __import__("importlib").util.find_spec("docling") is not None,
     reason="docling installed; this test targets the missing dependency path",
 )
-def test_chunk_docling_reader_missing_dependency(
-    mod_paths, ensure_fake_lionagi, tmp_path
-):
+def test_chunk_docling_reader_missing_dependency(mod_paths, ensure_fake_lionagi, tmp_path):
     api = importlib.import_module(mod_paths["api_mod"])
     # When reader_tool="docling" and docling is not installed, expect ImportError
     with pytest.raises(ImportError):

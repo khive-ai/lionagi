@@ -10,7 +10,7 @@ Tests cover:
 - Error handling for non-Pydantic models
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -234,9 +234,7 @@ class TestDepthControl:
         """Test that current_depth parameter is respected."""
         # Starting at current_depth=2 with max_depth=2 should immediately raise
         with pytest.raises(RecursionError):
-            breakdown_pydantic_annotation(
-                DeepNested4, max_depth=2, current_depth=2
-            )
+            breakdown_pydantic_annotation(DeepNested4, max_depth=2, current_depth=2)
 
     def test_max_depth_allows_exact_depth(self):
         """Test that max_depth allows recursion up to but not exceeding limit."""
@@ -329,9 +327,7 @@ class TestEdgeCases:
         assert "first" in result
         assert "second" in result
         assert "third" in result
-        assert all(
-            isinstance(result[k], dict) for k in ["first", "second", "third"]
-        )
+        assert all(isinstance(result[k], dict) for k in ["first", "second", "third"])
 
     def test_list_in_nested_model(self):
         """Test list field in nested model."""

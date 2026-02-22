@@ -29,7 +29,7 @@ from typing import TypeVar
 import anyio
 import anyio.abc
 
-from ._compat import BaseExceptionGroup, ExceptionGroup
+from ._compat import BaseExceptionGroup
 from .cancel import effective_deadline, move_on_at
 from .errors import non_cancel_subgroup
 from .primitives import CapacityLimiter

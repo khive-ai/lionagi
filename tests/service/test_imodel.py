@@ -56,9 +56,7 @@ class TestiModel:
 
     def test_custom_api_key(self):
         """Test iModel initialization with custom API key."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="custom-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="custom-key")
 
         # Just verify that an API key was set
         assert imodel.endpoint.config._api_key is not None
@@ -86,9 +84,7 @@ class TestiModel:
             "call",
             return_value=mock_response.json.return_value,
         ):
-            result = await imodel.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
 
         assert isinstance(result, APICalling)
         assert result.status == EventStatus.COMPLETED
@@ -101,21 +97,15 @@ class TestiModel:
         async def mock_request_with_id(request, cache_control=False, **kwargs):
             await asyncio.sleep(0.1)  # Simulate network delay
             response = mock_response.json.return_value.copy()
-            response["id"] = (
-                f"response-{request['messages'][0]['content'][-1]}"
-            )
+            response["id"] = f"response-{request['messages'][0]['content'][-1]}"
             return response
 
-        with patch.object(
-            imodel.endpoint, "call", side_effect=mock_request_with_id
-        ):
+        with patch.object(imodel.endpoint, "call", side_effect=mock_request_with_id):
             # Create multiple concurrent calls
             tasks = []
             for i in range(3):
                 task = asyncio.create_task(
-                    imodel.invoke(
-                        messages=[{"role": "user", "content": f"Message {i}"}]
-                    )
+                    imodel.invoke(messages=[{"role": "user", "content": f"Message {i}"}])
                 )
                 tasks.append(task)
 
@@ -128,9 +118,7 @@ class TestiModel:
             assert f"{i}" in result.response["id"]
 
     @pytest.mark.asyncio
-    async def test_streaming_invoke(
-        self, base_imodel, mock_streaming_response
-    ):
+    async def test_streaming_invoke(self, base_imodel, mock_streaming_response):
         """Test streaming API calls."""
         imodel = base_imodel
 
@@ -146,13 +134,9 @@ class TestiModel:
         # Set streaming_process_func to return chunks
         imodel.streaming_process_func = lambda chunk: chunk
 
-        with patch.object(
-            imodel.endpoint, "stream", return_value=mock_stream()
-        ):
+        with patch.object(imodel.endpoint, "stream", return_value=mock_stream()):
             chunks = []
-            async for chunk in imodel.stream(
-                messages=[{"role": "user", "content": "Hello"}]
-            ):
+            async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
                 if chunk:
                     chunks.append(chunk)
 
@@ -181,12 +165,8 @@ class TestiModel:
         """Test error handling during API invocation."""
         imodel = base_imodel
 
-        with patch.object(
-            imodel.endpoint, "call", side_effect=Exception("API Error")
-        ):
-            result = await imodel.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+        with patch.object(imodel.endpoint, "call", side_effect=Exception("API Error")):
+            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
 
             # The invoke method returns a failed APICalling object instead of raising
             assert result.status == EventStatus.FAILED
@@ -260,9 +240,7 @@ class TestiModel:
     @pytest.mark.asyncio
     async def test_aclose_cleanup(self):
         """Test async cleanup of resources."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
 
         # aclose no longer exists - resources are cleaned up automatically
         pass
@@ -270,19 +248,13 @@ class TestiModel:
     @pytest.mark.asyncio
     async def test_concurrent_different_models(self):
         """Test concurrent calls with different models work independently."""
-        imodel1 = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel1 = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         imodel2 = iModel(provider="openai", model="gpt-4o", api_key="test-key")
 
         async def mock_request(request, cache_control=False, **kwargs):
             await asyncio.sleep(0.05)
             # The request parameter is the payload dict
-            model = (
-                request.get("model", "unknown")
-                if isinstance(request, dict)
-                else "unknown"
-            )
+            model = request.get("model", "unknown") if isinstance(request, dict) else "unknown"
             return {"model_used": model, "response": "test"}
 
         with patch(
@@ -332,9 +304,7 @@ class TestiModel:
 
     def test_imodel_invalid_created_at_type(self):
         """Test iModel initialization with invalid created_at type."""
-        with pytest.raises(
-            ValueError, match="created_at must be a float timestamp"
-        ):
+        with pytest.raises(ValueError, match="created_at must be a float timestamp"):
             iModel(
                 provider="openai",
                 model="gpt-4.1-mini",
@@ -344,7 +314,6 @@ class TestiModel:
 
     def test_imodel_with_endpoint_object(self):
         """Test iModel initialization with Endpoint object passed directly."""
-        from lionagi.service.connections.endpoint import Endpoint
         from lionagi.service.connections.match_endpoint import match_endpoint
 
         # Create an endpoint object
@@ -387,9 +356,7 @@ class TestiModel:
         imodel.endpoint.session_id = "test-session-123"
 
         # Create API calling without explicit resume parameter
-        api_call = imodel.create_api_calling(
-            messages=[{"role": "user", "content": "Hello"}]
-        )
+        api_call = imodel.create_api_calling(messages=[{"role": "user", "content": "Hello"}])
 
         # Check that resume was auto-injected (in the request object for claude_code)
         assert api_call.payload["request"].resume == "test-session-123"
@@ -422,9 +389,7 @@ class TestiModel:
             """Async processing function."""
             await asyncio.sleep(0.001)
             if hasattr(chunk, "get") and chunk.get("choices"):
-                return (
-                    f"Async: {chunk['choices'][0]['delta'].get('content', '')}"
-                )
+                return f"Async: {chunk['choices'][0]['delta'].get('content', '')}"
             return None
 
         imodel = iModel(
@@ -442,13 +407,9 @@ class TestiModel:
             for chunk in chunks:
                 yield chunk
 
-        with patch.object(
-            imodel.endpoint, "stream", return_value=mock_stream()
-        ):
+        with patch.object(imodel.endpoint, "stream", return_value=mock_stream()):
             chunks = []
-            async for chunk in imodel.stream(
-                messages=[{"role": "user", "content": "Hello"}]
-            ):
+            async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
                 if chunk and not isinstance(chunk, APICalling):
                     chunks.append(chunk)
 
@@ -465,17 +426,11 @@ class TestiModel:
         )
 
         # Mock response with session_id
-        async def mock_request_with_session(
-            request, cache_control=False, **kwargs
-        ):
+        async def mock_request_with_session(request, cache_control=False, **kwargs):
             return {"session_id": "new-session-456", "response": "test"}
 
-        with patch.object(
-            imodel.endpoint, "call", side_effect=mock_request_with_session
-        ):
-            result = await imodel.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+        with patch.object(imodel.endpoint, "call", side_effect=mock_request_with_session):
+            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
 
         # Check that session_id was stored on the CLI endpoint
         assert imodel.endpoint.session_id == "new-session-456"
@@ -530,19 +485,14 @@ class TestiModel:
 
         # Check that match_endpoint was used to properly reconstruct
         assert restored.endpoint.config.provider == "anthropic"
-        assert (
-            restored.endpoint.config.kwargs["model"]
-            == "claude-3-5-sonnet-20241022"
-        )
+        assert restored.endpoint.config.kwargs["model"] == "claude-3-5-sonnet-20241022"
 
     @pytest.mark.asyncio
     async def test_imodel_unsupported_event_type(self):
         """Test that unsupported event types raise ValueError."""
         from lionagi.protocols.types import Event
 
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
 
         # Create a custom event type that's not APICalling
         class CustomEvent(Event):
@@ -569,9 +519,7 @@ class TestiModel:
             "call",
             return_value=mock_response.json.return_value,
         ):
-            result = await imodel.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
 
         assert isinstance(result, APICalling)
         assert result.status == EventStatus.COMPLETED
@@ -581,9 +529,7 @@ class TestiModelEdgeCases:
     """Edge case tests for iModel - concurrent behavior, rate limiting, error recovery."""
 
     @pytest.mark.asyncio
-    async def test_concurrent_streaming_multiple_requests(
-        self, mock_streaming_response
-    ):
+    async def test_concurrent_streaming_multiple_requests(self, mock_streaming_response):
         """Test concurrent streaming requests with semaphore control."""
         imodel = iModel(
             provider="openai",
@@ -612,9 +558,7 @@ class TestiModelEdgeCases:
                 async def collect_stream(idx):
                     chunks = []
                     async for chunk in imodel.stream(
-                        messages=[
-                            {"role": "user", "content": f"Request {idx}"}
-                        ]
+                        messages=[{"role": "user", "content": f"Request {idx}"}]
                     ):
                         if chunk and not isinstance(chunk, APICalling):
                             chunks.append(chunk)
@@ -655,9 +599,7 @@ class TestiModelEdgeCases:
             tasks = []
             for i in range(10):
                 task = asyncio.create_task(
-                    imodel.invoke(
-                        messages=[{"role": "user", "content": f"Request {i}"}]
-                    )
+                    imodel.invoke(messages=[{"role": "user", "content": f"Request {i}"}])
                 )
                 tasks.append(task)
 
@@ -671,19 +613,13 @@ class TestiModelEdgeCases:
     async def test_provider_switching_mid_session(self, mock_response):
         """Test switching providers by creating new iModel instances."""
         # Start with OpenAI
-        imodel1 = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel1 = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
 
         async def mock_openai_call(*args, **kwargs):
             return {"provider": "openai", "response": "OpenAI response"}
 
-        with patch.object(
-            imodel1.endpoint, "call", side_effect=mock_openai_call
-        ):
-            result1 = await imodel1.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+        with patch.object(imodel1.endpoint, "call", side_effect=mock_openai_call):
+            result1 = await imodel1.invoke(messages=[{"role": "user", "content": "Hello"}])
             assert result1.response["provider"] == "openai"
 
         # Switch to Anthropic with required parameters
@@ -696,9 +632,7 @@ class TestiModelEdgeCases:
         async def mock_anthropic_call(*args, **kwargs):
             return {"provider": "anthropic", "response": "Anthropic response"}
 
-        with patch.object(
-            imodel2.endpoint, "call", side_effect=mock_anthropic_call
-        ):
+        with patch.object(imodel2.endpoint, "call", side_effect=mock_anthropic_call):
             result2 = await imodel2.invoke(
                 messages=[{"role": "user", "content": "Hello"}],
                 max_tokens=100,  # Required for Anthropic
@@ -708,9 +642,7 @@ class TestiModelEdgeCases:
     @pytest.mark.asyncio
     async def test_error_recovery_and_retry_logic(self):
         """Test error handling and recovery in invoke."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
 
         call_count = 0
 
@@ -722,25 +654,17 @@ class TestiModelEdgeCases:
             return {"success": True, "attempt": call_count}
 
         # First call fails
-        with patch.object(
-            imodel.endpoint, "call", side_effect=Exception("API Error")
-        ):
-            result = await imodel.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+        with patch.object(imodel.endpoint, "call", side_effect=Exception("API Error")):
+            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
             assert result.status == EventStatus.FAILED
             assert result.execution.error is not None
 
         # Recovery with manual retry
         call_count = 0
-        with patch.object(
-            imodel.endpoint, "call", side_effect=failing_then_success
-        ):
+        with patch.object(imodel.endpoint, "call", side_effect=failing_then_success):
             # Manual retry loop
             for attempt in range(5):
-                result = await imodel.invoke(
-                    messages=[{"role": "user", "content": "Hello"}]
-                )
+                result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
                 if result.status == EventStatus.COMPLETED:
                     break
 
@@ -750,24 +674,18 @@ class TestiModelEdgeCases:
     @pytest.mark.asyncio
     async def test_streaming_error_mid_stream(self):
         """Test error handling when streaming fails mid-stream."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
 
         async def failing_stream():
             yield {"choices": [{"delta": {"content": "Start"}}]}
             yield {"choices": [{"delta": {"content": " middle"}}]}
             raise Exception("Stream interrupted")
 
-        with patch.object(
-            imodel.endpoint, "stream", return_value=failing_stream()
-        ):
+        with patch.object(imodel.endpoint, "stream", return_value=failing_stream()):
             chunks = []
             error_raised = False
             try:
-                async for chunk in imodel.stream(
-                    messages=[{"role": "user", "content": "Hello"}]
-                ):
+                async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
                     if chunk and not isinstance(chunk, APICalling):
                         chunks.append(chunk)
             except ValueError as e:
@@ -797,9 +715,7 @@ class TestiModelEdgeCases:
             tasks = []
             for i in range(10):
                 task = asyncio.create_task(
-                    imodel.invoke(
-                        messages=[{"role": "user", "content": f"Request {i}"}]
-                    )
+                    imodel.invoke(messages=[{"role": "user", "content": f"Request {i}"}])
                 )
                 tasks.append(task)
 
@@ -807,9 +723,7 @@ class TestiModelEdgeCases:
 
         # Some should complete successfully
         successful = [
-            r
-            for r in results
-            if isinstance(r, APICalling) and r.status == EventStatus.COMPLETED
+            r for r in results if isinstance(r, APICalling) and r.status == EventStatus.COMPLETED
         ]
         assert len(successful) > 0
 
@@ -827,9 +741,7 @@ class TestiModelEdgeCases:
             return {"session_id": "session-123", "response": "First call"}
 
         with patch.object(imodel.endpoint, "call", side_effect=first_call):
-            result1 = await imodel.invoke(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+            result1 = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
             assert imodel.endpoint.session_id == "session-123"
 
         # Second call uses stored session_id
@@ -865,14 +777,10 @@ class TestiModelEdgeCases:
             yield {"choices": [{"delta": {"content": "error"}}]}
             yield {"choices": [{"delta": {"content": "continue"}}]}
 
-        with patch.object(
-            imodel.endpoint, "stream", return_value=mock_stream()
-        ):
+        with patch.object(imodel.endpoint, "stream", return_value=mock_stream()):
             chunks = []
             try:
-                async for chunk in imodel.stream(
-                    messages=[{"role": "user", "content": "Hello"}]
-                ):
+                async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
                     if chunk and not isinstance(chunk, APICalling):
                         chunks.append(chunk)
             except ValueError as e:
@@ -916,9 +824,7 @@ class TestiModelValidationErrors:
 
     def test_invalid_temperature_type(self):
         """Test iModel with invalid temperature type raises validation error."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         # Temperature validation happens at payload creation
         with pytest.raises(ValueError, match="Invalid payload"):
             imodel.create_api_calling(
@@ -928,9 +834,7 @@ class TestiModelValidationErrors:
 
     def test_invalid_max_tokens_negative(self):
         """Test iModel with negative max_tokens."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         api_call = imodel.create_api_calling(
             messages=[{"role": "user", "content": "test"}], max_tokens=-100
         )
@@ -939,64 +843,42 @@ class TestiModelValidationErrors:
 
     def test_invalid_messages_structure(self):
         """Test iModel with invalid messages structure."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         # Test with malformed messages
-        api_call = imodel.create_api_calling(
-            messages=[{"invalid": "structure"}]
-        )
+        api_call = imodel.create_api_calling(messages=[{"invalid": "structure"}])
         # Should create payload, validation happens at API level
         assert len(api_call.payload["messages"]) == 1
 
     def test_empty_content_in_messages(self):
         """Test iModel with empty content in messages."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
-        api_call = imodel.create_api_calling(
-            messages=[{"role": "user", "content": ""}]
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
+        api_call = imodel.create_api_calling(messages=[{"role": "user", "content": ""}])
         assert api_call.payload["messages"][0]["content"] == ""
 
     def test_none_role_in_messages(self):
         """Test iModel with None role raises validation error."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         # None role should fail validation
         with pytest.raises(ValueError, match="Invalid payload"):
-            imodel.create_api_calling(
-                messages=[{"role": None, "content": "test"}]
-            )
+            imodel.create_api_calling(messages=[{"role": None, "content": "test"}])
 
     def test_invalid_model_parameter_type(self):
         """Test iModel with invalid model type raises validation error."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         # Invalid model type should fail validation
         with pytest.raises(ValueError, match="Invalid payload"):
-            imodel.create_api_calling(
-                messages=[{"role": "user", "content": "test"}], model=123
-            )
+            imodel.create_api_calling(messages=[{"role": "user", "content": "test"}], model=123)
 
     def test_very_long_message_content(self):
         """Test iModel with extremely long message content."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         long_content = "x" * 1000000  # 1 million characters
-        api_call = imodel.create_api_calling(
-            messages=[{"role": "user", "content": long_content}]
-        )
+        api_call = imodel.create_api_calling(messages=[{"role": "user", "content": long_content}])
         assert len(api_call.payload["messages"][0]["content"]) == 1000000
 
     def test_special_characters_in_messages(self):
         """Test iModel with special characters and unicode in messages."""
-        imodel = iModel(
-            provider="openai", model="gpt-4.1-mini", api_key="test-key"
-        )
+        imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         special_content = "Hello 世界 🌍 \n\t\r !@#$%^&*()"
         api_call = imodel.create_api_calling(
             messages=[{"role": "user", "content": special_content}]
@@ -1110,9 +992,7 @@ class TestiModelRateLimitingEdgeCases:
             "usage": {"total_tokens": 50},
         }
 
-        with patch.object(
-            imodel.endpoint, "call", return_value=response_with_tokens
-        ):
+        with patch.object(imodel.endpoint, "call", return_value=response_with_tokens):
             result = await imodel.invoke(
                 messages=[{"role": "user", "content": "test"}],
                 include_token_usage_to_model=True,
@@ -1143,9 +1023,7 @@ class TestiModelRateLimitingEdgeCases:
             # Fire 20 requests at once
             tasks = [
                 asyncio.create_task(
-                    imodel.invoke(
-                        messages=[{"role": "user", "content": f"Request {i}"}]
-                    )
+                    imodel.invoke(messages=[{"role": "user", "content": f"Request {i}"}])
                 )
                 for i in range(20)
             ]

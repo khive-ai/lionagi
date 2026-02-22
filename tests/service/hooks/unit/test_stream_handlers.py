@@ -15,9 +15,7 @@ def patch_cancel(monkeypatch):
     """Auto-patch cancellation class for all tests in this module."""
     from lionagi.service.hooks import hook_registry
 
-    monkeypatch.setattr(
-        hook_registry, "get_cancelled_exc_class", lambda: MyCancelled
-    )
+    monkeypatch.setattr(hook_registry, "get_cancelled_exc_class", lambda: MyCancelled)
 
 
 class TestStreamHandlerBasics:
@@ -93,15 +91,11 @@ class TestStreamHandlerBasics:
         )
 
         # Call text handler
-        res, _, _ = await registry.handle_streaming_chunk(
-            "text", "hello", exit=False
-        )
+        res, _, _ = await registry.handle_streaming_chunk("text", "hello", exit=False)
         assert res == "text: hello"
 
         # Call data handler
-        res, _, _ = await registry.handle_streaming_chunk(
-            "data", "binary", exit=False
-        )
+        res, _, _ = await registry.handle_streaming_chunk("data", "binary", exit=False)
         assert res == "data: binary"
 
         assert handlers_called == ["text", "data"]
@@ -127,9 +121,7 @@ class TestStreamHandlerBasics:
         res, _, _ = await registry.handle_streaming_chunk(int, 42, exit=False)
         assert res == "int handler: 42"
 
-        res, _, _ = await registry.handle_streaming_chunk(
-            str, "hello", exit=False
-        )
+        res, _, _ = await registry.handle_streaming_chunk(str, "hello", exit=False)
         assert res == "str handler: hello"
 
 
@@ -142,9 +134,7 @@ class TestStreamHandlerErrors:
         registry = HookRegistry()
 
         # Should return ValidationError in result
-        res, se, st = await registry.handle_streaming_chunk(
-            "missing", "data", exit=False
-        )
+        res, se, st = await registry.handle_streaming_chunk("missing", "data", exit=False)
 
         # Should return the ValidationError as the result
         assert isinstance(res, Exception)
@@ -161,9 +151,7 @@ class TestStreamHandlerErrors:
 
         registry = HookRegistry(stream_handlers={"test": cancelling_handler})
 
-        res, se, st = await registry.handle_streaming_chunk(
-            "test", "data", exit=False
-        )
+        res, se, st = await registry.handle_streaming_chunk("test", "data", exit=False)
 
         assert se is True
         assert st == EventStatus.CANCELLED
@@ -179,17 +167,13 @@ class TestStreamHandlerErrors:
         registry = HookRegistry(stream_handlers={"test": failing_handler})
 
         # Test with exit=False
-        res, se, st = await registry.handle_streaming_chunk(
-            "test", "data", exit=False
-        )
+        res, se, st = await registry.handle_streaming_chunk("test", "data", exit=False)
         assert se is False
         assert st == EventStatus.ABORTED
         assert isinstance(res, RuntimeError)
 
         # Test with exit=True
-        res, se, st = await registry.handle_streaming_chunk(
-            "test", "data", exit=True
-        )
+        res, se, st = await registry.handle_streaming_chunk("test", "data", exit=True)
         assert se is True
         assert st == EventStatus.ABORTED
         assert isinstance(res, RuntimeError)
@@ -207,9 +191,7 @@ class TestStreamHandlerIntegration:
 
         registry = HookRegistry(stream_handlers={"sync": sync_handler})
 
-        res, se, st = await registry.handle_streaming_chunk(
-            "sync", "test_data", exit=False
-        )
+        res, se, st = await registry.handle_streaming_chunk("sync", "test_data", exit=False)
 
         assert res == "sync: sync:test_data"
         assert se is False
@@ -233,15 +215,11 @@ class TestStreamHandlerIntegration:
         )
 
         # Test sync handler
-        res, _, _ = await registry.handle_streaming_chunk(
-            "sync", "data1", exit=False
-        )
+        res, _, _ = await registry.handle_streaming_chunk("sync", "data1", exit=False)
         assert res == "sync: data1"
 
         # Test async handler
-        res, _, _ = await registry.handle_streaming_chunk(
-            "async", "data2", exit=False
-        )
+        res, _, _ = await registry.handle_streaming_chunk("async", "data2", exit=False)
         assert res == "async: data2"
 
     @pytest.mark.anyio

@@ -30,9 +30,7 @@ async def main():
         )
         print("Second response:", res2.response if res2 else None)
 
-        print(
-            "\nStored session_id:", imodel.provider_metadata.get("session_id")
-        )
+        print("\nStored session_id:", imodel.provider_metadata.get("session_id"))
     except Exception as e:
         print(f"Error: {e}")
         import traceback

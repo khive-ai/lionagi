@@ -37,9 +37,7 @@ class MockHookedEventPreHookIntegration:
     """Test pre-invocation hook integration."""
 
     @pytest.mark.anyio
-    async def test_pre_hook_normal_allows_invoke(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_pre_hook_normal_allows_invoke(self, patch_cancellation, patch_logger):
         """Test that normal pre-hook execution allows _invoke() to proceed."""
 
         async def pre_hook(ev, **kw):
@@ -84,9 +82,7 @@ class MockHookedEventPreHookIntegration:
         assert len(patch_logger) == 1
 
     @pytest.mark.anyio
-    async def test_pre_hook_error_with_exit_false_continues(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_pre_hook_error_with_exit_false_continues(self, patch_cancellation, patch_logger):
         """Test that pre-hook error with exit=False still allows continuation."""
 
         async def pre_hook(ev, **kw):
@@ -107,9 +103,7 @@ class MockHookedEventPreHookIntegration:
         assert len(patch_logger) == 1
 
     @pytest.mark.anyio
-    async def test_pre_hook_error_with_exit_true_aborts(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_pre_hook_error_with_exit_true_aborts(self, patch_cancellation, patch_logger):
         """Test that pre-hook error with exit=True aborts execution."""
 
         async def pre_hook(ev, **kw):
@@ -134,17 +128,13 @@ class MockHookedEventPostHookIntegration:
     """Test post-invocation hook integration."""
 
     @pytest.mark.anyio
-    async def test_post_hook_normal_completion(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_post_hook_normal_completion(self, patch_cancellation, patch_logger):
         """Test that normal post-hook execution completes successfully."""
 
         async def post_hook(ev, **kw):
             return "post_logged"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: post_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: post_hook})
         event = MockHookedEvent(invoke_result="main_result")
         event.create_post_invoke_hook(hook_registry=registry, exit_hook=False)
 
@@ -159,17 +149,13 @@ class MockHookedEventPostHookIntegration:
         assert len(patch_logger) == 1
 
     @pytest.mark.anyio
-    async def test_post_hook_exit_discards_main_result(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_post_hook_exit_discards_main_result(self, patch_cancellation, patch_logger):
         """Test that post-hook exit discards main result and fails."""
 
         async def post_hook(ev, **kw):
             raise MyCancelled("post-hook failed")
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: post_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: post_hook})
         event = MockHookedEvent(invoke_result="main_result")
         event.create_post_invoke_hook(hook_registry=registry, exit_hook=True)
 
@@ -194,9 +180,7 @@ class MockHookedEventPostHookIntegration:
         async def post_hook(ev, **kw):
             raise RuntimeError("post-hook error")
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: post_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: post_hook})
         event = MockHookedEvent(invoke_result="main_result")
         event.create_post_invoke_hook(hook_registry=registry, exit_hook=False)
 
@@ -215,9 +199,7 @@ class MockHookedEventBothHooks:
     """Test HookedEvent with both pre and post hooks."""
 
     @pytest.mark.anyio
-    async def test_both_hooks_normal_execution_order(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_both_hooks_normal_execution_order(self, patch_cancellation, patch_logger):
         """Test that both hooks run in correct order: pre -> _invoke -> post."""
         execution_order = []
 
@@ -255,9 +237,7 @@ class MockHookedEventBothHooks:
         assert len(patch_logger) == 2
 
     @pytest.mark.anyio
-    async def test_pre_hook_exit_prevents_post_hook(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_pre_hook_exit_prevents_post_hook(self, patch_cancellation, patch_logger):
         """Test that pre-hook exit prevents both _invoke and post-hook."""
         hooks_called = []
 
@@ -290,9 +270,7 @@ class MockHookedEventBothHooks:
         assert len(patch_logger) == 1
 
     @pytest.mark.anyio
-    async def test_main_invoke_error_still_runs_post_hook(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_main_invoke_error_still_runs_post_hook(self, patch_cancellation, patch_logger):
         """Test that _invoke errors still allow post-hook to run."""
         hooks_called = []
 
@@ -310,9 +288,7 @@ class MockHookedEventBothHooks:
                 HookEventTypes.PostInvocation: post_hook,
             }
         )
-        event = MockHookedEvent(
-            invoke_error=RuntimeError("main invoke failed")
-        )
+        event = MockHookedEvent(invoke_error=RuntimeError("main invoke failed"))
         event.create_pre_invoke_hook(hook_registry=registry, exit_hook=False)
         event.create_post_invoke_hook(hook_registry=registry, exit_hook=False)
 
@@ -332,9 +308,7 @@ class MockHookedEventParameterForwarding:
     """Test parameter forwarding in HookedEvent hook creation."""
 
     @pytest.mark.anyio
-    async def test_hook_params_forwarded_to_hook(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_hook_params_forwarded_to_hook(self, patch_cancellation, patch_logger):
         """Test that hook_params are forwarded to the hook function."""
         captured_params = {}
 
@@ -342,9 +316,7 @@ class MockHookedEventParameterForwarding:
             captured_params.update(kw)
             return "ok"
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: param_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: param_hook})
         event = MockHookedEvent()
         event.create_pre_invoke_hook(
             hook_registry=registry,
@@ -363,13 +335,9 @@ class MockHookedEventParameterForwarding:
     @pytest.mark.anyio
     async def test_hook_timeout_configuration(self, patch_cancellation):
         """Test that hook timeout is properly configured."""
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: lambda ev, **kw: "ok"}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: lambda ev, **kw: "ok"})
         event = MockHookedEvent()
-        event.create_pre_invoke_hook(
-            hook_registry=registry, exit_hook=True, hook_timeout=120.0
-        )
+        event.create_pre_invoke_hook(hook_registry=registry, exit_hook=True, hook_timeout=120.0)
 
         # Check that the hook event was configured with correct timeout
         assert event._pre_invoke_hook_event.timeout == 120.0
@@ -378,9 +346,7 @@ class MockHookedEventParameterForwarding:
     @pytest.mark.anyio
     async def test_hook_creation_defaults(self, patch_cancellation):
         """Test default values for hook creation parameters."""
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: lambda ev, **kw: "ok"}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: lambda ev, **kw: "ok"})
         event = MockHookedEvent()
         event.create_post_invoke_hook(hook_registry=registry)
 
@@ -395,13 +361,9 @@ class MockHookedEventCancellationPropagation:
     """Test cancellation propagation in HookedEvent."""
 
     @pytest.mark.anyio
-    async def test_main_invoke_cancellation_propagates(
-        self, patch_cancellation, patch_logger
-    ):
+    async def test_main_invoke_cancellation_propagates(self, patch_cancellation, patch_logger):
         """Test that cancellation in _invoke() propagates correctly."""
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: lambda ev, **kw: "post"}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: lambda ev, **kw: "post"})
         event = MockHookedEvent(invoke_error=MyCancelled("main cancelled"))
         event.create_post_invoke_hook(hook_registry=registry, exit_hook=False)
 

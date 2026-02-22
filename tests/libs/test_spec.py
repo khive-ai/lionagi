@@ -2,7 +2,7 @@
 
 import pytest
 
-from lionagi.ln.types import CommonMeta, Meta, Spec, Undefined
+from lionagi.ln.types import CommonMeta, Meta, Spec
 
 
 class TestCommonMeta:
@@ -21,12 +21,8 @@ class TestCommonMeta:
 
     def test_validate_rejects_both_default_and_factory(self):
         """Test validation rejects both default and default_factory."""
-        with pytest.raises(
-            ValueError, match="both 'default' and 'default_factory'"
-        ):
-            CommonMeta._validate_common_metas(
-                default="value", default_factory=lambda: "value"
-            )
+        with pytest.raises(ValueError, match="both 'default' and 'default_factory'"):
+            CommonMeta._validate_common_metas(default="value", default_factory=lambda: "value")
 
     def test_validate_rejects_non_callable_factory(self):
         """Test validation rejects non-callable default_factory."""

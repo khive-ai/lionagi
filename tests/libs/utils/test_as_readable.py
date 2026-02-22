@@ -18,7 +18,7 @@ def test_as_readable_list():
     assert len(items) == len(data)
 
     # Each item should be valid JSON matching original
-    for item_str, expected in zip(items, data):
+    for item_str, expected in zip(items, data, strict=False):
         parsed = json.loads(item_str)
         assert parsed == expected
 

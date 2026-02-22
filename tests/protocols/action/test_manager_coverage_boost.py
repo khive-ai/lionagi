@@ -9,11 +9,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from lionagi.operations.fields import ActionRequestModel
 from lionagi.protocols.action.manager import ActionManager, load_mcp_tools
 from lionagi.protocols.action.tool import Tool
 from lionagi.protocols.messages.action_request import ActionRequest
-from tests.utils import LionAGIMockFactory, ValidationHelpers
 
 
 class TestActionManagerDictRegistration:
@@ -43,9 +41,7 @@ class TestActionManagerDictRegistration:
         """Test error handling for duplicate dict tool registration."""
         manager = ActionManager()
 
-        mcp_config = {
-            "duplicate_tool": {"command": "python", "args": ["-m", "test"]}
-        }
+        mcp_config = {"duplicate_tool": {"command": "python", "args": ["-m", "test"]}}
 
         # First registration should succeed
         manager.register_tool(mcp_config)
@@ -56,9 +52,7 @@ class TestActionManagerDictRegistration:
         assert "duplicate_tool" in manager.registry
 
         # Test duplicate detection by registering with same name but different format
-        mcp_config_same_name = {
-            "duplicate_tool": {"command": "different_command"}
-        }
+        mcp_config_same_name = {"duplicate_tool": {"command": "different_command"}}
 
         # This will overwrite since dict duplicate detection doesn't work
         # But we can verify the behavior is consistent
@@ -69,13 +63,9 @@ class TestActionManagerDictRegistration:
         """Test updating existing dict tool with update=True."""
         manager = ActionManager()
 
-        original_config = {
-            "update_tool": {"command": "python", "args": ["-m", "original"]}
-        }
+        original_config = {"update_tool": {"command": "python", "args": ["-m", "original"]}}
 
-        updated_config = {
-            "update_tool": {"command": "python", "args": ["-m", "updated"]}
-        }
+        updated_config = {"update_tool": {"command": "python", "args": ["-m", "updated"]}}
 
         manager.register_tool(original_config)
         manager.register_tool(updated_config, update=True)
@@ -137,13 +127,9 @@ class TestActionManagerMatchToolEdgeCases:
         """Test match_tool with unregistered function name."""
         manager = ActionManager()
 
-        request = ActionRequest(
-            content={"function": "nonexistent_func", "arguments": {}}
-        )
+        request = ActionRequest(content={"function": "nonexistent_func", "arguments": {}})
 
-        with pytest.raises(
-            ValueError, match="Function nonexistent_func is not registered"
-        ):
+        with pytest.raises(ValueError, match="Function nonexistent_func is not registered"):
             manager.match_tool(request)
 
 
@@ -206,9 +192,7 @@ class TestActionManagerSchemaEdgeCases:
         """Test _get_tool_schema with unregistered string name."""
         manager = ActionManager()
 
-        with pytest.raises(
-            ValueError, match="Tool unregistered_name is not registered"
-        ):
+        with pytest.raises(ValueError, match="Tool unregistered_name is not registered"):
             manager._get_tool_schema("unregistered_name")
 
 
@@ -258,9 +242,7 @@ class TestActionManagerMCPMethodStubs:
         manager = ActionManager()
 
         # Mock the MCP connection pool to avoid real MCP dependencies
-        with patch(
-            "lionagi.service.connections.mcp.wrapper.MCPConnectionPool"
-        ) as mock_pool:
+        with patch("lionagi.service.connections.mcp.wrapper.MCPConnectionPool") as mock_pool:
             mock_client = AsyncMock()
             mock_tool = Mock()
             mock_tool.name = "mocked_tool"
@@ -284,16 +266,12 @@ class TestActionManagerMCPMethodStubs:
         manager = ActionManager()
 
         # Mock the MCP connection pool
-        with patch(
-            "lionagi.service.connections.mcp.wrapper.MCPConnectionPool"
-        ) as mock_pool:
+        with patch("lionagi.service.connections.mcp.wrapper.MCPConnectionPool") as mock_pool:
             mock_pool.load_config = Mock()
             mock_pool._configs = {"test_server": {"command": "python"}}
 
             # Mock the register_mcp_server method
-            manager.register_mcp_server = AsyncMock(
-                return_value=["tool1", "tool2"]
-            )
+            manager.register_mcp_server = AsyncMock(return_value=["tool1", "tool2"])
 
             result = await manager.load_mcp_config("/fake/path.json")
 
@@ -309,26 +287,20 @@ class TestLoadMCPToolsFunction:
     @pytest.mark.asyncio
     async def test_load_mcp_tools_no_servers_error(self):
         """Test load_mcp_tools raises error when no servers specified."""
-        with pytest.raises(
-            ValueError, match="Either provide server_names or config_path"
-        ):
+        with pytest.raises(ValueError, match="Either provide server_names or config_path"):
             await load_mcp_tools()
 
     @pytest.mark.asyncio
     async def test_load_mcp_tools_with_server_names(self):
         """Test load_mcp_tools with explicit server names."""
         # Mock the ActionManager and its methods
-        with patch(
-            "lionagi.protocols.action.manager.ActionManager"
-        ) as mock_manager_class:
+        with patch("lionagi.protocols.action.manager.ActionManager") as mock_manager_class:
             mock_manager = Mock()
             mock_manager.registry = {
                 "tool1": Mock(spec=Tool),
                 "tool2": Mock(spec=Tool),
             }
-            mock_manager.register_mcp_server = AsyncMock(
-                return_value=["tool1", "tool2"]
-            )
+            mock_manager.register_mcp_server = AsyncMock(return_value=["tool1", "tool2"])
             mock_manager_class.return_value = mock_manager
 
             result = await load_mcp_tools(server_names=["test_server"])

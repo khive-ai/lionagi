@@ -31,15 +31,9 @@ class TestSentinelTypesIntegrity:
         """
         a = UndefinedType()
         b = UndefinedType()
-        assert (
-            a is b
-        ), "Multiple UndefinedType instances must be the same object"
-        assert (
-            a is Undefined
-        ), "UndefinedType instance must be the global Undefined"
-        assert (
-            b is Undefined
-        ), "All UndefinedType instances must be the global Undefined"
+        assert a is b, "Multiple UndefinedType instances must be the same object"
+        assert a is Undefined, "UndefinedType instance must be the global Undefined"
+        assert b is Undefined, "All UndefinedType instances must be the global Undefined"
 
     def test_singleton_identity_unset(self):
         """Test: SingletonIdentity (CRITICAL) for UnsetType.
@@ -60,9 +54,7 @@ class TestSentinelTypesIntegrity:
 
         THEN Undefined must not be the same object as Unset.
         """
-        assert (
-            Undefined is not Unset
-        ), "Undefined and Unset must be distinct objects"
+        assert Undefined is not Unset, "Undefined and Unset must be distinct objects"
         assert Undefined != Unset, "Undefined and Unset must not be equal"
 
     def test_immutability_under_copy_undefined(self):
@@ -72,14 +64,10 @@ class TestSentinelTypesIntegrity:
         THEN the result must be the original Undefined object (verify using 'is').
         """
         shallow_copy = copy.copy(Undefined)
-        assert (
-            shallow_copy is Undefined
-        ), "copy.copy(Undefined) must return the same object"
+        assert shallow_copy is Undefined, "copy.copy(Undefined) must return the same object"
 
         deep_copy = copy.deepcopy(Undefined)
-        assert (
-            deep_copy is Undefined
-        ), "copy.deepcopy(Undefined) must return the same object"
+        assert deep_copy is Undefined, "copy.deepcopy(Undefined) must return the same object"
 
     def test_immutability_under_copy_unset(self):
         """Test: ImmutabilityUnderCopy (CRITICAL: State Safety) for Unset.
@@ -88,14 +76,10 @@ class TestSentinelTypesIntegrity:
         THEN the result must be the original Unset object (verify using 'is').
         """
         shallow_copy = copy.copy(Unset)
-        assert (
-            shallow_copy is Unset
-        ), "copy.copy(Unset) must return the same object"
+        assert shallow_copy is Unset, "copy.copy(Unset) must return the same object"
 
         deep_copy = copy.deepcopy(Unset)
-        assert (
-            deep_copy is Unset
-        ), "copy.deepcopy(Unset) must return the same object"
+        assert deep_copy is Unset, "copy.deepcopy(Unset) must return the same object"
 
     def test_pickle_preservation(self):
         """Test that sentinels survive pickling/unpickling.
@@ -105,16 +89,12 @@ class TestSentinelTypesIntegrity:
         # Test Undefined
         pickled_undefined = pickle.dumps(Undefined)
         unpickled_undefined = pickle.loads(pickled_undefined)
-        assert (
-            unpickled_undefined is Undefined
-        ), "Unpickled Undefined must be the same object"
+        assert unpickled_undefined is Undefined, "Unpickled Undefined must be the same object"
 
         # Test Unset
         pickled_unset = pickle.dumps(Unset)
         unpickled_unset = pickle.loads(pickled_unset)
-        assert (
-            unpickled_unset is Unset
-        ), "Unpickled Unset must be the same object"
+        assert unpickled_unset is Unset, "Unpickled Unset must be the same object"
 
 
 class TestSentinelTypesBehavior:
@@ -143,9 +123,7 @@ class TestSentinelTypesBehavior:
         GIVEN input=0 THEN is_sentinel() is False.
         """
         # Test with sentinels
-        assert (
-            is_sentinel(Undefined) is True
-        ), "is_sentinel(Undefined) must be True"
+        assert is_sentinel(Undefined) is True, "is_sentinel(Undefined) must be True"
         assert is_sentinel(Unset) is True, "is_sentinel(Unset) must be True"
 
         # Test with non-sentinels (crucial distinctions)
@@ -162,19 +140,13 @@ class TestSentinelTypesBehavior:
         Inverse of is_sentinel for filtering operations.
         """
         # Test with sentinels
-        assert (
-            not_sentinel(Undefined) is False
-        ), "not_sentinel(Undefined) must be False"
-        assert (
-            not_sentinel(Unset) is False
-        ), "not_sentinel(Unset) must be False"
+        assert not_sentinel(Undefined) is False, "not_sentinel(Undefined) must be False"
+        assert not_sentinel(Unset) is False, "not_sentinel(Unset) must be False"
 
         # Test with non-sentinels
         assert not_sentinel(None) is True, "not_sentinel(None) must be True"
         assert not_sentinel(0) is True, "not_sentinel(0) must be True"
-        assert (
-            not_sentinel("value") is True
-        ), "not_sentinel('value') must be True"
+        assert not_sentinel("value") is True, "not_sentinel('value') must be True"
 
     def test_string_representation(self):
         """Test string representations of sentinels."""

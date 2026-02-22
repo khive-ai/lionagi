@@ -1,6 +1,6 @@
 """Tests for lionagi.service.connections.providers.claude_code_cli module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -247,9 +247,7 @@ class TestPayloadCreation:
             "messages": [{"role": "user", "content": "Hello"}],
         }
 
-        payload, headers = endpoint.create_payload(
-            request, max_turns=5, auto_finish=True
-        )
+        payload, headers = endpoint.create_payload(request, max_turns=5, auto_finish=True)
 
         assert "request" in payload
         # ClaudeCodeRequest should have merged these
@@ -318,9 +316,7 @@ class TestStreamMethod:
 
             # Stream with kwargs
             chunks = []
-            async for chunk in endpoint.stream(
-                request, max_turns=5, auto_finish=True
-            ):
+            async for chunk in endpoint.stream(request, max_turns=5, auto_finish=True):
                 chunks.append(chunk)
 
             # Verify stream was called (kwargs would be merged into request_obj)
@@ -398,9 +394,7 @@ class TestCallMethod:
 
             # Mock model_copy for second request
             mock_request_copy = MagicMock()
-            mock_request_copy.prompt = (
-                "Please provide a the final result message only"
-            )
+            mock_request_copy.prompt = "Please provide a the final result message only"
             mock_request_copy.max_turns = 1
             mock_request_copy.continue_conversation = True
             mock_request.model_copy = MagicMock(return_value=mock_request_copy)
@@ -420,9 +414,7 @@ class TestCallMethod:
                     yield MagicMock(text="final")
                     yield mock_session
 
-            mock_stream.side_effect = lambda *args, **kwargs: async_gen(
-                *args, **kwargs
-            )
+            mock_stream.side_effect = lambda *args, **kwargs: async_gen(*args, **kwargs)
 
             endpoint = ClaudeCodeCLIEndpoint()
 
@@ -434,17 +426,13 @@ class TestCallMethod:
             # Should have called stream twice (initial + auto-finish)
             assert mock_stream.call_count == 2
 
-    @pytest.mark.skip(
-        reason="Complex _call integration - covered by other tests"
-    )
+    @pytest.mark.skip(reason="Complex _call integration - covered by other tests")
     @pytest.mark.asyncio
     async def test_call_with_include_summary(self):
         """Test _call method with cli_include_summary - SKIPPED (complex integration)."""
         pass
 
-    @pytest.mark.skip(
-        reason="Complex _call integration - covered by other tests"
-    )
+    @pytest.mark.skip(reason="Complex _call integration - covered by other tests")
     @pytest.mark.asyncio
     async def test_call_combines_chunk_texts(self):
         """Test _call combines texts - SKIPPED (complex integration)."""

@@ -13,7 +13,6 @@ import tiktoken
 
 from lionagi.service.token_calculator import TokenCalculator, get_encoding_name
 
-
 # ---------------------------------------------------------------------------
 # get_encoding_name
 # ---------------------------------------------------------------------------
@@ -99,9 +98,7 @@ class TestTokenize:
 
     def test_return_tokens_and_decoded(self):
         """return_tokens=True + return_decoded=True returns (count, decoded_str)."""
-        result = TokenCalculator.tokenize(
-            "hello world", return_tokens=True, return_decoded=True
-        )
+        result = TokenCalculator.tokenize("hello world", return_tokens=True, return_decoded=True)
         assert isinstance(result, tuple)
         count, decoded = result
         assert isinstance(count, int)
@@ -111,9 +108,7 @@ class TestTokenize:
 
     def test_explicit_encoding_name(self):
         """Passing an explicit encoding_name should work."""
-        result = TokenCalculator.tokenize(
-            "hello world", encoding_name="cl100k_base"
-        )
+        result = TokenCalculator.tokenize("hello world", encoding_name="cl100k_base")
         assert isinstance(result, int)
         assert result > 0
 
@@ -229,17 +224,13 @@ class TestCalculateChatitem:
 
     def test_string_input_returns_positive(self, tokenizer):
         """String content returns a positive token count."""
-        result = TokenCalculator._calculate_chatitem(
-            "hello world", tokenizer, "gpt-4o"
-        )
+        result = TokenCalculator._calculate_chatitem("hello world", tokenizer, "gpt-4o")
         assert isinstance(result, int)
         assert result > 0
 
     def test_dict_with_text_key_returns_positive(self, tokenizer):
         """Dict with 'text' key returns a positive token count."""
-        result = TokenCalculator._calculate_chatitem(
-            {"text": "hello world"}, tokenizer, "gpt-4o"
-        )
+        result = TokenCalculator._calculate_chatitem({"text": "hello world"}, tokenizer, "gpt-4o")
         assert isinstance(result, int)
         assert result > 0
 
@@ -289,9 +280,7 @@ class TestCalculateChatitem:
 
     def test_dict_without_text_or_image_url(self, tokenizer):
         """Dict without 'text' or 'image_url' returns None (no branch matches)."""
-        result = TokenCalculator._calculate_chatitem(
-            {"role": "user"}, tokenizer, "gpt-4o"
-        )
+        result = TokenCalculator._calculate_chatitem({"role": "user"}, tokenizer, "gpt-4o")
         assert result is None
 
     def test_empty_list(self, tokenizer):
@@ -301,9 +290,7 @@ class TestCalculateChatitem:
 
     def test_dict_text_value_is_number_returns_positive(self, tokenizer):
         """Dict with 'text' whose value is a number: str-converted, then counted."""
-        result = TokenCalculator._calculate_chatitem(
-            {"text": 42}, tokenizer, "gpt-4o"
-        )
+        result = TokenCalculator._calculate_chatitem({"text": 42}, tokenizer, "gpt-4o")
         assert isinstance(result, int)
         assert result > 0
 
@@ -333,9 +320,7 @@ class TestCalculateEmbedItem:
 
     def test_list_of_strings_returns_positive(self, tokenizer):
         """List of strings: each item contributes tokens."""
-        result = TokenCalculator._calculate_embed_item(
-            ["hello", "world"], tokenizer
-        )
+        result = TokenCalculator._calculate_embed_item(["hello", "world"], tokenizer)
         assert isinstance(result, int)
         assert result > 0
 
@@ -361,9 +346,7 @@ class TestCalculateEmbedItem:
 
     def test_nested_list_returns_positive(self, tokenizer):
         """Nested list items return actual token counts."""
-        result = TokenCalculator._calculate_embed_item(
-            [["hello", "world"]], tokenizer
-        )
+        result = TokenCalculator._calculate_embed_item([["hello", "world"]], tokenizer)
         assert isinstance(result, int)
         assert result > 0
 
@@ -415,9 +398,7 @@ class TestCalculateMessageTokens:
 
     def test_message_with_dict_content_text_key(self):
         """Message content as dict with 'text' key returns overhead + tokens."""
-        messages = [
-            {"role": "user", "content": {"text": "what is the weather?"}}
-        ]
+        messages = [{"role": "user", "content": {"text": "what is the weather?"}}]
         result = TokenCalculator.calculate_message_tokens(messages)
         assert result > 4  # 4 overhead + actual content tokens
 
@@ -456,9 +437,7 @@ class TestCalculateMessageTokens:
         """
         messages = [{"role": "user", "content": "hello world"}]
         result_default = TokenCalculator.calculate_message_tokens(messages)
-        result_gpt35 = TokenCalculator.calculate_message_tokens(
-            messages, model="gpt-3.5-turbo"
-        )
+        result_gpt35 = TokenCalculator.calculate_message_tokens(messages, model="gpt-3.5-turbo")
         assert result_default > 4
         assert result_gpt35 > 4
 
@@ -487,10 +466,7 @@ class TestCalculateMessageTokens:
 
     def test_large_conversation_overhead(self):
         """50 messages with content produce more than just overhead."""
-        messages = [
-            {"role": "user", "content": f"Message number {i}"}
-            for i in range(50)
-        ]
+        messages = [{"role": "user", "content": f"Message number {i}"} for i in range(50)]
         result = TokenCalculator.calculate_message_tokens(messages)
         # 50 * 4 overhead + actual content tokens
         assert result > 200
@@ -512,9 +488,7 @@ class TestCalculateEmbedToken:
 
     def test_multiple_strings(self):
         """Multiple strings: each contributes tokens."""
-        result = TokenCalculator.calculate_embed_token(
-            ["hello world", "goodbye world"]
-        )
+        result = TokenCalculator.calculate_embed_token(["hello world", "goodbye world"])
         assert isinstance(result, int)
         assert result > 0
 
@@ -568,9 +542,7 @@ class TestTokenizeStandalone:
     def test_decoded_output_matches_input(self):
         """Decoded output should reconstruct the original text."""
         text = "hello world"
-        _, decoded = TokenCalculator.tokenize(
-            text, return_tokens=True, return_decoded=True
-        )
+        _, decoded = TokenCalculator.tokenize(text, return_tokens=True, return_decoded=True)
         assert decoded == text
 
     def test_different_encoding_names_produce_tokens(self):
@@ -597,9 +569,7 @@ class TestTokenizeStandalone:
 
     def test_tokenize_return_tokens_gives_ints(self):
         """return_tokens=True returns a list of integer token IDs."""
-        tokens = TokenCalculator.tokenize(
-            "hello world", return_tokens=True
-        )
+        tokens = TokenCalculator.tokenize("hello world", return_tokens=True)
         assert isinstance(tokens, list)
         assert all(isinstance(t, int) for t in tokens)
 

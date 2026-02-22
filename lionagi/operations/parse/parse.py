@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 from lionagi.ln import (
+    AlcallParams,
     extract_json,
     fuzzy_validate_mapping,
     get_cancelled_exc_class,
@@ -15,7 +16,6 @@ from lionagi.ln import (
 )
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.protocols.types import AssistantResponse
-from lionagi.ln import AlcallParams
 
 from ..types import HandleValidation, ParseParam
 

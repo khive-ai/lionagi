@@ -58,7 +58,7 @@ def hamming_similarity(s1: str, s2: str) -> float:
     if not s1 or not s2 or len(s1) != len(s2):
         return 0.0
 
-    matches = sum(c1 == c2 for c1, c2 in zip(s1, s2))
+    matches = sum(c1 == c2 for c1, c2 in zip(s1, s2, strict=False))
     return matches / len(s1)
 
 
@@ -144,7 +144,7 @@ def jaro_winkler_similarity(s: str, t: str, scaling: float = 0.1) -> float:
 
     # Find length of common prefix (up to 4 chars)
     prefix_len = 0
-    for s_char, t_char in zip(s, t):
+    for s_char, t_char in zip(s, t, strict=False):
         if s_char != t_char:
             break
         prefix_len += 1
@@ -315,7 +315,7 @@ def string_similarity(
 
     # Calculate similarities
     results = []
-    for idx, (orig_word, comp_word) in enumerate(zip(original_words, compare_words)):
+    for idx, (orig_word, comp_word) in enumerate(zip(original_words, compare_words, strict=False)):
         # Skip different length strings for hamming similarity
         if algorithm == "hamming" and len(comp_word) != len(compare_word):
             continue

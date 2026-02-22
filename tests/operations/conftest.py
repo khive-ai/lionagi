@@ -33,14 +33,10 @@ def branch_with_mock_imodel():
 
     async_mock_invoke = AsyncMock(side_effect=_fake_invoke)
 
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
+    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
     mock_chat_model.invoke = async_mock_invoke
 
-    mock_parse_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
+    mock_parse_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
     mock_parse_model.invoke = async_mock_invoke
 
     branch.chat_model = mock_chat_model

@@ -3,8 +3,6 @@
 Target: Cover lines 70-72 (exception handling for invalid JSON in multiple blocks)
 """
 
-import pytest
-
 from lionagi.ln.fuzzy._extract_json import extract_json
 
 # ============================================================================
@@ -33,9 +31,7 @@ def test_extract_json_markdown_single():
 
 def test_extract_json_markdown_multiple():
     """Test extraction from multiple markdown blocks"""
-    input_str = (
-        '```json\n{"key1": "value1"}\n```\n```json\n{"key2": "value2"}\n```'
-    )
+    input_str = '```json\n{"key1": "value1"}\n```\n```json\n{"key2": "value2"}\n```'
     result = extract_json(input_str, return_one_if_single=False)
     assert isinstance(result, list)
     assert len(result) == 2
@@ -110,9 +106,7 @@ def test_extract_json_multiple_with_invalid_fuzzy():
 {'valid': 'second'}
 ```
 """
-    result = extract_json(
-        input_str, fuzzy_parse=True, return_one_if_single=False
-    )
+    result = extract_json(input_str, fuzzy_parse=True, return_one_if_single=False)
     # Fuzzy parse might handle some, but completely broken should be skipped
     assert isinstance(result, list)
     # Should have at least the valid ones

@@ -381,9 +381,9 @@ class OperableModel(HashableModel):
                     value = self.__dict__.get(field_name)
             if getattr(self, field_name, UNDEFINED) is not UNDEFINED:
                 value = getattr(self, field_name)
-            elif getattr(field_obj, "default") is not PydanticUndefined:
+            elif field_obj.default is not PydanticUndefined:
                 value = field_obj.default
-            elif getattr(field_obj, "default_factory"):
+            elif field_obj.default_factory:
                 value = field_obj.default_factory()
 
         setattr(self, field_name, value)

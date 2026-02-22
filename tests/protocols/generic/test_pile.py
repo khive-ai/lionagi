@@ -32,9 +32,7 @@ def sample_pile(sample_elements):
 
 
 def generate_random_string(length: int) -> str:
-    return "".join(
-        random.choices(string.ascii_letters + string.digits, k=length)
-    )
+    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
 @pytest.mark.parametrize(
@@ -200,9 +198,7 @@ async def test_concurrent_operations():
 
 
 def test_large_scale_operations():
-    large_pile = Pile(
-        collections=[MockElement(value=i) for i in range(100000)]
-    )
+    large_pile = Pile(collections=[MockElement(value=i) for i in range(100000)])
     assert len(large_pile) == 100000
 
     # Test various operations on the large pile
@@ -243,10 +239,7 @@ def test_pile_with_complex_elements():
     class ComplexElement(Element):
         data: dict
 
-    elements = [
-        ComplexElement(data={"value": i, "nested": {"x": i * 2}})
-        for i in range(5)
-    ]
+    elements = [ComplexElement(data={"value": i, "nested": {"x": i * 2}}) for i in range(5)]
     p = Pile(collections=elements)
     assert len(p) == 5
     assert all(isinstance(e, ComplexElement) for e in p.values())
@@ -312,9 +305,7 @@ def test_pile_with_complex_elements(complex_elements):
 
 
 def test_pile_nested_operations():
-    p = Pile(
-        [Pile([MockElement(value=i) for i in range(3)]) for _ in range(3)]
-    )
+    p = Pile([Pile([MockElement(value=i) for i in range(3)]) for _ in range(3)])
     assert len(p) == 3
     assert all(isinstance(item, Pile) for item in p.values())
     assert len(p[0]) == 3
@@ -382,7 +373,7 @@ def test_pile_deep_copy():
     p_copy = copy.deepcopy(p)
     assert p == p_copy
     assert p is not p_copy
-    assert all(a is not b for a, b in zip(p.values(), p_copy.values()))
+    assert all(a is not b for a, b in zip(p.values(), p_copy.values(), strict=False))
 
 
 def test_pile_with_property_access():
@@ -409,9 +400,7 @@ def test_pile_with_context_manager():
 
     ManagedPile.model_rebuild(_types_namespace={"Any": typing.Any})
 
-    with ManagedPile(
-        collections=[MockElement(value=i) for i in range(5)]
-    ) as mp:
+    with ManagedPile(collections=[MockElement(value=i) for i in range(5)]) as mp:
         assert len(mp) == 5
     assert len(mp) == 0
 

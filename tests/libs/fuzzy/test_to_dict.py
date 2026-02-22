@@ -5,7 +5,6 @@ Missing lines: 30-33, 50-52, 91, 127, 134-138, 164-182, 186-200, 208, 245, 276, 
 """
 
 import dataclasses
-import json
 from collections import OrderedDict
 from enum import Enum
 
@@ -187,9 +186,7 @@ def test_parse_str_with_custom_parser():
     def custom_parser(s, **kwargs):
         return {"custom": s}
 
-    result = _parse_str(
-        "test", fuzzy_parse=False, str_type=None, parser=custom_parser
-    )
+    result = _parse_str("test", fuzzy_parse=False, str_type=None, parser=custom_parser)
     assert result == {"custom": "test"}
 
 
@@ -197,27 +194,21 @@ def test_parse_str_xml():
     """Test XML parsing (lines 50-52)"""
     pytest.importorskip("xmltodict")
     xml_string = '<?xml version="1.0"?><root><child>value</child></root>'
-    result = _parse_str(
-        xml_string, fuzzy_parse=False, str_type="xml", parser=None
-    )
+    result = _parse_str(xml_string, fuzzy_parse=False, str_type="xml", parser=None)
     assert "root" in result
     assert result["root"]["child"] == "value"
 
 
 def test_parse_str_json():
     """Test JSON parsing"""
-    result = _parse_str(
-        '{"a": 1}', fuzzy_parse=False, str_type="json", parser=None
-    )
+    result = _parse_str('{"a": 1}', fuzzy_parse=False, str_type="json", parser=None)
     assert result == {"a": 1}
 
 
 def test_parse_str_fuzzy():
     """Test fuzzy JSON parsing"""
     # Fuzzy parse should handle single quotes
-    result = _parse_str(
-        "{'a': 1}", fuzzy_parse=True, str_type="json", parser=None
-    )
+    result = _parse_str("{'a': 1}", fuzzy_parse=True, str_type="json", parser=None)
     assert result == {"a": 1}
 
 
@@ -744,9 +735,7 @@ def test_to_dict_recursive_basic():
     result = to_dict(data, recursive=True)
     # Note: JSON strings within dicts are not parsed due to use_enum_values kwarg issue
     assert isinstance(result, dict)
-    assert (
-        result["a"] == '{"nested": true}'
-    )  # String not parsed in recursive mode
+    assert result["a"] == '{"nested": true}'  # String not parsed in recursive mode
     assert result["b"] == [1, 2, 3]
 
 

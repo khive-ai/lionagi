@@ -483,7 +483,6 @@ class FieldModel(Params):
                 else:
                     # Filter out unserializable objects from json_schema_extra
                     # to avoid Pydantic serialization errors when generating JSON schema
-                    from pydantic import BaseModel
 
                     # Skip model classes and other unserializable types
                     if isinstance(meta.value, type):

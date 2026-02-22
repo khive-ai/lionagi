@@ -6,7 +6,7 @@ Tests the complete flow: Spec → FieldInfo → Model → Validation
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from lionagi.adapters.spec_adapters import PydanticSpecAdapter, SpecAdapter
+from lionagi.adapters.spec_adapters import PydanticSpecAdapter
 from lionagi.ln.types import Operable, Spec
 
 
@@ -78,9 +78,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs, name="User")
 
-        UserModel = PydanticSpecAdapter.create_model(
-            operable, "UserModelBasic"
-        )
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelBasic")
 
         assert issubclass(UserModel, BaseModel)
         assert "username" in UserModel.model_fields
@@ -94,9 +92,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(
-            operable, "UserModelDefaults"
-        )
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelDefaults")
         instance = UserModel()
 
         assert instance.username == "anonymous"
@@ -110,9 +106,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(
-            operable, "UserModelNullable"
-        )
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelNullable")
         instance = UserModel(username="alice")
 
         assert instance.username == "alice"
@@ -126,9 +120,7 @@ class TestCreateModel:
         ]
         operable = Operable(specs)
 
-        UserModel = PydanticSpecAdapter.create_model(
-            operable, "UserModelValidation"
-        )
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelValidation")
 
         # Valid data
         user = UserModel(username="alice", age=30)
@@ -211,9 +203,7 @@ class TestEndToEnd:
         operable = Operable(specs, name="Player")
 
         # Use Operable's create_model method
-        PlayerModel = operable.create_model(
-            adapter="pydantic", model_name="PlayerModel"
-        )
+        PlayerModel = operable.create_model(adapter="pydantic", model_name="PlayerModel")
 
         assert issubclass(PlayerModel, BaseModel)
         player = PlayerModel(username="player1")
@@ -222,7 +212,6 @@ class TestEndToEnd:
 
     def test_complex_types(self):
         """Test with complex Python types."""
-        from typing import Dict, List
 
         specs = [
             Spec(dict[str, int], name="scores"),
@@ -266,15 +255,11 @@ and more text"""
         """Test fuzzy field matching."""
         specs = [Spec(str, name="user_name"), Spec(int, name="user_age")]
         operable = Operable(specs)
-        UserModel = PydanticSpecAdapter.create_model(
-            operable, "UserModelFuzzy"
-        )
+        UserModel = PydanticSpecAdapter.create_model(operable, "UserModelFuzzy")
 
         # Data with slightly different keys
         data = {"username": "Alice", "age": 30}
-        matched = PydanticSpecAdapter.fuzzy_match_fields(
-            data, UserModel, strict=False
-        )
+        matched = PydanticSpecAdapter.fuzzy_match_fields(data, UserModel, strict=False)
 
         # Should fuzzy match username → user_name, age → user_age
         assert "user_name" in matched or "username" in matched

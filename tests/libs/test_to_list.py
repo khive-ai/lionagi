@@ -1,7 +1,6 @@
 # tests/libs/test_to_list.py
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -113,9 +112,7 @@ class TestToListStringsAndBytes:
         assert result == [97, 98, 99]
 
     def test_bytearray_use_values_false(self):
-        assert to_list(bytearray(b"test"), use_values=False) == [
-            bytearray(b"test")
-        ]
+        assert to_list(bytearray(b"test"), use_values=False) == [bytearray(b"test")]
 
 
 class TestToListMappings:
@@ -159,16 +156,12 @@ class TestToListFlatten:
 
     def test_flatten_tuple_set_false(self):
         """By default, tuples/sets are not flattened."""
-        result = to_list(
-            [(1, 2), (3, 4)], flatten=True, flatten_tuple_set=False
-        )
+        result = to_list([(1, 2), (3, 4)], flatten=True, flatten_tuple_set=False)
         assert result == [(1, 2), (3, 4)]
 
     def test_flatten_tuple_set_true(self):
         """With flatten_tuple_set=True, tuples/sets are flattened."""
-        result = to_list(
-            [(1, 2), (3, 4)], flatten=True, flatten_tuple_set=True
-        )
+        result = to_list([(1, 2), (3, 4)], flatten=True, flatten_tuple_set=True)
         assert result == [1, 2, 3, 4]
 
 
@@ -190,9 +183,7 @@ class TestToListUnique:
     """Test unique functionality."""
 
     def test_unique_requires_flatten(self):
-        with pytest.raises(
-            ValueError, match="unique=True requires flatten=True"
-        ):
+        with pytest.raises(ValueError, match="unique=True requires flatten=True"):
             to_list([1, 2, 3], unique=True, flatten=False)
 
     def test_unique_simple(self):
@@ -303,10 +294,7 @@ class TestToListUnique:
                 return self._hash
 
             def __eq__(self, other):
-                return (
-                    isinstance(other, HashableWithAttr)
-                    and self.value == other.value
-                )
+                return isinstance(other, HashableWithAttr) and self.value == other.value
 
         # Test with these objects
         obj1 = HashableWithAttr(1)
@@ -358,7 +346,6 @@ class TestToListParams:
 
     def test_to_list_params_call(self):
         """Test lines 209-210: __call__ method of ToListParams."""
-        from functools import partial
         from unittest.mock import Mock
 
         params = ToListParams(

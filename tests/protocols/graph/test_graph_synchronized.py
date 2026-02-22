@@ -175,9 +175,7 @@ class TestGraphSynchronizedMixedOperations:
             graph.add_node(n)
 
         new_nodes = [Node() for _ in range(10)]
-        new_edges = [
-            Edge(head=seed_heads[i], tail=seed_tails[i]) for i in range(10)
-        ]
+        new_edges = [Edge(head=seed_heads[i], tail=seed_tails[i]) for i in range(10)]
 
         errors = []
 

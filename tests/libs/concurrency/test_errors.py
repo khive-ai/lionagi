@@ -3,7 +3,6 @@ import pytest
 
 from lionagi.ln.concurrency import (
     fail_after,
-    get_cancelled_exc_class,
     is_cancelled,
     shield,
 )

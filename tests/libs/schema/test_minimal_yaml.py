@@ -146,9 +146,7 @@ class TestPruning:
 
     def test_recursive_pruning(self):
         """Test that pruning works recursively."""
-        data = {
-            "outer": {"inner": {"value": None, "empty": ""}, "name": "test"}
-        }
+        data = {"outer": {"inner": {"value": None, "empty": ""}, "name": "test"}}
         result = minimal_yaml(data, drop_empties=True)
 
         assert "name: test" in result
@@ -197,9 +195,7 @@ class TestMultilineStrings:
 
     def test_multiline_preserves_content(self):
         """Test that multiline conversion preserves content."""
-        data = {
-            "text": "First line\nSecond line with spaces\nThird line\n\nFifth line"
-        }
+        data = {"text": "First line\nSecond line with spaces\nThird line\n\nFifth line"}
         result = minimal_yaml(data)
 
         assert "text: |" in result
@@ -212,9 +208,7 @@ class TestNestedStructures:
 
     def test_deeply_nested_dict(self):
         """Test deeply nested dictionary."""
-        data = {
-            "level1": {"level2": {"level3": {"level4": {"value": "deep"}}}}
-        }
+        data = {"level1": {"level2": {"level3": {"level4": {"value": "deep"}}}}}
         result = minimal_yaml(data)
 
         assert "level1:" in result

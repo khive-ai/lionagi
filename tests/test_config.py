@@ -4,7 +4,6 @@
 """Tests for configuration module."""
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -131,15 +130,9 @@ class TestAppSettings:
         # Testing that the field can be None or SecretStr
         config = AppSettings()
         # API keys can be None or SecretStr depending on environment
-        assert config.OPENAI_API_KEY is None or isinstance(
-            config.OPENAI_API_KEY, SecretStr
-        )
-        assert config.ANTHROPIC_API_KEY is None or isinstance(
-            config.ANTHROPIC_API_KEY, SecretStr
-        )
-        assert config.PERPLEXITY_API_KEY is None or isinstance(
-            config.PERPLEXITY_API_KEY, SecretStr
-        )
+        assert config.OPENAI_API_KEY is None or isinstance(config.OPENAI_API_KEY, SecretStr)
+        assert config.ANTHROPIC_API_KEY is None or isinstance(config.ANTHROPIC_API_KEY, SecretStr)
+        assert config.PERPLEXITY_API_KEY is None or isinstance(config.PERPLEXITY_API_KEY, SecretStr)
 
 
 class TestGetSecret:
@@ -186,9 +179,7 @@ class TestGetSecret:
         """Test get_secret with plain string value."""
         # Create a config with a custom string value
         # Note: In practice, API keys should be SecretStr
-        with patch.dict(
-            os.environ, {"OPENAI_API_KEY": "plain_text_key"}, clear=False
-        ):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "plain_text_key"}, clear=False):
             config = AppSettings()
             if config.OPENAI_API_KEY is not None:
                 result = config.get_secret("OPENAI_API_KEY")
@@ -200,26 +191,20 @@ class TestEnvironmentVariableLoading:
 
     def test_load_from_env_openai_key(self):
         """Test loading OPENAI_API_KEY from environment."""
-        with patch.dict(
-            os.environ, {"OPENAI_API_KEY": "env_key_123"}, clear=False
-        ):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "env_key_123"}, clear=False):
             config = AppSettings()
             if config.OPENAI_API_KEY is not None:
                 assert config.get_secret("OPENAI_API_KEY") == "env_key_123"
 
     def test_load_from_env_custom_model(self):
         """Test loading custom model from environment."""
-        with patch.dict(
-            os.environ, {"OPENAI_DEFAULT_MODEL": "gpt-4"}, clear=False
-        ):
+        with patch.dict(os.environ, {"OPENAI_DEFAULT_MODEL": "gpt-4"}, clear=False):
             config = AppSettings()
             assert config.OPENAI_DEFAULT_MODEL == "gpt-4"
 
     def test_case_insensitive_loading(self):
         """Test case-insensitive environment variable loading."""
-        with patch.dict(
-            os.environ, {"openai_default_model": "custom-model"}, clear=False
-        ):
+        with patch.dict(os.environ, {"openai_default_model": "custom-model"}, clear=False):
             config = AppSettings()
             assert config.OPENAI_DEFAULT_MODEL == "custom-model"
 
@@ -286,9 +271,7 @@ class TestSettingsIntegration:
             config = AppSettings()
             if config.OPENAI_API_KEY and config.ANTHROPIC_API_KEY:
                 assert config.get_secret("OPENAI_API_KEY") == "openai_key"
-                assert (
-                    config.get_secret("ANTHROPIC_API_KEY") == "anthropic_key"
-                )
+                assert config.get_secret("ANTHROPIC_API_KEY") == "anthropic_key"
 
 
 class TestSecretStrHandling:
@@ -296,9 +279,7 @@ class TestSecretStrHandling:
 
     def test_secret_str_created_from_env(self):
         """Test SecretStr is created from environment."""
-        with patch.dict(
-            os.environ, {"OPENAI_API_KEY": "secret_value"}, clear=False
-        ):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "secret_value"}, clear=False):
             config = AppSettings()
             if config.OPENAI_API_KEY is not None:
                 assert isinstance(config.OPENAI_API_KEY, SecretStr)

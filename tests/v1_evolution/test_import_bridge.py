@@ -22,42 +22,32 @@ class TestImportBridge:
         try:
             from lionagi.protocols.types import LegacyObservable, Observable
         except ImportError:
-            pytest.fail(
-                "Could not import Observable and LegacyObservable from types.py"
-            )
+            pytest.fail("Could not import Observable and LegacyObservable from types.py")
 
         # Import the sources of truth
         from lionagi.protocols._concepts import Observable as V0Source
         from lionagi.protocols.contracts import Observable as V1Source
 
         # Verify V1 Observable (the preferred export)
-        assert (
-            Observable is V1Source
-        ), "types.Observable should be the V1 Protocol"
+        assert Observable is V1Source, "types.Observable should be the V1 Protocol"
         assert issubclass(Observable, Protocol)
 
         # Verify LegacyObservable (the V0 ABC)
-        assert (
-            LegacyObservable is V0Source
-        ), "types.LegacyObservable should be the V0 ABC"
+        assert LegacyObservable is V0Source, "types.LegacyObservable should be the V0 ABC"
         # Check if it's an ABCMeta (standard check for Abstract Base Classes)
-        assert isinstance(
-            LegacyObservable, ABCMeta
-        ), "LegacyObservable should be an ABC"
+        assert isinstance(LegacyObservable, ABCMeta), "LegacyObservable should be an ABC"
 
         # Ensure they are distinct
-        assert (
-            Observable is not LegacyObservable
-        ), "V1 Observable and LegacyObservable should be distinct objects"
+        assert Observable is not LegacyObservable, (
+            "V1 Observable and LegacyObservable should be distinct objects"
+        )
 
     def test_bridge_utilities_exported(self):
         """Verify bridge utilities are exported from types.py."""
         try:
             from lionagi.protocols.types import canonical_id, to_uuid
         except ImportError:
-            pytest.fail(
-                "Could not import canonical_id and to_uuid from types.py"
-            )
+            pytest.fail("Could not import canonical_id and to_uuid from types.py")
 
         # Verify they are callables (functions)
         assert callable(canonical_id), "canonical_id should be callable"
@@ -67,9 +57,7 @@ class TestImportBridge:
         from lionagi.protocols.ids import canonical_id as id_source
         from lionagi.protocols.ids import to_uuid as uuid_source
 
-        assert (
-            canonical_id is id_source
-        ), "canonical_id should be imported from ids.py"
+        assert canonical_id is id_source, "canonical_id should be imported from ids.py"
         assert to_uuid is uuid_source, "to_uuid should be imported from ids.py"
 
     def test_observable_proto_explicit_export(self):
@@ -82,9 +70,7 @@ class TestImportBridge:
         from lionagi.protocols.types import Observable
 
         # Should be the same object
-        assert (
-            ObservableProto is Observable
-        ), "ObservableProto should be the same as Observable"
+        assert ObservableProto is Observable, "ObservableProto should be the same as Observable"
 
     def test_all_exports_in_module_all(self):
         """Verify all new exports are listed in __all__."""
@@ -99,15 +85,11 @@ class TestImportBridge:
         ]
 
         for export in required_exports:
-            assert (
-                export in types.__all__
-            ), f"'{export}' should be in types.__all__"
+            assert export in types.__all__, f"'{export}' should be in types.__all__"
 
         # Verify they can actually be imported
         for export in required_exports:
-            assert hasattr(
-                types, export
-            ), f"'{export}' should be available in types module"
+            assert hasattr(types, export), f"'{export}' should be available in types module"
 
     def test_backward_compatibility_import_paths(self):
         """Verify existing import paths still work."""

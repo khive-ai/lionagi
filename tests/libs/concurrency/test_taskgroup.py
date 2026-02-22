@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 import anyio
 import pytest
 
-from lionagi.ln.concurrency import create_task_group, get_cancelled_exc_class
+from lionagi.ln.concurrency import create_task_group
 from lionagi.ln.concurrency._compat import ExceptionGroup
 
 if TYPE_CHECKING or hasattr(BaseException, "__group__"):
@@ -43,9 +43,7 @@ async def test_error_in_one_task_cancels_peers_promptly(anyio_backend):
 
     # Check that ValueError was raised (either directly or in ExceptionGroup)
     if isinstance(exc_info.value, ExceptionGroup):
-        assert any(
-            isinstance(e, ValueError) for e in exc_info.value.exceptions
-        )
+        assert any(isinstance(e, ValueError) for e in exc_info.value.exceptions)
     dt = time.perf_counter() - t0
     assert seen_cancel.is_set()
     assert dt < 0.5  # cancelled quickly

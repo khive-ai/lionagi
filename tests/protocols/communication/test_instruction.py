@@ -68,9 +68,7 @@ def test_instruction_content_all_fields():
 
 def test_instruction_content_rendered_text_only():
     """Test rendered property returns minimal_yaml formatted text"""
-    content = InstructionContent(
-        instruction="Test instruction", guidance="Test guidance"
-    )
+    content = InstructionContent(instruction="Test instruction", guidance="Test guidance")
 
     rendered = content.rendered
     assert isinstance(rendered, str)
@@ -151,9 +149,7 @@ def test_instruction_content_rendered_multiple_images():
 
 def test_instruction_content_image_detail_auto():
     """Test image_detail defaults to 'auto' when images present"""
-    content = InstructionContent(
-        instruction="Test", images=["image.jpg"], image_detail="auto"
-    )
+    content = InstructionContent(instruction="Test", images=["image.jpg"], image_detail="auto")
 
     rendered = content.rendered
     assert rendered[1]["image_url"]["detail"] == "auto"
@@ -162,14 +158,10 @@ def test_instruction_content_image_detail_auto():
 def test_instruction_content_base64_image_handling():
     """Test base64 images are properly formatted"""
     base64_str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-    content = InstructionContent(
-        instruction="Test", images=[base64_str], image_detail="high"
-    )
+    content = InstructionContent(instruction="Test", images=[base64_str], image_detail="high")
 
     rendered = content.rendered
-    assert rendered[1]["image_url"]["url"].startswith(
-        "data:image/jpeg;base64,"
-    )
+    assert rendered[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert base64_str in rendered[1]["image_url"]["url"]
 
 
@@ -316,9 +308,7 @@ def test_from_dict_response_format_overrides_auto_derive():
     }
     content = InstructionContent.from_dict(data)
 
-    assert (
-        content.response_format == rf
-    )  # Should use explicit, not auto-derived
+    assert content.response_format == rf  # Should use explicit, not auto-derived
 
 
 def test_from_dict_invalid_response_schema_type():
@@ -370,9 +360,7 @@ def test_instruction_basic_initialization():
 def test_instruction_with_instruction_content_instance():
     """Test Instruction with InstructionContent instance"""
     content = InstructionContent(instruction="Test", guidance="Guide")
-    instruction = Instruction(
-        content=content, sender="user", recipient="assistant"
-    )
+    instruction = Instruction(content=content, sender="user", recipient="assistant")
 
     assert instruction.content.instruction == "Test"
     assert instruction.content.guidance == "Guide"
@@ -398,9 +386,7 @@ def test_instruction_content_validator_with_dict():
 
 def test_instruction_content_validator_with_none():
     """Test Instruction content validator creates empty InstructionContent for None"""
-    instruction = Instruction(
-        content=None, sender="user", recipient="assistant"
-    )
+    instruction = Instruction(content=None, sender="user", recipient="assistant")
 
     assert isinstance(instruction.content, InstructionContent)
     assert instruction.content.instruction is None
@@ -408,9 +394,7 @@ def test_instruction_content_validator_with_none():
 
 def test_instruction_content_validator_invalid_type():
     """Test Instruction content validator raises TypeError for invalid type"""
-    with pytest.raises(
-        TypeError, match="content must be dict or InstructionContent"
-    ):
+    with pytest.raises(TypeError, match="content must be dict or InstructionContent"):
         Instruction(content="invalid", sender="user", recipient="assistant")
 
 
@@ -555,9 +539,7 @@ def test_instruction_rendered_property_with_images():
 
 def test_instruction_role_fixed_as_user():
     """Test Instruction role is always USER"""
-    instruction = Instruction(
-        content={"instruction": "Test"}, sender="user", recipient="assistant"
-    )
+    instruction = Instruction(content={"instruction": "Test"}, sender="user", recipient="assistant")
 
     assert instruction.role == MessageRole.USER
 
@@ -644,9 +626,7 @@ def test_minimal_yaml_response_schema_included():
     content = InstructionContent(instruction="Test", response_format=schema)
 
     rendered = content.rendered
-    assert (
-        "responseschema" in rendered.lower() or "ResponseSchema:" in rendered
-    )
+    assert "responseschema" in rendered.lower() or "ResponseSchema:" in rendered
     assert "type" in rendered
 
 

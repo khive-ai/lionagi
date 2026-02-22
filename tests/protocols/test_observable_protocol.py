@@ -3,8 +3,6 @@
 
 """Tests for V1 Observable Protocol compatibility with V0 classes."""
 
-import pytest
-
 from lionagi.protocols.contracts import ObservableProto as Observable
 from lionagi.protocols.generic.element import Element
 from lionagi.protocols.generic.event import Event
@@ -62,15 +60,11 @@ class TestObservableProtocolCompliance:
         ]
 
         for instance in instances:
-            assert isinstance(
-                instance, Observable
-            ), f"{type(instance).__name__} should satisfy Observable Protocol"
-            assert hasattr(
-                instance, "id"
-            ), f"{type(instance).__name__} should have id attribute"
-            assert (
-                instance.id is not None
-            ), f"{type(instance).__name__}.id should not be None"
+            assert isinstance(instance, Observable), (
+                f"{type(instance).__name__} should satisfy Observable Protocol"
+            )
+            assert hasattr(instance, "id"), f"{type(instance).__name__} should have id attribute"
+            assert instance.id is not None, f"{type(instance).__name__}.id should not be None"
 
     def test_protocol_duck_typing(self):
         """Test that objects with id property satisfy protocol without inheritance."""

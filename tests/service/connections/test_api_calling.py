@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -43,9 +42,7 @@ class TestAPICalling:
         )
         return Endpoint(config=config)
 
-    def test_api_calling_initialization(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    def test_api_calling_initialization(self, sample_payload, sample_headers, mock_endpoint):
         """Test APICalling initialization."""
         api_call = APICalling(
             payload=sample_payload,
@@ -73,9 +70,7 @@ class TestAPICalling:
 
         assert api_call.response is None
 
-    def test_response_property_after_execution(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    def test_response_property_after_execution(self, sample_payload, sample_headers, mock_endpoint):
         """Test response property returns execution response."""
         api_call = APICalling(
             payload=sample_payload,
@@ -101,9 +96,7 @@ class TestAPICalling:
             endpoint=mock_endpoint,
         )
 
-        with patch.object(
-            mock_endpoint, "call", return_value=mock_response.json.return_value
-        ):
+        with patch.object(mock_endpoint, "call", return_value=mock_response.json.return_value):
             await api_call.invoke()
 
         assert api_call.status == EventStatus.COMPLETED
@@ -111,9 +104,7 @@ class TestAPICalling:
         assert api_call.response is not None
 
     @pytest.mark.asyncio
-    async def test_execution_error_handling(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    async def test_execution_error_handling(self, sample_payload, sample_headers, mock_endpoint):
         """Test error handling during execution."""
         api_call = APICalling(
             payload=sample_payload,
@@ -122,9 +113,7 @@ class TestAPICalling:
         )
 
         # Mock endpoint to raise an exception
-        with patch.object(
-            mock_endpoint, "call", side_effect=Exception("API Error")
-        ):
+        with patch.object(mock_endpoint, "call", side_effect=Exception("API Error")):
             await api_call.invoke()
 
         assert api_call.status == EventStatus.FAILED
@@ -132,9 +121,7 @@ class TestAPICalling:
         assert "API Error" in str(api_call.execution.error)
 
     @pytest.mark.asyncio
-    async def test_timeout_handling(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    async def test_timeout_handling(self, sample_payload, sample_headers, mock_endpoint):
         """Test timeout handling during execution."""
         api_call = APICalling(
             payload=sample_payload,
@@ -152,9 +139,7 @@ class TestAPICalling:
         assert api_call.status == EventStatus.FAILED
 
     @pytest.mark.asyncio
-    async def test_streaming_execution(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    async def test_streaming_execution(self, sample_payload, sample_headers, mock_endpoint):
         """Test streaming API call execution."""
         sample_payload["stream"] = True
         api_call = APICalling(
@@ -176,9 +161,7 @@ class TestAPICalling:
         assert len(chunks) >= 2
         assert api_call.status == EventStatus.COMPLETED
 
-    def test_cache_control_handling(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    def test_cache_control_handling(self, sample_payload, sample_headers, mock_endpoint):
         """Test cache control parameter handling."""
         api_call = APICalling(
             payload=sample_payload,
@@ -190,9 +173,7 @@ class TestAPICalling:
         assert api_call.cache_control is True
 
     @pytest.mark.asyncio
-    async def test_concurrent_execution_isolation(
-        self, sample_headers, mock_endpoint
-    ):
+    async def test_concurrent_execution_isolation(self, sample_headers, mock_endpoint):
         """Test that concurrent API calls don't interfere with each other."""
         payloads = [
             {
@@ -203,9 +184,7 @@ class TestAPICalling:
         ]
 
         api_calls = [
-            APICalling(
-                payload=payload, headers=sample_headers, endpoint=mock_endpoint
-            )
+            APICalling(payload=payload, headers=sample_headers, endpoint=mock_endpoint)
             for payload in payloads
         ]
 
@@ -227,9 +206,7 @@ class TestAPICalling:
             assert api_call.response == responses[i]
 
     @pytest.mark.asyncio
-    async def test_error_propagation(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    async def test_error_propagation(self, sample_payload, sample_headers, mock_endpoint):
         """Test that errors are properly propagated and not swallowed."""
         api_call = APICalling(
             payload=sample_payload,
@@ -246,9 +223,7 @@ class TestAPICalling:
         assert api_call.execution.error is not None
         assert "Custom API error" in str(api_call.execution.error)
 
-    def test_include_token_usage_to_model(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    def test_include_token_usage_to_model(self, sample_payload, sample_headers, mock_endpoint):
         """Test include_token_usage_to_model parameter."""
         api_call = APICalling(
             payload=sample_payload,
@@ -260,9 +235,7 @@ class TestAPICalling:
         assert api_call.include_token_usage_to_model is True
 
     @pytest.mark.asyncio
-    async def test_retry_logic(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    async def test_retry_logic(self, sample_payload, sample_headers, mock_endpoint):
         """Test that retry calls can be made with fresh API calling objects."""
         responses = []
 
@@ -289,17 +262,13 @@ class TestAPICalling:
             endpoint=mock_endpoint,
         )
 
-        with patch.object(
-            mock_endpoint, "call", return_value={"success": True}
-        ):
+        with patch.object(mock_endpoint, "call", return_value={"success": True}):
             await api_call2.invoke()
 
         assert api_call2.status == EventStatus.COMPLETED
 
     @pytest.mark.asyncio
-    async def test_payload_immutability(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    async def test_payload_immutability(self, sample_payload, sample_headers, mock_endpoint):
         """Test that payload is not mutated during execution."""
         original_payload = sample_payload.copy()
         api_call = APICalling(
@@ -308,17 +277,13 @@ class TestAPICalling:
             endpoint=mock_endpoint,
         )
 
-        with patch.object(
-            mock_endpoint, "call", return_value={"test": "response"}
-        ):
+        with patch.object(mock_endpoint, "call", return_value={"test": "response"}):
             await api_call.invoke()
 
         # Verify payload wasn't mutated
         assert api_call.payload == original_payload
 
-    def test_str_representation(
-        self, sample_payload, sample_headers, mock_endpoint
-    ):
+    def test_str_representation(self, sample_payload, sample_headers, mock_endpoint):
         """Test string representation of APICalling."""
         api_call = APICalling(
             payload=sample_payload,

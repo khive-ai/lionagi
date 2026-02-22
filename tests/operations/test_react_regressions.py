@@ -37,11 +37,7 @@ async def test_react_returns_answer_string_not_analysis_object():
         # First call returns ReActAnalysis with planned actions
         first_analysis = ReActAnalysis(
             analysis="I need to multiply 5 by 3",
-            planned_actions=[
-                PlannedAction(
-                    action_type="multiply", description="multiply 5 by 3"
-                )
-            ],
+            planned_actions=[PlannedAction(action_type="multiply", description="multiply 5 by 3")],
             extension_needed=False,  # Will still do actions, then final answer
         )
 
@@ -52,9 +48,7 @@ async def test_react_returns_answer_string_not_analysis_object():
 
         # Mock act to return the multiply result
         mock_act.return_value = [
-            ActionResponseModel(
-                function="multiply", arguments={"a": 5, "b": 3}, output=15
-            )
+            ActionResponseModel(function="multiply", arguments={"a": 5, "b": 3}, output=15)
         ]
 
         # Execute ReAct
@@ -67,9 +61,7 @@ async def test_react_returns_answer_string_not_analysis_object():
         assert isinstance(result, str), f"Expected str but got {type(result)}"
         from lionagi.operations.ReAct.utils import Analysis
 
-        assert not isinstance(
-            result, Analysis
-        ), "Should not return Analysis object"
+        assert not isinstance(result, Analysis), "Should not return Analysis object"
 
 
 @pytest.mark.asyncio
@@ -78,17 +70,11 @@ async def test_react_honors_custom_response_format():
     branch = Branch()
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
-        from lionagi.operations.ReAct.utils import Analysis
-
         # First call returns ReActAnalysis (no more extensions)
-        analysis = ReActAnalysis(
-            analysis="Complete", planned_actions=[], extension_needed=False
-        )
+        analysis = ReActAnalysis(analysis="Complete", planned_actions=[], extension_needed=False)
 
         # Final call should use custom response format
-        custom_result = CustomAnswer(
-            result=15.0, explanation="5 times 3 equals 15"
-        )
+        custom_result = CustomAnswer(result=15.0, explanation="5 times 3 equals 15")
 
         mock_operate.side_effect = [analysis, custom_result]
 
@@ -100,9 +86,7 @@ async def test_react_honors_custom_response_format():
         )
 
         # Should return CustomAnswer instance, not string
-        assert isinstance(
-            result, CustomAnswer
-        ), f"Expected CustomAnswer but got {type(result)}"
+        assert isinstance(result, CustomAnswer), f"Expected CustomAnswer but got {type(result)}"
         assert result.result == 15.0
         assert result.explanation == "5 times 3 equals 15"
 
@@ -116,9 +100,7 @@ async def test_react_forwards_response_kwargs():
         from lionagi.operations.ReAct.utils import Analysis
 
         # First call
-        first = ReActAnalysis(
-            analysis="Done", planned_actions=[], extension_needed=False
-        )
+        first = ReActAnalysis(analysis="Done", planned_actions=[], extension_needed=False)
         # Final call returns Analysis
         final = Analysis(answer="Result")
         mock_operate.side_effect = [first, final]
@@ -176,9 +158,7 @@ async def test_action_response_dict_conversion_in_chat():
 
     # Verify the conversion happened correctly
     assert len(d_) == 1
-    assert isinstance(
-        d_[0], dict
-    ), "Should convert ActionResponseContent to dict"
+    assert isinstance(d_[0], dict), "Should convert ActionResponseContent to dict"
     assert d_[0]["function"] == "multiply"
     assert d_[0]["arguments"] == {"a": 5, "b": 3}
     assert d_[0]["output"] == 15
@@ -193,9 +173,7 @@ async def test_error_feedback_when_tool_missing():
     # Try to call a missing tool
     from lionagi.protocols.types import ActionRequest
 
-    request = ActionRequest(
-        content={"function": "subtract", "arguments": {"a": 10, "b": 3}}
-    )
+    request = ActionRequest(content={"function": "subtract", "arguments": {"a": 10, "b": 3}})
 
     result = await branch.act(request, suppress_errors=True)
 
@@ -215,9 +193,7 @@ async def test_operate_filters_none_action_responses():
     # Simulate the filtering that happens in operate.py
     action_response_models = [
         None,  # Should be filtered
-        ActionResponseModel(
-            function="multiply", arguments={"a": 5, "b": 3}, output=15
-        ),
+        ActionResponseModel(function="multiply", arguments={"a": 5, "b": 3}, output=15),
         None,  # Should also be filtered
     ]
 

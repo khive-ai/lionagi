@@ -56,9 +56,7 @@ class TestEdgeBasics:
         assert edge_with_label.properties.get("label") == ["test_label"]
 
         # Edge with properties
-        edge_with_props = Edge(
-            head=node1, tail=node2, weight=10, custom_prop="test"
-        )
+        edge_with_props = Edge(head=node1, tail=node2, weight=10, custom_prop="test")
         graph.add_edge(edge_with_props)
         assert edge_with_props.properties.get("weight") == 10
         assert edge_with_props.properties.get("custom_prop") == "test"
@@ -162,9 +160,7 @@ class TestEdgeTypes:
         """Test edge with multiple labels"""
         graph, node1, node2, _ = edge_test_graph
 
-        edge = Edge(
-            head=node1, tail=node2, label=["label1", "label2", "label3"]
-        )
+        edge = Edge(head=node1, tail=node2, label=["label1", "label2", "label3"])
         graph.add_edge(edge)
 
         assert isinstance(edge.properties.get("label"), list)

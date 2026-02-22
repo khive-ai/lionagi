@@ -17,9 +17,7 @@ class TestRegistrySelection:
     async def test_call_fails_when_no_hook_or_chunk_type(self):
         """Test that call() fails when both hook_type and chunk_type are None."""
         registry = HookRegistry()
-        with pytest.raises(
-            ValueError, match="Either method or chunk_type must be provided"
-        ):
+        with pytest.raises(ValueError, match="Either method or chunk_type must be provided"):
             await registry.call(FakeEvent())
 
     @pytest.mark.anyio
@@ -42,9 +40,7 @@ class TestRegistrySelection:
             RuntimeError,
             match="Hook type is required when chunk_type is not provided",
         ):
-            await registry._call(
-                HookEventTypes.PreInvocation, None, None, FakeEvent()
-            )
+            await registry._call(HookEventTypes.PreInvocation, None, None, FakeEvent())
 
 
 class TestArgumentForwardingRegression:
@@ -66,9 +62,7 @@ class TestArgumentForwardingRegression:
             return "done"
 
         event = FakeEvent(eid="E123", created_at=42.0)
-        registry = HookRegistry(
-            hooks={HookEventTypes.PostInvocation: post_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PostInvocation: post_hook})
 
         (res, se, st), meta = await registry.call(
             event,
@@ -135,9 +129,7 @@ class TestArgumentForwardingRegression:
             captured["exit"] = exit
             return FakeEvent("created", 555.0)
 
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreEventCreate: pre_create_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreEventCreate: pre_create_hook})
 
         (res, se, st), meta = await registry.call(
             FakeEventType, hook_type=HookEventTypes.PreEventCreate, exit=True
@@ -149,9 +141,7 @@ class TestArgumentForwardingRegression:
         assert st.name == "COMPLETED"
 
         # Check meta for pre_event_create (only has lion_class, no id/created_at)
-        assert (
-            meta["lion_class"] == "tests.service.hooks.conftest.FakeEventType"
-        )
+        assert meta["lion_class"] == "tests.service.hooks.conftest.FakeEventType"
         assert "event_id" not in meta
         assert "event_created_at" not in meta
 
@@ -193,13 +183,9 @@ class TestMetadataContract:
             return "ok"
 
         event = FakeEvent()
-        registry = HookRegistry(
-            hooks={HookEventTypes.PreInvocation: dummy_hook}
-        )
+        registry = HookRegistry(hooks={HookEventTypes.PreInvocation: dummy_hook})
 
-        (res, se, st), meta = await registry.call(
-            event, hook_type=HookEventTypes.PreInvocation
-        )
+        (res, se, st), meta = await registry.call(event, hook_type=HookEventTypes.PreInvocation)
 
         # Must use 'lion_class' to align with AssosiatedEventInfo
         assert "lion_class" in meta
@@ -225,24 +211,18 @@ class TestMetadataContract:
         (res, se, st), meta = await registry.call(
             FakeEventType, hook_type=HookEventTypes.PreEventCreate
         )
-        assert (
-            meta["lion_class"] == "tests.service.hooks.conftest.FakeEventType"
-        )
+        assert meta["lion_class"] == "tests.service.hooks.conftest.FakeEventType"
         assert len(meta) == 1  # Only lion_class
 
         # Pre invocation - all fields
-        (res, se, st), meta = await registry.call(
-            event, hook_type=HookEventTypes.PreInvocation
-        )
+        (res, se, st), meta = await registry.call(event, hook_type=HookEventTypes.PreInvocation)
         assert meta["lion_class"] == "tests.service.hooks.conftest.FakeEvent"
         assert meta["event_id"] == "TEST"
         assert meta["event_created_at"] == 123.456
         assert len(meta) == 3
 
         # Post invocation - all fields
-        (res, se, st), meta = await registry.call(
-            event, hook_type=HookEventTypes.PostInvocation
-        )
+        (res, se, st), meta = await registry.call(event, hook_type=HookEventTypes.PostInvocation)
         assert meta["lion_class"] == "tests.service.hooks.conftest.FakeEvent"
         assert meta["event_id"] == "TEST"
         assert meta["event_created_at"] == 123.456
