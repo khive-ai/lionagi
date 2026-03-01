@@ -92,7 +92,7 @@ jobs:
 
       - name: Upload baselines artifact (fallback)
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: refreshed-bench-baselines
           path: benchmarks/baselines/*.json
