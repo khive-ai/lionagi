@@ -58,6 +58,7 @@ class AppSettings(BaseSettings, frozen=True):
     OPENROUTER_API_KEY: SecretStr | None = None
     OLLAMA_API_KEY: SecretStr | None = None
     EXA_API_KEY: SecretStr | None = None
+    TAVILY_API_KEY: SecretStr | None = None
     PERPLEXITY_API_KEY: SecretStr | None = None
     GROQ_API_KEY: SecretStr | None = None
     ANTHROPIC_API_KEY: SecretStr | None = None

@@ -32,6 +32,15 @@ def match_endpoint(
         from .providers.exa_ import ExaSearchEndpoint
 
         return ExaSearchEndpoint(None, **kwargs)
+    if provider == "tavily":
+        if "extract" in endpoint:
+            from .providers.tavily_ import TavilyExtractEndpoint
+
+            return TavilyExtractEndpoint(None, **kwargs)
+        if "search" in endpoint:
+            from .providers.tavily_ import TavilySearchEndpoint
+
+            return TavilySearchEndpoint(None, **kwargs)
     if provider == "anthropic" and ("messages" in endpoint or "chat" in endpoint):
         from .providers.anthropic_ import AnthropicMessagesEndpoint
 
