@@ -41,6 +41,15 @@ def match_endpoint(
             from .providers.tavily_ import TavilySearchEndpoint
 
             return TavilySearchEndpoint(None, **kwargs)
+    if provider == "firecrawl":
+        if "map" in endpoint:
+            from .providers.firecrawl_ import FirecrawlMapEndpoint
+
+            return FirecrawlMapEndpoint(None, **kwargs)
+        if "scrape" in endpoint:
+            from .providers.firecrawl_ import FirecrawlScrapeEndpoint
+
+            return FirecrawlScrapeEndpoint(None, **kwargs)
     if provider == "anthropic" and ("messages" in endpoint or "chat" in endpoint):
         from .providers.anthropic_ import AnthropicMessagesEndpoint
 
