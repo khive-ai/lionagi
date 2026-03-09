@@ -704,7 +704,10 @@ class FieldModel(Params):
             return Any
         t_ = self.base_type
         if self.is_listable:
-            t_ = list[t_]
+            # Avoid double-wrapping if base_type is already list[X]
+            origin = getattr(t_, "__origin__", None)
+            if origin is not list:
+                t_ = list[t_]
         if self.is_nullable:
             t_ = t_ | None
         return t_
