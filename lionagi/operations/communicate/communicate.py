@@ -46,7 +46,8 @@ def prepare_communicate_kw(
     # Handle deprecated parameters
     if operative_model:
         warnings.warn(
-            "Parameter 'operative_model' is deprecated. Use 'response_format' instead.",
+            "Parameter 'operative_model' is deprecated and will be removed in v0.21.0. "
+            "Use 'response_format' instead.",
             DeprecationWarning,
             stacklevel=2,
         )

@@ -116,7 +116,6 @@ def visualize_graph(
 
     # Position nodes with better spacing algorithm
     y_spacing = 2.5
-    max_width = 16  # Maximum horizontal spread
 
     for level, nodes in nodes_by_level.items():
         num_nodes = len(nodes)
@@ -130,7 +129,6 @@ def visualize_graph(
         else:
             # Multi-row layout for large levels
             nodes_per_row = min(6, int(np.ceil(np.sqrt(num_nodes * 1.5))))
-            rows = int(np.ceil(num_nodes / nodes_per_row))
 
             for i, node_id in enumerate(nodes):
                 row = i // nodes_per_row

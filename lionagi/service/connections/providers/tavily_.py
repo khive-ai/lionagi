@@ -26,7 +26,6 @@ def _get_search_config() -> EndpointConfig:
         timeout=120,
         max_retries=3,
         auth_type="bearer",
-        transport_type="http",
         content_type="application/json",
     )
 
@@ -43,7 +42,6 @@ def _get_extract_config() -> EndpointConfig:
         timeout=120,
         max_retries=3,
         auth_type="bearer",
-        transport_type="http",
         content_type="application/json",
     )
 

@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
 B = TypeVar("B", bound=type[BaseModel])
-logger = logging.getLogger(__name__)
 
 
 async def ReAct(

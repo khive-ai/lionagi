@@ -65,6 +65,4 @@ class TavilyExtractRequest(BaseModel):
         serialize_by_alias=True,
     )
 
-    urls: list[str] = Field(
-        ..., description="List of URLs to extract content from."
-    )
+    urls: list[str] = Field(..., description="List of URLs to extract content from.")

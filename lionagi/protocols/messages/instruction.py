@@ -119,7 +119,15 @@ class InstructionContent(MessageContent):
 
     @property
     def request_model(self) -> type[BaseModel] | None:
-        """DEPRECATED: Use response_model_cls instead."""
+        """DEPRECATED: Use response_model_cls instead. Will be removed in v0.21.0."""
+        import warnings
+
+        warnings.warn(
+            "InstructionContent.request_model is deprecated and will be removed in v0.21.0. "
+            "Use response_model_cls instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.response_model_cls
 
     @property

@@ -89,19 +89,19 @@ class Step:
         for _pname, _pval in _deprecated_ignored.items():
             if _pval is not None:
                 warnings.warn(
-                    f"{_pname} is deprecated and will be removed in a future version",
+                    f"{_pname} is deprecated and will be removed in v0.21.0",
                     DeprecationWarning,
                     stacklevel=2,
                 )
         if not inherit_base:
             warnings.warn(
-                "inherit_base is deprecated and will be removed in a future version",
+                "inherit_base is deprecated and will be removed in v0.21.0",
                 DeprecationWarning,
                 stacklevel=2,
             )
         if frozen:
             warnings.warn(
-                "frozen is deprecated and will be removed in a future version",
+                "frozen is deprecated and will be removed in v0.21.0",
                 DeprecationWarning,
                 stacklevel=2,
             )

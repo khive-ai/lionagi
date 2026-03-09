@@ -184,9 +184,8 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         The RLock is reentrant so that :class:`Flow` can hold its own lock
         and then call Pile methods without deadlocking.
 
-        **Note**: ``include()`` and ``update()`` are *not* decorated with
-        ``@synchronized`` — callers must hold an external lock (e.g.
-        Flow._lock) when using them from multiple threads.
+        ``include()``, ``exclude()``, and ``update()`` are also decorated
+        with ``@synchronized`` as of v0.20.2.
 
     Attributes:
         pile_ (dict[str, T]): Internal storage mapping IDs to elements
@@ -368,6 +367,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             return
         raise ItemNotFoundError(f"{item}")
 
+    @synchronized
     def include(self, item: ID.ItemSeq | ID.Item, /) -> None:
         """Include item(s) if not present.
 
@@ -384,6 +384,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         self.progression.append(item_order)
         self.collections.update(item_dict)
 
+    @synchronized
     def exclude(
         self,
         item: ID.ItemSeq | ID.Item,
@@ -407,6 +408,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         """Remove all items."""
         self._clear()
 
+    @synchronized
     def update(
         self,
         other: ID.Item | ID.ItemSeq,
@@ -641,14 +643,14 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     def __setstate__(self, state):
         """Restore after unpickling."""
         self.__dict__.update(state)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._async_lock = ConcurrencyLock()
 
     @property
     def lock(self):
         """Thread lock."""
         if not hasattr(self, "_lock") or self._lock is None:
-            self._lock = threading.Lock()
+            self._lock = threading.RLock()
         return self._lock
 
     @property
@@ -739,7 +741,6 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
         for key in current_order:
             yield self.collections[key]
-            await asyncio.sleep(0)  # Yield control to the event loop
 
     async def __anext__(self) -> T:
         """Async get next item."""

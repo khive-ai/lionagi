@@ -21,7 +21,6 @@ _get_config = lambda: EndpointConfig(
     timeout=120,
     max_retries=3,
     auth_type="x-api-key",
-    transport_type="http",
     content_type="application/json",
 )
 

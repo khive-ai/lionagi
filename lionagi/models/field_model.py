@@ -720,7 +720,8 @@ class FieldModel(Params):
         import warnings
 
         warnings.warn(
-            "FieldModel.to_dict() is deprecated. Use metadata_dict() instead.",
+            "FieldModel.to_dict() is deprecated and will be removed in v0.21.0. "
+            "Use metadata_dict() instead.",
             DeprecationWarning,
             stacklevel=2,
         )

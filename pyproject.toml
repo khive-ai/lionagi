@@ -167,7 +167,7 @@ filterwarnings = [
     "ignore:The `parse_obj` method is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
     "ignore:The `dict` method is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
     "ignore:The `__fields_set__` attribute is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
-    "ignore::DeprecationWarning",
+    "ignore::DeprecationWarning:^(?!lionagi\\.).*",
     "ignore::PendingDeprecationWarning",
     "ignore::pytest.PytestUnraisableExceptionWarning",
 ]

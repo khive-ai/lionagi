@@ -49,7 +49,7 @@ def prepare_parse_kws(
     if suppress_conversion_errors:
         warnings.warn(
             "Parameter 'suppress_conversion_errors' is deprecated and no longer used. "
-            "It will be removed in a future version.",
+            "It will be removed in v0.21.0.",
             DeprecationWarning,
             stacklevel=2,
         )

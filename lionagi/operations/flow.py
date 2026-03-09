@@ -13,8 +13,6 @@ import os
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-logger = logging.getLogger(__name__)
-
 from lionagi.ln import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
 from lionagi.operations.node import Operation
@@ -25,6 +23,8 @@ if TYPE_CHECKING:
     from lionagi.protocols.graph.graph import Graph
     from lionagi.session.session import Branch, Session
 
+
+logger = logging.getLogger(__name__)
 
 # Maximum concurrency when None is specified (effectively unlimited)
 UNLIMITED_CONCURRENCY = int(os.environ.get("LIONAGI_MAX_CONCURRENCY", "10000"))
@@ -131,7 +131,12 @@ class DependencyAwareExecutor:
                     branch = self.session.branches[node.branch_id]
                     self.operation_branches[node.id] = branch
                 except Exception:
-                    pass
+                    logger.debug(
+                        "Branch %s not found in session for node %s; "
+                        "will be assigned during execution.",
+                        node.branch_id,
+                        node.id,
+                    )
                 continue
 
             # Check if operation needs a new branch
@@ -166,8 +171,10 @@ class DependencyAwareExecutor:
                             self.session.branches.collections[branch_id] = branch_clone
                             self.session.branches.progression.append(branch_id)
                 except Exception:
-                    # If validation fails, it's likely a mock - skip adding to collections
-                    pass
+                    logger.debug(
+                        "Skipping branch clone registration: validation failed "
+                        "(likely a mock object in test context)."
+                    )
 
                 # Mark branches that need context inheritance for later update
                 if operation.metadata.get("inherit_context"):

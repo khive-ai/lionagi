@@ -30,7 +30,8 @@ if TYPE_CHECKING:
     from .service.broadcaster import Broadcaster
     from .service.hooks import HookedEvent, HookRegistry
     from .service.imodel import iModel
-    from .session.session import Branch, Session
+    from .session.branch import Branch
+    from .session.session import Session
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
