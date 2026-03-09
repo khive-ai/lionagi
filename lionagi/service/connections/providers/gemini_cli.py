@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
@@ -80,8 +81,9 @@ class GeminiCLIEndpoint(CLIEndpoint):
     ) -> AsyncIterator[GeminiChunk | dict | GeminiSession]:
         payload, _ = self.create_payload(request, **kwargs)
         request_obj = payload["request"]
-        async for chunk in stream_gemini_cli(request_obj):
-            yield chunk
+        async with contextlib.aclosing(stream_gemini_cli(request_obj)) as gen:
+            async for chunk in gen:
+                yield chunk
 
     async def _call(
         self,
@@ -93,11 +95,14 @@ class GeminiCLIEndpoint(CLIEndpoint):
         request: GeminiCodeRequest = payload["request"]
         session: GeminiSession = GeminiSession()
 
-        async for chunk in stream_gemini_cli(request, session, **self.gemini_handlers, **kwargs):
-            if isinstance(chunk, dict):
-                if chunk.get("type") == "done":
-                    break
-            responses.append(chunk)
+        async with contextlib.aclosing(
+            stream_gemini_cli(request, session, **self.gemini_handlers, **kwargs)
+        ) as gen:
+            async for chunk in gen:
+                if isinstance(chunk, dict):
+                    if chunk.get("type") == "done":
+                        break
+                responses.append(chunk)
 
         gemini_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
 

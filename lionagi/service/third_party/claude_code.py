@@ -215,12 +215,12 @@ class ClaudeCodeRequest(BaseModel):
         if self.allowed_tools:
             args.append("--allowedTools")
             for tool in self.allowed_tools:
-                args.append(f'"{tool}"')
+                args.append(tool)
 
         if self.disallowed_tools:
             args.append("--disallowedTools")
             for tool in self.disallowed_tools:
-                args.append(f'"{tool}"')
+                args.append(tool)
 
         if self.resume:
             args += ["--resume", self.resume]
@@ -244,7 +244,7 @@ class ClaudeCodeRequest(BaseModel):
             ]
 
         if self.mcp_config:
-            args += ["--mcp-config", f'"{self.mcp_config}"']
+            args += ["--mcp-config", str(self.mcp_config)]
 
         args += ["--model", self.model or "sonnet", "--verbose"]
         return args
@@ -455,15 +455,22 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
     finally:
         with contextlib.suppress(ProcessLookupError):
             proc.terminate()
-        await proc.wait()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
 
 
 # --------------------------------------------------------------------------- SSE route
 async def stream_cc_cli_events(request: ClaudeCodeRequest):
     if not CLAUDE_CLI:
         raise RuntimeError("Claude CLI binary not found (npm i -g @anthropic-ai/claude-code)")
-    async for obj in _ndjson_from_cli(request):
-        yield obj
+    async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
+        async for obj in stream:
+            yield obj
     yield {"type": "done"}
 
 
@@ -536,7 +543,7 @@ async def _maybe_await(func, *args, **kw):
 # --------------------------------------------------------------------------- main parser
 async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is fine here)
     request: ClaudeCodeRequest,
-    session: ClaudeSession = ClaudeSession(),
+    session: ClaudeSession | None = None,
     *,
     on_system: Callable[[dict[str, Any]], None] | None = None,
     on_thinking: Callable[[str], None] | None = None,
@@ -551,102 +558,107 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
 
     If callbacks are omitted a default pretty-print is emitted.
     """
-    stream = stream_cc_cli_events(request)
+    if session is None:
+        session = ClaudeSession()
     theme = request.cli_display_theme or "light"
 
-    async for obj in stream:
-        typ = obj.get("type", "unknown")
-        chunk = ClaudeChunk(raw=obj, type=typ)
-        session.chunks.append(chunk)
+    stream = stream_cc_cli_events(request)
+    try:
+        async for obj in stream:
+            typ = obj.get("type", "unknown")
+            chunk = ClaudeChunk(raw=obj, type=typ)
+            session.chunks.append(chunk)
 
-        # ------------------------ SYSTEM -----------------------------------
-        if typ == "system":
-            data = obj
-            session.session_id = data.get("session_id", session.session_id)
-            session.model = data.get("model", session.model)
-            await _maybe_await(on_system, data)
-            if request.verbose_output:
-                _pp_system(data, theme)
-            yield data
+            # ------------------------ SYSTEM -----------------------------------
+            if typ == "system":
+                data = obj
+                session.session_id = data.get("session_id", session.session_id)
+                session.model = data.get("model", session.model)
+                await _maybe_await(on_system, data)
+                if request.verbose_output:
+                    _pp_system(data, theme)
+                yield data
 
-        # ------------------------ ASSISTANT --------------------------------
-        elif typ == "assistant":
-            msg = obj["message"]
-            session.messages.append(msg)
+            # ------------------------ ASSISTANT --------------------------------
+            elif typ == "assistant":
+                msg = obj["message"]
+                session.messages.append(msg)
 
-            for blk in msg.get("content", []):
-                btype = blk.get("type")
-                if btype == "thinking":
-                    thought = blk.get("thinking", "").strip()
-                    chunk.thinking = thought
-                    session.thinking_log.append(thought)
-                    await _maybe_await(on_thinking, thought)
-                    if request.verbose_output:
-                        _pp_thinking(thought, theme)
+                for blk in msg.get("content", []):
+                    btype = blk.get("type")
+                    if btype == "thinking":
+                        thought = blk.get("thinking", "").strip()
+                        chunk.thinking = thought
+                        session.thinking_log.append(thought)
+                        await _maybe_await(on_thinking, thought)
+                        if request.verbose_output:
+                            _pp_thinking(thought, theme)
 
-                elif btype == "text":
-                    text = blk.get("text", "")
-                    chunk.text = text
-                    await _maybe_await(on_text, text)
-                    if request.verbose_output:
-                        _pp_assistant_text(text, theme)
+                    elif btype == "text":
+                        text = blk.get("text", "")
+                        chunk.text = text
+                        await _maybe_await(on_text, text)
+                        if request.verbose_output:
+                            _pp_assistant_text(text, theme)
 
-                elif btype == "tool_use":
-                    tu = {
-                        "id": blk["id"],
-                        "name": blk["name"],
-                        "input": blk["input"],
-                    }
-                    chunk.tool_use = tu
-                    session.tool_uses.append(tu)
-                    await _maybe_await(on_tool_use, tu)
-                    if request.verbose_output:
-                        _pp_tool_use(tu, theme)
+                    elif btype == "tool_use":
+                        tu = {
+                            "id": blk["id"],
+                            "name": blk["name"],
+                            "input": blk["input"],
+                        }
+                        chunk.tool_use = tu
+                        session.tool_uses.append(tu)
+                        await _maybe_await(on_tool_use, tu)
+                        if request.verbose_output:
+                            _pp_tool_use(tu, theme)
 
-                elif btype == "tool_result":
-                    tr = {
-                        "tool_use_id": blk["tool_use_id"],
-                        "content": blk["content"],
-                        "is_error": blk.get("is_error", False),
-                    }
-                    chunk.tool_result = tr
-                    session.tool_results.append(tr)
-                    await _maybe_await(on_tool_result, tr)
-                    if request.verbose_output:
-                        _pp_tool_result(tr, theme)
-            yield chunk
+                    elif btype == "tool_result":
+                        tr = {
+                            "tool_use_id": blk["tool_use_id"],
+                            "content": blk["content"],
+                            "is_error": blk.get("is_error", False),
+                        }
+                        chunk.tool_result = tr
+                        session.tool_results.append(tr)
+                        await _maybe_await(on_tool_result, tr)
+                        if request.verbose_output:
+                            _pp_tool_result(tr, theme)
+                yield chunk
 
-        # ------------------------ USER (tool_result containers) ------------
-        elif typ == "user":
-            msg = obj["message"]
-            session.messages.append(msg)
-            for blk in msg.get("content", []):
-                if blk.get("type") == "tool_result":
-                    tr = {
-                        "tool_use_id": blk["tool_use_id"],
-                        "content": blk["content"],
-                        "is_error": blk.get("is_error", False),
-                    }
-                    chunk.tool_result = tr
-                    session.tool_results.append(tr)
-                    await _maybe_await(on_tool_result, tr)
-                    if request.verbose_output:
-                        _pp_tool_result(tr, theme)
-            yield chunk
+            # ------------------------ USER (tool_result containers) ------------
+            elif typ == "user":
+                msg = obj["message"]
+                session.messages.append(msg)
+                for blk in msg.get("content", []):
+                    if blk.get("type") == "tool_result":
+                        tr = {
+                            "tool_use_id": blk["tool_use_id"],
+                            "content": blk["content"],
+                            "is_error": blk.get("is_error", False),
+                        }
+                        chunk.tool_result = tr
+                        session.tool_results.append(tr)
+                        await _maybe_await(on_tool_result, tr)
+                        if request.verbose_output:
+                            _pp_tool_result(tr, theme)
+                yield chunk
 
-        # ------------------------ RESULT -----------------------------------
-        elif typ == "result":
-            session.result = obj.get("result", "").strip()
-            session.usage = obj.get("usage", {})
-            session.total_cost_usd = obj.get("total_cost_usd")
-            session.num_turns = obj.get("num_turns")
-            session.duration_ms = obj.get("duration_ms")
-            session.duration_api_ms = obj.get("duration_api_ms")
-            session.is_error = obj.get("is_error", False)
+            # ------------------------ RESULT -----------------------------------
+            elif typ == "result":
+                session.result = obj.get("result", "").strip()
+                session.usage = obj.get("usage", {})
+                session.total_cost_usd = obj.get("total_cost_usd")
+                session.num_turns = obj.get("num_turns")
+                session.duration_ms = obj.get("duration_ms")
+                session.duration_api_ms = obj.get("duration_api_ms")
+                session.is_error = obj.get("is_error", False)
 
-        # ------------------------ DONE -------------------------------------
-        elif typ == "done":
-            break
+            # ------------------------ DONE -------------------------------------
+            elif typ == "done":
+                break
+    finally:
+        await stream.aclose()
 
     # final pretty print
     await _maybe_await(on_final, session)

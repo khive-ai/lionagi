@@ -377,15 +377,22 @@ async def _ndjson_from_cli(request: CodexCodeRequest):
     finally:
         with contextlib.suppress(ProcessLookupError):
             proc.terminate()
-        await proc.wait()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
 
 
 async def stream_codex_cli_events(request: CodexCodeRequest):
     """Stream events from Codex CLI."""
     if not CODEX_CLI:
         raise RuntimeError("Codex CLI not found (npm i -g @openai/codex)")
-    async for obj in _ndjson_from_cli(request):
-        yield obj
+    async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
+        async for obj in stream:
+            yield obj
     yield {"type": "done"}
 
 
@@ -442,128 +449,130 @@ async def stream_codex_cli(
         session = CodexSession()
 
     stream = stream_codex_cli_events(request)
+    try:
+        async for obj in stream:
+            typ = obj.get("type", "unknown")
+            chunk = CodexChunk(raw=obj, type=typ)
+            session.chunks.append(chunk)
 
-    async for obj in stream:
-        typ = obj.get("type", "unknown")
-        chunk = CodexChunk(raw=obj, type=typ)
-        session.chunks.append(chunk)
+            # -- thread / session start ------------------------------------------
+            if typ in ("thread.started", "system", "init", "session.start"):
+                session.session_id = obj.get("thread_id", obj.get("session_id", obj.get("id")))
+                session.model = obj.get("model")
+                yield obj
 
-        # -- thread / session start ------------------------------------------
-        if typ in ("thread.started", "system", "init", "session.start"):
-            session.session_id = obj.get("thread_id", obj.get("session_id", obj.get("id")))
-            session.model = obj.get("model")
-            yield obj
+            # -- item.completed (agent_message, reasoning, tool calls) -----------
+            elif typ == "item.completed":
+                item = obj.get("item", {})
+                item_type = item.get("type", "")
 
-        # -- item.completed (agent_message, reasoning, tool calls) -----------
-        elif typ == "item.completed":
-            item = obj.get("item", {})
-            item_type = item.get("type", "")
+                if item_type == "agent_message":
+                    text = item.get("text", "")
+                    chunk.text = text
+                    session.messages.append(item)
+                    await _maybe_await(on_text, text)
+                    if request.verbose_output:
+                        _pp_text(text)
+                    yield chunk
 
-            if item_type == "agent_message":
-                text = item.get("text", "")
-                chunk.text = text
-                session.messages.append(item)
-                await _maybe_await(on_text, text)
-                if request.verbose_output:
-                    _pp_text(text)
+                elif item_type in ("function_call", "tool_call"):
+                    tu = {
+                        "id": item.get("id", item.get("call_id", "")),
+                        "name": item.get("name", item.get("function", "")),
+                        "input": item.get("arguments", item.get("input", item.get("args", {}))),
+                    }
+                    chunk.tool_use = tu
+                    session.tool_uses.append(tu)
+                    await _maybe_await(on_tool_use, tu)
+                    if request.verbose_output:
+                        _pp_tool_use(tu)
+                    yield chunk
+
+                elif item_type == "function_call_output":
+                    tr = {
+                        "tool_use_id": item.get("call_id", item.get("id", "")),
+                        "content": item.get("output", item.get("content", "")),
+                        "is_error": item.get("is_error", False),
+                    }
+                    chunk.tool_result = tr
+                    session.tool_results.append(tr)
+                    await _maybe_await(on_tool_result, tr)
+                    if request.verbose_output:
+                        _pp_tool_result(tr)
+                    yield chunk
+
+                elif item_type == "reasoning":
+                    # reasoning traces — store but don't treat as result
+                    yield chunk
+
+                else:
+                    yield chunk
+
+            # -- turn.completed (usage stats) ------------------------------------
+            elif typ == "turn.completed":
+                session.usage = obj.get("usage", {})
+                session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
+                session.num_turns = (session.num_turns or 0) + 1
+
+            # -- turn.failed / error ---------------------------------------------
+            elif typ in ("turn.failed", "error"):
+                session.is_error = True
+                err = obj.get("error", {})
+                session.result = (
+                    err.get("message", str(err))
+                    if isinstance(err, dict)
+                    else obj.get("message", str(err))
+                )
+
+            # -- legacy event types (older CLI versions) -------------------------
+            elif typ in ("message", "assistant", "agent"):
+                msg = obj.get("message", obj)
+                session.messages.append(msg)
+
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    chunk.text = content
+                    await _maybe_await(on_text, content)
+                    if request.verbose_output:
+                        _pp_text(content)
+                elif isinstance(content, list):
+                    for blk in content:
+                        if isinstance(blk, dict):
+                            btype = blk.get("type")
+                            if btype == "text":
+                                text = blk.get("text", "")
+                                chunk.text = text
+                                await _maybe_await(on_text, text)
+                                if request.verbose_output:
+                                    _pp_text(text)
+                            elif btype in ("tool_use", "function_call"):
+                                tu = {
+                                    "id": blk.get("id", ""),
+                                    "name": blk.get(
+                                        "name",
+                                        blk.get("function", {}).get("name", ""),
+                                    ),
+                                    "input": blk.get("input", blk.get("arguments", {})),
+                                }
+                                chunk.tool_use = tu
+                                session.tool_uses.append(tu)
+                                await _maybe_await(on_tool_use, tu)
+                                if request.verbose_output:
+                                    _pp_tool_use(tu)
                 yield chunk
 
-            elif item_type in ("function_call", "tool_call"):
-                tu = {
-                    "id": item.get("id", item.get("call_id", "")),
-                    "name": item.get("name", item.get("function", "")),
-                    "input": item.get("arguments", item.get("input", item.get("args", {}))),
-                }
-                chunk.tool_use = tu
-                session.tool_uses.append(tu)
-                await _maybe_await(on_tool_use, tu)
-                if request.verbose_output:
-                    _pp_tool_use(tu)
-                yield chunk
+            elif typ in ("result", "response", "session.end"):
+                session.result = obj.get("result", obj.get("response", obj.get("text", ""))).strip()
+                session.usage = obj.get("usage", obj.get("stats", {}))
+                session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
+                session.num_turns = obj.get("num_turns", obj.get("turns"))
+                session.duration_ms = obj.get("duration_ms", obj.get("duration"))
+                session.is_error = obj.get("is_error", obj.get("error") is not None)
 
-            elif item_type == "function_call_output":
-                tr = {
-                    "tool_use_id": item.get("call_id", item.get("id", "")),
-                    "content": item.get("output", item.get("content", "")),
-                    "is_error": item.get("is_error", False),
-                }
-                chunk.tool_result = tr
-                session.tool_results.append(tr)
-                await _maybe_await(on_tool_result, tr)
-                if request.verbose_output:
-                    _pp_tool_result(tr)
-                yield chunk
-
-            elif item_type == "reasoning":
-                # reasoning traces — store but don't treat as result
-                yield chunk
-
-            else:
-                yield chunk
-
-        # -- turn.completed (usage stats) ------------------------------------
-        elif typ == "turn.completed":
-            session.usage = obj.get("usage", {})
-            session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
-            session.num_turns = (session.num_turns or 0) + 1
-
-        # -- turn.failed / error ---------------------------------------------
-        elif typ in ("turn.failed", "error"):
-            session.is_error = True
-            err = obj.get("error", {})
-            session.result = (
-                err.get("message", str(err))
-                if isinstance(err, dict)
-                else obj.get("message", str(err))
-            )
-
-        # -- legacy event types (older CLI versions) -------------------------
-        elif typ in ("message", "assistant", "agent"):
-            msg = obj.get("message", obj)
-            session.messages.append(msg)
-
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                chunk.text = content
-                await _maybe_await(on_text, content)
-                if request.verbose_output:
-                    _pp_text(content)
-            elif isinstance(content, list):
-                for blk in content:
-                    if isinstance(blk, dict):
-                        btype = blk.get("type")
-                        if btype == "text":
-                            text = blk.get("text", "")
-                            chunk.text = text
-                            await _maybe_await(on_text, text)
-                            if request.verbose_output:
-                                _pp_text(text)
-                        elif btype in ("tool_use", "function_call"):
-                            tu = {
-                                "id": blk.get("id", ""),
-                                "name": blk.get(
-                                    "name",
-                                    blk.get("function", {}).get("name", ""),
-                                ),
-                                "input": blk.get("input", blk.get("arguments", {})),
-                            }
-                            chunk.tool_use = tu
-                            session.tool_uses.append(tu)
-                            await _maybe_await(on_tool_use, tu)
-                            if request.verbose_output:
-                                _pp_tool_use(tu)
-            yield chunk
-
-        elif typ in ("result", "response", "session.end"):
-            session.result = obj.get("result", obj.get("response", obj.get("text", ""))).strip()
-            session.usage = obj.get("usage", obj.get("stats", {}))
-            session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
-            session.num_turns = obj.get("num_turns", obj.get("turns"))
-            session.duration_ms = obj.get("duration_ms", obj.get("duration"))
-            session.is_error = obj.get("is_error", obj.get("error") is not None)
-
-        elif typ == "done":
-            break
+            elif typ == "done":
+                break
+    finally:
+        await stream.aclose()
 
     await _maybe_await(on_final, session)
     if request.verbose_output:
