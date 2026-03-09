@@ -123,9 +123,11 @@ def validate_boolean(x: Any, /) -> bool:
             try:
                 return bool(complex(x_cleaned))
             except ValueError:
+                # Not a valid complex literal; fall through to float attempt
                 pass
         return bool(float(x_cleaned))
     except ValueError:
+        # Not a valid float either; fall through to the final ValueError below
         pass
 
     raise ValueError(

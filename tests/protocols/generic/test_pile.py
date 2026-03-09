@@ -179,7 +179,7 @@ def test_order_preservation():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_operations():
+async def test_concurrent_operations_basic():
     p = Pile()
 
     async def add_items():
@@ -223,9 +223,10 @@ def test_memory_efficiency():
     assert total_size < 100 * 1024 * 1024  # 100MB in bytes
 
 
-def test_pile_with_custom_progression():
-    custom_prog = Progression(order=[1, 2, 3, 4, 5])
-    p = Pile([MockElement(value=i) for i in range(5)], order=custom_prog)
+def test_pile_with_custom_progression_basic():
+    elements = [MockElement(value=i) for i in range(5)]
+    custom_prog = Progression(order=[e.id for e in elements])
+    p = Pile(elements, order=custom_prog)
     assert p.progression == custom_prog
 
 
@@ -235,7 +236,7 @@ def test_pile_with_invalid_order():
         Pile(elements, order=[1, 2, 3])  # Order length doesn't match items
 
 
-def test_pile_with_complex_elements():
+def test_pile_with_complex_elements_inline():
     class ComplexElement(Element):
         data: dict
 

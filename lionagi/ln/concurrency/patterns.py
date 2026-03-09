@@ -234,6 +234,9 @@ class CompletionStream:
                     assert self._send is not None
                     await self._send.send((i, res))  # type: ignore[arg-type]
                 except anyio.ClosedResourceError:
+                    # The consumer closed the receive end early (e.g., break after
+                    # first result). Discard this result silently — this is expected
+                    # in early-exit streaming scenarios.
                     pass
             finally:
                 if limiter:

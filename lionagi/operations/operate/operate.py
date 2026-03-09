@@ -60,19 +60,21 @@ def prepare_operate_kw(
     # Handle deprecated parameters
     if operative_model:
         warnings.warn(
-            "Parameter 'operative_model' is deprecated. Use 'response_format'.",
+            "Parameter 'operative_model' is deprecated and will be removed in v0.21.0. "
+            "Use 'response_format'.",
             DeprecationWarning,
             stacklevel=2,
         )
     if request_model:
         warnings.warn(
-            "Parameter 'request_model' is deprecated. Use 'response_format'.",
+            "Parameter 'request_model' is deprecated and will be removed in v0.21.0. "
+            "Use 'response_format'.",
             DeprecationWarning,
             stacklevel=2,
         )
     if imodel:
         warnings.warn(
-            "Parameter 'imodel' is deprecated. Use 'chat_model'.",
+            "Parameter 'imodel' is deprecated and will be removed in v0.21.0. Use 'chat_model'.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -309,7 +311,14 @@ async def operate(
             case "return_none":
                 return None
             case "raise":
-                raise ValueError("Failed to parse LLM response.")
+                expected_name = getattr(model_class, "__name__", repr(model_class))
+                received_snippet = repr(result)[:200]
+                raise ValueError(
+                    f"Failed to parse LLM response into '{expected_name}'. "
+                    f"Received (truncated): {received_snippet}. "
+                    f"Hint: verify the model supports structured JSON output "
+                    f"(e.g. response_format / function-calling) for this provider."
+                )
 
     if not invoke_actions:
         return result

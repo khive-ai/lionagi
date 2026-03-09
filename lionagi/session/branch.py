@@ -668,7 +668,7 @@ class Branch(Element, Relational):
         strict: bool = False,
         suppress_conversion_errors: bool = False,
         response_format: type[BaseModel] = None,
-    ):
+    ) -> BaseModel | dict | str | None:
         """
         Attempts to parse text into a structured Pydantic model using parse model logic. New messages are not appeneded to conversation context.
 
@@ -855,7 +855,7 @@ class Branch(Element, Relational):
         clear_messages: bool = False,
         include_token_usage_to_model: bool = False,
         **kwargs,
-    ):
+    ) -> BaseModel | dict | str | None:
         """
         A simpler orchestration than `operate()`, typically without tool invocation. Messages are automatically added to the conversation.
 
@@ -1003,7 +1003,7 @@ class Branch(Element, Relational):
         interpret_domain: str | None = None,
         interpret_style: str | None = None,
         interpret_sample: str | None = None,
-        interpret_model: str | None = None,
+        interpret_model: iModel | None = None,
         interpret_kwargs: dict | None = None,
         tools: Any = None,
         tool_schemas: Any = None,
@@ -1136,7 +1136,7 @@ class Branch(Element, Relational):
         interpret_domain: str | None = None,
         interpret_style: str | None = None,
         interpret_sample: str | None = None,
-        interpret_model: str | None = None,
+        interpret_model: iModel | None = None,
         interpret_kwargs: dict | None = None,
         tools: Any = None,
         tool_schemas: Any = None,

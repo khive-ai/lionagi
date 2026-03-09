@@ -1,9 +1,12 @@
+import logging
 import re
 from typing import Any
 
 import orjson
 
 from ._fuzzy_json import MAX_JSON_INPUT_SIZE, fuzzy_json
+
+logger = logging.getLogger(__name__)
 
 # Precompile the regex for extracting JSON code blocks
 _JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
@@ -53,7 +56,7 @@ def extract_json(
             return fuzzy_json(input_str)
         return orjson.loads(input_str)
     except Exception:
-        pass
+        logger.debug("Direct JSON parse failed; falling back to markdown block extraction.")
 
     # 2. Attempt extracting JSON blocks from markdown
     matches = _JSON_BLOCK_PATTERN.findall(input_str)

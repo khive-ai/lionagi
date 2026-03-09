@@ -208,29 +208,3 @@ def create_path(
         raise FileExistsError(f"File {full_path} already exists and file_exist_ok is False.")
 
     return full_path
-
-
-def get_bins(input_: list[str], upper: int) -> list[list[int]]:
-    """Organizes indices of strings into bins based on a cumulative upper limit.
-
-    Args:
-        input_ (List[str]): The list of strings to be binned.
-        upper (int): The cumulative length upper limit for each bin.
-
-    Returns:
-        List[List[int]]: A list of bins, each bin is a list of indices from the input list.
-    """
-    current = 0
-    bins = []
-    current_bin = []
-    for idx, item in enumerate(input_):
-        if current + len(item) < upper:
-            current_bin.append(idx)
-            current += len(item)
-        else:
-            bins.append(current_bin)
-            current_bin = [idx]
-            current = len(item)
-    if current_bin:
-        bins.append(current_bin)
-    return bins

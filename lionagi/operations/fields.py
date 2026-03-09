@@ -1,8 +1,11 @@
 import logging
 import re
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
+
+if TYPE_CHECKING:
+    from lionagi.models.field_model import FieldModel
 
 from lionagi.ln import extract_json, to_dict, to_list
 from lionagi.ln.types import Unset
@@ -383,6 +386,17 @@ def __getattr__(name: str):
         field_name, kwargs = _FIELD_CONSTANTS[name]
         return get_default_field(field_name, **kwargs)
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+# Stub assignments so IDEs and static-analysis tools (ruff F822, mypy) can
+# resolve these names even though they are generated at runtime by __getattr__.
+if TYPE_CHECKING:
+    ACTION_REQUESTS_FIELD: FieldModel
+    ACTION_RESPONSES_FIELD: FieldModel
+    ACTION_REQUIRED_FIELD: FieldModel
+    INSTRUCT_FIELD: FieldModel
+    LIST_INSTRUCT_FIELD_MODEL: FieldModel
+    REASON_FIELD: FieldModel
 
 
 __all__ = (

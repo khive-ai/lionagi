@@ -17,8 +17,10 @@ from pydantic import (
     field_validator,
 )
 
-from lionagi import ln
 from lionagi._class_registry import get_class
+from lionagi.ln._json_dump import get_orjson_default, json_dumps
+from lionagi.ln._utils import now_utc
+from lionagi.ln.types import not_sentinel
 from lionagi.utils import import_module, to_dict
 
 from .._concepts import Collective, Observable, Ordering
@@ -60,7 +62,7 @@ class Element(BaseModel, Observable):
         frozen=True,
     )
     created_at: float = Field(
-        default_factory=lambda: ln.now_utc().timestamp(),
+        default_factory=lambda: now_utc().timestamp(),
         title="Creation Timestamp",
         description="Timestamp of element creation.",
         frozen=True,
@@ -93,7 +95,7 @@ class Element(BaseModel, Observable):
     def _coerce_created_at(cls, val: float | dt.datetime | str | None) -> float:
         """Coerces `created_at` to a float-based timestamp."""
         if val is None:
-            return ln.now_utc().timestamp()
+            return now_utc().timestamp()
         if isinstance(val, float):
             return val
         if isinstance(val, dt.datetime):
@@ -168,7 +170,7 @@ class Element(BaseModel, Observable):
         """kw for model_dump."""
         dict_ = self.model_dump(**kw)
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
-        return {k: v for k, v in dict_.items() if ln.not_sentinel(v)}
+        return {k: v for k, v in dict_.items() if not_sentinel(v)}
 
     def to_dict(self, mode: Literal["python", "json", "db"] = "python", **kw) -> dict:
         """Converts this Element to a dictionary."""
@@ -222,7 +224,7 @@ class Element(BaseModel, Observable):
         """Converts this Element to a JSON string."""
         kw.pop("mode", None)
         dict_ = self._to_dict(**kw)
-        return ln.json_dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER, decode=decode)
+        return json_dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER, decode=decode)
 
     @classmethod
     def from_json(cls, json_str: str) -> Element:
@@ -230,7 +232,7 @@ class Element(BaseModel, Observable):
         return cls.from_dict(orjson.loads(json_str))
 
 
-DEFAULT_ELEMENT_SERIALIZER = ln.get_orjson_default(
+DEFAULT_ELEMENT_SERIALIZER = get_orjson_default(
     order=[Element, BaseModel],
     additional={
         Element: lambda o: o.to_dict(),

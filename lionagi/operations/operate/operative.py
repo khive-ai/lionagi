@@ -1,9 +1,12 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from lionagi.ln.types import Operable
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -149,7 +152,10 @@ class Operative:
                     self._should_retry = False
                     return self.response_model
                 except Exception:
-                    pass
+                    logger.debug(
+                        "Fuzzy validation fallback failed for %s; returning None for retry.",
+                        self._response_model_cls,
+                    )
 
             return None
 
