@@ -23,6 +23,11 @@ class OpParams(BaseModel):
     enabled: bool = True
 
 
+def _set_branch(op: Operation, branch) -> None:
+    """Helper to set branch on operation (new invoke pattern)."""
+    op._branch = branch
+
+
 # Test Operation creation and properties
 def test_operation_creation():
     """Test creating an Operation with various parameter types."""
@@ -146,7 +151,8 @@ async def test_operation_invoke_chat():
 
     branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
-    await op.invoke(branch)
+    _set_branch(op, branch)
+    await op.invoke()
 
     # Verify operation was called
     branch.chat.assert_called_once_with(instruction="Hello, how are you?")
@@ -181,7 +187,8 @@ async def test_operation_invoke_with_basemodel_params():
 
     branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
-    await op.invoke(branch)
+    _set_branch(op, branch)
+    await op.invoke()
 
     # Verify the method was called with unpacked parameters
     branch.operate.assert_called_once_with(instruction="Complex task", count=3, enabled=False)
@@ -214,7 +221,8 @@ async def test_operation_invoke_streaming():
 
     branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
-    await op.invoke(branch)
+    _set_branch(op, branch)
+    await op.invoke()
 
     # Verify response is a list of streamed chunks
     assert op.response == [
@@ -277,7 +285,8 @@ async def test_operation_invoke_all_operations():
 
     for op_type, expected_response in operations_and_expected:
         op = Operation(operation=op_type, parameters={"instruction": "test"})
-        await op.invoke(branch)
+        _set_branch(op, branch)
+        await op.invoke()
         assert op.response == expected_response
         assert op.execution.status == EventStatus.COMPLETED
 
@@ -294,8 +303,9 @@ async def test_operation_invoke_invalid_operation():
     op.operation = "invalid_operation"
 
     # Invoke should raise ValueError for unsupported operation
+    _set_branch(op, branch)
     with pytest.raises(ValueError, match="Unsupported operation type"):
-        await op.invoke(branch)
+        await op.invoke()
 
 
 @pytest.mark.asyncio
@@ -320,12 +330,14 @@ async def test_operation_invoke_exception_handling():
     branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     op = Operation(operation="chat", parameters={"instruction": "This will fail"})
+    _set_branch(op, branch)
     with pytest.raises(RuntimeError, match="Test error occurred"):
-        await op.invoke(branch)
+        await op.invoke()
 
-    # Verify error handling — exception is recorded AND re-raised
+    # Verify error handling — exception is recorded via add_error AND re-raised
     assert op.execution.status == EventStatus.FAILED
-    assert op.execution.error == "Test error occurred"
+    assert isinstance(op.execution.error, RuntimeError)
+    assert str(op.execution.error) == "Test error occurred"
     assert op.response is None
 
 
@@ -355,16 +367,16 @@ async def test_operation_invoke_cancellation():
     op = Operation(operation="chat")
 
     # Create task and cancel it
-    task = asyncio.create_task(op.invoke(branch))
+    _set_branch(op, branch)
+    task = asyncio.create_task(op.invoke())
     await asyncio.sleep(0.1)  # Let it start
     task.cancel()
 
     with pytest.raises(get_cancelled_exc_class()):
         await task
 
-    # Verify cancellation was handled
+    # Verify cancellation was handled by Event.invoke()'s BaseException handler
     assert op.execution.status == EventStatus.CANCELLED
-    assert op.execution.error == "Operation cancelled"
 
 
 def test_operation_inheritance():
@@ -403,8 +415,6 @@ def test_operation_serialization():
     assert isinstance(op2.parameters, OpParams)
     data2 = op2.model_dump()
     assert data2["operation"] == "operate"
-    # When model_dump is called, the BaseModel parameters should be serialized
-    # But it seems the actual behavior might differ - let's check what we get
 
 
 @pytest.mark.asyncio
@@ -433,13 +443,44 @@ async def test_operation_concurrent_invocations():
     ops = [Operation(operation="chat", parameters={"instruction": f"Task {i}"}) for i in range(5)]
 
     # Invoke all operations concurrently
-    tasks = [op.invoke(branch) for op in ops]
+    for op in ops:
+        _set_branch(op, branch)
+    tasks = [op.invoke() for op in ops]
     await asyncio.gather(*tasks)
 
     # Verify all completed successfully
     for i, op in enumerate(ops):
         assert op.execution.status == EventStatus.COMPLETED
         assert op.response == f"chat_response: Task {i}"
+
+
+@pytest.mark.asyncio
+async def test_operation_idempotent_invoke():
+    """Test that invoking a completed operation is a no-op."""
+    branch = MagicMock()
+    branch.id = "12345678-1234-4678-9234-567812345678"
+
+    call_count = 0
+
+    async def mock_chat(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return "response"
+
+    branch.chat = AsyncMock(side_effect=mock_chat)
+    branch.get_operation = MagicMock(return_value=branch.chat)
+
+    op = Operation(operation="chat", parameters={"instruction": "test"})
+    _set_branch(op, branch)
+
+    # First invoke
+    await op.invoke()
+    assert op.execution.status == EventStatus.COMPLETED
+    assert call_count == 1
+
+    # Second invoke should be a no-op (idempotent)
+    await op.invoke()
+    assert call_count == 1  # Not called again
 
 
 def test_operation_metadata_persistence():

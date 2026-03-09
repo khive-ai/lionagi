@@ -4,7 +4,7 @@
 
 import inspect
 from collections.abc import Callable
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
@@ -151,14 +151,20 @@ class Tool(Element):
         """This is not implemented, as Tools are not typically created from arbitrary dicts."""
         raise NotImplementedError("`Tool.from_dict` is not supported.")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(
+        self, mode: Literal["python", "json", "db"] = "python", **kw
+    ) -> dict[str, Any]:
         """
         Serialize the Tool to a dict, including the `function` name.
+
+        Args:
+            mode: Serialization mode — "python" (default), "json", or "db".
+            **kw: Additional keyword arguments forwarded to Element.to_dict().
 
         Returns:
             dict[str, Any]: The dictionary form (excluding callables).
         """
-        dict_ = super().to_dict()
+        dict_ = super().to_dict(mode=mode, **kw)
         dict_["function"] = self.function
         return dict_
 

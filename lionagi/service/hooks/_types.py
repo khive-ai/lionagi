@@ -18,7 +18,6 @@ __all__ = (
     "HookDict",
     "StreamHandlers",
     "AssociatedEventInfo",
-    "AssosiatedEventInfo",  # deprecated alias
 )
 
 
@@ -54,5 +53,3 @@ class AssociatedEventInfo(TypedDict, total=False):
     """Creation timestamp of the event."""
 
 
-# Deprecated alias — will be removed in a future version.
-AssosiatedEventInfo = AssociatedEventInfo

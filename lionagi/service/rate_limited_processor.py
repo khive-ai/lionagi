@@ -5,6 +5,8 @@ import asyncio
 import logging
 from typing import Any
 
+import anyio
+from anyio import get_cancelled_exc_class
 from typing_extensions import Self, override
 
 from lionagi.ln.concurrency import Lock
@@ -48,7 +50,7 @@ class RateLimitedAPIProcessor(Processor):
         await self.start()
         try:
             while not self.is_stopped():
-                await asyncio.sleep(self.interval)
+                await anyio.sleep(self.interval)
 
                 # Reset available counters to their configured limits
                 async with self._lock:
@@ -57,7 +59,7 @@ class RateLimitedAPIProcessor(Processor):
                     if self.limit_tokens is not None:
                         self._available_tokens = self.limit_tokens
 
-        except asyncio.CancelledError:
+        except get_cancelled_exc_class():
             logging.debug("Rate limit replenisher task cancelled.")
         except Exception as e:
             logging.error(f"Error in rate limit replenisher: {e}")

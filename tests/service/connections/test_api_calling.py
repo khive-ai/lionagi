@@ -105,16 +105,17 @@ class TestAPICalling:
 
     @pytest.mark.asyncio
     async def test_execution_error_handling(self, sample_payload, sample_headers, mock_endpoint):
-        """Test error handling during execution."""
+        """Test error handling during execution — exception is re-raised by Event.invoke()."""
         api_call = APICalling(
             payload=sample_payload,
             headers=sample_headers,
             endpoint=mock_endpoint,
         )
 
-        # Mock endpoint to raise an exception
+        # Event.invoke() re-raises exceptions after recording FAILED status.
         with patch.object(mock_endpoint, "call", side_effect=Exception("API Error")):
-            await api_call.invoke()
+            with pytest.raises(Exception, match="API Error"):
+                await api_call.invoke()
 
         assert api_call.status == EventStatus.FAILED
         assert api_call.execution is not None
@@ -122,7 +123,7 @@ class TestAPICalling:
 
     @pytest.mark.asyncio
     async def test_timeout_handling(self, sample_payload, sample_headers, mock_endpoint):
-        """Test timeout handling during execution."""
+        """Test timeout handling during execution — exception is re-raised by Event.invoke()."""
         api_call = APICalling(
             payload=sample_payload,
             headers=sample_headers,
@@ -134,7 +135,8 @@ class TestAPICalling:
             "call",
             side_effect=asyncio.TimeoutError("Request timed out"),
         ):
-            await api_call.invoke()
+            with pytest.raises(asyncio.TimeoutError):
+                await api_call.invoke()
 
         assert api_call.status == EventStatus.FAILED
 
@@ -216,8 +218,10 @@ class TestAPICalling:
 
         original_error = ValueError("Custom API error")
 
+        # Event.invoke() re-raises after recording FAILED status.
         with patch.object(mock_endpoint, "call", side_effect=original_error):
-            await api_call.invoke()
+            with pytest.raises(ValueError, match="Custom API error"):
+                await api_call.invoke()
 
         assert api_call.status == EventStatus.FAILED
         assert api_call.execution.error is not None
@@ -251,7 +255,8 @@ class TestAPICalling:
             "call",
             side_effect=ConnectionError("Transient error"),
         ):
-            await api_call1.invoke()
+            with pytest.raises(ConnectionError):
+                await api_call1.invoke()
 
         assert api_call1.status == EventStatus.FAILED
 

@@ -85,7 +85,7 @@ class TestArgumentForwardingRegression:
         assert se is False
         assert st.name == "COMPLETED"
 
-        # CRITICAL: Verify meta conforms to AssosiatedEventInfo contract
+        # CRITICAL: Verify meta conforms to AssociatedEventInfo contract
         assert meta["lion_class"] == "tests.service.hooks.conftest.FakeEvent"
         assert meta["event_id"] == "E123"
         assert meta["event_created_at"] == 42.0
@@ -173,7 +173,7 @@ class TestArgumentForwardingRegression:
 
 
 class TestMetadataContract:
-    """Test that metadata returned by call() conforms to AssosiatedEventInfo."""
+    """Test that metadata returned by call() conforms to AssociatedEventInfo."""
 
     @pytest.mark.anyio
     async def test_meta_uses_lion_class_not_event_type(self):
@@ -187,7 +187,7 @@ class TestMetadataContract:
 
         (res, se, st), meta = await registry.call(event, hook_type=HookEventTypes.PreInvocation)
 
-        # Must use 'lion_class' to align with AssosiatedEventInfo
+        # Must use 'lion_class' to align with AssociatedEventInfo
         assert "lion_class" in meta
         assert "event_type" not in meta  # Old key should not be present
 

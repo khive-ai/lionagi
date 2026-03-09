@@ -4,6 +4,7 @@
 import asyncio
 from typing import Any, ClassVar
 
+import anyio
 from lionagi.ln.concurrency import (
     ConcurrencyEvent,
     Semaphore,
@@ -183,17 +184,22 @@ class Processor(Observer):
                 next_event = None
                 if prev_event and prev_event.status == EventStatus.PENDING:
                     # Wait if previous event is still pending
-                    await asyncio.sleep(self.capacity_refresh_time)
+                    await anyio.sleep(self.capacity_refresh_time)
                     next_event = prev_event
                 else:
                     next_event = await self.dequeue()
 
                 if await self.request_permission(**next_event.request):
                     if next_event.streaming:
-                        # For streaming, we need to consume the async generator
+                        # For streaming, we need to consume the async generator.
+                        # Catch exceptions so TaskGroup is not aborted — event
+                        # status is already FAILED/CANCELLED before the raise.
                         async def consume_stream(event):
-                            async for _ in event.stream():
-                                pass
+                            try:
+                                async for _ in event.stream():
+                                    pass
+                            except Exception:
+                                pass  # Status already recorded by Event.stream()
 
                         if self._concurrency_sem:
 
@@ -205,16 +211,24 @@ class Processor(Observer):
                         else:
                             tg.start_soon(consume_stream, next_event)
                     else:
-                        # For non-streaming, just invoke
+                        # For non-streaming, just invoke.
+                        # Catch exceptions so TaskGroup is not aborted — event
+                        # status is already FAILED/CANCELLED before the raise.
+                        async def _invoke_safe(event):
+                            try:
+                                await event.invoke()
+                            except Exception:
+                                pass  # Status already recorded by Event.invoke()
+
                         if self._concurrency_sem:
 
                             async def invoke_with_sem(event):
                                 async with self._concurrency_sem:
-                                    await event.invoke()
+                                    await _invoke_safe(event)
 
                             tg.start_soon(invoke_with_sem, next_event)
                         else:
-                            tg.start_soon(next_event.invoke)
+                            tg.start_soon(_invoke_safe, next_event)
                     events_processed += 1
 
                 prev_event = next_event
@@ -247,7 +261,7 @@ class Processor(Observer):
 
         while not self.is_stopped():
             await self.process()
-            await asyncio.sleep(self.capacity_refresh_time)
+            await anyio.sleep(self.capacity_refresh_time)
 
         self.execution_mode = False
 
@@ -359,6 +373,61 @@ class Executor(Observer):
             item_type=self.processor_type.event_type,
             strict_type=self.strict_event_type,
         )
+
+    @property
+    def cancelled_events(self) -> Pile[Event]:
+        """Pile[Event]: All events whose status is CANCELLED."""
+        return Pile(
+            collections=[e for e in self.pile if e.status == EventStatus.CANCELLED],
+            item_type=self.processor_type.event_type,
+            strict_type=self.strict_event_type,
+        )
+
+    @property
+    def skipped_events(self) -> Pile[Event]:
+        """Pile[Event]: All events whose status is SKIPPED."""
+        return Pile(
+            collections=[e for e in self.pile if e.status == EventStatus.SKIPPED],
+            item_type=self.processor_type.event_type,
+            strict_type=self.strict_event_type,
+        )
+
+    def status_counts(self) -> dict[str, int]:
+        """Return a count of events by status.
+
+        Returns:
+            dict mapping status value strings to counts.
+        """
+        counts: dict[str, int] = {}
+        for event in self.pile:
+            key = event.status.value
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def cleanup_completed(self) -> int:
+        """Remove completed events from the pile to free memory.
+
+        Returns:
+            Number of events removed.
+        """
+        completed_ids = [e.id for e in self.pile if e.status == EventStatus.COMPLETED]
+        for eid in completed_ids:
+            self.pile.pop(eid)
+        return len(completed_ids)
+
+    def inspect_state(self) -> dict:
+        """Return a summary of executor state for debugging.
+
+        Returns:
+            dict with event counts, queue size, processor status.
+        """
+        return {
+            "total_events": len(self.pile),
+            "status_counts": self.status_counts(),
+            "pending_queue": len(self.pending),
+            "processor_running": self.processor.execution_mode if self.processor else False,
+            "processor_stopped": self.processor.is_stopped() if self.processor else True,
+        }
 
     def __contains__(self, ref: ID[Event].Ref) -> bool:
         """Checks if a given Event or ID reference is present in the pile.

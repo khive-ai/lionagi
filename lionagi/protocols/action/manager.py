@@ -169,7 +169,10 @@ class ActionManager(Manager):
             `FunctionCalling` event after it completes execution.
         """
         function_calling = self.match_tool(func_call)
-        await function_calling.invoke()
+        try:
+            await function_calling.invoke()
+        except Exception:
+            pass  # Error captured in function_calling.execution
         return function_calling
 
     @property

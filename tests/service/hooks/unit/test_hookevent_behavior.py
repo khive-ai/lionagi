@@ -45,13 +45,13 @@ class TestHookEventBasicBehavior:
         assert hook_event._exit_cause is None
 
         # Check associated event info
-        assert hook_event.assosiated_event_info is not None
+        assert hook_event.associated_event_info is not None
         assert (
-            hook_event.assosiated_event_info["lion_class"]
+            hook_event.associated_event_info["lion_class"]
             == "tests.service.hooks.conftest.FakeEvent"
         )
-        assert hook_event.assosiated_event_info["event_id"] == "test"
-        assert hook_event.assosiated_event_info["event_created_at"] == 42.0
+        assert hook_event.associated_event_info["event_id"] == "test"
+        assert hook_event.associated_event_info["event_created_at"] == 42.0
 
     @pytest.mark.anyio
     async def test_hook_exception_sets_error_state(self, patch_cancellation):
@@ -253,7 +253,7 @@ class TestHookEventMetadata:
 
     @pytest.mark.anyio
     async def test_metadata_populated_correctly(self, patch_cancellation):
-        """Test that assosiated_event_info is populated correctly."""
+        """Test that associated_event_info is populated correctly."""
 
         async def dummy_hook(ev, **kw):
             return "ok"
@@ -272,9 +272,9 @@ class TestHookEventMetadata:
         await hook_event.invoke()
 
         # Check metadata structure
-        info = hook_event.assosiated_event_info
+        info = hook_event.associated_event_info
         assert info is not None
-        assert isinstance(info, dict)  # Should be AssosiatedEventInfo
+        assert isinstance(info, dict)  # Should be AssociatedEventInfo
 
         # Check specific fields
         assert info["lion_class"] == "tests.service.hooks.conftest.FakeEvent"
@@ -303,7 +303,7 @@ class TestHookEventMetadata:
         await hook_event.invoke()
 
         # Pre event create should only have lion_class
-        info = hook_event.assosiated_event_info
+        info = hook_event.associated_event_info
         assert info["lion_class"] == "tests.service.hooks.conftest.FakeEventType"
         assert len(info) == 1  # Only lion_class for event types
 

@@ -9,6 +9,7 @@ import asyncio
 
 import pytest
 
+from lionagi.ln.types import Unset
 from lionagi.protocols.generic.event import Event, EventStatus
 
 # ---------------------------------------------------------------------------
@@ -19,8 +20,8 @@ from lionagi.protocols.generic.event import Event, EventStatus
 class SuccessEvent(Event):
     """Event subclass that succeeds via _invoke()."""
 
-    async def _invoke(self) -> None:
-        self.execution.response = "ok"
+    async def _invoke(self):
+        return "ok"
 
 
 class FailingEvent(Event):
@@ -33,9 +34,9 @@ class FailingEvent(Event):
 class SlowEvent(Event):
     """Event subclass with a measurable delay."""
 
-    async def _invoke(self) -> None:
+    async def _invoke(self):
         await asyncio.sleep(0.05)
-        self.execution.response = "done"
+        return "done"
 
 
 class DirectOverrideEvent(Event):
@@ -69,6 +70,15 @@ class StreamDirectOverrideEvent(Event):
         self.execution.status = EventStatus.COMPLETED
         self.execution.response = "direct-stream"
         yield "direct-chunk"
+
+
+class StreamCancelledEvent(Event):
+    """Event subclass whose _stream() blocks long enough to be cancelled."""
+
+    async def _stream(self):
+        yield "before"
+        await asyncio.sleep(10)  # will be cancelled before completion
+        yield "after"  # never reached
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +184,7 @@ class TestInvokeLifecycle:
         assert event.execution.status == EventStatus.COMPLETED
         assert event.execution.response == "direct"
         # No duration set because the direct override does not use the wrapper
-        assert event.execution.duration is None
+        assert event.execution.duration is Unset
 
     @pytest.mark.asyncio
     async def test_base_event_invoke_raises(self):
@@ -307,6 +317,52 @@ class TestStreamLifecycle:
             async for _ in event.stream():
                 pass
         assert event.execution.status == EventStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_stream_cancelled_status(self):
+        """Status transitions to CANCELLED when _stream() is cancelled."""
+
+        async def consume(event):
+            chunks = []
+            async for chunk in event.stream():
+                chunks.append(chunk)
+            return chunks
+
+        event = StreamCancelledEvent()
+        task = asyncio.create_task(consume(event))
+        # Give the generator time to yield "before" and enter the sleep.
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert event.execution.status == EventStatus.CANCELLED
+        assert event.execution.error is not None
+        assert isinstance(event.execution.error, asyncio.CancelledError)
+        assert event.execution.duration is not None
+
+    @pytest.mark.asyncio
+    async def test_stream_idempotency_cancelled(self):
+        """Calling stream() on a CANCELLED event yields nothing."""
+
+        async def consume(event):
+            async for _ in event.stream():
+                pass
+
+        event = StreamCancelledEvent()
+        task = asyncio.create_task(consume(event))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert event.execution.status == EventStatus.CANCELLED
+
+        # Stream again -- terminal status means no-op, no exception
+        chunks = []
+        async for chunk in event.stream():
+            chunks.append(chunk)
+        assert chunks == []
 
 
 # File: tests/protocols/generic/test_event_lifecycle.py

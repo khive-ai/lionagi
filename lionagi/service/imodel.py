@@ -198,8 +198,8 @@ class iModel:
             else:
                 api_call = create_event_type(**kwargs)
             if h_ev:
-                h_ev.assosiated_event_info["event_id"] = str(api_call.id)
-                h_ev.assosiated_event_info["event_created_at"] = api_call.created_at
+                h_ev.associated_event_info["event_id"] = str(api_call.id)
+                h_ev.associated_event_info["event_created_at"] = api_call.created_at
                 await global_hook_logger.alog(Log(content=h_ev.to_dict()))
 
             if self.hook_registry._can_handle(ht_=HookEventTypes.PreInvocation):

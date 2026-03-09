@@ -4,10 +4,10 @@ from typing import Any
 import pytest
 
 from lionagi.protocols.action.function_calling import (
-    EventStatus,
     FunctionCalling,
     Tool,
 )
+from lionagi.protocols.generic.event import EventStatus
 
 
 # Helper functions - not test cases
@@ -113,7 +113,8 @@ async def test_function_calling_error_handling():
     tool = Tool(func_callable=error_func)
     func_call = FunctionCalling(func_tool=tool, arguments={})
 
-    result = await func_call.invoke()
+    with pytest.raises(ValueError, match="Test error"):
+        await func_call.invoke()
     assert func_call.status == EventStatus.FAILED
     assert "Test error" in str(func_call.execution.error)
     assert func_call.execution.duration is not None
@@ -158,7 +159,8 @@ async def test_function_calling_processor_error():
 
     func_call = FunctionCalling(func_tool=tool, arguments={"x": 1})
 
-    result = await func_call.invoke()
+    with pytest.raises(ValueError, match="Processor error"):
+        await func_call.invoke()
     assert func_call.response is None
     assert func_call.status == EventStatus.FAILED
     assert "Processor error" in str(func_call.execution.error)

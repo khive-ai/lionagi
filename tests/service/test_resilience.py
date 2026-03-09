@@ -443,9 +443,10 @@ class TestRetryWithBackoff:
         async def func_that_tracks_delays():
             raise ConnectionError("Error")
 
-        with patch("asyncio.sleep") as mock_sleep:
-            mock_sleep.side_effect = lambda d: delays.append(d)
+        async def fake_sleep(d):
+            delays.append(d)
 
+        with patch("lionagi.service.resilience.anyio.sleep", side_effect=fake_sleep):
             with pytest.raises(ConnectionError):
                 await retry_with_backoff(
                     func_that_tracks_delays,
@@ -469,9 +470,10 @@ class TestRetryWithBackoff:
         async def failing_func():
             raise ConnectionError("Error")
 
-        with patch("asyncio.sleep") as mock_sleep:
-            mock_sleep.side_effect = lambda d: delays.append(d)
+        async def fake_sleep(d):
+            delays.append(d)
 
+        with patch("lionagi.service.resilience.anyio.sleep", side_effect=fake_sleep):
             with pytest.raises(ConnectionError):
                 await retry_with_backoff(
                     failing_func,

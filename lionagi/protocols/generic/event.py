@@ -12,7 +12,8 @@ from pydantic import Field, PrivateAttr, field_serializer
 
 from lionagi import ln
 from lionagi.ln.concurrency._compat import ExceptionGroup  # noqa: A004
-from lionagi.utils import Unset, to_dict
+from lionagi.ln.types import not_sentinel
+from lionagi.utils import Unset, UnsetType, to_dict
 
 from .element import Element
 
@@ -64,20 +65,23 @@ class Execution:
 
     def __init__(
         self,
-        duration: float | None = None,
+        duration: float | None | UnsetType = Unset,
         response: Any = None,
         status: EventStatus = EventStatus.PENDING,
         error: str | BaseException | None = None,
-        retryable: bool | None = None,
+        retryable: bool | None | UnsetType = Unset,
     ) -> None:
         """Initializes an execution instance.
 
         Args:
             duration (float | None): The duration of the execution.
+                Defaults to ``Unset`` (meaning "not yet measured") to
+                distinguish from ``None`` ("explicitly no duration").
             response (Any): The result or output of the execution.
             status (EventStatus): The current status (default is PENDING).
             error (str | BaseException | None): An optional error or message.
-            retryable (bool | None): Whether retry is safe (default None).
+            retryable (bool | None): Whether retry is safe.
+                Defaults to ``Unset`` (meaning "not yet determined").
         """
         self.status = status
         self.duration = duration
@@ -90,12 +94,15 @@ class Execution:
 
         Returns:
             str: A descriptive string indicating status, duration, response,
-            error, and retryable.
+            error, and retryable.  Sentinel (Unset) fields are shown as
+            ``<unset>`` to distinguish them from ``None``.
         """
+        dur = self.duration if not_sentinel(self.duration) else "<unset>"
+        retry = self.retryable if not_sentinel(self.retryable) else "<unset>"
         return (
-            f"Execution(status={self.status.value}, duration={self.duration}, "
+            f"Execution(status={self.status.value}, duration={dur}, "
             f"response={self.response}, error={self.error}, "
-            f"retryable={self.retryable})"
+            f"retryable={retry})"
         )
 
     def to_dict(self) -> dict:
@@ -142,10 +149,10 @@ class Execution:
 
         return {
             "status": self.status.value,
-            "duration": self.duration,
-            "response": res_ or self.response,
+            "duration": self.duration if not_sentinel(self.duration) else None,
+            "response": res_ if not_sentinel(res_) else self.response,
             "error": error_value,
-            "retryable": self.retryable,
+            "retryable": self.retryable if not_sentinel(self.retryable) else None,
         }
 
     def _serialize_exception_group(
@@ -227,13 +234,13 @@ class Execution:
                 return  # cap reached — drop silently
             self.error = ExceptionGroup(
                 self.error.message,
-                [*self.error.exceptions, exc],
+                [*self.error.exceptions, exc],  # type: ignore[arg-type]
             )
         elif isinstance(self.error, BaseException):
             if ExceptionGroup is not None:
                 self.error = ExceptionGroup(
                     "multiple errors",
-                    [self.error, exc],
+                    [self.error, exc],  # type: ignore[arg-type]
                 )
             else:
                 # Fallback for Python 3.10 without exceptiongroup
@@ -332,29 +339,36 @@ class Event(Element):
     async def invoke(self) -> None:
         """Execute the event with lifecycle management.
 
-        Handles status transitions, timing, error capture, and
-        idempotency. Override ``_invoke()`` for business logic.
-        Uses ``self.status`` for terminal transitions so that
-        ``completion_event`` is signalled.
+        Idempotent: no-op if status is not PENDING. Handles status
+        transitions, timing, error capture. Override ``_invoke()`` for
+        business logic — do NOT override invoke() in subclasses.
 
-        Subclasses that already override invoke() directly will
-        continue to work -- this is NOT @final.
+        Uses ``self.status`` (the property setter) for terminal
+        transitions so that ``completion_event`` is signalled.
+
+        Exception handling:
+            - ``Exception`` subclasses → FAILED status, re-raised.
+            - ``BaseException`` (CancelledError, KeyboardInterrupt) →
+              CANCELLED status, always re-raised.
         """
-        if self.execution.status in (
-            EventStatus.COMPLETED,
-            EventStatus.FAILED,
-        ):
+        if self.execution.status != EventStatus.PENDING:
             return
 
         self.execution.status = EventStatus.PROCESSING
         start = ln.now_utc().timestamp()
 
         try:
-            await self._invoke()
+            result = await self._invoke()
+            self.execution.response = result
             self.status = EventStatus.COMPLETED
         except Exception as e:
             self.status = EventStatus.FAILED
             self.execution.add_error(e)
+            raise
+        except BaseException as e:
+            # CancelledError, KeyboardInterrupt, SystemExit
+            self.execution.add_error(e)
+            self.status = EventStatus.CANCELLED
             raise
         finally:
             self.execution.duration = ln.now_utc().timestamp() - start
@@ -370,14 +384,20 @@ class Event(Element):
     async def stream(self):
         """Execute the event with streaming and lifecycle management.
 
-        Override ``_stream()`` for streaming business logic.
-        Uses ``self.status`` for terminal transitions so that
-        ``completion_event`` is signalled.
+        Idempotent: no-op if status is already terminal (COMPLETED, FAILED,
+        CANCELLED, ABORTED, SKIPPED). Handles status transitions, timing,
+        and error capture. Override ``_stream()`` for streaming business
+        logic — do NOT override stream() in subclasses.
+
+        Uses ``self.status`` (the property setter) for terminal transitions
+        so that ``completion_event`` is signalled.
+
+        Exception handling:
+            - ``Exception`` subclasses → FAILED status, re-raised.
+            - ``BaseException`` (CancelledError, KeyboardInterrupt) →
+              CANCELLED status, always re-raised.
         """
-        if self.execution.status in (
-            EventStatus.COMPLETED,
-            EventStatus.FAILED,
-        ):
+        if self.execution.status in self._TERMINAL_STATUSES:
             return
 
         self.execution.status = EventStatus.PROCESSING
@@ -390,6 +410,11 @@ class Event(Element):
         except Exception as e:
             self.status = EventStatus.FAILED
             self.execution.add_error(e)
+            raise
+        except BaseException as e:
+            # CancelledError, KeyboardInterrupt, SystemExit
+            self.execution.add_error(e)
+            self.status = EventStatus.CANCELLED
             raise
         finally:
             self.execution.duration = ln.now_utc().timestamp() - start

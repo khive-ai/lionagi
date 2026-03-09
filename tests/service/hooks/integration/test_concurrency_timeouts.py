@@ -28,7 +28,7 @@ class ConcurrentTestEvent(HookedEvent):
         object.__setattr__(self, "invoke_start_time", None)
         object.__setattr__(self, "invoke_end_time", None)
 
-    async def _invoke(self):
+    async def _core_invoke(self):
         """Test implementation with configurable delay."""
         # Use object.__setattr__ to bypass frozen fields
         object.__setattr__(self, "invoke_start_time", anyio.current_time())
@@ -37,7 +37,7 @@ class ConcurrentTestEvent(HookedEvent):
         object.__setattr__(self, "invoke_end_time", anyio.current_time())
         return self.invoke_result
 
-    async def _stream(self):
+    async def _core_stream(self):
         """Test streaming implementation."""
         yield "chunk1"
         if self.invoke_delay > 0:
@@ -100,10 +100,10 @@ class TestParallelInvocations:
         assert hook_event2.execution.response == "hook2_result"
 
         # Check isolated metadata
-        assert hook_event1.assosiated_event_info["event_id"] == "event1"
-        assert hook_event2.assosiated_event_info["event_id"] == "event2"
-        assert hook_event1.assosiated_event_info["event_created_at"] == 100.0
-        assert hook_event2.assosiated_event_info["event_created_at"] == 200.0
+        assert hook_event1.associated_event_info["event_id"] == "event1"
+        assert hook_event2.associated_event_info["event_id"] == "event2"
+        assert hook_event1.associated_event_info["event_created_at"] == 100.0
+        assert hook_event2.associated_event_info["event_created_at"] == 200.0
 
         # Check no shared exit state
         assert hook_event1._should_exit is False

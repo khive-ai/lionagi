@@ -191,27 +191,41 @@ class Element(BaseModel, Observable):
         If `lion_class` in `metadata` refers to a subclass, this method
         is polymorphic, it will attempt to create an instance of that subclass.
         """
+        # Shallow copy to avoid mutating the caller's dict. The nested metadata
+        # dict is also copied because we pop from it (lion_class extraction).
+        data = dict(data)
+
         # Preprocess database format if needed
         metadata = {}
 
         if "node_metadata" in data:
-            metadata = data.pop("node_metadata")
+            metadata = dict(data.pop("node_metadata"))
         elif "metadata" in data:
-            metadata = data.pop("metadata")
+            metadata = dict(data.pop("metadata"))
         if "lion_class" in metadata:
             subcls: str = metadata.pop("lion_class")
             if subcls != Element.class_name(full=True):
                 try:
-                    # Attempt dynamic lookup by registry
-                    subcls_type: type[Element] = get_class(subcls.split(".")[-1])
-                    # If there's a custom from_dict, delegate to it
-                    if (
-                        hasattr(subcls_type, "from_dict")
-                        and subcls_type.from_dict.__func__ != cls.from_dict.__func__
+                    # Try full qualified name first (LION_CLASS_REGISTRY is
+                    # populated with full-qualified names at import time).
+                    # Fall back to short name for classes registered before the
+                    # full-name convention was adopted.
+                    try:
+                        subcls_type: type[Element] = get_class(subcls)
+                    except (KeyError, ValueError):
+                        subcls_type = get_class(subcls.split(".")[-1])
+                    # Delegate when there is a custom from_dict OR when the
+                    # concrete type differs from cls (so model_validate uses the
+                    # right schema). Restore metadata before the recursive call
+                    # so the delegate sees a self-consistent dict.
+                    if hasattr(subcls_type, "from_dict") and (
+                        subcls_type.from_dict.__func__ != cls.from_dict.__func__
+                        or subcls_type is not cls
                     ):
+                        data["metadata"] = metadata
                         return subcls_type.from_dict(data)
 
-                except Exception:
+                except (KeyError, ValueError, ImportError, AttributeError, TypeError):
                     mod, imp = subcls.rsplit(".", 1)
                     subcls_type = import_module(mod, import_name=imp)
                     data["metadata"] = metadata

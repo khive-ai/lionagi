@@ -115,7 +115,9 @@ class Progression(Element, Ordering[T], Generic[T]):
         try:
             refs = validate_order(item)
             return all(ref in self._members for ref in refs)
-        except Exception:
+        except (ValueError, TypeError):
+            # validate_order raises ValueError for invalid items;
+            # treat any such input as "not contained".
             return False
 
     def __getitem__(self, key: int | slice) -> UUID | list[UUID]:
