@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
@@ -83,8 +84,9 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
     ) -> AsyncIterator[ClaudeChunk | dict | ClaudeSession]:
         payload, _ = self.create_payload(request, **kwargs)
         request_obj = payload["request"]
-        async for chunk in stream_claude_code_cli(request_obj):
-            yield chunk
+        async with contextlib.aclosing(stream_claude_code_cli(request_obj)) as gen:
+            async for chunk in gen:
+                yield chunk
 
     async def _call(
         self,
@@ -98,14 +100,15 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
         system: dict = None
 
         # 1. stream the Claude Code response
-        async for chunk in stream_claude_code_cli(
-            request, session, **self.claude_handlers, **kwargs
-        ):
-            if isinstance(chunk, dict):
-                if chunk.get("type") == "done":
-                    break
-                system = chunk
-            responses.append(chunk)
+        async with contextlib.aclosing(
+            stream_claude_code_cli(request, session, **self.claude_handlers, **kwargs)
+        ) as gen:
+            async for chunk in gen:
+                if isinstance(chunk, dict):
+                    if chunk.get("type") == "done":
+                        break
+                    system = chunk
+                responses.append(chunk)
 
         if request.auto_finish and not isinstance(responses[-1], ClaudeSession):
             req2 = request.model_copy(deep=True)
@@ -115,10 +118,13 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
             if system:
                 req2.resume = system.get("session_id") if system else None
 
-            async for chunk in stream_claude_code_cli(req2, session, **kwargs):
-                responses.append(chunk)
-                if isinstance(chunk, ClaudeSession):
-                    break
+            async with contextlib.aclosing(
+                stream_claude_code_cli(req2, session, **kwargs)
+            ) as gen2:
+                async for chunk in gen2:
+                    responses.append(chunk)
+                    if isinstance(chunk, ClaudeSession):
+                        break
         cc_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
         texts = []
         for i in session.chunks:
