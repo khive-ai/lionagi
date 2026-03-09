@@ -136,7 +136,7 @@ class APICalling(HookedEvent):
 
         return None
 
-    async def _invoke(self):
+    async def _core_invoke(self):
         return await self.endpoint.call(
             request=self.payload,
             cache_control=self.cache_control,
@@ -144,7 +144,7 @@ class APICalling(HookedEvent):
             extra_headers=self.headers if self.headers else None,
         )
 
-    async def _stream(self):
+    async def _core_stream(self):
         async for i in self.endpoint.stream(
             request=self.payload,
             extra_headers=self.headers if self.headers else None,

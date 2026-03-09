@@ -16,6 +16,9 @@ __all__ = (
     "RelationError",
     "OperationError",
     "ExecutionError",
+    "AccessError",
+    "ConfigurationError",
+    "TimeoutError",
     "ItemNotFoundError",
     "ItemExistsError",
 )
@@ -136,6 +139,30 @@ class OperationError(LionError):
 
 class ExecutionError(LionError):
     pass
+
+
+class AccessError(LionError):
+    """Exception raised when access is denied."""
+
+    default_message = "Access denied"
+    default_status_code = 403
+    __slots__ = ()
+
+
+class ConfigurationError(LionError):
+    """Exception raised when configuration is invalid."""
+
+    default_message = "Invalid configuration"
+    default_status_code = 500
+    __slots__ = ()
+
+
+class TimeoutError(LionError):  # noqa: A001 — intentional shadowing of builtin
+    """Exception raised when an operation times out."""
+
+    default_message = "Operation timed out"
+    default_status_code = 408
+    __slots__ = ()
 
 
 ItemNotFoundError = NotFoundError

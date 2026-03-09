@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic import Field, field_serializer
 from pydapter import Adaptable, AsyncAdaptable
-from typing_extensions import Self, deprecated, override
+from typing_extensions import Self, override
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError, ValidationError
 from lionagi.ln.concurrency import Lock as ConcurrencyLock
@@ -796,13 +796,13 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 for i in result_ids:
                     result.append(self.collections[i])
                 return result[0] if len(result) == 1 else result
-            except Exception as e:
+            except (IndexError, KeyError, ItemNotFoundError) as e:
                 raise ItemNotFoundError(f"index {key}. Error: {e}") from e
 
         elif isinstance(key, UUID):
             try:
                 return self.collections[key]
-            except Exception as e:
+            except KeyError as e:
                 raise ItemNotFoundError(f"key {key}. Error: {e}") from e
 
         else:
@@ -818,7 +818,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 if len(result) == 1:
                     return result[0]
                 return result
-            except Exception as e:
+            except (KeyError, ValueError, ItemNotFoundError) as e:
                 raise ItemNotFoundError(f"Key {key}. Error:{e}") from e
 
     def _setitem(
@@ -1051,27 +1051,6 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         if columns:
             return df[columns]
         return df
-
-    @deprecated("to_csv_file is deprecated, use `pile.dump(fp, 'csv')` instead")
-    def to_csv_file(self, fp: str | Path, **kw: Any) -> None:
-        """Save to CSV file."""
-        csv_str = self.adapt_to("csv", many=True, **kw)
-        with open(fp, "w") as f:
-            f.write(csv_str)
-
-    @deprecated("to_json_file is deprecated, use `pile.dump(fp, 'json')` instead")
-    def to_json_file(self, fp: str | Path, mode: str = "w", many: bool = False, **kw):
-        """Export collection to JSON file.
-
-        Args:
-            fp: File path or buffer to write to.
-            many: If True, export as a list of items.
-            mode: File mode ('w' for write, 'a' for append).
-            **kwargs: Additional arguments for json.dump() or DataFrame.to_json().
-        """
-        json_str = self.adapt_to("json", many=many, **kw)
-        with open(fp, mode) as f:
-            f.write(json_str)
 
     def dump(
         self,

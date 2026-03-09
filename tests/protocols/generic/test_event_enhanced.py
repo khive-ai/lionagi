@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from lionagi.ln.concurrency._compat import ExceptionGroup
+from lionagi.ln.types import Unset
 from lionagi.protocols.generic.event import Event, EventStatus, Execution
 
 # ---------------------------------------------------------------------------
@@ -23,9 +24,9 @@ from lionagi.protocols.generic.event import Event, EventStatus, Execution
 class TestExecutionRetryable:
     """Tests for the Execution.retryable field."""
 
-    def test_default_is_none(self):
+    def test_default_is_unset(self):
         ex = Execution()
-        assert ex.retryable is None
+        assert ex.retryable is Unset
 
     def test_set_to_true(self):
         ex = Execution(retryable=True)
@@ -59,10 +60,10 @@ class TestExecutionRetryable:
         s = str(ex)
         assert "retryable=True" in s
 
-    def test_shows_none_in_str(self):
+    def test_shows_unset_in_str(self):
         ex = Execution()
         s = str(ex)
-        assert "retryable=None" in s
+        assert "retryable=<unset>" in s
 
     def test_shows_false_in_str(self):
         ex = Execution(retryable=False)
@@ -319,13 +320,13 @@ class TestBackwardCompatibility:
     """Ensure new features do not break existing behavior."""
 
     def test_execution_without_retryable(self):
-        """Execution() without retryable still works as before."""
+        """Execution() without retryable uses Unset sentinel (not None)."""
         ex = Execution()
         assert ex.status == EventStatus.PENDING
-        assert ex.duration is None
+        assert ex.duration is Unset
         assert ex.response is None
         assert ex.error is None
-        assert ex.retryable is None
+        assert ex.retryable is Unset
 
     def test_execution_with_positional_style_kwargs(self):
         """Execution(duration=1.0, response='ok') still works."""
@@ -333,7 +334,7 @@ class TestBackwardCompatibility:
         assert ex.duration == 1.0
         assert ex.response == "ok"
         assert ex.status == EventStatus.PENDING
-        assert ex.retryable is None
+        assert ex.retryable is Unset
 
     def test_to_dict_includes_retryable_key(self):
         """to_dict() always includes the retryable key."""

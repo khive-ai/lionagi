@@ -13,6 +13,8 @@ import functools
 import logging
 import random
 import time
+
+import anyio
 from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any, TypeVar
@@ -440,7 +442,7 @@ async def retry_with_backoff(
             delay = delay * backoff_factor
 
             # Wait before retrying
-            await asyncio.sleep(current_delay)
+            await anyio.sleep(current_delay)
 
 
 def circuit_breaker(

@@ -1,10 +1,8 @@
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
-from anyio import get_cancelled_exc_class
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from lionagi.protocols.types import ID, Event, EventStatus, Node
 
@@ -29,12 +27,22 @@ logger = logging.getLogger("operation")
 
 
 class Operation(Node, Event):
+    """Operation node for flow graphs.
+
+    Does NOT override invoke(). The state machine (idempotency, status
+    transitions, error handling) lives in Event.invoke(). Subclasses
+    only implement _invoke().
+
+    Set ``_branch`` before calling ``invoke()``.
+    """
+
     operation: BranchOperations | str
     parameters: dict[str, Any] | BaseModel = Field(
         default_factory=dict,
         description="Parameters for the operation",
         exclude=True,
     )
+    _branch: Any = PrivateAttr(default=None)
 
     @property
     def branch_id(self) -> UUID | None:
@@ -76,35 +84,24 @@ class Operation(Node, Event):
         """Get the response from the execution."""
         return self.execution.response if self.execution else None
 
-    async def invoke(self, branch: "Branch"):
+    async def _invoke(self):
+        """Execute the operation on the pre-set branch.
+
+        Called by Event.invoke() which handles all state transitions.
+        """
+        branch = self._branch
+        if branch is None:
+            raise RuntimeError(
+                "Operation._branch must be set before invoke(). "
+                "Use operation._branch = branch before calling invoke()."
+            )
+
         meth = branch.get_operation(self.operation)
         if meth is None:
             raise ValueError(f"Unsupported operation type: {self.operation}")
 
-        start = asyncio.get_event_loop().time()
-        try:
-            self.execution.status = EventStatus.PROCESSING
-            self.branch_id = branch.id
-            response = await self._invoke(meth)
+        self.branch_id = branch.id
 
-            self.execution.response = response
-            self.execution.status = EventStatus.COMPLETED
-
-        except (get_cancelled_exc_class(), KeyboardInterrupt):
-            self.execution.error = "Operation cancelled"
-            self.execution.status = EventStatus.CANCELLED
-            raise
-
-        except Exception as e:
-            self.execution.error = str(e)
-            self.execution.status = EventStatus.FAILED
-            logger.error(f"Operation failed: {e}")
-            raise
-
-        finally:
-            self.execution.duration = asyncio.get_event_loop().time() - start
-
-    async def _invoke(self, meth):
         if self.operation == "ReActStream":
             res = []
             async for i in meth(**self.request):

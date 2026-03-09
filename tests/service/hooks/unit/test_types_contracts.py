@@ -5,7 +5,7 @@
 
 from lionagi.service.hooks._types import (
     ALLOWED_HOOKS_TYPES,
-    AssosiatedEventInfo,
+    AssociatedEventInfo,
     HookDict,
     HookEventTypes,
 )
@@ -28,11 +28,11 @@ class TestHookEventTypes:
         assert set(ALLOWED_HOOKS_TYPES) == expected
 
 
-class TestAssosiatedEventInfo:
-    def test_assosiated_event_info_structure(self):
-        """Test AssosiatedEventInfo TypedDict structure."""
+class TestAssociatedEventInfo:
+    def test_associated_event_info_structure(self):
+        """Test AssociatedEventInfo TypedDict structure."""
         # Test that we can create instances with expected keys
-        info = AssosiatedEventInfo(
+        info = AssociatedEventInfo(
             lion_class="test.Module.Event",
             event_id="E123",
             event_created_at=42.0,
@@ -41,9 +41,9 @@ class TestAssosiatedEventInfo:
         assert info["event_id"] == "E123"
         assert info["event_created_at"] == 42.0
 
-    def test_assosiated_event_info_partial(self):
-        """Test AssosiatedEventInfo works with partial data (total=False)."""
-        info = AssosiatedEventInfo(lion_class="test.Event")
+    def test_associated_event_info_partial(self):
+        """Test AssociatedEventInfo works with partial data (total=False)."""
+        info = AssociatedEventInfo(lion_class="test.Event")
         assert info["lion_class"] == "test.Event"
         # Should not have other keys
         assert "event_id" not in info

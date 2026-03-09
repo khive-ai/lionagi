@@ -13,9 +13,12 @@ import os
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from anyio import get_cancelled_exc_class
+
 from lionagi.ln import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
 from lionagi.operations.node import Operation
+from lionagi.protocols.generic.event import Event
 from lionagi.protocols.types import EventStatus
 from lionagi.utils import to_dict
 
@@ -188,13 +191,22 @@ class DependencyAwareExecutor:
             logger.debug("Pre-allocated %d branches", len(operations_needing_branches))
 
     async def _execute_operation(self, operation: Operation, limiter: CapacityLimiter):
-        """Execute a single operation with dependency waiting."""
-        # Skip if operation is already completed
-        if operation.execution.status == EventStatus.COMPLETED:
+        """Execute a single operation with dependency waiting.
+
+        The state machine (idempotency, status transitions, error handling)
+        lives in Event.invoke(). This method handles flow-level concerns:
+        dependency waiting, branch assignment, result storage, edge conditions.
+        """
+        # Skip if operation is already in a terminal state
+        if operation.execution.status in Event._TERMINAL_STATUSES:
             if self.verbose:
-                logger.debug("Skipping already completed operation: %s", str(operation.id)[:8])
+                logger.debug(
+                    "Skipping %s operation: %s",
+                    operation.execution.status.value,
+                    str(operation.id)[:8],
+                )
             # Ensure results are available for dependencies
-            if operation.id not in self.results and hasattr(operation, "response"):
+            if operation.id not in self.results and operation.response is not None:
                 self.results[operation.id] = operation.response
             # Signal completion for any waiting operations
             self.completion_events[operation.id].set()
@@ -226,36 +238,43 @@ class DependencyAwareExecutor:
                 # Prepare operation context
                 self._prepare_operation(operation)
 
-                # Execute the operation
+                # Execute the operation — Event.invoke() handles the state machine
                 if self.verbose:
                     logger.debug("Executing operation: %s", str(operation.id)[:8])
 
                 branch = self.operation_branches.get(operation.id, self.session.default_branch)
-                operation.execution.status = EventStatus.PROCESSING
+                operation._branch = branch
+                await operation.invoke()
 
-                await operation.invoke(branch)
+                # Store results based on status (set by Event.invoke())
+                if operation.execution.status == EventStatus.COMPLETED:
+                    self.results[operation.id] = operation.response
 
-                # Store results
-                self.results[operation.id] = operation.response
-                operation.execution.status = EventStatus.COMPLETED
+                    # Update context if response contains context
+                    if isinstance(operation.response, dict) and "context" in operation.response:
+                        self.context.update(operation.response["context"])
 
-                # Update context if response contains context
-                if isinstance(operation.response, dict) and "context" in operation.response:
-                    self.context.update(operation.response["context"])
+                    if self.verbose:
+                        logger.debug("Completed operation: %s", str(operation.id)[:8])
 
-                if self.verbose:
-                    logger.debug("Completed operation: %s", str(operation.id)[:8])
+                elif operation.execution.status == EventStatus.FAILED:
+                    self.results[operation.id] = {"error": str(operation.execution.error)}
+                    if self.verbose:
+                        logger.error(
+                            "Operation %s failed: %s",
+                            str(operation.id)[:8],
+                            operation.execution.error,
+                        )
 
-        except (KeyboardInterrupt, SystemExit):
-            operation.execution.status = EventStatus.CANCELLED
-            operation.execution.error = "Interrupted"
+        except (get_cancelled_exc_class(), KeyboardInterrupt, SystemExit):
+            # Event.invoke() already set CANCELLED status — just propagate
             self.completion_events[operation.id].set()
             raise
 
         except Exception as e:
-            operation.execution.status = EventStatus.FAILED
-            operation.execution.error = str(e)
-            self.results[operation.id] = {"error": str(e)}
+            # Event.invoke() already set FAILED status and re-raised
+            if operation.id not in self.results:
+                self.results[operation.id] = {"error": str(e)}
 
             if self.verbose:
                 logger.error("Operation %s failed: %s", str(operation.id)[:8], e)

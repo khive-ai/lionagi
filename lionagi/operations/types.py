@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, JsonValue
@@ -15,20 +14,6 @@ from lionagi.protocols.types import ID, SenderRecipient
 from lionagi.service.imodel import iModel
 
 HandleValidation = Literal["raise", "return_value", "return_none"]
-
-
-class ContextPolicy(str, Enum):
-    """Policy for merging prompt context across morphism invocations.
-
-    Attributes:
-        REPLACE: New context completely replaces existing context
-        EXTEND: New context is appended to existing context
-        DEDUP: New context is appended but duplicates are removed
-    """
-
-    REPLACE = "replace"
-    EXTEND = "extend"
-    DEDUP = "dedup"
 
 
 @dataclass(slots=True, frozen=True, init=False)

@@ -38,9 +38,10 @@ async def test_operation_cancelled_status():
     branch.get_operation = MagicMock(return_value=branch.chat)
 
     op = Operation(operation="chat")
+    op._branch = branch
 
     # Create task and cancel it
-    task = asyncio.create_task(op.invoke(branch))
+    task = asyncio.create_task(op.invoke())
     await asyncio.sleep(0.01)  # Let it start
     task.cancel()
 
@@ -49,7 +50,6 @@ async def test_operation_cancelled_status():
 
     # Verify the operation has CANCELLED status
     assert op.execution.status == EventStatus.CANCELLED
-    assert op.execution.error == "Operation cancelled"
 
 
 @pytest.mark.slow
@@ -112,12 +112,14 @@ async def test_cancelled_vs_failed_status():
     branch.get_operation = MagicMock(return_value=branch.chat)
 
     op_failed = Operation(operation="chat")
+    op_failed._branch = branch
     with pytest.raises(ValueError, match="This is a failure"):
-        await op_failed.invoke(branch)
+        await op_failed.invoke()
 
     # Failed operation should have FAILED status
     assert op_failed.execution.status == EventStatus.FAILED
-    assert "This is a failure" in op_failed.execution.error
+    assert isinstance(op_failed.execution.error, ValueError)
+    assert "This is a failure" in str(op_failed.execution.error)
 
     # Test cancelled operation - use a fresh branch
     branch_cancelled = MagicMock()
@@ -131,7 +133,8 @@ async def test_cancelled_vs_failed_status():
     branch_cancelled.get_operation = MagicMock(return_value=branch_cancelled.chat)
 
     op_cancelled = Operation(operation="chat")
-    task = asyncio.create_task(op_cancelled.invoke(branch_cancelled))
+    op_cancelled._branch = branch_cancelled
+    task = asyncio.create_task(op_cancelled.invoke())
     await asyncio.sleep(0.01)  # Let it start
     task.cancel()
 
@@ -142,7 +145,6 @@ async def test_cancelled_vs_failed_status():
 
     # Cancelled operation should have CANCELLED status
     assert op_cancelled.execution.status == EventStatus.CANCELLED
-    assert op_cancelled.execution.error == "Operation cancelled"
 
     # Verify they are different
     assert op_failed.execution.status != op_cancelled.execution.status

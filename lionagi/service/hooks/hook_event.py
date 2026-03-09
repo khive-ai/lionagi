@@ -25,7 +25,7 @@ class HookEvent(Event):
     _should_exit: bool = PrivateAttr(False)
     _exit_cause: BaseException | None = PrivateAttr(None)
 
-    assosiated_event_info: AssociatedEventInfo | None = None
+    associated_event_info: AssociatedEventInfo | None = None
 
     @field_validator("exit", mode="before")
     def _validate_exit(cls, v: Any) -> bool:
@@ -45,7 +45,7 @@ class HookEvent(Event):
                     **self.params,
                 )
 
-                self.assosiated_event_info = AssociatedEventInfo(**meta)
+                self.associated_event_info = AssociatedEventInfo(**meta)
                 self._should_exit = se
                 self.execution.status = st
                 if isinstance(res, tuple) and len(res) == 2:

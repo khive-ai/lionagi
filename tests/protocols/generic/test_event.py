@@ -2,6 +2,7 @@ from datetime import datetime
 
 import pytest
 
+from lionagi.ln.types import Unset
 from lionagi.protocols.generic.event import Event, EventStatus, Execution
 
 
@@ -15,7 +16,7 @@ def test_event_status_enum():
 def test_execution_initialization():
     execution = Execution()
     assert execution.status == EventStatus.PENDING
-    assert execution.duration is None
+    assert execution.duration is Unset
     assert execution.response is None
     assert execution.error is None
 

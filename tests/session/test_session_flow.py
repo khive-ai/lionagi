@@ -483,7 +483,7 @@ class TestEdgeCasesAndErrors:
         assert op.id in result["completed_operations"]
         # Error should be recorded in the operation execution
         assert op.execution.error is not None
-        assert "Simulated operation failure" in op.execution.error
+        assert "Simulated operation failure" in str(op.execution.error)
 
     @pytest.mark.asyncio
     async def test_flow_max_concurrent_limit(self):
@@ -976,7 +976,7 @@ class TestSessionFlowAsyncEdgeCases:
 
         # Failing operation should have recorded error
         assert op_failing.execution.error is not None
-        assert "Branch-specific error" in op_failing.execution.error
+        assert "Branch-specific error" in str(op_failing.execution.error)
 
     @pytest.mark.asyncio
     async def test_flow_continues_after_operation_failure(self):

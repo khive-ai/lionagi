@@ -21,14 +21,14 @@ class MockHookedEvent(HookedEvent):
         self.invoke_error = invoke_error
         self.invoke_called = False
 
-    async def _invoke(self):
+    async def _core_invoke(self):
         """Test implementation that returns configured result or raises error."""
         self.invoke_called = True
         if self.invoke_error:
             raise self.invoke_error
         return self.invoke_result
 
-    async def _stream(self):
+    async def _core_stream(self):
         """Test implementation for streaming (not used in these tests)."""
         yield "test_chunk"
 
@@ -38,7 +38,7 @@ class MockHookedEventPreHookIntegration:
 
     @pytest.mark.anyio
     async def test_pre_hook_normal_allows_invoke(self, patch_cancellation, patch_logger):
-        """Test that normal pre-hook execution allows _invoke() to proceed."""
+        """Test that normal pre-hook execution allows _core_invoke() to proceed."""
 
         async def pre_hook(ev, **kw):
             return "pre_ok"
@@ -62,7 +62,7 @@ class MockHookedEventPreHookIntegration:
     async def test_pre_hook_exit_aborts_invoke_and_logs_once(
         self, patch_cancellation, patch_logger
     ):
-        """Test that pre-hook exit aborts _invoke() and logs once."""
+        """Test that pre-hook exit aborts _core_invoke() and logs once."""
 
         async def pre_hook(ev, **kw):
             raise MyCancelled("pre-hook denied")
@@ -73,10 +73,10 @@ class MockHookedEventPreHookIntegration:
 
         await event.invoke()
 
-        # Main _invoke() should NOT have been called
+        # Main _core_invoke() should NOT have been called
         assert event.invoke_called is False
         assert event.execution.status == EventStatus.FAILED
-        assert "Pre-invocation hook requested exit" in event.execution.error
+        assert "Pre-invocation hook requested exit" in str(event.execution.error)
 
         # Pre-hook should have been logged once
         assert len(patch_logger) == 1
@@ -94,7 +94,7 @@ class MockHookedEventPreHookIntegration:
 
         await event.invoke()
 
-        # Main _invoke() should still be called because exit_hook=False
+        # Main _core_invoke() should still be called because exit_hook=False
         assert event.invoke_called is True
         assert event.execution.status == EventStatus.COMPLETED
         assert event.execution.response == "main_result"
@@ -115,10 +115,10 @@ class MockHookedEventPreHookIntegration:
 
         await event.invoke()
 
-        # Main _invoke() should NOT have been called
+        # Main _core_invoke() should NOT have been called
         assert event.invoke_called is False
         assert event.execution.status == EventStatus.FAILED
-        assert "pre-hook critical error" in event.execution.error
+        assert "pre-hook critical error" in str(event.execution.error)
 
         # Pre-hook should have been logged once
         assert len(patch_logger) == 1
@@ -164,7 +164,7 @@ class MockHookedEventPostHookIntegration:
         # Main invoke should have run, but result discarded due to post-hook exit
         assert event.invoke_called is True
         assert event.execution.status == EventStatus.FAILED
-        assert "Post-invocation hook requested exit" in event.execution.error
+        assert "Post-invocation hook requested exit" in str(event.execution.error)
         # Response should be None because hook exit discarded it
         assert event.execution.response is None
 
@@ -200,7 +200,7 @@ class MockHookedEventBothHooks:
 
     @pytest.mark.anyio
     async def test_both_hooks_normal_execution_order(self, patch_cancellation, patch_logger):
-        """Test that both hooks run in correct order: pre -> _invoke -> post."""
+        """Test that both hooks run in correct order: pre -> _core_invoke -> post."""
         execution_order = []
 
         async def pre_hook(ev, **kw):
@@ -212,9 +212,9 @@ class MockHookedEventBothHooks:
             return "post_ok"
 
         class OrderTestEvent(MockHookedEvent):
-            async def _invoke(self):
+            async def _core_invoke(self):
                 execution_order.append("main")
-                return await super()._invoke()
+                return await super()._core_invoke()
 
         registry = HookRegistry(
             hooks={
@@ -238,7 +238,7 @@ class MockHookedEventBothHooks:
 
     @pytest.mark.anyio
     async def test_pre_hook_exit_prevents_post_hook(self, patch_cancellation, patch_logger):
-        """Test that pre-hook exit prevents both _invoke and post-hook."""
+        """Test that pre-hook exit prevents both _core_invoke and post-hook."""
         hooks_called = []
 
         async def pre_hook(ev, **kw):
@@ -271,7 +271,7 @@ class MockHookedEventBothHooks:
 
     @pytest.mark.anyio
     async def test_main_invoke_error_still_runs_post_hook(self, patch_cancellation, patch_logger):
-        """Test that _invoke errors still allow post-hook to run."""
+        """Test that _core_invoke errors still allow post-hook to run."""
         hooks_called = []
 
         async def pre_hook(ev, **kw):
@@ -298,7 +298,7 @@ class MockHookedEventBothHooks:
         assert hooks_called == ["pre", "post"]
         assert event.invoke_called is True
         assert event.execution.status == EventStatus.FAILED
-        assert "main invoke failed" in event.execution.error
+        assert "main invoke failed" in str(event.execution.error)
 
         # Both hooks should have been logged
         assert len(patch_logger) == 2
@@ -361,19 +361,22 @@ class MockHookedEventCancellationPropagation:
     """Test cancellation propagation in HookedEvent."""
 
     @pytest.mark.anyio
-    async def test_main_invoke_cancellation_propagates(self, patch_cancellation, patch_logger):
-        """Test that cancellation in _invoke() propagates correctly."""
+    async def test_main_invoke_error_propagates(self, patch_cancellation, patch_logger):
+        """Test that exceptions in _core_invoke() propagate and set FAILED status."""
         registry = HookRegistry(hooks={HookEventTypes.PostInvocation: lambda ev, **kw: "post"})
+        # MyCancelled extends Exception; Event.invoke() catches it as Exception → FAILED + re-raise
         event = MockHookedEvent(invoke_error=MyCancelled("main cancelled"))
         event.create_post_invoke_hook(hook_registry=registry, exit_hook=False)
 
-        # Cancellation should propagate out
+        # Exception propagates out of Event.invoke() (re-raised after recording FAILED)
         with pytest.raises(MyCancelled, match="main cancelled"):
             await event.invoke()
 
-        # Status should be CANCELLED
-        assert event.execution.status == EventStatus.CANCELLED
-        assert event.execution.error == "Invocation cancelled"
+        # Event.invoke() catches Exception subclasses → FAILED (not CANCELLED)
+        assert event.execution.status == EventStatus.FAILED
+        # execution.error holds the exception object
+        assert isinstance(event.execution.error, MyCancelled)
+        assert "main cancelled" in str(event.execution.error)
 
-        # Post hook should not have run due to cancellation
+        # Post hook should not have run because _core_invoke raised before it
         assert len(patch_logger) == 0

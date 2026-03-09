@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -9,7 +8,7 @@ from typing_extensions import Self
 
 from lionagi.utils import is_coro_func
 
-from ..generic.event import Event, EventStatus
+from ..generic.event import Event
 from .tool import Tool
 
 
@@ -55,13 +54,14 @@ class FunctionCalling(Event):
     def function(self):
         return self.func_tool.function
 
-    async def invoke(self) -> None:
+    async def _invoke(self) -> Any:
         """Execute the function call with pre/post processing.
 
         Handles both synchronous and asynchronous functions, including optional
         preprocessing of arguments and postprocessing of results.
+
+        Called by Event.invoke() which handles state transitions.
         """
-        start = asyncio.get_event_loop().time()
 
         async def _preprocess(kwargs):
             if is_coro_func(self.func_tool.preprocessor):
@@ -77,34 +77,17 @@ class FunctionCalling(Event):
                 )
             return self.func_tool.postprocessor(arg, **self.func_tool.postprocessor_kwargs)
 
-        async def _inner() -> Any:
-            """Execute the function with pre/post processing.
+        if self.func_tool.preprocessor:
+            self.arguments = await _preprocess(self.arguments)
 
-            Returns:
-                Function execution result after processing.
-            """
-            response = None
-            if self.func_tool.preprocessor:
-                self.arguments = await _preprocess(self.arguments)
+        if is_coro_func(self.func_tool.func_callable):
+            response = await self.func_tool.func_callable(**self.arguments)
+        else:
+            response = self.func_tool.func_callable(**self.arguments)
 
-            if is_coro_func(self.func_tool.func_callable):
-                response = await self.func_tool.func_callable(**self.arguments)
-            else:
-                response = self.func_tool.func_callable(**self.arguments)
-
-            if self.func_tool.postprocessor:
-                response = await _post_process(response)
-            return response
-
-        try:
-            response = await _inner()
-            self.execution.duration = asyncio.get_event_loop().time() - start
-            self.execution.status = EventStatus.COMPLETED
-            self.execution.response = response
-        except Exception as e:
-            self.execution.duration = asyncio.get_event_loop().time() - start
-            self.execution.status = EventStatus.FAILED
-            self.execution.error = str(e)
+        if self.func_tool.postprocessor:
+            response = await _post_process(response)
+        return response
 
     def to_dict(self, *args, **kw) -> dict[str, Any]:
         """Convert instance to dictionary.
