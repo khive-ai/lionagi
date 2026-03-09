@@ -331,6 +331,7 @@ async def _ndjson_from_cli(request: CodexCodeRequest):
         *request.as_cmd_args(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,  # isolate from parent's SIGINT
     )
 
     decoder = codecs.getincrementaldecoder("utf-8")()

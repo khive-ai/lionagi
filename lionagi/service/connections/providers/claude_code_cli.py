@@ -98,19 +98,25 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
         request: ClaudeCodeRequest = payload["request"]
         session: ClaudeSession = ClaudeSession()
         system: dict = None
+        _cancelled = False
 
         # 1. stream the Claude Code response
-        async with contextlib.aclosing(
-            stream_claude_code_cli(request, session, **self.claude_handlers, **kwargs)
-        ) as gen:
-            async for chunk in gen:
-                if isinstance(chunk, dict):
-                    if chunk.get("type") == "done":
-                        break
-                    system = chunk
-                responses.append(chunk)
+        try:
+            async with contextlib.aclosing(
+                stream_claude_code_cli(request, session, **self.claude_handlers, **kwargs)
+            ) as gen:
+                async for chunk in gen:
+                    if isinstance(chunk, dict):
+                        if chunk.get("type") == "done":
+                            break
+                        system = chunk
+                    responses.append(chunk)
+        except BaseException:
+            # CancelledError, KeyboardInterrupt — must not trigger auto_finish
+            _cancelled = True
+            raise
 
-        if request.auto_finish and responses and not isinstance(responses[-1], ClaudeSession):
+        if not _cancelled and request.auto_finish and responses and not isinstance(responses[-1], ClaudeSession):
             req2 = request.model_copy(deep=True)
             req2.prompt = "Please provide a the final result message only"
             req2.max_turns = 1
