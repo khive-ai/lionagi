@@ -35,6 +35,8 @@ class TestSubprocessSessionIsolation:
 
         request = ClaudeCodeRequest(prompt="test")
 
+        from lionagi.service.third_party.claude_code import _ndjson_from_cli
+
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_proc = MagicMock()
             mock_proc.stdout = MagicMock()
@@ -45,13 +47,6 @@ class TestSubprocessSessionIsolation:
             mock_proc.terminate = MagicMock()
             mock_proc.kill = MagicMock()
             mock_exec.return_value = mock_proc
-
-            from lionagi.service.third_party.claude_code import CLAUDE_CLI
-
-            if CLAUDE_CLI is None:
-                pytest.skip("Claude CLI not installed")
-
-            from lionagi.service.third_party.claude_code import _ndjson_from_cli
 
             chunks = []
             async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
@@ -72,6 +67,8 @@ class TestSubprocessSessionIsolation:
 
         request = CodexCodeRequest(prompt="test")
 
+        from lionagi.service.third_party.codex_models import _ndjson_from_cli
+
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_proc = MagicMock()
             mock_proc.stdout = MagicMock()
@@ -82,13 +79,6 @@ class TestSubprocessSessionIsolation:
             mock_proc.terminate = MagicMock()
             mock_proc.kill = MagicMock()
             mock_exec.return_value = mock_proc
-
-            from lionagi.service.third_party.codex_models import CODEX_CLI
-
-            if CODEX_CLI is None:
-                pytest.skip("Codex CLI not installed")
-
-            from lionagi.service.third_party.codex_models import _ndjson_from_cli
 
             async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
                 async for _ in stream:
@@ -105,6 +95,8 @@ class TestSubprocessSessionIsolation:
 
         request = GeminiCodeRequest(prompt="test")
 
+        from lionagi.service.third_party.gemini_models import _ndjson_from_cli
+
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_proc = MagicMock()
             mock_proc.stdout = MagicMock()
@@ -115,13 +107,6 @@ class TestSubprocessSessionIsolation:
             mock_proc.terminate = MagicMock()
             mock_proc.kill = MagicMock()
             mock_exec.return_value = mock_proc
-
-            from lionagi.service.third_party.gemini_models import GEMINI_CLI
-
-            if GEMINI_CLI is None:
-                pytest.skip("Gemini CLI not installed")
-
-            from lionagi.service.third_party.gemini_models import _ndjson_from_cli
 
             async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
                 async for _ in stream:
@@ -206,6 +191,45 @@ class TestCancellationSkipsAutoFinish:
             assert stream_call_count == 1
 
     @pytest.mark.asyncio
+    async def test_task_cancel_skips_auto_finish(self):
+        """Task.cancel() (non-SIGINT) during streaming must not spawn a second request.
+
+        This tests the actual regression scenario: the stream completes normally
+        (subprocess exits gracefully), but the Python task is cancelled by the
+        executor/timeout. The _cancelled sentinel guard must prevent auto_finish.
+        """
+        from lionagi.service.connections.providers.claude_code_cli import (
+            ClaudeCodeCLIEndpoint,
+        )
+
+        stream_call_count = 0
+
+        async def stream_then_cancel(*args, **kwargs):
+            """Yields chunks normally, then the task gets cancelled externally."""
+            nonlocal stream_call_count
+            stream_call_count += 1
+            yield MagicMock(text="partial")
+            # Simulate external task cancellation (e.g., from executor timeout)
+            raise asyncio.CancelledError()
+
+        with patch(
+            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli",
+            side_effect=stream_then_cancel,
+        ):
+            endpoint = ClaudeCodeCLIEndpoint()
+
+            mock_request = MagicMock()
+            mock_request.auto_finish = True
+            mock_request.cli_include_summary = False
+
+            with pytest.raises(asyncio.CancelledError):
+                await endpoint._call({"request": mock_request}, {})
+
+            assert stream_call_count == 1, (
+                "Task.cancel() must not trigger auto_finish"
+            )
+
+    @pytest.mark.asyncio
     async def test_normal_completion_still_triggers_auto_finish(self):
         """Normal stream completion should still trigger auto_finish when needed."""
         from lionagi.service.connections.providers.claude_code_cli import (
@@ -260,7 +284,10 @@ class TestNdjsonCleanupPropagation:
     async def test_cancelled_error_not_swallowed_by_finally(self):
         """CancelledError from proc.wait() timeout must propagate, not be caught."""
         # This tests the fix: except asyncio.TimeoutError (not CancelledError)
-        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+        from lionagi.service.third_party.claude_code import (
+            ClaudeCodeRequest,
+            _ndjson_from_cli,
+        )
 
         request = ClaudeCodeRequest(prompt="test")
 
@@ -285,13 +312,6 @@ class TestNdjsonCleanupPropagation:
             mock_proc.terminate = MagicMock()
             mock_proc.kill = MagicMock()
             mock_exec.return_value = mock_proc
-
-            from lionagi.service.third_party.claude_code import CLAUDE_CLI
-
-            if CLAUDE_CLI is None:
-                pytest.skip("Claude CLI not installed")
-
-            from lionagi.service.third_party.claude_code import _ndjson_from_cli
 
             with pytest.raises(asyncio.CancelledError):
                 async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
