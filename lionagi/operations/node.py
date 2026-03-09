@@ -90,7 +90,7 @@ class Operation(Node, Event):
             self.execution.response = response
             self.execution.status = EventStatus.COMPLETED
 
-        except get_cancelled_exc_class():
+        except (get_cancelled_exc_class(), KeyboardInterrupt):
             self.execution.error = "Operation cancelled"
             self.execution.status = EventStatus.CANCELLED
             raise
@@ -99,6 +99,7 @@ class Operation(Node, Event):
             self.execution.error = str(e)
             self.execution.status = EventStatus.FAILED
             logger.error(f"Operation failed: {e}")
+            raise
 
         finally:
             self.execution.duration = asyncio.get_event_loop().time() - start

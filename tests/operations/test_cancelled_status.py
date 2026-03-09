@@ -112,7 +112,8 @@ async def test_cancelled_vs_failed_status():
     branch.get_operation = MagicMock(return_value=branch.chat)
 
     op_failed = Operation(operation="chat")
-    await op_failed.invoke(branch)
+    with pytest.raises(ValueError, match="This is a failure"):
+        await op_failed.invoke(branch)
 
     # Failed operation should have FAILED status
     assert op_failed.execution.status == EventStatus.FAILED

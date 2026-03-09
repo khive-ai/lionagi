@@ -246,6 +246,12 @@ class DependencyAwareExecutor:
                 if self.verbose:
                     logger.debug("Completed operation: %s", str(operation.id)[:8])
 
+        except (KeyboardInterrupt, SystemExit):
+            operation.execution.status = EventStatus.CANCELLED
+            operation.execution.error = "Interrupted"
+            self.completion_events[operation.id].set()
+            raise
+
         except Exception as e:
             operation.execution.status = EventStatus.FAILED
             operation.execution.error = str(e)

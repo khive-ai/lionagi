@@ -320,9 +320,10 @@ async def test_operation_invoke_exception_handling():
     branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     op = Operation(operation="chat", parameters={"instruction": "This will fail"})
-    await op.invoke(branch)
+    with pytest.raises(RuntimeError, match="Test error occurred"):
+        await op.invoke(branch)
 
-    # Verify error handling
+    # Verify error handling — exception is recorded AND re-raised
     assert op.execution.status == EventStatus.FAILED
     assert op.execution.error == "Test error occurred"
     assert op.response is None

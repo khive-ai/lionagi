@@ -431,6 +431,7 @@ async def test_flow_operation_error_handling():
         return "chat_response"
 
     branch.chat = AsyncMock(side_effect=failing_chat)
+    branch.get_operation = MagicMock(return_value=branch.chat)
 
     # Execute flow - it should handle the error
     session = Session()

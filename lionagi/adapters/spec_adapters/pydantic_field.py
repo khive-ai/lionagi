@@ -84,7 +84,8 @@ class PydanticSpecAdapter(SpecAdapter):
     @classmethod
     def create_validator(cls, spec: "Spec") -> dict | None:
         """Create Pydantic field_validator from Spec metadata."""
-        if (v := spec.get("validator")) is Unset:
+        v = spec.get("validator")
+        if is_sentinel(v) or v is None:
             return None
 
         from pydantic import field_validator
@@ -108,13 +109,28 @@ class PydanticSpecAdapter(SpecAdapter):
         use_specs = op.get_specs(include=include, exclude=exclude)
         use_fields = {i.name: cls.create_field(i) for i in use_specs if i.name}
 
-        model_cls = ModelParams(
+        # Collect validators from specs
+        validators = {}
+        for spec in use_specs:
+            if spec.name:
+                v = cls.create_validator(spec)
+                if v:
+                    validators.update(v)
+
+        params = ModelParams(
             name=model_name,
             parameter_fields=use_fields,
             base_type=base_type,
             inherit_base=True,
             doc=doc,
-        ).create_new_model()
+        )
+        # Inject spec validators into ModelParams before model creation
+        if validators:
+            existing = dict(params._validators) if params._validators else {}
+            existing.update(validators)
+            object.__setattr__(params, "_validators", existing)
+
+        model_cls = params.create_new_model()
 
         model_cls.model_rebuild()
         return model_cls
