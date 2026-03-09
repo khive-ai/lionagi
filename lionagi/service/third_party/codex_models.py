@@ -379,7 +379,7 @@ async def _ndjson_from_cli(request: CodexCodeRequest):
             proc.terminate()
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except asyncio.TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
             with contextlib.suppress(Exception):

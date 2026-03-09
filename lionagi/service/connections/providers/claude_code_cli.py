@@ -110,7 +110,7 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
                     system = chunk
                 responses.append(chunk)
 
-        if request.auto_finish and not isinstance(responses[-1], ClaudeSession):
+        if request.auto_finish and responses and not isinstance(responses[-1], ClaudeSession):
             req2 = request.model_copy(deep=True)
             req2.prompt = "Please provide a the final result message only"
             req2.max_turns = 1

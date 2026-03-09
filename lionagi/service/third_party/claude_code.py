@@ -215,12 +215,12 @@ class ClaudeCodeRequest(BaseModel):
         if self.allowed_tools:
             args.append("--allowedTools")
             for tool in self.allowed_tools:
-                args.append(f'"{tool}"')
+                args.append(tool)
 
         if self.disallowed_tools:
             args.append("--disallowedTools")
             for tool in self.disallowed_tools:
-                args.append(f'"{tool}"')
+                args.append(tool)
 
         if self.resume:
             args += ["--resume", self.resume]
@@ -244,7 +244,7 @@ class ClaudeCodeRequest(BaseModel):
             ]
 
         if self.mcp_config:
-            args += ["--mcp-config", f'"{self.mcp_config}"']
+            args += ["--mcp-config", str(self.mcp_config)]
 
         args += ["--model", self.model or "sonnet", "--verbose"]
         return args
@@ -457,7 +457,7 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
             proc.terminate()
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except asyncio.TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
             with contextlib.suppress(Exception):
@@ -543,7 +543,7 @@ async def _maybe_await(func, *args, **kw):
 # --------------------------------------------------------------------------- main parser
 async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is fine here)
     request: ClaudeCodeRequest,
-    session: ClaudeSession = ClaudeSession(),
+    session: ClaudeSession | None = None,
     *,
     on_system: Callable[[dict[str, Any]], None] | None = None,
     on_thinking: Callable[[str], None] | None = None,
@@ -558,6 +558,8 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
 
     If callbacks are omitted a default pretty-print is emitted.
     """
+    if session is None:
+        session = ClaudeSession()
     theme = request.cli_display_theme or "light"
 
     stream = stream_cc_cli_events(request)
