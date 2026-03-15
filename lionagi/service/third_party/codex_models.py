@@ -345,6 +345,13 @@ class CodexCodeRequest(BaseModel):
             if self.sandbox:
                 args.extend(["-s", self.sandbox])
 
+        # System prompt → -c developer_instructions=<val>
+        # (Codex CLI has no --system-prompt flag; uses developer_instructions)
+        if self.system_prompt:
+            args.extend(
+                ["-c", f"developer_instructions={self.system_prompt}"]
+            )
+
         # Reasoning effort → -c reasoning_effort=<val>
         if self.reasoning_effort:
             args.extend(["-c", f"reasoning_effort={self.reasoning_effort}"])
