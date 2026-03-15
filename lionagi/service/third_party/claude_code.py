@@ -375,6 +375,16 @@ class ClaudeCodeRequest(BaseModel):
                 "--fork-session requires --resume or --continue"
             )
 
+        # Permission flag mutual exclusivity
+        if (
+            self.allow_dangerously_skip_permissions
+            and self.permission_mode == "bypassPermissions"
+        ):
+            raise ValueError(
+                "allow_dangerously_skip_permissions and "
+                "permission_mode='bypassPermissions' are mutually exclusive"
+            )
+
         # System prompt mutual exclusivity
         if self.system_prompt and self.system_prompt_file:
             raise ValueError(
@@ -845,10 +855,11 @@ def _pp_tool_result(tr: dict[str, Any], theme) -> None:
 
 def _pp_final(sess: ClaudeSession, theme) -> None:
     usage = sess.usage or {}
+    cost_str = f"${sess.total_cost_usd:.4f}" if sess.total_cost_usd is not None else "N/A"
     txt = (
         f"### ✅ Session complete - {datetime.now(timezone.utc).isoformat(timespec='seconds')} UTC\n"
         f"**Result:**\n\n{sess.result or ''}\n\n"
-        f"- cost: **${sess.total_cost_usd:.4f}**  \n"
+        f"- cost: **{cost_str}**  \n"
         f"- turns: **{sess.num_turns}**  \n"
         f"- duration: **{sess.duration_ms} ms** (API {sess.duration_api_ms} ms)  \n"
         f"- tokens in/out: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
