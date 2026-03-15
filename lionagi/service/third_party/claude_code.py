@@ -33,30 +33,21 @@ if (c := (shutil.which("claude") or "claude")) and shutil.which(c):
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("claude-cli")
 
-# --------------------------------------------------------------------------- constants
-ClaudePermission = Literal[
+
+# --------------------------------------------------------------------------- types
+ClaudePermissionMode = Literal[
     "default",
     "acceptEdits",
+    "plan",
+    "dontAsk",
     "bypassPermissions",
-    "dangerously-skip-permissions",
 ]
+# Backward-compat alias
+ClaudePermission = ClaudePermissionMode
 
-CLAUDE_CODE_OPTION_PARAMS = {
-    "allowed_tools",
-    "max_thinking_tokens",
-    "mcp_tools",
-    "mcp_servers",
-    "permission_mode",
-    "continue_conversation",
-    "resume",
-    "max_turns",
-    "disallowed_tools",
-    "model",
-    "permission_prompt_tool_name",
-    "cwd",
-    "system_prompt",
-    "append_system_prompt",
-}
+ClaudeEffort = Literal["low", "medium", "high", "max"]
+ClaudeOutputFormat = Literal["text", "json", "stream-json"]
+ClaudeInputFormat = Literal["text", "stream-json"]
 
 
 __all__ = (
@@ -67,42 +58,242 @@ __all__ = (
 )
 
 
+# --------------------------------------------------------------------------- flag metadata
+#
+# Each CLI-mappable field carries a ``json_schema_extra`` dict produced by
+# ``_cli()``.  The generic ``_build_declarative_args()`` loop reads these
+# dicts (sorted by *order*) and emits the correct flag sequence.
+#
+# kind semantics:
+#   value      – ``--flag <str(val)>``
+#   bool       – ``--flag`` when truthy, omit otherwise
+#   bool_pair  – ``--flag`` when True, ``--neg-flag`` when False, omit when None
+#   list_args  – ``--flag arg1 arg2 …`` (one flag, many positional args)
+#   json_value – ``--flag '<json>'``   (dict/list serialised to JSON string)
+#   repeat     – ``--flag a --flag b`` (flag repeated per item)
+
+
+def _cli(
+    flag: str,
+    order: int,
+    kind: str = "value",
+    *,
+    neg_flag: str | None = None,
+) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "cli_flag": flag,
+        "cli_order": order,
+        "cli_kind": kind,
+    }
+    if neg_flag:
+        d["cli_neg_flag"] = neg_flag
+    return d
+
+
 # --------------------------------------------------------------------------- request model
 class ClaudeCodeRequest(BaseModel):
-    # -- conversational bits -------------------------------------------------
+    """Configuration + prompt for a Claude Code CLI invocation.
+
+    Every field annotated with ``_cli(...)`` metadata is automatically
+    assembled into CLI arguments by :meth:`as_cmd_args`, sorted by its
+    ``order`` value.  A handful of special cases (``permission_mode``,
+    ``max_turns``, ``worktree``, ``debug``, legacy ``mcp_servers``) are
+    handled with explicit logic after the declarative pass.
+
+    Adding a new CLI flag is one line: declare the field with ``_cli()``
+    metadata and the builder picks it up automatically.
+    """
+
+    # ── prompt (always required) ──────────────────────────────────
     prompt: str = Field(description="The prompt for Claude Code")
-    system_prompt: str | None = None
-    append_system_prompt: str | None = None
+
+    # ── session management (order 10–19) ──────────────────────────
+    continue_conversation: bool = Field(
+        default=False,
+        json_schema_extra=_cli("--continue", 10, "bool"),
+    )
+    resume: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--resume", 11),
+    )
+    session_id: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--session-id", 12),
+    )
+    name: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--name", 13),
+    )
+    fork_session: bool = Field(
+        default=False,
+        json_schema_extra=_cli("--fork-session", 14, "bool"),
+    )
+
+    # ── model & runtime (order 20–29) ─────────────────────────────
+    model: Literal["sonnet", "opus", "haiku"] | str | None = Field(
+        default="sonnet",
+        json_schema_extra=_cli("--model", 20),
+    )
+    effort: ClaudeEffort | None = Field(
+        default=None,
+        json_schema_extra=_cli("--effort", 21),
+    )
+    fallback_model: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--fallback-model", 22),
+    )
+    # max_turns is special-cased (+1 offset) — no _cli metadata
     max_turns: int | None = None
-    continue_conversation: bool = False
-    resume: str | None = None
+    max_budget_usd: float | None = Field(
+        default=None,
+        json_schema_extra=_cli("--max-budget-usd", 24),
+    )
 
-    # -- repo / workspace ----------------------------------------------------
+    # ── system prompt (order 30–39) ───────────────────────────────
+    system_prompt: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--system-prompt", 30),
+    )
+    system_prompt_file: str | Path | None = Field(
+        default=None,
+        json_schema_extra=_cli("--system-prompt-file", 31),
+    )
+    append_system_prompt: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--append-system-prompt", 32),
+    )
+    append_system_prompt_file: str | Path | None = Field(
+        default=None,
+        json_schema_extra=_cli("--append-system-prompt-file", 33),
+    )
+
+    # ── permissions (order 40–49) ─────────────────────────────────
+    # permission_mode is special-cased — no _cli metadata
+    permission_mode: ClaudePermissionMode | None = None
+    allow_dangerously_skip_permissions: bool = Field(
+        default=False,
+        json_schema_extra=_cli(
+            "--allow-dangerously-skip-permissions", 40, "bool"
+        ),
+    )
+    allowed_tools: list[str] | None = Field(
+        default=None,
+        json_schema_extra=_cli("--allowedTools", 42, "list_args"),
+    )
+    disallowed_tools: list[str] | None = Field(
+        default=None,
+        json_schema_extra=_cli("--disallowedTools", 43, "list_args"),
+    )
+    tools: str | None = Field(
+        default=None,
+        description="Restrict available tools (comma-separated or 'default')",
+        json_schema_extra=_cli("--tools", 44),
+    )
+    permission_prompt_tool_name: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--permission-prompt-tool", 45),
+    )
+
+    # ── MCP (order 50–59) ─────────────────────────────────────────
+    mcp_config: str | Path | None = Field(
+        default=None,
+        json_schema_extra=_cli("--mcp-config", 50),
+    )
+    strict_mcp_config: bool = Field(
+        default=False,
+        json_schema_extra=_cli("--strict-mcp-config", 51, "bool"),
+    )
+    # Legacy: if set and mcp_config is absent, serialised to --mcp-config JSON
+    mcp_servers: dict[str, Any] = Field(default_factory=dict, exclude=True)
+
+    # ── agents (order 60–69) ──────────────────────────────────────
+    agent: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--agent", 60),
+    )
+    agents: dict[str, Any] | None = Field(
+        default=None,
+        json_schema_extra=_cli("--agents", 61, "json_value"),
+    )
+
+    # ── workspace (order 70–79) ───────────────────────────────────
     repo: Path = Field(default_factory=Path.cwd, exclude=True)
-    ws: str | None = None  # sub-directory under repo
-    add_dir: str | None = None  # extra read-only mount
-    allowed_tools: list[str] | None = None
+    ws: str | None = Field(default=None, exclude=True)
+    add_dir: list[str] | None = Field(
+        default=None,
+        json_schema_extra=_cli("--add-dir", 70, "list_args"),
+    )
+    # worktree is special-cased (bool vs str) — no _cli metadata
+    worktree: str | bool | None = Field(default=None, exclude=True)
 
-    # -- runtime & safety ----------------------------------------------------
-    model: Literal["sonnet", "opus"] | str | None = "sonnet"
-    max_thinking_tokens: int | None = None
-    mcp_tools: list[str] = Field(default_factory=list)
-    mcp_servers: dict[str, Any] = Field(default_factory=dict)
-    mcp_config: str | Path | None = Field(None, exclude=True)
-    permission_mode: ClaudePermission | None = None
-    permission_prompt_tool_name: str | None = None
-    disallowed_tools: list[str] = Field(default_factory=list)
+    # ── features (order 80–89) ────────────────────────────────────
+    chrome: bool | None = Field(
+        default=None,
+        json_schema_extra=_cli(
+            "--chrome", 80, "bool_pair", neg_flag="--no-chrome"
+        ),
+    )
+    disable_slash_commands: bool = Field(
+        default=False,
+        json_schema_extra=_cli("--disable-slash-commands", 81, "bool"),
+    )
+    no_session_persistence: bool = Field(
+        default=False,
+        json_schema_extra=_cli("--no-session-persistence", 82, "bool"),
+    )
 
-    # -- internal use --------------------------------------------------------
+    # ── output (order 90–99) ──────────────────────────────────────
+    output_format: ClaudeOutputFormat = Field(
+        default="stream-json", exclude=True
+    )
+    input_format: ClaudeInputFormat | None = Field(
+        default=None,
+        json_schema_extra=_cli("--input-format", 91),
+    )
+    # Named json_schema_output to avoid shadowing Pydantic's json_schema
+    json_schema_output: dict[str, Any] | str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--json-schema", 92, "json_value"),
+    )
+    include_partial_messages: bool = Field(
+        default=False,
+        json_schema_extra=_cli("--include-partial-messages", 93, "bool"),
+    )
+
+    # ── settings & debug (order 100–109) ──────────────────────────
+    settings: str | Path | None = Field(
+        default=None,
+        json_schema_extra=_cli("--settings", 100),
+    )
+    setting_sources: str | None = Field(
+        default=None,
+        json_schema_extra=_cli("--setting-sources", 101),
+    )
+    betas: list[str] | None = Field(
+        default=None,
+        json_schema_extra=_cli("--betas", 102, "list_args"),
+    )
+    # debug is special-cased (bool vs str) — no _cli metadata
+    debug: str | bool | None = Field(default=None, exclude=True)
+
+    # ── lionagi internal (never become CLI flags) ─────────────────
     auto_finish: bool = Field(
         default=False,
+        exclude=True,
         description="Automatically finish the conversation after the first response",
     )
-    verbose_output: bool = Field(default=False)
-    cli_display_theme: Literal["light", "dark"] = "dark"
-    cli_include_summary: bool = Field(default=False)
+    verbose_output: bool = Field(default=False, exclude=True)
+    cli_display_theme: Literal["light", "dark"] = Field(
+        default="dark", exclude=True
+    )
+    cli_include_summary: bool = Field(default=False, exclude=True)
 
-    # ------------------------ validators & helpers --------------------------
+    # Legacy fields (kept for backward compat, unused in CLI args)
+    mcp_tools: list[str] = Field(default_factory=list, exclude=True)
+    max_thinking_tokens: int | None = Field(default=None, exclude=True)
+
+    # ── validators ────────────────────────────────────────────────
+
     @field_validator("permission_mode", mode="before")
     def _norm_perm(cls, v):
         if v in {
@@ -110,6 +301,12 @@ class ClaudeCodeRequest(BaseModel):
             "--dangerously-skip-permissions",
         }:
             return "bypassPermissions"
+        return v
+
+    @field_validator("add_dir", mode="before")
+    def _norm_add_dir(cls, v):
+        if isinstance(v, str):
+            return [v]
         return v
 
     @model_validator(mode="before")
@@ -139,7 +336,9 @@ class ClaudeCodeRequest(BaseModel):
                 if message["role"] != "system":
                     content = message["content"]
                     prompts.append(
-                        ln.json_dumps(content) if isinstance(content, (dict, list)) else content
+                        ln.json_dumps(content)
+                        if isinstance(content, (dict, list))
+                        else content
                     )
 
             prompt = "\n".join(prompts)
@@ -156,31 +355,67 @@ class ClaudeCodeRequest(BaseModel):
             data_["system_prompt"] = msg[0]["content"]
 
         if "append_system_prompt" in data and data["append_system_prompt"]:
-            data_["append_system_prompt"] = str(data.get("append_system_prompt"))
+            data_["append_system_prompt"] = str(
+                data.get("append_system_prompt")
+            )
 
         data_.update(data)
         return data_
 
-    # Workspace path derived from repo + ws
+    @model_validator(mode="after")
+    def _check_constraints(self):
+        # Session flag constraints
+        if self.resume:
+            self.continue_conversation = False
+        if self.fork_session and not (
+            self.resume or self.continue_conversation
+        ):
+            raise ValueError(
+                "--fork-session requires --resume or --continue"
+            )
+
+        # System prompt mutual exclusivity
+        if self.system_prompt and self.system_prompt_file:
+            raise ValueError(
+                "--system-prompt and --system-prompt-file are mutually exclusive"
+            )
+
+        # Workspace bounds check for bypassPermissions
+        if self.permission_mode == "bypassPermissions":
+            repo_resolved = self.repo.resolve()
+            cwd_resolved = self.cwd().resolve()
+            try:
+                cwd_resolved.relative_to(repo_resolved)
+            except ValueError:
+                raise ValueError(
+                    f"With bypassPermissions, workspace must be within "
+                    f"repository bounds. Repository: {repo_resolved}, "
+                    f"Workspace: {cwd_resolved}"
+                ) from None
+
+        return self
+
+    # ── workspace path ────────────────────────────────────────────
+
     def cwd(self) -> Path:
         if not self.ws:
             return self.repo
 
-        # Convert to Path object for proper validation
         ws_path = Path(self.ws)
 
-        # Check for absolute paths or directory traversal attempts
         if ws_path.is_absolute():
-            raise ValueError(f"Workspace path must be relative, got absolute: {self.ws}")
+            raise ValueError(
+                f"Workspace path must be relative, got absolute: {self.ws}"
+            )
 
         if ".." in ws_path.parts:
-            raise ValueError(f"Directory traversal detected in workspace path: {self.ws}")
+            raise ValueError(
+                f"Directory traversal detected in workspace path: {self.ws}"
+            )
 
-        # Resolve paths to handle symlinks and normalize
         repo_resolved = self.repo.resolve()
         result = (self.repo / ws_path).resolve()
 
-        # Ensure the resolved path is within the repository bounds
         try:
             result.relative_to(repo_resolved)
         except ValueError:
@@ -191,63 +426,132 @@ class ClaudeCodeRequest(BaseModel):
 
         return result
 
-    @model_validator(mode="after")
-    def _check_perm_workspace(self):
-        if self.permission_mode == "bypassPermissions":
-            # Use secure path validation with resolved paths
-            repo_resolved = self.repo.resolve()
-            cwd_resolved = self.cwd().resolve()
+    # ── CLI command builder ───────────────────────────────────────
 
-            # Check if cwd is within repo bounds using proper path methods
-            try:
-                cwd_resolved.relative_to(repo_resolved)
-            except ValueError:
-                raise ValueError(
-                    f"With bypassPermissions, workspace must be within repository bounds. "
-                    f"Repository: {repo_resolved}, Workspace: {cwd_resolved}"
-                ) from None
-        return self
-
-    # ------------------------ CLI helpers -----------------------------------
     def as_cmd_args(self) -> list[str]:
-        """Build argument list for the *Node* `claude` CLI."""
-        args: list[str] = ["-p", self.prompt, "--output-format", "stream-json"]
-        if self.allowed_tools:
-            args.append("--allowedTools")
-            for tool in self.allowed_tools:
-                args.append(tool)
+        """Build argument list for the Claude Code CLI.
 
-        if self.disallowed_tools:
-            args.append("--disallowedTools")
-            for tool in self.disallowed_tools:
-                args.append(tool)
+        Flags are assembled in two passes:
 
-        if self.resume:
-            args += ["--resume", self.resume]
-        elif self.continue_conversation:
-            args.append("--continue")
+        1. **Declarative** – fields carrying ``_cli()`` metadata are
+           collected, sorted by ``order``, and emitted by ``kind``.
+        2. **Special cases** – ``permission_mode``, ``max_turns``,
+           ``worktree``, ``debug``, and legacy ``mcp_servers`` need
+           non-mechanical logic and are handled explicitly.
 
-        if self.max_turns:
-            # +1 because CLI counts *pairs*
-            args += ["--max-turns", str(self.max_turns + 1)]
+        The prompt (``-p``) and ``--output-format`` always come first;
+        ``--verbose`` is always appended last.
+        """
+        args: list[str] = [
+            "-p",
+            self.prompt,
+            "--output-format",
+            self.output_format,
+        ]
 
-        if self.permission_mode == "bypassPermissions":
-            args += ["--dangerously-skip-permissions"]
+        # ── pass 1: declarative flags ──
+        args.extend(self._build_declarative_args())
 
-        if self.add_dir:
-            args += ["--add-dir", self.add_dir]
+        # ── pass 2: special cases ──
 
-        if self.permission_prompt_tool_name:
-            args += [
-                "--permission-prompt-tool",
-                self.permission_prompt_tool_name,
-            ]
+        # permission_mode → --dangerously-skip-permissions OR --permission-mode
+        if self.permission_mode:
+            if self.permission_mode == "bypassPermissions":
+                args.append("--dangerously-skip-permissions")
+            else:
+                args.extend(["--permission-mode", self.permission_mode])
 
-        if self.mcp_config:
-            args += ["--mcp-config", str(self.mcp_config)]
+        # max_turns → +1 offset (CLI counts agentic turns differently)
+        if self.max_turns is not None:
+            args.extend(["--max-turns", str(self.max_turns + 1)])
 
-        args += ["--model", self.model or "sonnet", "--verbose"]
+        # worktree → True emits bare flag, str emits flag + name
+        if self.worktree is not None and self.worktree is not False:
+            if isinstance(self.worktree, str):
+                args.extend(["--worktree", self.worktree])
+            else:
+                args.append("--worktree")
+
+        # debug → True emits bare flag, str emits flag + categories
+        if self.debug:
+            if isinstance(self.debug, str):
+                args.extend(["--debug", self.debug])
+            else:
+                args.append("--debug")
+
+        # Legacy mcp_servers dict → serialise as --mcp-config JSON inline
+        if self.mcp_servers and not self.mcp_config:
+            args.extend(
+                [
+                    "--mcp-config",
+                    json.dumps({"mcpServers": self.mcp_servers}),
+                ]
+            )
+
+        # model default – always emit
+        if "--model" not in args:
+            args.extend(["--model", self.model or "sonnet"])
+
+        # always verbose for structured stream output
+        args.append("--verbose")
         return args
+
+    def _build_declarative_args(self) -> list[str]:
+        """Collect fields with ``_cli()`` metadata and emit flags."""
+        flagged: list[tuple[int, dict, Any]] = []
+        for field_name, field_info in type(self).model_fields.items():
+            extra = field_info.json_schema_extra
+            if not extra or "cli_flag" not in extra:
+                continue
+            val = getattr(self, field_name)
+            if val is None:
+                continue
+            if isinstance(val, list) and not val:
+                continue
+            if val is False and extra.get("cli_kind") != "bool_pair":
+                continue
+            flagged.append((extra["cli_order"], extra, val))
+
+        flagged.sort(key=lambda x: x[0])
+
+        args: list[str] = []
+        for _, extra, val in flagged:
+            flag = extra["cli_flag"]
+            kind = extra.get("cli_kind", "value")
+
+            if kind == "bool":
+                if val:
+                    args.append(flag)
+
+            elif kind == "bool_pair":
+                if val is True:
+                    args.append(flag)
+                elif val is False and extra.get("cli_neg_flag"):
+                    args.append(extra["cli_neg_flag"])
+
+            elif kind == "list_args":
+                args.append(flag)
+                args.extend(str(v) for v in val)
+
+            elif kind == "json_value":
+                serialized = (
+                    json.dumps(val)
+                    if isinstance(val, (dict, list))
+                    else str(val)
+                )
+                args.extend([flag, serialized])
+
+            elif kind == "repeat":
+                for v in val:
+                    args.extend([flag, str(v)])
+
+            else:  # "value"
+                args.extend([flag, str(val)])
+
+        return args
+
+
+# --------------------------------------------------------------------------- chunks & session
 
 
 @dataclass
@@ -309,7 +613,9 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
         tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
 
         # Store detailed info
-        tool_details.append({"tool": tool_name, "id": tool_id, "input": tool_input})
+        tool_details.append(
+            {"tool": tool_name, "id": tool_id, "input": tool_input}
+        )
 
         # Categorize file operations and actions
         if tool_name in ["Read", "read"]:
@@ -329,7 +635,9 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
 
         elif tool_name in ["Bash", "bash"]:
             command = tool_input.get("command", "")
-            command_summary = command[:50] + "..." if len(command) > 50 else command
+            command_summary = (
+                command[:50] + "..." if len(command) > 50 else command
+            )
             key_actions.append(f"Ran: {command_summary}")
 
         elif tool_name in ["Glob", "glob"]:
@@ -340,12 +648,11 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
             pattern = tool_input.get("pattern", "")
             key_actions.append(f"Searched content: {pattern}")
 
-        elif tool_name in ["Task", "task"]:
+        elif tool_name in ["Task", "task", "Agent"]:
             description = tool_input.get("description", "")
-            key_actions.append(f"Spawned task: {description}")
+            key_actions.append(f"Spawned agent: {description}")
 
         elif tool_name.startswith("mcp__"):
-            # MCP tool usage - extract the operation type
             operation = tool_name.replace("mcp__", "")
             key_actions.append(f"MCP {operation}")
 
@@ -358,15 +665,23 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
 
     # Deduplicate key actions
     key_actions = (
-        list(dict.fromkeys(key_actions)) if key_actions else ["No specific actions detected"]
+        list(dict.fromkeys(key_actions))
+        if key_actions
+        else ["No specific actions detected"]
     )
 
     # Deduplicate file paths
     for op_type in file_operations:
-        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
+        file_operations[op_type] = list(
+            dict.fromkeys(file_operations[op_type])
+        )
 
     # Extract result summary (first 200 chars)
-    result_summary = (session.result[:200] + "...") if len(session.result) > 200 else session.result
+    result_summary = (
+        (session.result[:200] + "...")
+        if len(session.result) > 200
+        else session.result
+    )
 
     return {
         "tool_counts": tool_counts,
@@ -383,6 +698,9 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
             **session.usage,
         },
     }
+
+
+# --------------------------------------------------------------------------- NDJSON stream
 
 
 async def _ndjson_from_cli(request: ClaudeCodeRequest):
@@ -444,9 +762,13 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
                 try:
                     fixed = repair_json(buffer)
                     yield json.loads(fixed)
-                    log.warning("Repaired malformed JSON fragment at stream end")
+                    log.warning(
+                        "Repaired malformed JSON fragment at stream end"
+                    )
                 except Exception:
-                    log.error("Skipped unrecoverable JSON tail: %.120s…", buffer)
+                    log.error(
+                        "Skipped unrecoverable JSON tail: %.120s…", buffer
+                    )
 
         # 4) propagate non-zero exit code
         if await proc.wait() != 0:
@@ -468,7 +790,9 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
 # --------------------------------------------------------------------------- SSE route
 async def stream_cc_cli_events(request: ClaudeCodeRequest):
     if not CLAUDE_CLI:
-        raise RuntimeError("Claude CLI binary not found (npm i -g @anthropic-ai/claude-code)")
+        raise RuntimeError(
+            "Claude CLI binary not found (npm i -g @anthropic-ai/claude-code)"
+        )
     async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
         async for obj in stream:
             yield obj
@@ -542,7 +866,7 @@ async def _maybe_await(func, *args, **kw):
 
 
 # --------------------------------------------------------------------------- main parser
-async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is fine here)
+async def stream_claude_code_cli(  # noqa: C901
     request: ClaudeCodeRequest,
     session: ClaudeSession | None = None,
     *,
@@ -573,7 +897,9 @@ async def stream_claude_code_cli(  # noqa: C901  (complexity from branching is f
             # ------------------------ SYSTEM -----------------------------------
             if typ == "system":
                 data = obj
-                session.session_id = data.get("session_id", session.session_id)
+                session.session_id = data.get(
+                    "session_id", session.session_id
+                )
                 session.model = data.get("model", session.model)
                 await _maybe_await(on_system, data)
                 if request.verbose_output:
