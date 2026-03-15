@@ -352,8 +352,15 @@ class ClaudeCodeRequest(BaseModel):
         )
 
         # 4. extract system prompt if available
-        if (msg[0]["role"] == "system") and (resume or continue_conversation):
-            data_["system_prompt"] = msg[0]["content"]
+        if msg[0]["role"] == "system":
+            if resume or continue_conversation:
+                # Continued session: pass as system_prompt (--system-prompt)
+                data_["system_prompt"] = msg[0]["content"]
+            else:
+                # Fresh session: append to Claude Code's built-in prompt
+                data_.setdefault(
+                    "append_system_prompt", msg[0]["content"]
+                )
 
         if "append_system_prompt" in data and data["append_system_prompt"]:
             data_["append_system_prompt"] = str(
