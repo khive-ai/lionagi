@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import codecs
 import contextlib
+import inspect
 import json
 import logging
 import shutil
@@ -861,7 +862,7 @@ def _pp_final(sess: ClaudeSession, theme) -> None:
 async def _maybe_await(func, *args, **kw):
     """Call func which may be sync or async."""
     res = func(*args, **kw) if func else None
-    if ln.is_coro_func(res):
+    if inspect.iscoroutine(res):
         await res
 
 
