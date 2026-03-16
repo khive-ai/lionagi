@@ -71,6 +71,8 @@ class TestSubprocessSessionIsolation:
         from lionagi.service.third_party.codex_models import _ndjson_from_cli
 
         with patch(
+            "lionagi.service.third_party.codex_models.CODEX_CLI", "codex"
+        ), patch(
             "asyncio.create_subprocess_exec", new_callable=AsyncMock
         ) as mock_exec:
             mock_proc = MagicMock()
@@ -101,6 +103,8 @@ class TestSubprocessSessionIsolation:
         from lionagi.service.third_party.gemini_models import _ndjson_from_cli
 
         with patch(
+            "lionagi.service.third_party.gemini_models.GEMINI_CLI", "gemini"
+        ), patch(
             "asyncio.create_subprocess_exec", new_callable=AsyncMock
         ) as mock_exec:
             mock_proc = MagicMock()
