@@ -66,7 +66,10 @@ def parse_assistant_response(
                         content = out.get("content", [])
                         if isinstance(content, list):
                             for c in content:
-                                if isinstance(c, dict) and c.get("type") == "output_text":
+                                if (
+                                    isinstance(c, dict)
+                                    and c.get("type") == "output_text"
+                                ):
                                     text_contents.append(c.get("text", ""))
                                 elif isinstance(c, str):
                                     text_contents.append(c)
@@ -79,7 +82,9 @@ def parse_assistant_response(
             text_contents.append(item)
 
     text = "".join(text_contents)
-    model_response = model_responses[0] if len(model_responses) == 1 else model_responses
+    model_response = (
+        model_responses[0] if len(model_responses) == 1 else model_responses
+    )
 
     return text, model_response
 

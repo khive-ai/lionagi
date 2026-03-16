@@ -868,7 +868,9 @@ def feature_parity_matrix():
     )
     print("-" * 120)
     for r in rows:
-        print(f"{r[0]:<16} {r[1]:<38} {r[2]:<10} {r[3]:<10} {r[4]:<8} {r[5]:<10} {r[6]}")
+        print(
+            f"{r[0]:<16} {r[1]:<38} {r[2]:<10} {r[3]:<10} {r[4]:<8} {r[5]:<10} {r[6]}"
+        )
 
 
 def main():
@@ -1052,7 +1054,9 @@ def main():
 
             # Run the report generator with our files
             old_argv = sys.argv
-            sys.argv = ["generate_benchmark_report.py"]  # Mock argv to avoid argparse conflicts
+            sys.argv = [
+                "generate_benchmark_report.py"
+            ]  # Mock argv to avoid argparse conflicts
 
             report_args = ReportArgs(
                 summary=summary_csv,
@@ -1078,7 +1082,9 @@ def main():
 
         except ImportError:
             print("  ⚠️  Could not import generate_benchmark_report.py")
-            print("  ℹ️  Make sure generate_benchmark_report.py is in the same directory")
+            print(
+                "  ℹ️  Make sure generate_benchmark_report.py is in the same directory"
+            )
         except Exception as e:
             print(f"  ❌ Report generation failed: {e}")
 

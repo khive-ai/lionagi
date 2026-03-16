@@ -12,13 +12,9 @@ from lionagi.service.connections.cli_endpoint import CLIEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.utils import to_dict
 
-from ...third_party.codex_models import (
-    CodexChunk,
-    CodexCodeRequest,
-    CodexSession,
-    stream_codex_cli,
-)
+from ...third_party.codex_models import CodexChunk, CodexCodeRequest, CodexSession
 from ...third_party.codex_models import log as codex_log
+from ...third_party.codex_models import stream_codex_cli
 
 _get_config = lambda: EndpointConfig(
     name="codex_cli",
@@ -104,7 +100,9 @@ class CodexCLIEndpoint(CLIEndpoint):
                         break
                 responses.append(chunk)
 
-        codex_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
+        codex_log.info(
+            f"Session {session.session_id} finished with {len(responses)} chunks"
+        )
         texts = []
         for i in session.chunks:
             if i.text is not None:

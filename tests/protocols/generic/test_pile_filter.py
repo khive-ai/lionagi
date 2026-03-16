@@ -293,7 +293,9 @@ class TestComplexPredicates:
             Node(content="gamma"),
         ]
         p = Pile(collections=nodes)
-        result = p.filter(lambda x: isinstance(x.content, str) and x.content.startswith("alpha"))
+        result = p.filter(
+            lambda x: isinstance(x.content, str) and x.content.startswith("alpha")
+        )
         assert len(result) == 2
         contents = [item.content for item in result]
         assert "alpha" in contents

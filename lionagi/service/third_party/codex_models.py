@@ -260,9 +260,7 @@ class CodexCodeRequest(BaseModel):
                     prompts.append(ln.json_dumps(content))
                 else:
                     prompts.append(content)
-            elif message["role"] == "system" and not data.get(
-                "system_prompt"
-            ):
+            elif message["role"] == "system" and not data.get("system_prompt"):
                 data["system_prompt"] = message["content"]
 
         data["prompt"] = "\n".join(prompts)
@@ -348,9 +346,7 @@ class CodexCodeRequest(BaseModel):
         # System prompt → -c developer_instructions=<val>
         # (Codex CLI has no --system-prompt flag; uses developer_instructions)
         if self.system_prompt:
-            args.extend(
-                ["-c", f"developer_instructions={self.system_prompt}"]
-            )
+            args.extend(["-c", f"developer_instructions={self.system_prompt}"])
 
         # Reasoning effort → -c reasoning_effort=<val>
         if self.reasoning_effort:
@@ -369,9 +365,7 @@ class CodexCodeRequest(BaseModel):
 
         # Config overrides (-c key=value)
         for key, value in self.config_overrides.items():
-            serialized = (
-                json.dumps(value) if not isinstance(value, str) else value
-            )
+            serialized = json.dumps(value) if not isinstance(value, str) else value
             args.extend(["-c", f"{key}={serialized}"])
 
         # Working directory (always emit)
@@ -479,28 +473,20 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
         tool_id = tool_use.get("id", "")
 
         tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
-        tool_details.append(
-            {"tool": tool_name, "id": tool_id, "input": tool_input}
-        )
+        tool_details.append({"tool": tool_name, "id": tool_id, "input": tool_input})
 
         if tool_name in ("read_file", "Read", "read"):
-            file_path = tool_input.get(
-                "path", tool_input.get("file_path", "unknown")
-            )
+            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
             file_operations["reads"].append(file_path)
             key_actions.append(f"Read {file_path}")
 
         elif tool_name in ("write_file", "create_file", "Write", "write"):
-            file_path = tool_input.get(
-                "path", tool_input.get("file_path", "unknown")
-            )
+            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
             file_operations["writes"].append(file_path)
             key_actions.append(f"Wrote {file_path}")
 
         elif tool_name in ("edit_file", "patch", "Edit", "edit"):
-            file_path = tool_input.get(
-                "path", tool_input.get("file_path", "unknown")
-            )
+            file_path = tool_input.get("path", tool_input.get("file_path", "unknown"))
             file_operations["edits"].append(file_path)
             key_actions.append(f"Edited {file_path}")
 
@@ -512,9 +498,7 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
             "bash",
         ):
             command = tool_input.get("command", tool_input.get("cmd", ""))
-            command_summary = (
-                command[:50] + "..." if len(command) > 50 else command
-            )
+            command_summary = command[:50] + "..." if len(command) > 50 else command
             key_actions.append(f"Ran: {command_summary}")
 
         elif tool_name.startswith("mcp_") or tool_name.startswith("mcp__"):
@@ -525,20 +509,14 @@ def _extract_summary(session: CodexSession) -> dict[str, Any]:
             key_actions.append(f"Used {tool_name}")
 
     key_actions = (
-        list(dict.fromkeys(key_actions))
-        if key_actions
-        else ["No specific actions"]
+        list(dict.fromkeys(key_actions)) if key_actions else ["No specific actions"]
     )
 
     for op_type in file_operations:
-        file_operations[op_type] = list(
-            dict.fromkeys(file_operations[op_type])
-        )
+        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
 
     result_summary = (
-        (session.result[:200] + "...")
-        if len(session.result) > 200
-        else session.result
+        (session.result[:200] + "...") if len(session.result) > 200 else session.result
     )
 
     return {
@@ -567,9 +545,7 @@ async def _ndjson_from_cli(request: CodexCodeRequest):
     Robust against UTF-8 splits and uses json.JSONDecoder.raw_decode.
     """
     if CODEX_CLI is None:
-        raise RuntimeError(
-            "Codex CLI not found. Install with: npm i -g @openai/codex"
-        )
+        raise RuntimeError("Codex CLI not found. Install with: npm i -g @openai/codex")
 
     proc = await asyncio.create_subprocess_exec(
         CODEX_CLI,
@@ -612,9 +588,7 @@ async def _ndjson_from_cli(request: CodexCodeRequest):
                 obj, idx = json_decoder.raw_decode(buffer)
                 yield obj
             except json.JSONDecodeError:
-                log.error(
-                    "Skipped unrecoverable JSON tail: %.120s...", buffer
-                )
+                log.error("Skipped unrecoverable JSON tail: %.120s...", buffer)
 
         if await proc.wait() != 0:
             err = ""
@@ -664,18 +638,14 @@ def _pp_tool_use(tu: dict[str, Any]) -> None:
 
 
 def _pp_tool_result(tr: dict[str, Any]) -> None:
-    body_preview = shorten(
-        str(tr.get("content", "")).replace("\n", " "), 130
-    )
+    body_preview = shorten(str(tr.get("content", "")).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
     print(f"- Tool Result - {status}: {body_preview}")
 
 
 def _pp_final(sess: CodexSession) -> None:
     usage = sess.usage or {}
-    cost_str = (
-        f"${sess.total_cost_usd:.4f}" if sess.total_cost_usd else "N/A"
-    )
+    cost_str = f"${sess.total_cost_usd:.4f}" if sess.total_cost_usd else "N/A"
     print(
         f"\n### Codex Session complete\n"
         f"**Result:** {sess.result or ''}\n"
@@ -740,12 +710,8 @@ async def stream_codex_cli(
 
                 elif item_type in ("function_call", "tool_call"):
                     tu = {
-                        "id": item.get(
-                            "id", item.get("call_id", "")
-                        ),
-                        "name": item.get(
-                            "name", item.get("function", "")
-                        ),
+                        "id": item.get("id", item.get("call_id", "")),
+                        "name": item.get("name", item.get("function", "")),
                         "input": item.get(
                             "arguments",
                             item.get("input", item.get("args", {})),
@@ -760,12 +726,8 @@ async def stream_codex_cli(
 
                 elif item_type == "function_call_output":
                     tr = {
-                        "tool_use_id": item.get(
-                            "call_id", item.get("id", "")
-                        ),
-                        "content": item.get(
-                            "output", item.get("content", "")
-                        ),
+                        "tool_use_id": item.get("call_id", item.get("id", "")),
+                        "content": item.get("output", item.get("content", "")),
                         "is_error": item.get("is_error", False),
                     }
                     chunk.tool_result = tr
@@ -784,9 +746,7 @@ async def stream_codex_cli(
             # -- turn.completed (usage stats) --
             elif typ == "turn.completed":
                 session.usage = obj.get("usage", {})
-                session.total_cost_usd = obj.get(
-                    "total_cost_usd", obj.get("cost")
-                )
+                session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
                 session.num_turns = (session.num_turns or 0) + 1
 
             # -- turn.failed / error --
@@ -828,9 +788,7 @@ async def stream_codex_cli(
                                     "id": blk.get("id", ""),
                                     "name": blk.get(
                                         "name",
-                                        blk.get("function", {}).get(
-                                            "name", ""
-                                        ),
+                                        blk.get("function", {}).get("name", ""),
                                     ),
                                     "input": blk.get(
                                         "input",
@@ -849,21 +807,11 @@ async def stream_codex_cli(
                     "result",
                     obj.get("response", obj.get("text", "")),
                 ).strip()
-                session.usage = obj.get(
-                    "usage", obj.get("stats", {})
-                )
-                session.total_cost_usd = obj.get(
-                    "total_cost_usd", obj.get("cost")
-                )
-                session.num_turns = obj.get(
-                    "num_turns", obj.get("turns")
-                )
-                session.duration_ms = obj.get(
-                    "duration_ms", obj.get("duration")
-                )
-                session.is_error = obj.get(
-                    "is_error", obj.get("error") is not None
-                )
+                session.usage = obj.get("usage", obj.get("stats", {}))
+                session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
+                session.num_turns = obj.get("num_turns", obj.get("turns"))
+                session.duration_ms = obj.get("duration_ms", obj.get("duration"))
+                session.is_error = obj.get("is_error", obj.get("error") is not None)
 
             elif typ == "done":
                 break

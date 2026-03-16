@@ -49,7 +49,9 @@ __all__ = (
 )
 
 
-async def gather(*aws: Awaitable[T], return_exceptions: bool = False) -> list[T | BaseException]:
+async def gather(
+    *aws: Awaitable[T], return_exceptions: bool = False
+) -> list[T | BaseException]:
     """Run awaitables concurrently, return list of results.
 
     Args:

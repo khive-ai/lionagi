@@ -173,9 +173,7 @@ class ClaudeCodeRequest(BaseModel):
     permission_mode: ClaudePermissionMode | None = None
     allow_dangerously_skip_permissions: bool = Field(
         default=False,
-        json_schema_extra=_cli(
-            "--allow-dangerously-skip-permissions", 40, "bool"
-        ),
+        json_schema_extra=_cli("--allow-dangerously-skip-permissions", 40, "bool"),
     )
     allowed_tools: list[str] | None = Field(
         default=None,
@@ -230,9 +228,7 @@ class ClaudeCodeRequest(BaseModel):
     # ── features (order 80–89) ────────────────────────────────────
     chrome: bool | None = Field(
         default=None,
-        json_schema_extra=_cli(
-            "--chrome", 80, "bool_pair", neg_flag="--no-chrome"
-        ),
+        json_schema_extra=_cli("--chrome", 80, "bool_pair", neg_flag="--no-chrome"),
     )
     disable_slash_commands: bool = Field(
         default=False,
@@ -244,9 +240,7 @@ class ClaudeCodeRequest(BaseModel):
     )
 
     # ── output (order 90–99) ──────────────────────────────────────
-    output_format: ClaudeOutputFormat = Field(
-        default="stream-json", exclude=True
-    )
+    output_format: ClaudeOutputFormat = Field(default="stream-json", exclude=True)
     input_format: ClaudeInputFormat | None = Field(
         default=None,
         json_schema_extra=_cli("--input-format", 91),
@@ -284,9 +278,7 @@ class ClaudeCodeRequest(BaseModel):
         description="Automatically finish the conversation after the first response",
     )
     verbose_output: bool = Field(default=False, exclude=True)
-    cli_display_theme: Literal["light", "dark"] = Field(
-        default="dark", exclude=True
-    )
+    cli_display_theme: Literal["light", "dark"] = Field(default="dark", exclude=True)
     cli_include_summary: bool = Field(default=False, exclude=True)
 
     # Legacy fields (kept for backward compat, unused in CLI args)
@@ -358,14 +350,10 @@ class ClaudeCodeRequest(BaseModel):
                 data_["system_prompt"] = msg[0]["content"]
             else:
                 # Fresh session: append to Claude Code's built-in prompt
-                data_.setdefault(
-                    "append_system_prompt", msg[0]["content"]
-                )
+                data_.setdefault("append_system_prompt", msg[0]["content"])
 
         if "append_system_prompt" in data and data["append_system_prompt"]:
-            data_["append_system_prompt"] = str(
-                data.get("append_system_prompt")
-            )
+            data_["append_system_prompt"] = str(data.get("append_system_prompt"))
 
         data_.update(data)
         return data_
@@ -375,12 +363,8 @@ class ClaudeCodeRequest(BaseModel):
         # Session flag constraints
         if self.resume:
             self.continue_conversation = False
-        if self.fork_session and not (
-            self.resume or self.continue_conversation
-        ):
-            raise ValueError(
-                "--fork-session requires --resume or --continue"
-            )
+        if self.fork_session and not (self.resume or self.continue_conversation):
+            raise ValueError("--fork-session requires --resume or --continue")
 
         # Permission flag mutual exclusivity
         if (
@@ -553,9 +537,7 @@ class ClaudeCodeRequest(BaseModel):
 
             elif kind == "json_value":
                 serialized = (
-                    json.dumps(val)
-                    if isinstance(val, (dict, list))
-                    else str(val)
+                    json.dumps(val) if isinstance(val, (dict, list)) else str(val)
                 )
                 args.extend([flag, serialized])
 
@@ -631,9 +613,7 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
         tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
 
         # Store detailed info
-        tool_details.append(
-            {"tool": tool_name, "id": tool_id, "input": tool_input}
-        )
+        tool_details.append({"tool": tool_name, "id": tool_id, "input": tool_input})
 
         # Categorize file operations and actions
         if tool_name in ["Read", "read"]:
@@ -653,9 +633,7 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
 
         elif tool_name in ["Bash", "bash"]:
             command = tool_input.get("command", "")
-            command_summary = (
-                command[:50] + "..." if len(command) > 50 else command
-            )
+            command_summary = command[:50] + "..." if len(command) > 50 else command
             key_actions.append(f"Ran: {command_summary}")
 
         elif tool_name in ["Glob", "glob"]:
@@ -690,15 +668,11 @@ def _extract_summary(session: ClaudeSession) -> dict[str, Any]:
 
     # Deduplicate file paths
     for op_type in file_operations:
-        file_operations[op_type] = list(
-            dict.fromkeys(file_operations[op_type])
-        )
+        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
 
     # Extract result summary (first 200 chars)
     result_summary = (
-        (session.result[:200] + "...")
-        if len(session.result) > 200
-        else session.result
+        (session.result[:200] + "...") if len(session.result) > 200 else session.result
     )
 
     return {
@@ -780,13 +754,9 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
                 try:
                     fixed = repair_json(buffer)
                     yield json.loads(fixed)
-                    log.warning(
-                        "Repaired malformed JSON fragment at stream end"
-                    )
+                    log.warning("Repaired malformed JSON fragment at stream end")
                 except Exception:
-                    log.error(
-                        "Skipped unrecoverable JSON tail: %.120s…", buffer
-                    )
+                    log.error("Skipped unrecoverable JSON tail: %.120s…", buffer)
 
         # 4) propagate non-zero exit code
         if await proc.wait() != 0:
@@ -856,13 +826,17 @@ def _pp_tool_use(tu: dict[str, Any], theme) -> None:
 def _pp_tool_result(tr: dict[str, Any], theme) -> None:
     body_preview = shorten(str(tr["content"]).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
-    body = f"- 📄 Tool Result({tr['tool_use_id']}) - {status}\n\n\tcontent: {body_preview}"
+    body = (
+        f"- 📄 Tool Result({tr['tool_use_id']}) - {status}\n\n\tcontent: {body_preview}"
+    )
     print_readable(body, border=False, panel=False, theme=theme)
 
 
 def _pp_final(sess: ClaudeSession, theme) -> None:
     usage = sess.usage or {}
-    cost_str = f"${sess.total_cost_usd:.4f}" if sess.total_cost_usd is not None else "N/A"
+    cost_str = (
+        f"${sess.total_cost_usd:.4f}" if sess.total_cost_usd is not None else "N/A"
+    )
     txt = (
         f"### ✅ Session complete - {datetime.now(timezone.utc).isoformat(timespec='seconds')} UTC\n"
         f"**Result:**\n\n{sess.result or ''}\n\n"
@@ -916,9 +890,7 @@ async def stream_claude_code_cli(  # noqa: C901
             # ------------------------ SYSTEM -----------------------------------
             if typ == "system":
                 data = obj
-                session.session_id = data.get(
-                    "session_id", session.session_id
-                )
+                session.session_id = data.get("session_id", session.session_id)
                 session.model = data.get("model", session.model)
                 await _maybe_await(on_system, data)
                 if request.verbose_output:

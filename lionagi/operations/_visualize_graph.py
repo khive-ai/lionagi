@@ -38,7 +38,9 @@ def visualize_graph(
         G.add_node(node_id)
 
         # Determine level based on dependencies
-        in_edges = [e for e in graph.internal_edges.values() if str(e.tail)[:8] == node_id]
+        in_edges = [
+            e for e in graph.internal_edges.values() if str(e.tail)[:8] == node_id
+        ]
         if not in_edges:
             level = 0  # Root nodes
         else:
@@ -256,9 +258,7 @@ def visualize_graph(
     )
 
     # Add statistics box
-    stats_text = (
-        f"Nodes: {len(G.nodes())}\nEdges: {len(G.edges())}\nExecuted: {len(builder._executed)}"
-    )
+    stats_text = f"Nodes: {len(G.nodes())}\nEdges: {len(G.edges())}\nExecuted: {len(builder._executed)}"
     if nodes_by_level:
         max_level = max(nodes_by_level.keys())
         stats_text += f"\nLevels: {max_level + 1}"

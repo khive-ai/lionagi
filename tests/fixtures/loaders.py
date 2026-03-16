@@ -83,7 +83,9 @@ class TestDataLoader:
         responses = self.load_json("api_responses")
         if response_type not in responses:
             available = list(responses.keys())
-            raise ValueError(f"Response type '{response_type}' not found. Available: {available}")
+            raise ValueError(
+                f"Response type '{response_type}' not found. Available: {available}"
+            )
 
         return responses[response_type]
 
@@ -100,7 +102,9 @@ class TestDataLoader:
         errors = self.load_json("error_scenarios")
         if error_type not in errors:
             available = list(errors.keys())
-            raise ValueError(f"Error type '{error_type}' not found. Available: {available}")
+            raise ValueError(
+                f"Error type '{error_type}' not found. Available: {available}"
+            )
 
         return errors[error_type]
 

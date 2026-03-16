@@ -54,7 +54,9 @@ def prepare_parse_kws(
             stacklevel=2,
         )
 
-    response_format = operative.request_type if operative else response_format or request_type
+    response_format = (
+        operative.request_type if operative else response_format or request_type
+    )
     _alcall_params = get_default_call()
     max_retries = operative.max_retries if operative else max_retries or 3
 

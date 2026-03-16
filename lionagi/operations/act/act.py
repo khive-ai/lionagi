@@ -39,7 +39,9 @@ async def _act(
             "function": action_request.function,
             "arguments": action_request.arguments,
         }
-    if not isinstance(_request, dict) or not {"function", "arguments"} <= set(_request.keys()):
+    if not isinstance(_request, dict) or not {"function", "arguments"} <= set(
+        _request.keys()
+    ):
         raise ValueError(
             "action_request must be an ActionRequest, BaseModel with 'function'"
             " and 'arguments', or dict with 'function' and 'arguments'."
@@ -53,7 +55,9 @@ async def _act(
 
         func_call = await branch._action_manager.invoke(_request)
         if verbose_action:
-            logger.debug("Action %s invoked, status: %s.", _request["function"], func_call.status)
+            logger.debug(
+                "Action %s invoked, status: %s.", _request["function"], func_call.status
+            )
 
     except Exception as e:
         content = {
@@ -164,7 +168,9 @@ async def _concurrent_act(
         return await _act(branch, req, suppress_errors, verbose_action)
 
     # AlcallParams expects a list as first argument
-    action_request_list = action_request if isinstance(action_request, list) else [action_request]
+    action_request_list = (
+        action_request if isinstance(action_request, list) else [action_request]
+    )
 
     return await call_params(action_request_list, _wrapper)
 
@@ -176,7 +182,9 @@ async def _sequential_act(
     verbose_action: bool = False,
 ) -> list:
     """Execute actions sequentially."""
-    action_request = action_request if isinstance(action_request, list) else [action_request]
+    action_request = (
+        action_request if isinstance(action_request, list) else [action_request]
+    )
     results = []
     for req in action_request:
         result = await _act(branch, req, suppress_errors, verbose_action)

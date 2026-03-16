@@ -62,7 +62,7 @@ class TestMembersInitialization:
 
     def test_members_initialized_from_order(self, prog, elems):
         """_members should contain exactly the IDs present in order."""
-        assert prog._members == set(e.id for e in elems)
+        assert prog._members == {e.id for e in elems}
 
     def test_members_empty_on_empty_progression(self, empty_prog):
         assert empty_prog._members == set()
@@ -71,7 +71,7 @@ class TestMembersInitialization:
         """When order is given as Element objects, _members still syncs."""
         elements = [MockElement(value=i) for i in range(3)]
         p = Progression(order=elements)
-        assert p._members == set(e.id for e in elements)
+        assert p._members == {e.id for e in elements}
 
     def test_members_with_duplicate_ids(self):
         """Duplicates in order are allowed; _members is a set (unique)."""
@@ -265,14 +265,14 @@ class TestSerializationRoundTrip:
     def test_from_dict_restores_members(self, prog, elems):
         d = prog.to_dict()
         restored = Progression.from_dict(d)
-        assert restored._members == set(e.id for e in elems)
+        assert restored._members == {e.id for e in elems}
         for e in elems:
             assert e in restored
 
     def test_json_round_trip_restores_members(self, prog, elems):
         json_str = prog.model_dump_json()
         restored = Progression.from_dict(json.loads(json_str))
-        assert restored._members == set(e.id for e in elems)
+        assert restored._members == {e.id for e in elems}
         assert len(restored) == len(elems)
 
     def test_contains_works_after_deserialization(self, prog, elems):
@@ -548,23 +548,23 @@ class TestMembersUnaffectedByReorderOps:
     """move, swap, and reverse do not change set membership."""
 
     def test_move_members_unchanged(self, prog, elems):
-        expected = set(e.id for e in elems)
+        expected = {e.id for e in elems}
         prog.move(0, 4)
         assert prog._members == expected
 
     def test_swap_members_unchanged(self, prog, elems):
-        expected = set(e.id for e in elems)
+        expected = {e.id for e in elems}
         prog.swap(1, 3)
         assert prog._members == expected
 
     def test_reverse_members_unchanged(self, prog, elems):
-        expected = set(e.id for e in elems)
+        expected = {e.id for e in elems}
         prog.reverse()
         assert prog._members == expected
 
     def test_chained_operations_members_consistent(self, prog, elems):
         """Sequence of move, swap, reverse should keep _members consistent."""
-        expected = set(e.id for e in elems)
+        expected = {e.id for e in elems}
         prog.move(0, 3)
         prog.swap(1, 4)
         prog.reverse()
@@ -610,7 +610,7 @@ class TestIntegrationScenarios:
         for e in elements:
             empty_prog.append(e)
         empty_prog.move(0, 3)
-        assert empty_prog._members == set(e.id for e in elements)
+        assert empty_prog._members == {e.id for e in elements}
         assert len(empty_prog) == 4
 
     def test_serialize_after_reorder_operations(self, prog, elems):

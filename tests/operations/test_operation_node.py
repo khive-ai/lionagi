@@ -191,7 +191,9 @@ async def test_operation_invoke_with_basemodel_params():
     await op.invoke()
 
     # Verify the method was called with unpacked parameters
-    branch.operate.assert_called_once_with(instruction="Complex task", count=3, enabled=False)
+    branch.operate.assert_called_once_with(
+        instruction="Complex task", count=3, enabled=False
+    )
 
     # Verify response
     assert op.response == {"operation": "operate", "result": "success"}
@@ -242,7 +244,9 @@ async def test_operation_invoke_all_operations():
 
     # Set up all mock methods
     branch.chat = AsyncMock(return_value="chat_response: test")
-    branch.operate = AsyncMock(return_value={"operation": "operate", "result": "success"})
+    branch.operate = AsyncMock(
+        return_value={"operation": "operate", "result": "success"}
+    )
     branch.communicate = AsyncMock(return_value="communicate_response")
     branch.parse = AsyncMock(return_value={"parsed": True})
     branch.ReAct = AsyncMock(return_value={"react": "result"})
@@ -440,7 +444,10 @@ async def test_operation_concurrent_invocations():
     branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     # Create multiple operations
-    ops = [Operation(operation="chat", parameters={"instruction": f"Task {i}"}) for i in range(5)]
+    ops = [
+        Operation(operation="chat", parameters={"instruction": f"Task {i}"})
+        for i in range(5)
+    ]
 
     # Invoke all operations concurrently
     for op in ops:

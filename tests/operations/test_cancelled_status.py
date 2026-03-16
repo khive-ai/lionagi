@@ -16,9 +16,7 @@ from lionagi.protocols.generic.event import EventStatus
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.providers.oai_ import _get_oai_config
-from lionagi.service.third_party.openai_models import (
-    OpenAIChatCompletionsRequest,
-)
+from lionagi.service.third_party.openai_models import OpenAIChatCompletionsRequest
 
 
 @pytest.mark.slow

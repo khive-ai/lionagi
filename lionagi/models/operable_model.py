@@ -4,13 +4,7 @@
 import logging
 from typing import Any, TypeVar
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 from typing_extensions import Self, override
@@ -339,7 +333,9 @@ class OperableModel(HashableModel):
         # Handle field_obj
         if field_obj:
             if not isinstance(field_obj, FieldInfo):
-                raise ValueError("Invalid field_obj, should be a pydantic FieldInfo object")
+                raise ValueError(
+                    "Invalid field_obj, should be a pydantic FieldInfo object"
+                )
             self.extra_fields[field_name] = field_obj
 
         if field_model:

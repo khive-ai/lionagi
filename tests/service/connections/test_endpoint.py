@@ -91,7 +91,9 @@ class TestEndpoint:
         endpoint = Endpoint(config=openai_config)
         request = {"messages": [{"role": "user", "content": "test"}]}
 
-        payload, headers = endpoint.create_payload(request, temperature=0.9, max_tokens=500)
+        payload, headers = endpoint.create_payload(
+            request, temperature=0.9, max_tokens=500
+        )
 
         assert payload["temperature"] == 0.9
         assert payload["max_tokens"] == 500
@@ -134,7 +136,9 @@ class TestEndpoint:
             sessions_created.append(session)
             return session
 
-        with patch.object(endpoint, "_create_http_session", side_effect=mock_create_session):
+        with patch.object(
+            endpoint, "_create_http_session", side_effect=mock_create_session
+        ):
             # Simulate multiple concurrent requests
             tasks = []
             for i in range(3):
@@ -145,7 +149,9 @@ class TestEndpoint:
 
         # Verify each call created its own session
         assert len(sessions_created) == 3
-        assert all(session is not sessions_created[0] for session in sessions_created[1:])
+        assert all(
+            session is not sessions_created[0] for session in sessions_created[1:]
+        )
 
     def test_create_payload_openai(self, openai_config):
         """Test payload creation for OpenAI endpoint."""
@@ -243,14 +249,19 @@ class TestEndpoint:
             return {
                 "id": f"response-{payload['messages'][0]['content']}",
                 "choices": [
-                    {"message": {"content": f"Response to {payload['messages'][0]['content']}"}}
+                    {
+                        "message": {
+                            "content": f"Response to {payload['messages'][0]['content']}"
+                        }
+                    }
                 ],
             }
 
         with patch.object(endpoint, "call", side_effect=mock_request_with_delay):
             # Create multiple concurrent requests
             requests = [
-                {"messages": [{"role": "user", "content": f"Message {i}"}]} for i in range(3)
+                {"messages": [{"role": "user", "content": f"Message {i}"}]}
+                for i in range(3)
             ]
 
             tasks = []
@@ -587,5 +598,6 @@ class TestEndpoint:
         assert restored_endpoint.retry_config is not None
         assert restored_endpoint.circuit_breaker is not None
         assert (
-            restored_endpoint.retry_config.max_retries == original_endpoint.retry_config.max_retries
+            restored_endpoint.retry_config.max_retries
+            == original_endpoint.retry_config.max_retries
         )

@@ -195,14 +195,20 @@ class ReaderTool(LionTool):
         if request.action == "open":
             return self._open_doc(request.path_or_url)
         if request.action == "read":
-            return self._read_doc(request.doc_id, request.start_offset, request.end_offset)
+            return self._read_doc(
+                request.doc_id, request.start_offset, request.end_offset
+            )
         if request.action == "list_dir":
-            return self._list_dir(request.path_or_url, request.recursive, request.file_types)
+            return self._list_dir(
+                request.path_or_url, request.recursive, request.file_types
+            )
         else:
             return ReaderResponse(success=False, error="Unknown action type")
 
     def _save_to_temp(self, text, doc_id):
-        temp_file = tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8")
+        temp_file = tempfile.NamedTemporaryFile(
+            delete=False, mode="w", encoding="utf-8"
+        )
         temp_file.write(text)
         doc_len = len(text)
         temp_file.close()

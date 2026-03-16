@@ -25,7 +25,10 @@ class TestAnthropicIntegration:
         assert anthropic_imodel.endpoint.config.openai_compatible is False
         if anthropic_imodel.endpoint.config.endpoint_params:
             assert "messages" in anthropic_imodel.endpoint.config.endpoint_params
-        assert anthropic_imodel.endpoint.config.default_headers["anthropic-version"] == "2023-06-01"
+        assert (
+            anthropic_imodel.endpoint.config.default_headers["anthropic-version"]
+            == "2023-06-01"
+        )
 
     def test_anthropic_headers_creation(self, anthropic_imodel):
         """Test that Anthropic headers are created correctly."""
@@ -82,7 +85,9 @@ class TestAnthropicIntegration:
         assert payload["messages"][0]["role"] == "user"
 
     @pytest.mark.asyncio
-    async def test_anthropic_api_calling_creation(self, anthropic_imodel, mock_anthropic_response):
+    async def test_anthropic_api_calling_creation(
+        self, anthropic_imodel, mock_anthropic_response
+    ):
         """Test creating APICalling for Anthropic."""
         api_call = anthropic_imodel.create_api_calling(
             messages=[{"role": "user", "content": "Hello, Claude!"}],
@@ -96,7 +101,9 @@ class TestAnthropicIntegration:
         assert api_call.payload["temperature"] == 0.7
 
     @pytest.mark.asyncio
-    async def test_anthropic_successful_invoke(self, anthropic_imodel, mock_anthropic_response):
+    async def test_anthropic_successful_invoke(
+        self, anthropic_imodel, mock_anthropic_response
+    ):
         """Test successful Anthropic API invocation."""
         with patch.object(
             anthropic_imodel.endpoint,
@@ -143,7 +150,10 @@ class TestAnthropicIntegration:
                 messages=[{"role": "user", "content": "Hello"}], max_tokens=100
             ):
                 # Check if chunk is a dict with 'type' key instead of an object with 'type' attribute
-                if isinstance(chunk, dict) and chunk.get("type") == "content_block_delta":
+                if (
+                    isinstance(chunk, dict)
+                    and chunk.get("type") == "content_block_delta"
+                ):
                     chunks.append(chunk)
 
         assert len(chunks) >= 2
@@ -205,7 +215,9 @@ class TestAnthropicIntegration:
             assert "messages" in endpoint.config.endpoint_params
 
     @pytest.mark.asyncio
-    async def test_anthropic_parallel_requests(self, anthropic_imodel, mock_anthropic_response):
+    async def test_anthropic_parallel_requests(
+        self, anthropic_imodel, mock_anthropic_response
+    ):
         """Test parallel requests to Anthropic API."""
         import asyncio
 

@@ -10,9 +10,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.providers.oai_ import _get_oai_config
 from lionagi.service.imodel import iModel
-from lionagi.service.third_party.openai_models import (
-    OpenAIChatCompletionsRequest,
-)
+from lionagi.service.third_party.openai_models import OpenAIChatCompletionsRequest
 from lionagi.session.branch import Branch
 
 
@@ -37,7 +35,9 @@ def make_mocked_branch_for_operate():
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
+    mock_chat_model = iModel(
+        provider="openai", model="gpt-4.1-mini", api_key="test_key"
+    )
     mock_chat_model.invoke = mock_invoke
 
     branch.chat_model = mock_chat_model
@@ -119,7 +119,9 @@ async def test_operate_with_actions_preserves_response_data():
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke_with_actions)
-    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
+    mock_chat_model = iModel(
+        provider="openai", model="gpt-4.1-mini", api_key="test_key"
+    )
     mock_chat_model.invoke = mock_invoke
     branch.chat_model = mock_chat_model
 

@@ -134,7 +134,9 @@ class TestStreamHandlerErrors:
         registry = HookRegistry()
 
         # Should return ValidationError in result
-        res, se, st = await registry.handle_streaming_chunk("missing", "data", exit=False)
+        res, se, st = await registry.handle_streaming_chunk(
+            "missing", "data", exit=False
+        )
 
         # Should return the ValidationError as the result
         assert isinstance(res, Exception)
@@ -191,7 +193,9 @@ class TestStreamHandlerIntegration:
 
         registry = HookRegistry(stream_handlers={"sync": sync_handler})
 
-        res, se, st = await registry.handle_streaming_chunk("sync", "test_data", exit=False)
+        res, se, st = await registry.handle_streaming_chunk(
+            "sync", "test_data", exit=False
+        )
 
         assert res == "sync: sync:test_data"
         assert se is False

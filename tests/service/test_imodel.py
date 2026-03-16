@@ -84,7 +84,9 @@ class TestiModel:
             "call",
             return_value=mock_response.json.return_value,
         ):
-            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
+            result = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
 
         assert isinstance(result, APICalling)
         assert result.status == EventStatus.COMPLETED
@@ -105,7 +107,9 @@ class TestiModel:
             tasks = []
             for i in range(3):
                 task = asyncio.create_task(
-                    imodel.invoke(messages=[{"role": "user", "content": f"Message {i}"}])
+                    imodel.invoke(
+                        messages=[{"role": "user", "content": f"Message {i}"}]
+                    )
                 )
                 tasks.append(task)
 
@@ -136,7 +140,9 @@ class TestiModel:
 
         with patch.object(imodel.endpoint, "stream", return_value=mock_stream()):
             chunks = []
-            async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
+            async for chunk in imodel.stream(
+                messages=[{"role": "user", "content": "Hello"}]
+            ):
                 if chunk:
                     chunks.append(chunk)
 
@@ -166,7 +172,9 @@ class TestiModel:
         imodel = base_imodel
 
         with patch.object(imodel.endpoint, "call", side_effect=Exception("API Error")):
-            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
+            result = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
 
             # The invoke method returns a failed APICalling object instead of raising
             assert result.status == EventStatus.FAILED
@@ -254,7 +262,11 @@ class TestiModel:
         async def mock_request(request, cache_control=False, **kwargs):
             await asyncio.sleep(0.05)
             # The request parameter is the payload dict
-            model = request.get("model", "unknown") if isinstance(request, dict) else "unknown"
+            model = (
+                request.get("model", "unknown")
+                if isinstance(request, dict)
+                else "unknown"
+            )
             return {"model_used": model, "response": "test"}
 
         with patch(
@@ -356,7 +368,9 @@ class TestiModel:
         imodel.endpoint.session_id = "test-session-123"
 
         # Create API calling without explicit resume parameter
-        api_call = imodel.create_api_calling(messages=[{"role": "user", "content": "Hello"}])
+        api_call = imodel.create_api_calling(
+            messages=[{"role": "user", "content": "Hello"}]
+        )
 
         # Check that resume was auto-injected (in the request object for claude_code)
         assert api_call.payload["request"].resume == "test-session-123"
@@ -409,7 +423,9 @@ class TestiModel:
 
         with patch.object(imodel.endpoint, "stream", return_value=mock_stream()):
             chunks = []
-            async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
+            async for chunk in imodel.stream(
+                messages=[{"role": "user", "content": "Hello"}]
+            ):
                 if chunk and not isinstance(chunk, APICalling):
                     chunks.append(chunk)
 
@@ -429,8 +445,12 @@ class TestiModel:
         async def mock_request_with_session(request, cache_control=False, **kwargs):
             return {"session_id": "new-session-456", "response": "test"}
 
-        with patch.object(imodel.endpoint, "call", side_effect=mock_request_with_session):
-            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
+        with patch.object(
+            imodel.endpoint, "call", side_effect=mock_request_with_session
+        ):
+            result = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
 
         # Check that session_id was stored on the CLI endpoint
         assert imodel.endpoint.session_id == "new-session-456"
@@ -519,7 +539,9 @@ class TestiModel:
             "call",
             return_value=mock_response.json.return_value,
         ):
-            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
+            result = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
 
         assert isinstance(result, APICalling)
         assert result.status == EventStatus.COMPLETED
@@ -529,7 +551,9 @@ class TestiModelEdgeCases:
     """Edge case tests for iModel - concurrent behavior, rate limiting, error recovery."""
 
     @pytest.mark.asyncio
-    async def test_concurrent_streaming_multiple_requests(self, mock_streaming_response):
+    async def test_concurrent_streaming_multiple_requests(
+        self, mock_streaming_response
+    ):
         """Test concurrent streaming requests with semaphore control."""
         imodel = iModel(
             provider="openai",
@@ -599,7 +623,9 @@ class TestiModelEdgeCases:
             tasks = []
             for i in range(10):
                 task = asyncio.create_task(
-                    imodel.invoke(messages=[{"role": "user", "content": f"Request {i}"}])
+                    imodel.invoke(
+                        messages=[{"role": "user", "content": f"Request {i}"}]
+                    )
                 )
                 tasks.append(task)
 
@@ -619,7 +645,9 @@ class TestiModelEdgeCases:
             return {"provider": "openai", "response": "OpenAI response"}
 
         with patch.object(imodel1.endpoint, "call", side_effect=mock_openai_call):
-            result1 = await imodel1.invoke(messages=[{"role": "user", "content": "Hello"}])
+            result1 = await imodel1.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
             assert result1.response["provider"] == "openai"
 
         # Switch to Anthropic with required parameters
@@ -655,7 +683,9 @@ class TestiModelEdgeCases:
 
         # First call fails
         with patch.object(imodel.endpoint, "call", side_effect=Exception("API Error")):
-            result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
+            result = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
             assert result.status == EventStatus.FAILED
             assert result.execution.error is not None
 
@@ -664,7 +694,9 @@ class TestiModelEdgeCases:
         with patch.object(imodel.endpoint, "call", side_effect=failing_then_success):
             # Manual retry loop
             for attempt in range(5):
-                result = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
+                result = await imodel.invoke(
+                    messages=[{"role": "user", "content": "Hello"}]
+                )
                 if result.status == EventStatus.COMPLETED:
                     break
 
@@ -685,7 +717,9 @@ class TestiModelEdgeCases:
             chunks = []
             error_raised = False
             try:
-                async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
+                async for chunk in imodel.stream(
+                    messages=[{"role": "user", "content": "Hello"}]
+                ):
                     if chunk and not isinstance(chunk, APICalling):
                         chunks.append(chunk)
             except ValueError as e:
@@ -715,7 +749,9 @@ class TestiModelEdgeCases:
             tasks = []
             for i in range(10):
                 task = asyncio.create_task(
-                    imodel.invoke(messages=[{"role": "user", "content": f"Request {i}"}])
+                    imodel.invoke(
+                        messages=[{"role": "user", "content": f"Request {i}"}]
+                    )
                 )
                 tasks.append(task)
 
@@ -723,7 +759,9 @@ class TestiModelEdgeCases:
 
         # Some should complete successfully
         successful = [
-            r for r in results if isinstance(r, APICalling) and r.status == EventStatus.COMPLETED
+            r
+            for r in results
+            if isinstance(r, APICalling) and r.status == EventStatus.COMPLETED
         ]
         assert len(successful) > 0
 
@@ -741,7 +779,9 @@ class TestiModelEdgeCases:
             return {"session_id": "session-123", "response": "First call"}
 
         with patch.object(imodel.endpoint, "call", side_effect=first_call):
-            result1 = await imodel.invoke(messages=[{"role": "user", "content": "Hello"}])
+            result1 = await imodel.invoke(
+                messages=[{"role": "user", "content": "Hello"}]
+            )
             assert imodel.endpoint.session_id == "session-123"
 
         # Second call uses stored session_id
@@ -780,7 +820,9 @@ class TestiModelEdgeCases:
         with patch.object(imodel.endpoint, "stream", return_value=mock_stream()):
             chunks = []
             try:
-                async for chunk in imodel.stream(messages=[{"role": "user", "content": "Hello"}]):
+                async for chunk in imodel.stream(
+                    messages=[{"role": "user", "content": "Hello"}]
+                ):
                     if chunk and not isinstance(chunk, APICalling):
                         chunks.append(chunk)
             except ValueError as e:
@@ -867,13 +909,17 @@ class TestiModelValidationErrors:
         imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         # Invalid model type should fail validation
         with pytest.raises(ValueError, match="Invalid payload"):
-            imodel.create_api_calling(messages=[{"role": "user", "content": "test"}], model=123)
+            imodel.create_api_calling(
+                messages=[{"role": "user", "content": "test"}], model=123
+            )
 
     def test_very_long_message_content(self):
         """Test iModel with extremely long message content."""
         imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test-key")
         long_content = "x" * 1000000  # 1 million characters
-        api_call = imodel.create_api_calling(messages=[{"role": "user", "content": long_content}])
+        api_call = imodel.create_api_calling(
+            messages=[{"role": "user", "content": long_content}]
+        )
         assert len(api_call.payload["messages"][0]["content"]) == 1000000
 
     def test_special_characters_in_messages(self):
@@ -1023,7 +1069,9 @@ class TestiModelRateLimitingEdgeCases:
             # Fire 20 requests at once
             tasks = [
                 asyncio.create_task(
-                    imodel.invoke(messages=[{"role": "user", "content": f"Request {i}"}])
+                    imodel.invoke(
+                        messages=[{"role": "user", "content": f"Request {i}"}]
+                    )
                 )
                 for i in range(20)
             ]

@@ -95,9 +95,7 @@ class Instruct(HashableModel):
 
     @field_validator("reason", "actions", mode="before")
     def _validate_reason(cls, v):
-        from lionagi.libs.validate.common_field_validators import (
-            validate_boolean_field,
-        )
+        from lionagi.libs.validate.common_field_validators import validate_boolean_field
 
         return validate_boolean_field(cls, v)
 
@@ -214,7 +212,9 @@ class ActionRequestModel(HashableModel):
                 if not json_blocks:
                     pattern2 = r"```python\s*(.*?)\s*```"
                     _d = re.findall(pattern2, content, re.DOTALL)
-                    json_blocks = [extract_json(match, fuzzy_parse=True) for match in _d]
+                    json_blocks = [
+                        extract_json(match, fuzzy_parse=True) for match in _d
+                    ]
                     json_blocks = to_list(json_blocks, dropna=True)
 
                 logger.debug("Parsed action request JSON blocks: %s", json_blocks)
@@ -234,7 +234,11 @@ class ActionRequestModel(HashableModel):
                         if "name" in i["function"]:
                             i["function"] = i["function"]["name"]
                     for k, v in i.items():
-                        k = k.replace("action_", "").replace("recipient_", "").replace("s", "")
+                        k = (
+                            k.replace("action_", "")
+                            .replace("recipient_", "")
+                            .replace("s", "")
+                        )
                         if k in ["name", "function", "recipient"]:
                             j["function"] = v
                         elif k in ["parameter", "argument", "arg", "param"]:
@@ -244,7 +248,11 @@ class ActionRequestModel(HashableModel):
                                 fuzzy_parse=True,
                                 suppress=True,
                             )
-                    if j and all(key in j for key in ["function", "arguments"]) and j["arguments"]:
+                    if (
+                        j
+                        and all(key in j for key in ["function", "arguments"])
+                        and j["arguments"]
+                    ):
                         out.append(j)
 
             return out
@@ -365,7 +373,9 @@ def _get_default_fields(
         fm = fm.with_default(default)
 
     if fm.is_listable:
-        fm = fm.with_validator(lambda cls, x: to_list(x, dropna=True, flatten=True, unique=True))
+        fm = fm.with_validator(
+            lambda cls, x: to_list(x, dropna=True, flatten=True, unique=True)
+        )
 
     return fm
 

@@ -4,13 +4,7 @@
 from typing import Any
 from uuid import UUID
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_serializer,
-    field_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from lionagi.utils import is_same_dtype
 

@@ -163,15 +163,7 @@ class TestLazyLoadingBehavior:
 
     def test_all_protocol_types_importable(self):
         """Test that all protocol types are importable."""
-        from lionagi import (
-            Edge,
-            Element,
-            Event,
-            Graph,
-            Node,
-            Pile,
-            Progression,
-        )
+        from lionagi import Edge, Element, Event, Graph, Node, Pile, Progression
 
         assert Element is not None
         assert Pile is not None

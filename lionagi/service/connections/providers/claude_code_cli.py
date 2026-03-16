@@ -12,13 +12,9 @@ from lionagi.service.connections.cli_endpoint import CLIEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.utils import to_dict
 
-from ...third_party.claude_code import (
-    ClaudeChunk,
-    ClaudeCodeRequest,
-    ClaudeSession,
-    stream_claude_code_cli,
-)
+from ...third_party.claude_code import ClaudeChunk, ClaudeCodeRequest, ClaudeSession
 from ...third_party.claude_code import log as cc_log
+from ...third_party.claude_code import stream_claude_code_cli
 
 _get_config = lambda: EndpointConfig(
     name="claude_code_cli",
@@ -103,7 +99,9 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
         # 1. stream the Claude Code response
         try:
             async with contextlib.aclosing(
-                stream_claude_code_cli(request, session, **self.claude_handlers, **kwargs)
+                stream_claude_code_cli(
+                    request, session, **self.claude_handlers, **kwargs
+                )
             ) as gen:
                 async for chunk in gen:
                     if isinstance(chunk, dict):
@@ -116,7 +114,12 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
             _cancelled = True
             raise
 
-        if not _cancelled and request.auto_finish and responses and not isinstance(responses[-1], ClaudeSession):
+        if (
+            not _cancelled
+            and request.auto_finish
+            and responses
+            and not isinstance(responses[-1], ClaudeSession)
+        ):
             req2 = request.model_copy(deep=True)
             req2.prompt = "Please provide a the final result message only"
             req2.max_turns = 1
@@ -131,7 +134,9 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
                     responses.append(chunk)
                     if isinstance(chunk, ClaudeSession):
                         break
-        cc_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
+        cc_log.info(
+            f"Session {session.session_id} finished with {len(responses)} chunks"
+        )
         texts = []
         for i in session.chunks:
             if i.text is not None:

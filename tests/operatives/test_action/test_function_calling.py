@@ -3,10 +3,7 @@ from typing import Any
 
 import pytest
 
-from lionagi.protocols.action.function_calling import (
-    FunctionCalling,
-    Tool,
-)
+from lionagi.protocols.action.function_calling import FunctionCalling, Tool
 from lionagi.protocols.generic.event import EventStatus
 
 
@@ -96,7 +93,9 @@ async def test_function_calling_with_async_function(async_tool):
 @pytest.mark.asyncio
 async def test_function_calling_with_parser(tool_with_processors):
     """Test FunctionCalling with result parser."""
-    func_call = FunctionCalling(func_tool=tool_with_processors, arguments={"x": 1, "y": "test"})
+    func_call = FunctionCalling(
+        func_tool=tool_with_processors, arguments={"x": 1, "y": "test"}
+    )
 
     result = await func_call.invoke()
     assert isinstance(func_call.response, str)

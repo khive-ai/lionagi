@@ -7,11 +7,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel
 
-from lionagi.service.resilience import (
-    CircuitBreaker,
-    RetryConfig,
-    retry_with_backoff,
-)
+from lionagi.service.resilience import CircuitBreaker, RetryConfig, retry_with_backoff
 
 from .endpoint_config import EndpointConfig
 from .header_factory import HeaderFactory
@@ -92,7 +88,11 @@ class Endpoint:
             headers.update(extra_headers)
 
         # Convert request to dict if it's a BaseModel
-        request = request if isinstance(request, dict) else request.model_dump(exclude_none=True)
+        request = (
+            request
+            if isinstance(request, dict)
+            else request.model_dump(exclude_none=True)
+        )
 
         # Start with config defaults
         payload = self.config.kwargs.copy()
@@ -174,7 +174,9 @@ class Endpoint:
             payload = request if isinstance(request, dict) else request.model_dump()
             headers = extra_headers or {}
         else:
-            payload, headers = self.create_payload(request, extra_headers=extra_headers, **kwargs)
+            payload, headers = self.create_payload(
+                request, extra_headers=extra_headers, **kwargs
+            )
 
         # Apply resilience patterns if configured
         call_func = self._call
@@ -192,7 +194,9 @@ class Endpoint:
             if self.retry_config:
                 # If both are configured, apply circuit breaker to the retry-wrapped function
                 if not cache_control:
-                    return await self.circuit_breaker.execute(call_func, payload, headers, **kwargs)
+                    return await self.circuit_breaker.execute(
+                        call_func, payload, headers, **kwargs
+                    )
             else:
                 # If only circuit breaker is configured, apply it directly
                 if not cache_control:
@@ -210,7 +214,9 @@ class Endpoint:
             async def _cached_call(payload: dict, headers: dict, **kwargs):
                 # Apply resilience patterns to cached call if configured
                 if self.circuit_breaker and self.retry_config:
-                    return await self.circuit_breaker.execute(call_func, payload, headers, **kwargs)
+                    return await self.circuit_breaker.execute(
+                        call_func, payload, headers, **kwargs
+                    )
                 if self.circuit_breaker:
                     return await self.circuit_breaker.execute(
                         self._call, payload, headers, **kwargs
@@ -263,11 +269,11 @@ class Endpoint:
                         # Try to get error details from response body
                         try:
                             error_body = await response.json()
-                            error_message = (
-                                f"Request failed with status {response.status}: {error_body}"
-                            )
+                            error_message = f"Request failed with status {response.status}: {error_body}"
                         except Exception:
-                            error_message = f"Request failed with status {response.status}"
+                            error_message = (
+                                f"Request failed with status {response.status}"
+                            )
 
                         raise aiohttp.ClientResponseError(
                             request_info=response.request_info,
@@ -324,7 +330,9 @@ class Endpoint:
         payload, headers = self.create_payload(request, extra_headers, **kwargs)
 
         # Direct streaming without context manager
-        async for chunk in self._stream_aiohttp(payload=payload, headers=headers, **kwargs):
+        async for chunk in self._stream_aiohttp(
+            payload=payload, headers=headers, **kwargs
+        ):
             yield chunk
 
     async def _stream_aiohttp(self, payload: dict, headers: dict, **kwargs):
@@ -368,8 +376,12 @@ class Endpoint:
 
     def to_dict(self):
         return {
-            "retry_config": (self.retry_config.to_dict() if self.retry_config else None),
-            "circuit_breaker": (self.circuit_breaker.to_dict() if self.circuit_breaker else None),
+            "retry_config": (
+                self.retry_config.to_dict() if self.retry_config else None
+            ),
+            "circuit_breaker": (
+                self.circuit_breaker.to_dict() if self.circuit_breaker else None
+            ),
             "config": self.config.model_dump(exclude_none=True),
         }
 

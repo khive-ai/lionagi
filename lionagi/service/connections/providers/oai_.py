@@ -19,9 +19,7 @@ from pydantic import BaseModel
 from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.third_party.openai_models import (
-    OpenAIChatCompletionsRequest,
-)
+from lionagi.service.third_party.openai_models import OpenAIChatCompletionsRequest
 
 
 def _get_oai_config(**kw):

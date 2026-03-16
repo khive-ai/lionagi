@@ -5,11 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lionagi.libs.file.chunk import (
-    chunk_by_chars,
-    chunk_by_tokens,
-    chunk_content,
-)
+from lionagi.libs.file.chunk import chunk_by_chars, chunk_by_tokens, chunk_content
 from lionagi.libs.file.process import chunk, dir_to_files
 from lionagi.libs.schema.load_pydantic_model_from_schema import (
     load_pydantic_model_from_schema,
@@ -29,7 +25,9 @@ def test_chunk_by_chars_basic():
 def test_chunk_by_tokens_basic():
     """Test basic token chunking."""
     tokens = [f"token{i}" for i in range(50)]
-    chunks = chunk_by_tokens(tokens, chunk_size=15, overlap=0.1, threshold=3, return_tokens=True)
+    chunks = chunk_by_tokens(
+        tokens, chunk_size=15, overlap=0.1, threshold=3, return_tokens=True
+    )
     assert len(chunks) == 4
     # Verify first and last tokens are present
     assert "token0" in chunks[0][0]
@@ -172,7 +170,9 @@ def test_edge_cases():
     assert result == ["abc"]
 
     # Empty token list - returns two empty strings (same quirk)
-    result = chunk_by_tokens([], chunk_size=10, overlap=0, threshold=0, return_tokens=False)
+    result = chunk_by_tokens(
+        [], chunk_size=10, overlap=0, threshold=0, return_tokens=False
+    )
     assert result == ["", ""]
 
     # Single token

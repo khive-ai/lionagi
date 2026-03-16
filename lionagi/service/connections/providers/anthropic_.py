@@ -51,7 +51,9 @@ class AnthropicMessagesEndpoint(Endpoint):
                 request_dict["messages"] = request_dict["messages"][1:]
                 request = request_dict
 
-        payload, headers = super().create_payload(request, extra_headers=extra_headers, **kwargs)
+        payload, headers = super().create_payload(
+            request, extra_headers=extra_headers, **kwargs
+        )
 
         # Remove api_key from payload if present
         payload.pop("api_key", None)
@@ -67,10 +69,14 @@ class AnthropicMessagesEndpoint(Endpoint):
                         "text": last_message,
                         "cache_control": cache_control,
                     }
-                elif isinstance(last_message, list) and isinstance(last_message[-1], dict):
+                elif isinstance(last_message, list) and isinstance(
+                    last_message[-1], dict
+                ):
                     last_message[-1]["cache_control"] = cache_control
                 payload["messages"][-1]["content"] = (
-                    [last_message] if not isinstance(last_message, list) else last_message
+                    [last_message]
+                    if not isinstance(last_message, list)
+                    else last_message
                 )
 
         # If we extracted a system message earlier, add it to payload

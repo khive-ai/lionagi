@@ -192,9 +192,7 @@ class Operable:
         match adapter:
             case "pydantic":
                 try:
-                    from lionagi.adapters.spec_adapters import (
-                        PydanticSpecAdapter,
-                    )
+                    from lionagi.adapters.spec_adapters import PydanticSpecAdapter
                 except ImportError as e:
                     raise ImportError(
                         "PydanticSpecAdapter requires Pydantic. Install with: pip install pydantic"

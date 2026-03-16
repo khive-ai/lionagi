@@ -20,7 +20,9 @@ def run_command(cmd, description=""):
     """Run a command and handle errors."""
     print(f"🔄 {description}")
     try:
-        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, shell=True, check=True, capture_output=True, text=True
+        )
         if result.stdout.strip():
             print(f"   {result.stdout.strip()}")
         return True
@@ -164,7 +166,9 @@ def add_post_processing():
     with open(models_file, "w") as f:
         f.write("\n".join(new_lines))
 
-    print("   ✓ Added imports, warnings suppression, type aliases, and discriminator fixes")
+    print(
+        "   ✓ Added imports, warnings suppression, type aliases, and discriminator fixes"
+    )
     return True
 
 
@@ -254,7 +258,9 @@ def main():
     get_file_info()
 
     print("\n✅ OpenAI models update completed!")
-    print(f"✅ Verification: {'PASSED' if verification_passed else 'FAILED (see warnings above)'}")
+    print(
+        f"✅ Verification: {'PASSED' if verification_passed else 'FAILED (see warnings above)'}"
+    )
     print("\n📝 Notes:")
     print("   - File is configured to be ignored by git")
     print("   - Will be regenerated during CI/CD build processes")

@@ -31,7 +31,9 @@ class MockClaudeCode:
         self.name = name
         self.call_count = 0
 
-    async def __call__(self, messages: list[dict[str, Any]], **kwargs) -> dict[str, Any]:
+    async def __call__(
+        self, messages: list[dict[str, Any]], **kwargs
+    ) -> dict[str, Any]:
         """Simulate model call."""
         self.call_count += 1
 
@@ -125,7 +127,9 @@ async def test_dynamic_fanout_pattern():
                     ]
                 )
         # Subsequent calls do research
-        return MagicMock(result=f"Research complete: {kwargs.get('instruction', 'unknown')}")
+        return MagicMock(
+            result=f"Research complete: {kwargs.get('instruction', 'unknown')}"
+        )
 
     orc_branch.operate = AsyncMock(side_effect=mock_operate)
 
@@ -420,7 +424,9 @@ async def test_branch_pool_efficiency():
     for layer_idx in range(4):
         current_layer = []
         for i in range(5):
-            deps = prev_layer[-2:] if prev_layer else []  # Depend on last 2 from previous layer
+            deps = (
+                prev_layer[-2:] if prev_layer else []
+            )  # Depend on last 2 from previous layer
             op = builder.add_operation(
                 "operate",
                 depends_on=deps,
@@ -477,7 +483,9 @@ async def test_branch_pool_efficiency():
 
     # Branches should be pre-allocated for operations that need them
     # With our dependency tree, many operations will need new branches
-    assert clone_count >= 10, f"Expected many clones for complex dependency tree, got {clone_count}"
+    assert (
+        clone_count >= 10
+    ), f"Expected many clones for complex dependency tree, got {clone_count}"
 
 
 @pytest.mark.asyncio
@@ -499,7 +507,9 @@ async def test_mixed_operation_types():
     op1 = builder.add_operation("operate", instruction="Do something")
     op2 = builder.add_operation("parse", depends_on=[op1], text="Parse this")
     op3 = builder.add_operation("communicate", depends_on=[op1], message="Send this")
-    op4 = builder.add_operation("chat", depends_on=[op2, op3], prompt="Chat about results")
+    op4 = builder.add_operation(
+        "chat", depends_on=[op2, op3], prompt="Chat about results"
+    )
 
     # Create async wrappers for each operation type
     async def operate_wrapper(**kw):
@@ -667,7 +677,11 @@ async def test_flow_with_existing_graph():
                 # If context is a string, check kwargs for area
                 area = "unknown"
             else:
-                area = context.get("area", "unknown") if isinstance(context, dict) else "unknown"
+                area = (
+                    context.get("area", "unknown")
+                    if isinstance(context, dict)
+                    else "unknown"
+                )
             return {"issues_found": 2 if area != "protocols" else 0}
         elif "Fix issue" in instruction:
             return {"fix_applied": True}

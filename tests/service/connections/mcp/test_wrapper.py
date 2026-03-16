@@ -6,10 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
-from lionagi.service.connections.mcp.wrapper import (
-    MCPConnectionPool,
-    create_mcp_tool,
-)
+from lionagi.service.connections.mcp.wrapper import MCPConnectionPool, create_mcp_tool
 
 
 class TestMCPConnectionPoolContextManager:
@@ -27,7 +24,9 @@ class TestMCPConnectionPoolContextManager:
         """Test __aexit__ calls cleanup."""
         pool = MCPConnectionPool()
 
-        with patch.object(MCPConnectionPool, "cleanup", new_callable=AsyncMock) as mock_cleanup:
+        with patch.object(
+            MCPConnectionPool, "cleanup", new_callable=AsyncMock
+        ) as mock_cleanup:
             await pool.__aexit__(None, None, None)
             mock_cleanup.assert_called_once()
 
@@ -55,7 +54,9 @@ class TestMCPConnectionPoolLoadConfig:
 
         with patch("builtins.open", mock_open(read_data=json_data)):
             with patch.object(Path, "exists", return_value=True):
-                with pytest.raises(ValueError, match="MCP config must be a JSON object"):
+                with pytest.raises(
+                    ValueError, match="MCP config must be a JSON object"
+                ):
                     MCPConnectionPool.load_config(".mcp.json")
 
     def test_load_config_mcpservers_not_dict(self):
@@ -71,7 +72,9 @@ class TestMCPConnectionPoolLoadConfig:
         """Test successfully loads config."""
         MCPConnectionPool._configs = {}  # Reset configs
 
-        config_data = {"mcpServers": {"test_server": {"command": "python", "args": ["server.py"]}}}
+        config_data = {
+            "mcpServers": {"test_server": {"command": "python", "args": ["server.py"]}}
+        }
         json_data = json.dumps(config_data)
 
         with patch("builtins.open", mock_open(read_data=json_data)):
@@ -108,7 +111,9 @@ class TestMCPConnectionPoolGetClient:
     @pytest.mark.asyncio
     async def test_get_client_with_server_reference_success(self):
         """Test successfully gets client with server reference."""
-        MCPConnectionPool._configs = {"test_server": {"command": "python", "args": ["server.py"]}}
+        MCPConnectionPool._configs = {
+            "test_server": {"command": "python", "args": ["server.py"]}
+        }
 
         server_config = {"server": "test_server"}
         mock_client = AsyncMock()
@@ -188,7 +193,9 @@ class TestMCPConnectionPoolCreateClient:
         """Test raises ValueError if neither url nor command provided."""
         config = {"some_other_key": "value"}
 
-        with pytest.raises(ValueError, match="Config must have either 'url' or 'command'"):
+        with pytest.raises(
+            ValueError, match="Config must have either 'url' or 'command'"
+        ):
             await MCPConnectionPool._create_client(config)
 
     @pytest.mark.asyncio

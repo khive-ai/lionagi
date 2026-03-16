@@ -63,7 +63,9 @@ def create_lionagi_async_postgres_adapter() -> type[AsyncAdapter]:
                     # Determine JSON type based on database
                     engine_url = str(engine.url)
                     json_type = (
-                        sa.dialects.postgresql.JSONB if "postgresql" in engine_url else sa.JSON
+                        sa.dialects.postgresql.JSONB
+                        if "postgresql" in engine_url
+                        else sa.JSON
                     )
 
                     # Create table with lionagi schema
