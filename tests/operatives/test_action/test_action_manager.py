@@ -124,7 +124,9 @@ async def test_invoke(populated_manager):
     """Test tool invocation."""
 
     # Test with ActionRequest
-    request = ActionRequest(content={"function": "helper_func", "arguments": {"x": 3, "y": "test"}})
+    request = ActionRequest(
+        content={"function": "helper_func", "arguments": {"x": 3, "y": "test"}}
+    )
     result = await populated_manager.invoke(request)
     assert result.response == "3-test"
 
@@ -262,7 +264,9 @@ async def test_invoke_with_missing_arguments(populated_manager):
     """
     # another_helper_func(x: int=0) -> int
     # 'x' has a default, so missing 'x' should be okay => x=0
-    request = ActionRequest(content={"function": "another_helper_func", "arguments": {}})
+    request = ActionRequest(
+        content={"function": "another_helper_func", "arguments": {}}
+    )
     result = await populated_manager.invoke(request)
     # The default x=0 -> returns 1
     assert result.response == 1

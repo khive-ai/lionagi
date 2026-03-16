@@ -19,7 +19,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 1. start_new_session=True is always passed to subprocess creation
 # ---------------------------------------------------------------------------
@@ -37,7 +36,9 @@ class TestSubprocessSessionIsolation:
 
         from lionagi.service.third_party.claude_code import _ndjson_from_cli
 
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock
+        ) as mock_exec:
             mock_proc = MagicMock()
             mock_proc.stdout = MagicMock()
             mock_proc.stdout.read = AsyncMock(return_value=b"")
@@ -56,9 +57,9 @@ class TestSubprocessSessionIsolation:
             # Verify start_new_session=True was passed
             mock_exec.assert_called_once()
             _, kwargs = mock_exec.call_args
-            assert kwargs.get("start_new_session") is True, (
-                "CLI subprocess must use start_new_session=True to isolate from SIGINT"
-            )
+            assert (
+                kwargs.get("start_new_session") is True
+            ), "CLI subprocess must use start_new_session=True to isolate from SIGINT"
 
     @pytest.mark.asyncio
     async def test_codex_cli_uses_start_new_session(self):
@@ -69,7 +70,9 @@ class TestSubprocessSessionIsolation:
 
         from lionagi.service.third_party.codex_models import _ndjson_from_cli
 
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock
+        ) as mock_exec:
             mock_proc = MagicMock()
             mock_proc.stdout = MagicMock()
             mock_proc.stdout.read = AsyncMock(return_value=b"")
@@ -97,7 +100,9 @@ class TestSubprocessSessionIsolation:
 
         from lionagi.service.third_party.gemini_models import _ndjson_from_cli
 
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock
+        ) as mock_exec:
             mock_proc = MagicMock()
             mock_proc.stdout = MagicMock()
             mock_proc.stdout.read = AsyncMock(return_value=b"")
@@ -156,9 +161,9 @@ class TestCancellationSkipsAutoFinish:
 
             # stream_claude_code_cli must only be called ONCE —
             # the second (auto_finish) call must never happen
-            assert stream_call_count == 1, (
-                f"auto_finish spawned {stream_call_count - 1} extra session(s) after cancellation"
-            )
+            assert (
+                stream_call_count == 1
+            ), f"auto_finish spawned {stream_call_count - 1} extra session(s) after cancellation"
 
     @pytest.mark.asyncio
     async def test_keyboard_interrupt_skips_auto_finish(self):
@@ -225,9 +230,7 @@ class TestCancellationSkipsAutoFinish:
             with pytest.raises(asyncio.CancelledError):
                 await endpoint._call({"request": mock_request}, {})
 
-            assert stream_call_count == 1, (
-                "Task.cancel() must not trigger auto_finish"
-            )
+            assert stream_call_count == 1, "Task.cancel() must not trigger auto_finish"
 
     @pytest.mark.asyncio
     async def test_normal_completion_still_triggers_auto_finish(self):
@@ -262,14 +265,20 @@ class TestCancellationSkipsAutoFinish:
             mock_request = MagicMock()
             mock_request.auto_finish = True
             mock_request.cli_include_summary = False
-            mock_request.model_copy = MagicMock(return_value=MagicMock(
-                prompt="finish", max_turns=1, continue_conversation=True,
-            ))
+            mock_request.model_copy = MagicMock(
+                return_value=MagicMock(
+                    prompt="finish",
+                    max_turns=1,
+                    continue_conversation=True,
+                )
+            )
 
             result = await endpoint._call({"request": mock_request}, {})
 
             # auto_finish SHOULD trigger normally
-            assert stream_call_count == 2, "auto_finish should fire on normal completion"
+            assert (
+                stream_call_count == 2
+            ), "auto_finish should fire on normal completion"
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +300,9 @@ class TestNdjsonCleanupPropagation:
 
         request = ClaudeCodeRequest(prompt="test")
 
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock
+        ) as mock_exec:
             mock_proc = MagicMock()
 
             read_call = 0
@@ -387,9 +398,9 @@ class TestToolAllowlistArgs:
 
         idx = args.index("--mcp-config")
         config_val = args[idx + 1]
-        assert '"' not in config_val, (
-            f"mcp_config value {config_val!r} has embedded quotes"
-        )
+        assert (
+            '"' not in config_val
+        ), f"mcp_config value {config_val!r} has embedded quotes"
 
 
 # ---------------------------------------------------------------------------

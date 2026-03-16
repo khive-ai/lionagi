@@ -244,7 +244,9 @@ class TestNodeAdaptation:
         """Test async adapt_to with postgres adapter."""
         node = Node(content="test")
 
-        with patch("lionagi.protocols.graph.node._ensure_postgres_adapter") as mock_ensure:
+        with patch(
+            "lionagi.protocols.graph.node._ensure_postgres_adapter"
+        ) as mock_ensure:
             with patch.object(Node.__bases__[-2], "adapt_to_async") as mock_adapt:
                 mock_adapt.return_value = {"adapted": "data"}
 
@@ -276,7 +278,9 @@ class TestNodeAdaptation:
         """Test async adapt_from with postgres adapter."""
         test_data = {"test": "data"}
 
-        with patch("lionagi.protocols.graph.node._ensure_postgres_adapter") as mock_ensure:
+        with patch(
+            "lionagi.protocols.graph.node._ensure_postgres_adapter"
+        ) as mock_ensure:
             # Need to patch the superclass method to avoid infinite recursion
             with patch.object(Node.__bases__[-2], "adapt_from_async") as mock_adapt:
                 mock_node = Node()
@@ -306,7 +310,9 @@ class TestNodeRegistration:
     def test_pydantic_init_subclass_calls_super(self):
         """Test that __pydantic_init_subclass__ calls super()."""
         # Mock the super().__pydantic_init_subclass__ to verify it's called
-        with patch.object(Node.__bases__[0], "__pydantic_init_subclass__") as mock_super:
+        with patch.object(
+            Node.__bases__[0], "__pydantic_init_subclass__"
+        ) as mock_super:
 
             class TestSubclass(Node):
                 pass
@@ -336,7 +342,9 @@ class TestPostgresAdapterIntegration:
         if hasattr(Node, "_postgres_adapter_checked"):
             delattr(Node, "_postgres_adapter_checked")
 
-        with patch("lionagi.adapters._utils.check_async_postgres_available") as mock_check:
+        with patch(
+            "lionagi.adapters._utils.check_async_postgres_available"
+        ) as mock_check:
             mock_check.return_value = True
 
             # Mock the import of the adapter
@@ -361,7 +369,9 @@ class TestPostgresAdapterIntegration:
         if hasattr(Node, "_postgres_adapter_checked"):
             delattr(Node, "_postgres_adapter_checked")
 
-        with patch("lionagi.adapters._utils.check_async_postgres_available") as mock_check:
+        with patch(
+            "lionagi.adapters._utils.check_async_postgres_available"
+        ) as mock_check:
             mock_check.return_value = False
 
             with patch.object(Node, "register_async_adapter") as mock_register:
@@ -382,7 +392,9 @@ class TestPostgresAdapterIntegration:
         if hasattr(Node, "_postgres_adapter_checked"):
             delattr(Node, "_postgres_adapter_checked")
 
-        with patch("lionagi.adapters._utils.check_async_postgres_available") as mock_check:
+        with patch(
+            "lionagi.adapters._utils.check_async_postgres_available"
+        ) as mock_check:
             mock_check.return_value = True
 
             with patch.object(Node, "register_async_adapter"):

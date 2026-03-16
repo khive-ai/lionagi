@@ -126,7 +126,9 @@ class TestValidateMapping:
     def test_strict_mode(self):
         """Test strict mode validation."""
         with pytest.raises(ValueError):
-            fuzzy_validate_mapping({"name": "John"}, ["name", "required_field"], strict=True)
+            fuzzy_validate_mapping(
+                {"name": "John"}, ["name", "required_field"], strict=True
+            )
 
     def test_custom_similarity(self):
         """Test custom similarity function."""

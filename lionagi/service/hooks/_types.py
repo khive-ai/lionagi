@@ -51,5 +51,3 @@ class AssociatedEventInfo(TypedDict, total=False):
 
     event_created_at: float
     """Creation timestamp of the event."""
-
-

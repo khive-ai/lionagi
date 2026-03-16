@@ -5,10 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 from lionagi.protocols.generic.element import Element
-from lionagi.protocols.messages.base import (
-    MessageRole,
-    validate_sender_recipient,
-)
+from lionagi.protocols.messages.base import MessageRole, validate_sender_recipient
 from lionagi.protocols.messages.instruction import InstructionContent
 from lionagi.protocols.messages.system import SystemContent
 

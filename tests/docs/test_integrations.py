@@ -386,17 +386,13 @@ class TestCLIProviderEndpoints:
 
     def test_gemini_cli_endpoint_import(self):
         """GeminiCLIEndpoint should be importable."""
-        from lionagi.service.connections.providers.gemini_cli import (
-            GeminiCLIEndpoint,
-        )
+        from lionagi.service.connections.providers.gemini_cli import GeminiCLIEndpoint
 
         assert GeminiCLIEndpoint is not None
 
     def test_gemini_cli_endpoint_constructs(self):
         """GeminiCLIEndpoint constructs with default config."""
-        from lionagi.service.connections.providers.gemini_cli import (
-            GeminiCLIEndpoint,
-        )
+        from lionagi.service.connections.providers.gemini_cli import GeminiCLIEndpoint
 
         ep = GeminiCLIEndpoint()
         assert ep.config.provider == "gemini_code"
@@ -404,9 +400,7 @@ class TestCLIProviderEndpoints:
 
     def test_gemini_cli_endpoint_handlers(self):
         """GeminiCLIEndpoint exposes gemini_handlers with correct keys."""
-        from lionagi.service.connections.providers.gemini_cli import (
-            GeminiCLIEndpoint,
-        )
+        from lionagi.service.connections.providers.gemini_cli import GeminiCLIEndpoint
 
         ep = GeminiCLIEndpoint()
         handlers = ep.gemini_handlers
@@ -416,17 +410,13 @@ class TestCLIProviderEndpoints:
 
     def test_codex_cli_endpoint_import(self):
         """CodexCLIEndpoint should be importable."""
-        from lionagi.service.connections.providers.codex_cli import (
-            CodexCLIEndpoint,
-        )
+        from lionagi.service.connections.providers.codex_cli import CodexCLIEndpoint
 
         assert CodexCLIEndpoint is not None
 
     def test_codex_cli_endpoint_constructs(self):
         """CodexCLIEndpoint constructs with default config."""
-        from lionagi.service.connections.providers.codex_cli import (
-            CodexCLIEndpoint,
-        )
+        from lionagi.service.connections.providers.codex_cli import CodexCLIEndpoint
 
         ep = CodexCLIEndpoint()
         assert ep.config.provider == "codex"
@@ -434,9 +424,7 @@ class TestCLIProviderEndpoints:
 
     def test_codex_cli_endpoint_handlers(self):
         """CodexCLIEndpoint exposes codex_handlers with correct keys."""
-        from lionagi.service.connections.providers.codex_cli import (
-            CodexCLIEndpoint,
-        )
+        from lionagi.service.connections.providers.codex_cli import CodexCLIEndpoint
 
         ep = CodexCLIEndpoint()
         handlers = ep.codex_handlers

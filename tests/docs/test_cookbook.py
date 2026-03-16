@@ -149,7 +149,9 @@ class TestCodeReviewCrew:
         assert result.severity == "high"
 
         # Empty issues list is valid
-        clean = ReviewResult(issues=[], severity="low", recommendation="Code looks good.")
+        clean = ReviewResult(
+            issues=[], severity="low", recommendation="Code looks good."
+        )
         assert len(clean.issues) == 0
 
     def test_builder_exists(self):
@@ -407,7 +409,9 @@ class TestHRAutomation:
         )
 
         # Step 1: screening
-        screen_result = await screener.communicate("Review this resume: 5 years Python experience.")
+        screen_result = await screener.communicate(
+            "Review this resume: 5 years Python experience."
+        )
         assert screen_result is not None
 
         # Step 2: evaluation using screening result as context

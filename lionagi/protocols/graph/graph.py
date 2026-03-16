@@ -6,7 +6,13 @@ from collections import deque
 from functools import wraps
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import Field, PrivateAttr, field_serializer, field_validator, model_validator
+from pydantic import (
+    Field,
+    PrivateAttr,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 from typing_extensions import Self
 
 from lionagi._errors import ItemExistsError, RelationError
@@ -92,7 +98,9 @@ class Graph(Element, Relational, Generic[T]):
     def add_node(self, node: Relational) -> None:
         """Add a node to the graph."""
         if not isinstance(node, Relational):
-            raise RelationError("Failed to add node: Invalid node type: not a <Relational> entity.")
+            raise RelationError(
+                "Failed to add node: Invalid node type: not a <Relational> entity."
+            )
         _id = ID.get_id(node)
         try:
             self.internal_nodes.insert(len(self.internal_nodes), node)

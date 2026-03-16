@@ -7,12 +7,9 @@ import pytest
 from pydantic import BaseModel
 
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
-from lionagi.operations.parse.parse import (
-    _validate_dict_or_model,
-    get_default_call,
-    prepare_parse_kws,
-)
+from lionagi.operations.parse.parse import _validate_dict_or_model, get_default_call
 from lionagi.operations.parse.parse import parse as _parse
+from lionagi.operations.parse.parse import prepare_parse_kws
 from lionagi.operations.types import ParseParam
 
 
@@ -45,7 +42,9 @@ class TestBasicParsing:
     """P0: Core parsing functionality."""
 
     @pytest.mark.asyncio
-    async def test_parse_with_basemodel_direct_validation(self, make_mocked_branch_for_parse):
+    async def test_parse_with_basemodel_direct_validation(
+        self, make_mocked_branch_for_parse
+    ):
         """Test immediate successful validation without LLM call."""
         branch = make_mocked_branch_for_parse()
 
@@ -189,7 +188,9 @@ class TestBasicParsing:
                 assert result is None
 
     @pytest.mark.asyncio
-    async def test_parse_error_handling_return_value(self, make_mocked_branch_for_parse):
+    async def test_parse_error_handling_return_value(
+        self, make_mocked_branch_for_parse
+    ):
         """Test handle_validation='return_value' returns original text."""
         branch = make_mocked_branch_for_parse()
 
@@ -270,7 +271,9 @@ class TestAdvancedFeatures:
         assert res_msg is None
 
     @pytest.mark.asyncio
-    async def test_parse_return_res_message_with_llm(self, make_mocked_branch_for_parse):
+    async def test_parse_return_res_message_with_llm(
+        self, make_mocked_branch_for_parse
+    ):
         """Test return_res_message includes AssistantResponse after LLM."""
         branch = make_mocked_branch_for_parse()
 

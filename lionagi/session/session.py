@@ -6,13 +6,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
-from pydantic import (
-    Field,
-    JsonValue,
-    PrivateAttr,
-    field_serializer,
-    model_validator,
-)
+from pydantic import Field, JsonValue, PrivateAttr, field_serializer, model_validator
 from typing_extensions import Self
 
 from lionagi.protocols.types import (
@@ -76,7 +70,9 @@ class Session(Node, Relational):
         for i in branches:
             _take_in_branch(i)
 
-    def register_operation(self, operation: str, func: Callable, *, update: bool = False):
+    def register_operation(
+        self, operation: str, func: Callable, *, update: bool = False
+    ):
         self._operation_manager.register(operation, func, update=update)
 
     def operation(self, name: str = None, *, update: bool = False):

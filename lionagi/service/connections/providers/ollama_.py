@@ -90,7 +90,9 @@ class OllamaChatEndpoint(Endpoint):
 
         return (payload, headers)
 
-    async def call(self, request: dict | BaseModel, cache_control: bool = False, **kwargs):
+    async def call(
+        self, request: dict | BaseModel, cache_control: bool = False, **kwargs
+    ):
         payload, _ = self.create_payload(request, **kwargs)
 
         # Check if model exists and pull if needed
@@ -131,7 +133,10 @@ class OllamaChatEndpoint(Endpoint):
             available_models = [i.model for i in self._list().models]
 
             if model not in available_models:
-                logger.info("Model '%s' not found locally. Pulling from Ollama registry...", model)
+                logger.info(
+                    "Model '%s' not found locally. Pulling from Ollama registry...",
+                    model,
+                )
                 self._pull_model(model)
                 logger.info("Model '%s' successfully pulled.", model)
         except Exception as e:

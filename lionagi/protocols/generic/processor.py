@@ -5,11 +5,8 @@ import asyncio
 from typing import Any, ClassVar
 
 import anyio
-from lionagi.ln.concurrency import (
-    ConcurrencyEvent,
-    Semaphore,
-    create_task_group,
-)
+
+from lionagi.ln.concurrency import ConcurrencyEvent, Semaphore, create_task_group
 
 from .._concepts import Observer
 from .element import ID
@@ -425,8 +422,12 @@ class Executor(Observer):
             "total_events": len(self.pile),
             "status_counts": self.status_counts(),
             "pending_queue": len(self.pending),
-            "processor_running": self.processor.execution_mode if self.processor else False,
-            "processor_stopped": self.processor.is_stopped() if self.processor else True,
+            "processor_running": (
+                self.processor.execution_mode if self.processor else False
+            ),
+            "processor_stopped": (
+                self.processor.is_stopped() if self.processor else True
+            ),
         }
 
     def __contains__(self, ref: ID[Event].Ref) -> bool:

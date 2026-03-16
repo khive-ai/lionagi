@@ -95,9 +95,7 @@ class Tool(Element):
 
             func_callable = create_mcp_tool(config, tool_name)
         else:
-            from lionagi.libs.validate.common_field_validators import (
-                validate_callable,
-            )
+            from lionagi.libs.validate.common_field_validators import validate_callable
 
             validate_callable(cls, func_callable, undefind_able=False, check_name=True)
 
@@ -107,9 +105,7 @@ class Tool(Element):
     @model_validator(mode="after")
     def _validate_tool_schema(self) -> Self:
         if self.tool_schema is None:
-            from lionagi.libs.schema.function_to_schema import (
-                function_to_schema,
-            )
+            from lionagi.libs.schema.function_to_schema import function_to_schema
 
             self.tool_schema = function_to_schema(
                 self.func_callable, request_options=self.request_options

@@ -167,12 +167,16 @@ class Flow(Element, Generic[E, P]):
         """
         with self._lock:
             if progression.name and progression.name in self._progression_names:
-                raise ItemExistsError(f"Progression with name '{progression.name}' already exists.")
+                raise ItemExistsError(
+                    f"Progression with name '{progression.name}' already exists."
+                )
 
             item_ids = set(self.items.keys())
             missing = set(progression) - item_ids
             if missing:
-                raise ItemNotFoundError(f"Progression references missing items: {missing}")
+                raise ItemNotFoundError(
+                    f"Progression references missing items: {missing}"
+                )
 
             self.progressions.include(progression)
             if progression.name:
@@ -221,7 +225,9 @@ class Flow(Element, Generic[E, P]):
                     uid = ID.get_id(key)
                     return self.progressions[uid]
                 except Exception as exc:
-                    raise ItemNotFoundError(f"Progression '{key}' not found in flow") from exc
+                    raise ItemNotFoundError(
+                        f"Progression '{key}' not found in flow"
+                    ) from exc
 
             uid = key.id if isinstance(key, Progression) else key
             return self.progressions[uid]

@@ -137,10 +137,7 @@ class TestFieldGeneration:
     """Test dynamic field generation using get_default_field."""
 
     def test_action_requests_field_uses_correct_params(self):
-        from lionagi.operations.fields import (
-            ACTION_REQUESTS_FIELD,
-            get_default_field,
-        )
+        from lionagi.operations.fields import ACTION_REQUESTS_FIELD, get_default_field
 
         manual_field = get_default_field("action_requests")
         assert type(ACTION_REQUESTS_FIELD) == type(manual_field)

@@ -117,7 +117,9 @@ class Params:
         """Return the keys of the parameters."""
         if cls._allowed_keys:
             return cls._allowed_keys
-        cls._allowed_keys = {i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")}
+        cls._allowed_keys = {
+            i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")
+        }
         return cls._allowed_keys
 
     @override
@@ -198,7 +200,9 @@ class DataClass:
         """Return the keys of the parameters."""
         if cls._allowed_keys:
             return cls._allowed_keys
-        cls._allowed_keys = {i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")}
+        cls._allowed_keys = {
+            i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")
+        }
         return cls._allowed_keys
 
     @override

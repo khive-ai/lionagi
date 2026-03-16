@@ -366,7 +366,9 @@ def test_progression_serialization_advanced():
         data: dict
 
     p = Progression(
-        order=[ComplexElement(data={"value": i, "nested": {"x": i * 2}}) for i in range(5)]
+        order=[
+            ComplexElement(data={"value": i, "nested": {"x": i * 2}}) for i in range(5)
+        ]
     )
 
     serialized = p.model_dump_json()

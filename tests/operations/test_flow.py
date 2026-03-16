@@ -15,9 +15,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.providers.oai_ import _get_oai_config
 from lionagi.service.imodel import iModel
-from lionagi.service.third_party.openai_models import (
-    OpenAIChatCompletionsRequest,
-)
+from lionagi.service.third_party.openai_models import OpenAIChatCompletionsRequest
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
@@ -72,7 +70,9 @@ def make_mock_branch(name: str = "TestBranch") -> Branch:
         return fake_call
 
     mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
+    mock_chat_model = iModel(
+        provider="openai", model="gpt-4.1-mini", api_key="test_key"
+    )
     mock_chat_model.invoke = mock_invoke
 
     branch.chat_model = mock_chat_model
@@ -309,7 +309,9 @@ async def test_flow_context_propagation():
             "context": {"initial": "value"},
         },
     )
-    op_b = Operation(operation="chat", parameters={"instruction": "Use previous result"})
+    op_b = Operation(
+        operation="chat", parameters={"instruction": "Use previous result"}
+    )
 
     # Build graph
     graph = Graph()
@@ -338,7 +340,9 @@ async def test_flow_blocked_nodes():
     """Test flow handles nodes blocked by unsatisfied conditions."""
     # Create operations
     op_start = Operation(operation="chat", parameters={"instruction": "Start"})
-    op_blocked = Operation(operation="chat", parameters={"instruction": "Should be blocked"})
+    op_blocked = Operation(
+        operation="chat", parameters={"instruction": "Should be blocked"}
+    )
 
     # Build graph with always-false condition
     graph = Graph()
@@ -383,9 +387,15 @@ async def test_flow_multiple_conditional_paths():
     graph.add_node(op_c)
 
     # All paths have true conditions - all should execute
-    graph.add_edge(Edge(head=op_start.id, tail=op_a.id, condition=AlwaysTrueCondition()))
-    graph.add_edge(Edge(head=op_start.id, tail=op_b.id, condition=AlwaysTrueCondition()))
-    graph.add_edge(Edge(head=op_start.id, tail=op_c.id, condition=AlwaysTrueCondition()))
+    graph.add_edge(
+        Edge(head=op_start.id, tail=op_a.id, condition=AlwaysTrueCondition())
+    )
+    graph.add_edge(
+        Edge(head=op_start.id, tail=op_b.id, condition=AlwaysTrueCondition())
+    )
+    graph.add_edge(
+        Edge(head=op_start.id, tail=op_c.id, condition=AlwaysTrueCondition())
+    )
 
     session = Session()
     branch = make_mock_branch()
@@ -489,7 +499,8 @@ async def test_flow_max_concurrent_limit():
     # Create many parallel operations
     num_ops = 10
     ops = [
-        Operation(operation="chat", parameters={"instruction": f"Task {i}"}) for i in range(num_ops)
+        Operation(operation="chat", parameters={"instruction": f"Task {i}"})
+        for i in range(num_ops)
     ]
 
     # Build graph where all operations can run in parallel

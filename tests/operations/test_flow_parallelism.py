@@ -90,7 +90,9 @@ async def test_flow_true_parallelism():
     # Check that operations started nearly simultaneously
     start_times = [execution_times[f"op_{i}"]["start"] for i in range(5)]
     max_start_diff = max(start_times) - min(start_times)
-    assert max_start_diff < 0.2, f"Operations didn't start together: {max_start_diff}s spread"
+    assert (
+        max_start_diff < 0.2
+    ), f"Operations didn't start together: {max_start_diff}s spread"
 
 
 @pytest.mark.asyncio
@@ -257,7 +259,9 @@ async def test_flow_context_type_handling():
     # The second operation should have merged contexts
     op2_result = result["operation_results"][op2.id]
     assert op2_result["context_was"] == "dict"
-    assert "original_context" in op2_result["keys"] or "flow_level" in op2_result["keys"]
+    assert (
+        "original_context" in op2_result["keys"] or "flow_level" in op2_result["keys"]
+    )
 
 
 @pytest.mark.asyncio
@@ -273,7 +277,9 @@ async def test_flow_dynamic_branch_allocation():
         # Create a simple mock branch
         new_branch = MagicMock()
         new_branch.id = str(uuid4())
-        new_branch.clone = MagicMock(side_effect=lambda sender=None: counting_clone(sender))
+        new_branch.clone = MagicMock(
+            side_effect=lambda sender=None: counting_clone(sender)
+        )
         new_branch._message_manager = MagicMock()
         new_branch._message_manager.pile = MagicMock()
         new_branch._message_manager.pile.clear = MagicMock()
@@ -288,7 +294,9 @@ async def test_flow_dynamic_branch_allocation():
 
     branches = []
     for i in range(3):
-        branch_op = Operation(operation="operate", parameters={"instruction": f"branch_{i}"})
+        branch_op = Operation(
+            operation="operate", parameters={"instruction": f"branch_{i}"}
+        )
         graph.add_node(branch_op)
         graph.add_edge(Edge(head=root.id, tail=branch_op.id))
         branches.append(branch_op)
@@ -309,7 +317,9 @@ async def test_flow_dynamic_branch_allocation():
     default_branch._message_manager.pile = MagicMock()
     default_branch._message_manager.pile.clear = MagicMock()
     default_branch.metadata = {}
-    default_branch.clone = MagicMock(side_effect=lambda sender=None: counting_clone(sender))
+    default_branch.clone = MagicMock(
+        side_effect=lambda sender=None: counting_clone(sender)
+    )
 
     async def mock_operate(**kwargs):
         return "result"
@@ -384,7 +394,9 @@ async def test_flow_aggregation_pattern():
     def mock_clone(sender=None):
         cloned = MagicMock()
         cloned.id = str(uuid4())
-        cloned.chat = AsyncMock(side_effect=list_generator)  # Use chat instead of generate
+        cloned.chat = AsyncMock(
+            side_effect=list_generator
+        )  # Use chat instead of generate
         cloned.operate = AsyncMock(side_effect=researcher)
         cloned.communicate = AsyncMock(side_effect=synthesizer)
         cloned.clone = MagicMock(side_effect=mock_clone)
@@ -610,7 +622,9 @@ async def test_flow_error_recovery_with_parallelism():
     result = await flow(session, graph, verbose=False)
 
     # Verify partial success - all operations should be in results even if failed
-    assert len(result["operation_results"]) == 9  # All ops should have results (some with errors)
+    assert (
+        len(result["operation_results"]) == 9
+    )  # All ops should have results (some with errors)
 
     # Check specific results
     for op in success_ops:
@@ -619,7 +633,9 @@ async def test_flow_error_recovery_with_parallelism():
     for op in fail_ops:
         # Check that the result is either None or contains error
         op_result = result["operation_results"][op.id]
-        assert op_result is None or (isinstance(op_result, dict) and "error" in op_result)
+        assert op_result is None or (
+            isinstance(op_result, dict) and "error" in op_result
+        )
 
     # Mixed dependency should succeed since it only depends on successful ops
     assert "Success mixed_dependency" in result["operation_results"][mixed_dep.id]

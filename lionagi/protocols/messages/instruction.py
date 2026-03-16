@@ -38,7 +38,9 @@ class InstructionContent(MessageContent):
     prompt_context: list[Any] = field(default_factory=list)
     plain_content: str | None = None
     tool_schemas: list[dict[str, Any]] = field(default_factory=list)
-    response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = None  # User input
+    response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = (
+        None  # User input
+    )
     _schema_dict: dict[str, Any] | None = field(
         default=None, repr=False
     )  # Internal: dict for prompting
@@ -56,7 +58,7 @@ class InstructionContent(MessageContent):
         context: list[Any] | None = None,  # backwards compat
         plain_content: str | None = None,
         tool_schemas: list[dict[str, Any]] | None = None,
-        response_format: (type[BaseModel] | dict[str, Any] | BaseModel | None) = None,
+        response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = None,
         images: list[str] | None = None,
         image_detail: Literal["low", "high", "auto"] | None = None,
     ):
@@ -70,7 +72,9 @@ class InstructionContent(MessageContent):
 
         if response_format is not None:
             # Extract model class
-            if isinstance(response_format, type) and issubclass(response_format, BaseModel):
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
                 model_class = response_format
             elif isinstance(response_format, BaseModel):
                 model_class = type(response_format)
@@ -101,9 +105,15 @@ class InstructionContent(MessageContent):
             "tool_schemas",
             tool_schemas if tool_schemas is not None else [],
         )
-        object.__setattr__(self, "response_format", response_format)  # Store original user input
-        object.__setattr__(self, "_schema_dict", schema_dict)  # Internal: dict for prompting
-        object.__setattr__(self, "_model_class", model_class)  # Internal: class for validation
+        object.__setattr__(
+            self, "response_format", response_format
+        )  # Store original user input
+        object.__setattr__(
+            self, "_schema_dict", schema_dict
+        )  # Internal: dict for prompting
+        object.__setattr__(
+            self, "_model_class", model_class
+        )  # Internal: class for validation
         object.__setattr__(self, "images", images if images is not None else [])
         object.__setattr__(self, "image_detail", image_detail)
 
@@ -198,7 +208,9 @@ class InstructionContent(MessageContent):
             valid_format = False
 
             # Extract model class
-            if isinstance(response_format, type) and issubclass(response_format, BaseModel):
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
                 model_class = response_format
                 valid_format = True
             elif isinstance(response_format, BaseModel):
@@ -271,7 +283,11 @@ class InstructionContent(MessageContent):
     @staticmethod
     def _format_image_item(idx: str, detail: str) -> dict[str, Any]:
         url = idx
-        if not (idx.startswith("http://") or idx.startswith("https://") or idx.startswith("data:")):
+        if not (
+            idx.startswith("http://")
+            or idx.startswith("https://")
+            or idx.startswith("data:")
+        ):
             url = f"data:image/jpeg;base64,{idx}"
         return {
             "type": "image_url",

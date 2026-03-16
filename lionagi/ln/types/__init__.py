@@ -11,15 +11,7 @@ from ._sentinel import (
     is_sentinel,
     not_sentinel,
 )
-from .base import (
-    DataClass,
-    Enum,
-    KeysDict,
-    KeysLike,
-    Meta,
-    ModelConfig,
-    Params,
-)
+from .base import DataClass, Enum, KeysDict, KeysLike, Meta, ModelConfig, Params
 from .operable import Operable
 from .spec import CommonMeta, Spec
 

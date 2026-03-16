@@ -130,9 +130,15 @@ class TestAppSettings:
         # Testing that the field can be None or SecretStr
         config = AppSettings()
         # API keys can be None or SecretStr depending on environment
-        assert config.OPENAI_API_KEY is None or isinstance(config.OPENAI_API_KEY, SecretStr)
-        assert config.ANTHROPIC_API_KEY is None or isinstance(config.ANTHROPIC_API_KEY, SecretStr)
-        assert config.PERPLEXITY_API_KEY is None or isinstance(config.PERPLEXITY_API_KEY, SecretStr)
+        assert config.OPENAI_API_KEY is None or isinstance(
+            config.OPENAI_API_KEY, SecretStr
+        )
+        assert config.ANTHROPIC_API_KEY is None or isinstance(
+            config.ANTHROPIC_API_KEY, SecretStr
+        )
+        assert config.PERPLEXITY_API_KEY is None or isinstance(
+            config.PERPLEXITY_API_KEY, SecretStr
+        )
 
 
 class TestGetSecret:
@@ -204,7 +210,9 @@ class TestEnvironmentVariableLoading:
 
     def test_case_insensitive_loading(self):
         """Test case-insensitive environment variable loading."""
-        with patch.dict(os.environ, {"openai_default_model": "custom-model"}, clear=False):
+        with patch.dict(
+            os.environ, {"openai_default_model": "custom-model"}, clear=False
+        ):
             config = AppSettings()
             assert config.OPENAI_DEFAULT_MODEL == "custom-model"
 

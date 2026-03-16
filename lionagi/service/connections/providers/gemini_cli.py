@@ -12,13 +12,9 @@ from lionagi.service.connections.cli_endpoint import CLIEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.utils import to_dict
 
-from ...third_party.gemini_models import (
-    GeminiChunk,
-    GeminiCodeRequest,
-    GeminiSession,
-    stream_gemini_cli,
-)
+from ...third_party.gemini_models import GeminiChunk, GeminiCodeRequest, GeminiSession
 from ...third_party.gemini_models import log as gemini_log
+from ...third_party.gemini_models import stream_gemini_cli
 
 _get_config = lambda: EndpointConfig(
     name="gemini_cli",
@@ -104,7 +100,9 @@ class GeminiCLIEndpoint(CLIEndpoint):
                         break
                 responses.append(chunk)
 
-        gemini_log.info(f"Session {session.session_id} finished with {len(responses)} chunks")
+        gemini_log.info(
+            f"Session {session.session_id} finished with {len(responses)} chunks"
+        )
 
         # Accumulate text from chunks, concatenating delta fragments
         parts = []

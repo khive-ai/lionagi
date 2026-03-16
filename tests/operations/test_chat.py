@@ -62,7 +62,9 @@ class TestAssistantResponseConsolidation:
             imodel_kw={},
         )
 
-        result = await chat(branch, "New question", chat_ctx, return_ins_res_message=False)
+        result = await chat(
+            branch, "New question", chat_ctx, return_ins_res_message=False
+        )
 
         assert isinstance(result, str)
         assert "Mocked" in result
@@ -123,7 +125,9 @@ class TestSystemMessageHandling:
     """Test system message integration into instructions."""
 
     @pytest.mark.asyncio
-    async def test_chat_system_message_with_empty_progression(self, make_mocked_branch_for_chat):
+    async def test_chat_system_message_with_empty_progression(
+        self, make_mocked_branch_for_chat
+    ):
         """Verify system message handling with no prior messages."""
         # Create branch with system message
         branch = make_mocked_branch_for_chat(system="You are a helpful assistant")
@@ -145,12 +149,16 @@ class TestSystemMessageHandling:
             imodel_kw={},
         )
 
-        result = await chat(branch, "Test question", chat_ctx, return_ins_res_message=False)
+        result = await chat(
+            branch, "Test question", chat_ctx, return_ins_res_message=False
+        )
 
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_chat_system_message_with_existing_progression(self, make_mocked_branch_for_chat):
+    async def test_chat_system_message_with_existing_progression(
+        self, make_mocked_branch_for_chat
+    ):
         """Verify system message prepended to first instruction."""
         # Create branch with system message
         branch = make_mocked_branch_for_chat(system="You are helpful")
@@ -185,7 +193,9 @@ class TestSystemMessageHandling:
             imodel_kw={},
         )
 
-        result = await chat(branch, "New question", chat_ctx, return_ins_res_message=False)
+        result = await chat(
+            branch, "New question", chat_ctx, return_ins_res_message=False
+        )
 
         assert isinstance(result, str)
 
@@ -289,7 +299,9 @@ class TestActionResponseIntegration:
             imodel_kw={},
         )
 
-        result = await chat(branch, "New question", chat_ctx, return_ins_res_message=False)
+        result = await chat(
+            branch, "New question", chat_ctx, return_ins_res_message=False
+        )
 
         assert isinstance(result, str)
 
@@ -362,9 +374,7 @@ class TestStreamModeHandling:
             from lionagi.protocols.generic.event import EventStatus
             from lionagi.service.connections.api_calling import APICalling
             from lionagi.service.connections.endpoint import Endpoint
-            from lionagi.service.connections.providers.oai_ import (
-                _get_oai_config,
-            )
+            from lionagi.service.connections.providers.oai_ import _get_oai_config
             from lionagi.service.third_party.openai_models import (
                 OpenAIChatCompletionsRequest,
             )
@@ -484,7 +494,9 @@ class TestChatContextParameters:
     """Test ChatContext parameter handling and fallbacks."""
 
     @pytest.mark.asyncio
-    async def test_chat_sender_recipient_fallback_logic(self, make_mocked_branch_for_chat):
+    async def test_chat_sender_recipient_fallback_logic(
+        self, make_mocked_branch_for_chat
+    ):
         """Verify sender/recipient default resolution."""
         branch = make_mocked_branch_for_chat()
         branch.user = "test_user"
@@ -533,7 +545,9 @@ class TestChatContextParameters:
             imodel_kw={},
         )
 
-        result = await chat(branch, "Describe image", chat_ctx, return_ins_res_message=False)
+        result = await chat(
+            branch, "Describe image", chat_ctx, return_ins_res_message=False
+        )
 
         assert isinstance(result, str)
 

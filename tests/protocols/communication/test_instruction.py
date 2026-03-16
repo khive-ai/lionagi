@@ -1,10 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
-from lionagi.protocols.messages.instruction import (
-    Instruction,
-    InstructionContent,
-)
+from lionagi.protocols.messages.instruction import Instruction, InstructionContent
 from lionagi.protocols.messages.message import MessageRole
 
 
@@ -68,7 +65,9 @@ def test_instruction_content_all_fields():
 
 def test_instruction_content_rendered_text_only():
     """Test rendered property returns minimal_yaml formatted text"""
-    content = InstructionContent(instruction="Test instruction", guidance="Test guidance")
+    content = InstructionContent(
+        instruction="Test instruction", guidance="Test guidance"
+    )
 
     rendered = content.rendered
     assert isinstance(rendered, str)
@@ -149,7 +148,9 @@ def test_instruction_content_rendered_multiple_images():
 
 def test_instruction_content_image_detail_auto():
     """Test image_detail defaults to 'auto' when images present"""
-    content = InstructionContent(instruction="Test", images=["image.jpg"], image_detail="auto")
+    content = InstructionContent(
+        instruction="Test", images=["image.jpg"], image_detail="auto"
+    )
 
     rendered = content.rendered
     assert rendered[1]["image_url"]["detail"] == "auto"
@@ -158,7 +159,9 @@ def test_instruction_content_image_detail_auto():
 def test_instruction_content_base64_image_handling():
     """Test base64 images are properly formatted"""
     base64_str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-    content = InstructionContent(instruction="Test", images=[base64_str], image_detail="high")
+    content = InstructionContent(
+        instruction="Test", images=[base64_str], image_detail="high"
+    )
 
     rendered = content.rendered
     assert rendered[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
@@ -539,7 +542,9 @@ def test_instruction_rendered_property_with_images():
 
 def test_instruction_role_fixed_as_user():
     """Test Instruction role is always USER"""
-    instruction = Instruction(content={"instruction": "Test"}, sender="user", recipient="assistant")
+    instruction = Instruction(
+        content={"instruction": "Test"}, sender="user", recipient="assistant"
+    )
 
     assert instruction.role == MessageRole.USER
 

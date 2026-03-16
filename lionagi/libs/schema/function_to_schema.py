@@ -7,9 +7,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 
 from lionagi.libs.schema.extract_docstring import extract_docstring
-from lionagi.libs.validate.common_field_validators import (
-    validate_model_to_type,
-)
+from lionagi.libs.validate.common_field_validators import validate_model_to_type
 from lionagi.models import SchemaModel
 
 py_json_msp = {
@@ -136,7 +134,9 @@ def function_to_schema(
             # Default type to string and update if type hint is available
             param_type = "string"
             if param.annotation is not inspect.Parameter.empty:
-                param_type = py_json_msp.get(param.annotation.__name__, param.annotation.__name__)
+                param_type = py_json_msp.get(
+                    param.annotation.__name__, param.annotation.__name__
+                )
             # Extract parameter description from docstring, if available
             param_description = parametert_description.get(name)
 

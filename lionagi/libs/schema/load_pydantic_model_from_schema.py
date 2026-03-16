@@ -157,7 +157,9 @@ def _schema_to_type(
             py_types: list[type] = []
             for variant in variants:
                 py_types.append(
-                    _schema_to_type(variant, prop_name, root_schema, models_cache, parent_name)
+                    _schema_to_type(
+                        variant, prop_name, root_schema, models_cache, parent_name
+                    )
                 )
             if len(py_types) == 1:
                 return py_types[0]
@@ -170,7 +172,9 @@ def _schema_to_type(
             if "$ref" in sub:
                 sub = _resolve_ref(sub["$ref"], root_schema)
             merged = _deep_merge(merged, sub)
-        return _schema_to_type(merged, prop_name, root_schema, models_cache, parent_name)
+        return _schema_to_type(
+            merged, prop_name, root_schema, models_cache, parent_name
+        )
 
     schema_type = prop_schema.get("type")
 
@@ -191,7 +195,9 @@ def _schema_to_type(
             if mapped is None:
                 if t == "object":
                     if "properties" in prop_schema:
-                        nested_name = prop_schema.get("title") or f"{parent_name}_{prop_name}"
+                        nested_name = (
+                            prop_schema.get("title") or f"{parent_name}_{prop_name}"
+                        )
                         py_types_list.append(
                             _build_model_from_object(
                                 prop_schema,
@@ -204,7 +210,13 @@ def _schema_to_type(
                         py_types_list.append(dict)
                 elif t == "array":
                     py_types_list.append(
-                        _array_type(prop_schema, prop_name, root_schema, models_cache, parent_name)
+                        _array_type(
+                            prop_schema,
+                            prop_name,
+                            root_schema,
+                            models_cache,
+                            parent_name,
+                        )
                     )
                 else:
                     raise _CreateModelUnsupportedError(f"Unsupported type in list: {t}")
@@ -221,13 +233,17 @@ def _schema_to_type(
 
     # --- array ---
     if schema_type == "array":
-        return _array_type(prop_schema, prop_name, root_schema, models_cache, parent_name)
+        return _array_type(
+            prop_schema, prop_name, root_schema, models_cache, parent_name
+        )
 
     # --- object ---
     if schema_type == "object":
         if "properties" in prop_schema:
             nested_name = prop_schema.get("title") or f"{parent_name}_{prop_name}"
-            return _build_model_from_object(prop_schema, nested_name, root_schema, models_cache)
+            return _build_model_from_object(
+                prop_schema, nested_name, root_schema, models_cache
+            )
         # Generic dict if no properties defined
         additional = prop_schema.get("additionalProperties")
         if isinstance(additional, dict):
@@ -251,7 +267,9 @@ def _array_type(
     items = prop_schema.get("items")
     if items is None:
         return list  # type: ignore[return-value]
-    item_type = _schema_to_type(items, f"{prop_name}_item", root_schema, models_cache, parent_name)
+    item_type = _schema_to_type(
+        items, f"{prop_name}_item", root_schema, models_cache, parent_name
+    )
     return list[item_type]  # type: ignore[valid-type]
 
 
@@ -350,7 +368,9 @@ def _create_model_from_schema(
             for def_name, def_schema in defs.items():
                 if isinstance(def_schema, dict):
                     try:
-                        _build_model_from_object(def_schema, def_name, root_schema, models_cache)
+                        _build_model_from_object(
+                            def_schema, def_name, root_schema, models_cache
+                        )
                     except _CreateModelUnsupportedError:
                         raise
 
@@ -439,9 +459,13 @@ def _load_via_codegen(
                 ) from e
 
         try:
-            model_class.model_rebuild(_types_namespace=generated_module.__dict__, force=True)
+            model_class.model_rebuild(
+                _types_namespace=generated_module.__dict__, force=True
+            )
         except (PydanticUserError, NameError) as e:
-            raise RuntimeError(f"Error during model_rebuild for {resolved_model_name}") from e
+            raise RuntimeError(
+                f"Error during model_rebuild for {resolved_model_name}"
+            ) from e
         except Exception as e:
             raise RuntimeError(
                 f"Unexpected error during model_rebuild for {resolved_model_name}"

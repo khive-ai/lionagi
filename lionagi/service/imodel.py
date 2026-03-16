@@ -140,7 +140,9 @@ class iModel:
         # 3. Configure executor ---------------------------------------------
         # Resolve defaults based on endpoint type
         if queue_capacity is None:
-            queue_capacity = self.endpoint.DEFAULT_QUEUE_CAPACITY if self.endpoint.is_cli else 100
+            queue_capacity = (
+                self.endpoint.DEFAULT_QUEUE_CAPACITY if self.endpoint.is_cli else 100
+            )
         if concurrency_limit is None and self.endpoint.is_cli:
             concurrency_limit = self.endpoint.DEFAULT_CONCURRENCY_LIMIT
 
@@ -182,7 +184,11 @@ class iModel:
                 registry=self.hook_registry,
                 event_like=create_event_type,
                 params=create_event_hook_params or {},
-                exit=(self.exit_hook if create_event_exit_hook is None else create_event_exit_hook),
+                exit=(
+                    self.exit_hook
+                    if create_event_exit_hook is None
+                    else create_event_exit_hook
+                ),
                 timeout=create_event_hook_timeout,
             )
             await h_ev.invoke()

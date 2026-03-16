@@ -9,13 +9,7 @@ from typing import Any, Generic, Literal, TypeAlias, TypeVar
 from uuid import UUID, uuid4
 
 import orjson
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_serializer,
-    field_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from lionagi._class_registry import get_class
 from lionagi.ln._json_dump import get_orjson_default, json_dumps

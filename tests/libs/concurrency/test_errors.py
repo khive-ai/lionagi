@@ -1,11 +1,7 @@
 import anyio
 import pytest
 
-from lionagi.ln.concurrency import (
-    fail_after,
-    is_cancelled,
-    shield,
-)
+from lionagi.ln.concurrency import fail_after, is_cancelled, shield
 
 
 @pytest.mark.anyio

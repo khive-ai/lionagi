@@ -5,9 +5,7 @@
 
 import pytest
 
-from lionagi.libs.schema.extract_docstring import (
-    extract_docstring,
-)
+from lionagi.libs.schema.extract_docstring import extract_docstring
 
 
 class TestExtractDocstringGoogle:

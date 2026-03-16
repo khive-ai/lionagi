@@ -212,13 +212,17 @@ def test_roled_message_content_always_message_content():
 def test_roled_message_role_validation_enum():
     """Test role validation with MessageRole enum values."""
     for role in MessageRole:
-        message = _MockMessage(role=role, content=_MockContent(text="test"), sender="user")
+        message = _MockMessage(
+            role=role, content=_MockContent(text="test"), sender="user"
+        )
         assert message.role == role
 
 
 def test_roled_message_role_validation_string():
     """Test role validation with string values."""
-    message = _MockMessage(role="user", content=_MockContent(text="test"), sender="user")
+    message = _MockMessage(
+        role="user", content=_MockContent(text="test"), sender="user"
+    )
     assert message.role == MessageRole.USER
 
 
@@ -432,7 +436,9 @@ def test_roled_message_to_dict():
 
 def test_roled_message_serialization_to_dict():
     """Test serialization of RoledMessage to dict."""
-    message = _MockMessage(role=MessageRole.USER, content=_MockContent(text="test"), sender="user")
+    message = _MockMessage(
+        role=MessageRole.USER, content=_MockContent(text="test"), sender="user"
+    )
 
     serialized = message.to_dict()
     assert "role" in serialized

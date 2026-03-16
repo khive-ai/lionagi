@@ -240,7 +240,9 @@ def test_pile_with_complex_elements_inline():
     class ComplexElement(Element):
         data: dict
 
-    elements = [ComplexElement(data={"value": i, "nested": {"x": i * 2}}) for i in range(5)]
+    elements = [
+        ComplexElement(data={"value": i, "nested": {"x": i * 2}}) for i in range(5)
+    ]
     p = Pile(collections=elements)
     assert len(p) == 5
     assert all(isinstance(e, ComplexElement) for e in p.values())

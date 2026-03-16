@@ -25,9 +25,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.providers.oai_ import _get_oai_config
 from lionagi.service.imodel import iModel
-from lionagi.service.third_party.openai_models import (
-    OpenAIChatCompletionsRequest,
-)
+from lionagi.service.third_party.openai_models import OpenAIChatCompletionsRequest
 from lionagi.session.branch import Branch
 
 
@@ -168,7 +166,7 @@ class LionAGIMockFactory:
     @staticmethod
     def create_mocked_session(
         branches: list[str] | None = None,
-        default_branch_response: (str | dict[str, Any]) = "mocked_response_string",
+        default_branch_response: str | dict[str, Any] = "mocked_response_string",
     ):
         """
         Create a Session with multiple mocked branches.

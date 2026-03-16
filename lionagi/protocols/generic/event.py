@@ -195,7 +195,9 @@ class Execution:
             exceptions = []
             for exc in eg.exceptions:
                 if isinstance(exc, ExceptionGroup):
-                    exceptions.append(self._serialize_exception_group(exc, depth + 1, _seen))
+                    exceptions.append(
+                        self._serialize_exception_group(exc, depth + 1, _seen)
+                    )
                 else:
                     exceptions.append(
                         {
@@ -329,7 +331,9 @@ class Event(Element):
             if val in self._TERMINAL_STATUSES and self._completion_event is not None:
                 self._completion_event.set()
         else:
-            raise ValueError(f"Invalid status type: {type(val)}. Expected EventStatus or str.")
+            raise ValueError(
+                f"Invalid status type: {type(val)}. Expected EventStatus or str."
+            )
 
     @property
     def request(self) -> dict:

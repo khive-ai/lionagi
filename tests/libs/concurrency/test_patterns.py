@@ -3,13 +3,7 @@ import time
 import anyio
 import pytest
 
-from lionagi.ln.concurrency import (
-    bounded_map,
-    fail_after,
-    gather,
-    race,
-    retry,
-)
+from lionagi.ln.concurrency import bounded_map, fail_after, gather, race, retry
 
 
 @pytest.mark.slow
@@ -115,7 +109,9 @@ async def test_gather_return_exceptions_true(anyio_backend):
         raise ValueError(f"error_{x}")
 
     # Mix successes and failures
-    results = await gather(success(1), failure(2), success(3), failure(4), return_exceptions=True)
+    results = await gather(
+        success(1), failure(2), success(3), failure(4), return_exceptions=True
+    )
 
     assert len(results) == 4
     assert results[0] == "result_1"
@@ -361,7 +357,9 @@ async def test_retry_eventual_success(anyio_backend):
             raise ConnectionError(f"Attempt {attempts['count']} failed")
         return "success"
 
-    result = await retry(flaky, attempts=5, base_delay=0.001, retry_on=(ConnectionError,))
+    result = await retry(
+        flaky, attempts=5, base_delay=0.001, retry_on=(ConnectionError,)
+    )
 
     assert result == "success"
     assert attempts["count"] == 3  # Succeeded on third attempt

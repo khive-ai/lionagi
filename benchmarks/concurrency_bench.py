@@ -50,7 +50,9 @@ async def _bench_once(fn: Callable[[], Coroutine[Any, Any, Any]]) -> float:
     return time.perf_counter() - t0
 
 
-async def _bench_repeat(name: str, repeat: int, fn: Callable[[], Coroutine[Any, Any, Any]]) -> Stat:
+async def _bench_repeat(
+    name: str, repeat: int, fn: Callable[[], Coroutine[Any, Any, Any]]
+) -> Stat:
     runs = []
     for _ in range(repeat):
         runs.append(await _bench_once(fn))
@@ -82,7 +84,9 @@ def scenario_bounded_map_2000_limit_100() -> Callable[[], Coroutine[Any, Any, An
     return _run
 
 
-def scenario_completion_stream_1000_limit_100() -> Callable[[], Coroutine[Any, Any, Any]]:
+def scenario_completion_stream_1000_limit_100() -> (
+    Callable[[], Coroutine[Any, Any, Any]]
+):
     async def _run():
         async def work(i: int):
             await anyio.sleep(0)
@@ -198,7 +202,9 @@ def compare_results(current: dict[str, Any], baseline: dict[str, Any]) -> str:
             delta = float("inf")
         else:
             delta = (cur_med - base_med) / base_med
-        lines.append(f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}")
+        lines.append(
+            f"- {name}: median {cur_med:.6f}s vs {base_med:.6f}s -> {delta:+.1%}"
+        )
     return "\n".join(lines)
 
 

@@ -91,11 +91,15 @@ class RateLimitedAPIProcessor(Processor):
             limit_tokens=limit_tokens,
             concurrency_limit=concurrency_limit,
         )
-        self._rate_limit_replenisher_task = asyncio.create_task(self.start_replenishing())
+        self._rate_limit_replenisher_task = asyncio.create_task(
+            self.start_replenishing()
+        )
         return self
 
     @override
-    async def request_permission(self, required_tokens: int = None, **kwargs: Any) -> bool:
+    async def request_permission(
+        self, required_tokens: int = None, **kwargs: Any
+    ) -> bool:
         # No limits configured, just check queue capacity
         if self._available_requests is None and self._available_tokens is None:
             return self.queue.qsize() < self.queue_capacity

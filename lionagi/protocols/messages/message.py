@@ -60,7 +60,11 @@ class RoledMessage(Node, Sendable):
     def chat_msg(self) -> dict[str, Any] | None:
         """A dictionary representation typically used in chat-based contexts."""
         try:
-            role_str = self.role.value if isinstance(self.role, MessageRole) else str(self.role)
+            role_str = (
+                self.role.value
+                if isinstance(self.role, MessageRole)
+                else str(self.role)
+            )
             return {"role": role_str, "content": self.rendered}
         except Exception:
             return None

@@ -105,7 +105,9 @@ def prepare_communicate_kw(
                 FuzzyMatchKeysParams(**fuzzy_kw) if fuzzy_kw else FuzzyMatchKeysParams()
             ),
             handle_validation=handle_validation,
-            alcall_params=get_default_call().with_updates(retry_attempts=num_parse_retries),
+            alcall_params=get_default_call().with_updates(
+                retry_attempts=num_parse_retries
+            ),
             imodel=parse_model,
             imodel_kw={},
         )
@@ -144,14 +146,14 @@ async def communicate(
 
     # Handle response_format with parse
     if parse_param and chat_param.response_format:
-        from lionagi.protocols.messages.assistant_response import (
-            AssistantResponse,
-        )
+        from lionagi.protocols.messages.assistant_response import AssistantResponse
 
         from ..parse.parse import parse
 
         try:
-            out, res2 = await parse(branch, res.response, parse_param, return_res_message=True)
+            out, res2 = await parse(
+                branch, res.response, parse_param, return_res_message=True
+            )
             if res2 and isinstance(res2, AssistantResponse):
                 res.metadata["original_model_response"] = res.model_response
                 # model_response is read-only property - update metadata instead
