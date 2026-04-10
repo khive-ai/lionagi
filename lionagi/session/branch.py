@@ -539,6 +539,14 @@ class Branch(Element, Relational):
             "system": data.pop("system", Unset),
             "log_config": data.pop("log_config", Unset),
         }
+
+        # When restoring from serialized state, the system message is already
+        # in the messages pile. Don't pass it again to __init__ or it'll duplicate.
+        messages_val = dict_.get("messages", Unset)
+        system_val = dict_.get("system", Unset)
+        if messages_val is not Unset and system_val is not Unset:
+            dict_["system"] = Unset  # already in messages, skip re-adding
+
         params = {}
 
         # Merge in the rest of the data
