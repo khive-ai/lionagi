@@ -354,7 +354,9 @@ class Branch(Element, Relational):
             self.chat_model.copy() if self.chat_model.is_cli else self.chat_model
         )
         parse_model = (
-            self.parse_model.copy() if self.parse_model.is_cli else self.parse_model
+            self.parse_model.copy()
+            if (self.parse_model is not self.chat_model and self.parse_model.is_cli)
+            else self.parse_model
         )
 
         branch_clone = Branch(
