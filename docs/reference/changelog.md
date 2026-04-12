@@ -2,6 +2,23 @@
 
 All notable changes to LionAGI are documented here.
 
+## [0.20.4] - 2026-04-11
+
+### Fixed
+
+- **`Branch.clone`**: Skip cloning `parse_model` when it is the same instance as `chat_model`. Previously a CLI `parse_model` that aliased `chat_model` would be copied twice, spawning an unnecessary duplicate CLI session.
+- **`Branch.from_dict`**: Skip re-adding the system message when the messages pile already contains it (fixes `ItemExistsError` on round-trip).
+- **`iModel.from_dict`**: Preserve API key by re-reading from environment via a fresh `match_endpoint`, since `api_key` is excluded from `model_dump` for security.
+
+### Changed
+
+- Mock CLI binaries in subprocess isolation tests to remove dependency on host-installed `codex` / `gemini` executables.
+- Pre-commit formatting sweep (black, isort, pyupgrade) across the codebase.
+
+### Security
+
+- Bumped vulnerable transitive dependencies (black, authlib, pyjwt, pillow, tornado, cairosvg) to patched versions — addresses 6 of 7 Dependabot alerts.
+
 ## [0.20.0] - 2026-02-13
 
 ### Added
