@@ -9,7 +9,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "aiocache>=0.12.0",
-    "aiohttp>=3.13.3",
+    "aiohttp>=3.13.4",
     "anyio>=4.7.0",
     "backoff>=2.0.0",
     "json-repair>=0.40.0",
@@ -80,7 +80,7 @@ ollama = [
 ]
 
 mcp = [
-    "fastmcp>=2.14.0",
+    "fastmcp>=3.2.0",
 ]
 
 rich = [
@@ -200,4 +200,7 @@ constraint-dependencies = [
     "pillow>=12.1.1",       # CVE: out-of-bounds write loading PSD images
     "tornado>=6.5.5",       # CVE: multipart DoS, cookie validation
     "cairosvg>=2.9.0",      # CVE: recursive <use> exponential DoS
+    "cryptography>=46.0.7", # CVE: buffer overflow on non-contiguous buffers; DNS name constraint enforcement
+    "requests>=2.33.0",     # CVE: insecure temp file reuse in extract_zipped_paths
+    "pygments>=2.20.0",     # CVE: ReDoS in GUID regex
 ]
