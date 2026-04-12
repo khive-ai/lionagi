@@ -1,7 +1,7 @@
 from lionagi import Branch
 
-async def try_codex():
 
+async def try_codex():
     branch = Branch(
         chat_model="codex/gpt-5.3-codex-spark",
         system_datetime=True,
@@ -16,6 +16,8 @@ async def try_codex():
     )
     print(response)
 
+
 if __name__ == "__main__":
     import anyio
+
     anyio.run(try_codex)
