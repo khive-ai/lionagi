@@ -71,7 +71,7 @@ def match_endpoint(
             from .providers.nvidia_nim_ import NvidiaNimChatEndpoint
 
             return NvidiaNimChatEndpoint(None, **kwargs)
-    if provider == "claude_code":
+    if provider in {"claude_code", "claude-code", "claude"}:
         from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
 
         return ClaudeCodeCLIEndpoint(None, **kwargs)
@@ -79,7 +79,7 @@ def match_endpoint(
         from .providers.oai_ import GeminiChatEndpoint
 
         return GeminiChatEndpoint(None, **kwargs)
-    if provider == "gemini_code":
+    if provider in {"gemini_code", "gemini-code", "gemini_cli", "gemini-cli"}:
         from .providers.gemini_cli import GeminiCLIEndpoint
 
         return GeminiCLIEndpoint(None, **kwargs)

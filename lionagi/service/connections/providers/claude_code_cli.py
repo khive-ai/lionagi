@@ -142,7 +142,13 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
             if i.text is not None:
                 texts.append(i.text)
 
-        texts.append(session.result)
+        # Guard against IndexError when no text chunks arrived (early cancel,
+        # tool-only sessions, empty responses under auto_finish).
+        if session.result and (
+            not texts or session.result.strip() != texts[-1].strip()
+        ):
+            texts.append(session.result)
+
         session.result = "\n".join(texts)
         if request.cli_include_summary:
             session.populate_summary()

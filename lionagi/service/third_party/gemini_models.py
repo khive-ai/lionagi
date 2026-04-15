@@ -14,6 +14,7 @@ import warnings
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from dataclasses import field as datafield
+from functools import partial
 from pathlib import Path
 from textwrap import shorten
 from typing import Any, Literal
@@ -21,6 +22,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from lionagi import ln
+from lionagi.libs.schema.as_readable import as_readable
 
 HAS_GEMINI_CLI = False
 GEMINI_CLI = None
@@ -73,6 +75,7 @@ class GeminiCodeRequest(BaseModel):
 
     # -- internal use --------------------------------------------------------
     verbose_output: bool = Field(default=False)
+    cli_display_theme: Literal["light", "dark"] = Field(default="light")
     cli_include_summary: bool = Field(default=False)
 
     @model_validator(mode="before")
@@ -384,30 +387,40 @@ async def _maybe_await(func, *args, **kw):
         await res
 
 
-def _pp_text(text: str) -> None:
-    print(f"\n> Gemini:\n{text}\n")
+print_readable = partial(as_readable, md=True, display_str=True)
 
 
-def _pp_tool_use(tu: dict[str, Any]) -> None:
+def _pp_text(text: str, theme: str = "light") -> None:
+    txt = f"""
+    > 🔷 Gemini:
+    {text}
+    """
+    print_readable(txt, theme=theme)
+
+
+def _pp_tool_use(tu: dict[str, Any], theme: str = "light") -> None:
     preview = shorten(str(tu.get("input", {})).replace("\n", " "), 130)
-    print(f"- Tool Use - {tu.get('name', 'unknown')}: {preview}")
+    body = f"- 🔧 Tool Use — {tu.get('name', 'unknown')}: {preview}"
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_tool_result(tr: dict[str, Any]) -> None:
+def _pp_tool_result(tr: dict[str, Any], theme: str = "light") -> None:
     body_preview = shorten(str(tr.get("content", "")).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
-    print(f"- Tool Result - {status}: {body_preview}")
+    body = f"- 📋 Tool Result — {status}: {body_preview}"
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_final(sess: GeminiSession) -> None:
+def _pp_final(sess: GeminiSession, theme: str = "light") -> None:
     usage = sess.usage or {}
-    print(
-        f"\n### Session complete\n"
+    txt = (
+        f"\n### Gemini Session complete\n"
         f"**Result:** {sess.result or ''}\n"
         f"- turns: {sess.num_turns}\n"
         f"- duration: {sess.duration_ms} ms\n"
         f"- tokens: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
     )
+    print_readable(txt, theme=theme)
 
 
 async def stream_gemini_cli(
@@ -424,6 +437,8 @@ async def stream_gemini_cli(
     """
     if session is None:
         session = GeminiSession()
+    theme = request.cli_display_theme or "light"
+    _start_monotonic = asyncio.get_running_loop().time()
 
     stream = stream_gemini_cli_events(request)
     try:
@@ -447,7 +462,7 @@ async def stream_gemini_cli(
                     chunk.text = content
                     await _maybe_await(on_text, content)
                     if request.verbose_output:
-                        _pp_text(content)
+                        _pp_text(content, theme)
                 elif isinstance(content, list):
                     for blk in content:
                         if isinstance(blk, dict):
@@ -457,7 +472,7 @@ async def stream_gemini_cli(
                                 chunk.text = text
                                 await _maybe_await(on_text, text)
                                 if request.verbose_output:
-                                    _pp_text(text)
+                                    _pp_text(text, theme)
                             elif btype == "tool_use":
                                 tu = {
                                     "id": blk.get("id", ""),
@@ -468,7 +483,7 @@ async def stream_gemini_cli(
                                 session.tool_uses.append(tu)
                                 await _maybe_await(on_tool_use, tu)
                                 if request.verbose_output:
-                                    _pp_tool_use(tu)
+                                    _pp_tool_use(tu, theme)
                 yield chunk
 
             elif typ in ("tool_call", "tool_use"):
@@ -481,7 +496,7 @@ async def stream_gemini_cli(
                 session.tool_uses.append(tu)
                 await _maybe_await(on_tool_use, tu)
                 if request.verbose_output:
-                    _pp_tool_use(tu)
+                    _pp_tool_use(tu, theme)
                 yield chunk
 
             elif typ == "tool_result":
@@ -494,15 +509,24 @@ async def stream_gemini_cli(
                 session.tool_results.append(tr)
                 await _maybe_await(on_tool_result, tr)
                 if request.verbose_output:
-                    _pp_tool_result(tr)
+                    _pp_tool_result(tr, theme)
                 yield chunk
 
             elif typ in ("result", "response"):
                 session.result = obj.get("result", obj.get("response", "")).strip()
-                session.usage = obj.get("usage", obj.get("stats", {}))
+                stats = obj.get("stats") or {}
+                session.usage = obj.get("usage", stats)
                 session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
                 session.num_turns = obj.get("num_turns", obj.get("turns"))
-                session.duration_ms = obj.get("duration_ms", obj.get("duration"))
+                # Gemini CLI nests duration inside stats; prefer it over the
+                # top-level lookup so we capture the actual inference time
+                # rather than the Python monotonic wall-clock fallback.
+                session.duration_ms = (
+                    obj.get("duration_ms")
+                    or obj.get("duration")
+                    or stats.get("duration_ms")
+                    or stats.get("duration")
+                )
                 session.is_error = obj.get("is_error", obj.get("error") is not None)
 
             elif typ == "error":
@@ -514,8 +538,35 @@ async def stream_gemini_cli(
     finally:
         await stream.aclose()
 
+    # Populate session.result from streamed chunks when the CLI didn't emit a
+    # dedicated "result" event (common for Gemini). Deltas accumulate into one
+    # piece; non-delta chunks are kept as separate parts.
+    if not session.result:
+        parts: list[str] = []
+        current_delta: list[str] = []
+        for c in session.chunks:
+            if c.text is None:
+                continue
+            if c.is_delta:
+                current_delta.append(c.text)
+            else:
+                if current_delta:
+                    parts.append("".join(current_delta))
+                    current_delta = []
+                parts.append(c.text)
+        if current_delta:
+            parts.append("".join(current_delta))
+        if parts:
+            session.result = "\n".join(parts)
+    if session.num_turns is None and session.messages:
+        session.num_turns = len(session.messages)
+    if session.duration_ms is None:
+        session.duration_ms = int(
+            (asyncio.get_running_loop().time() - _start_monotonic) * 1000
+        )
+
     await _maybe_await(on_final, session)
     if request.verbose_output:
-        _pp_final(session)
+        _pp_final(session, theme)
 
     yield session

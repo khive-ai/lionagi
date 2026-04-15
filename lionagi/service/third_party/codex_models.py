@@ -14,6 +14,7 @@ import warnings
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from dataclasses import field as datafield
+from functools import partial
 from pathlib import Path
 from textwrap import shorten
 from typing import Any, Literal
@@ -21,6 +22,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lionagi import ln
+from lionagi.libs.schema.as_readable import as_readable
 
 HAS_CODEX_CLI = False
 CODEX_CLI = None
@@ -232,6 +234,7 @@ class CodexCodeRequest(BaseModel):
 
     # ── lionagi internal (no CLI flags) ───────────────────────────
     verbose_output: bool = Field(default=False, exclude=True)
+    cli_display_theme: Literal["light", "dark"] = Field(default="light", exclude=True)
     cli_include_summary: bool = Field(default=False, exclude=True)
 
     # ── validators ────────────────────────────────────────────────
@@ -628,25 +631,34 @@ async def _maybe_await(func, *args, **kw):
         await res
 
 
-def _pp_text(text: str) -> None:
-    print(f"\n> Codex:\n{text}\n")
+print_readable = partial(as_readable, md=True, display_str=True)
 
 
-def _pp_tool_use(tu: dict[str, Any]) -> None:
+def _pp_text(text: str, theme: str = "light") -> None:
+    txt = f"""
+    > 🟢 Codex:
+    {text}
+    """
+    print_readable(txt, theme=theme)
+
+
+def _pp_tool_use(tu: dict[str, Any], theme: str = "light") -> None:
     preview = shorten(str(tu.get("input", {})).replace("\n", " "), 130)
-    print(f"- Tool Use - {tu.get('name', 'unknown')}: {preview}")
+    body = f"- 🔧 Tool Use — {tu.get('name', 'unknown')}: {preview}"
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_tool_result(tr: dict[str, Any]) -> None:
+def _pp_tool_result(tr: dict[str, Any], theme: str = "light") -> None:
     body_preview = shorten(str(tr.get("content", "")).replace("\n", " "), 130)
     status = "ERR" if tr.get("is_error") else "OK"
-    print(f"- Tool Result - {status}: {body_preview}")
+    body = f"- 📋 Tool Result — {status}: {body_preview}"
+    print_readable(body, border=False, panel=False, theme=theme)
 
 
-def _pp_final(sess: CodexSession) -> None:
+def _pp_final(sess: CodexSession, theme: str = "light") -> None:
     usage = sess.usage or {}
     cost_str = f"${sess.total_cost_usd:.4f}" if sess.total_cost_usd else "N/A"
-    print(
+    txt = (
         f"\n### Codex Session complete\n"
         f"**Result:** {sess.result or ''}\n"
         f"- cost: {cost_str}\n"
@@ -654,6 +666,7 @@ def _pp_final(sess: CodexSession) -> None:
         f"- duration: {sess.duration_ms} ms\n"
         f"- tokens: {usage.get('input_tokens', 0)}/{usage.get('output_tokens', 0)}"
     )
+    print_readable(txt, theme=theme)
 
 
 # --------------------------------------------------------------------------- main parser
@@ -677,6 +690,8 @@ async def stream_codex_cli(
     """
     if session is None:
         session = CodexSession()
+    theme = request.cli_display_theme or "light"
+    _start_monotonic = asyncio.get_running_loop().time()
 
     stream = stream_codex_cli_events(request)
     try:
@@ -705,7 +720,7 @@ async def stream_codex_cli(
                     session.messages.append(item)
                     await _maybe_await(on_text, text)
                     if request.verbose_output:
-                        _pp_text(text)
+                        _pp_text(text, theme)
                     yield chunk
 
                 elif item_type in ("function_call", "tool_call"):
@@ -721,7 +736,7 @@ async def stream_codex_cli(
                     session.tool_uses.append(tu)
                     await _maybe_await(on_tool_use, tu)
                     if request.verbose_output:
-                        _pp_tool_use(tu)
+                        _pp_tool_use(tu, theme)
                     yield chunk
 
                 elif item_type == "function_call_output":
@@ -734,7 +749,7 @@ async def stream_codex_cli(
                     session.tool_results.append(tr)
                     await _maybe_await(on_tool_result, tr)
                     if request.verbose_output:
-                        _pp_tool_result(tr)
+                        _pp_tool_result(tr, theme)
                     yield chunk
 
                 elif item_type == "reasoning":
@@ -769,7 +784,7 @@ async def stream_codex_cli(
                     chunk.text = content
                     await _maybe_await(on_text, content)
                     if request.verbose_output:
-                        _pp_text(content)
+                        _pp_text(content, theme)
                 elif isinstance(content, list):
                     for blk in content:
                         if isinstance(blk, dict):
@@ -779,7 +794,7 @@ async def stream_codex_cli(
                                 chunk.text = text
                                 await _maybe_await(on_text, text)
                                 if request.verbose_output:
-                                    _pp_text(text)
+                                    _pp_text(text, theme)
                             elif btype in (
                                 "tool_use",
                                 "function_call",
@@ -799,7 +814,7 @@ async def stream_codex_cli(
                                 session.tool_uses.append(tu)
                                 await _maybe_await(on_tool_use, tu)
                                 if request.verbose_output:
-                                    _pp_tool_use(tu)
+                                    _pp_tool_use(tu, theme)
                 yield chunk
 
             elif typ in ("result", "response", "session.end"):
@@ -818,8 +833,22 @@ async def stream_codex_cli(
     finally:
         await stream.aclose()
 
+    # Reconstruct session.result from chunk texts when the CLI didn't emit a
+    # dedicated "response"/"result" event. CodexChunk has no delta flag, so all
+    # text chunks are treated as independent parts.
+    if not session.result:
+        parts = [c.text for c in session.chunks if c.text is not None]
+        if parts:
+            session.result = "\n".join(parts)
+    if session.num_turns is None and session.messages:
+        session.num_turns = len(session.messages)
+    if session.duration_ms is None:
+        session.duration_ms = int(
+            (asyncio.get_running_loop().time() - _start_monotonic) * 1000
+        )
+
     await _maybe_await(on_final, session)
     if request.verbose_output:
-        _pp_final(session)
+        _pp_final(session, theme)
 
     yield session

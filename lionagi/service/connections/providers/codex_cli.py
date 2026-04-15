@@ -108,7 +108,13 @@ class CodexCLIEndpoint(CLIEndpoint):
             if i.text is not None:
                 texts.append(i.text)
 
-        texts.append(session.result)
+        # Guard against double-append: stream_codex_cli already populates
+        # session.result from chunks when the CLI doesn't emit a dedicated
+        # "response" event. Only append if it is genuinely new content.
+        if session.result and (
+            not texts or session.result.strip() != texts[-1].strip()
+        ):
+            texts.append(session.result)
         session.result = "\n".join(texts)
         if request.cli_include_summary:
             session.populate_summary()

@@ -251,21 +251,6 @@ async def ReAct_v1(
     return final_result
 
 
-async def handle_instruction_interpretation(
-    branch: "Branch",
-    instruction: str,
-    chat_param: ChatParam,
-    intp_param: InterpretParam | None,
-):
-    """Handle instruction interpretation if requested."""
-    if not intp_param:
-        return instruction
-
-    from ..interpret.interpret import interpret
-
-    return await interpret(branch, instruction, intp_param)
-
-
 def handle_field_models(
     field_models: list[FieldModel] | None,
     intermediate_response_options: B | list[B] = None,
@@ -359,21 +344,11 @@ async def ReActStream(
             return s_
 
     # Step 1: Interpret instruction if requested
-    ins_str = await handle_instruction_interpretation(
-        branch,
-        instruction=instruction,
-        chat_param=chat_param,
-        intp_param=intp_param,
-    )
-    # Print interpreted instruction if verbose (don't yield it - not an analysis object)
-    if verbose_analysis and intp_param:
-        str_ = "\n### Interpreted instruction:\n"
-        str_ += as_readable(
-            ins_str,
-            md=True,
-            format_curly=True if display_as == "yaml" else False,
-            max_chars=verbose_length,
-        )
+    intp = None
+    if intp_param:
+        from ..interpret.interpret import interpret
+
+        intp = await interpret(branch, instruction, intp_param)
 
     # Step 2: Handle field models
     fms = handle_field_models(
@@ -394,7 +369,10 @@ async def ReActStream(
     )
 
     # Add proper extension prompt for initial analysis
-    initial_instruction = ins_str
+    initial_instruction = instruction
+    if intp is not None:
+        initial_instruction += f"\n\nInterpreted instruction: {intp}"
+
     if extension_allowed and max_extensions:
         initial_instruction += "\n\n" + ReActAnalysis.FIRST_EXT_PROMPT.format(
             extensions=max_extensions
@@ -523,7 +501,7 @@ async def ReActStream(
             extensions -= 1
 
     # Step 5: Final answer
-    answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction=ins_str)
+    answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction=instruction)
 
     final_response_format = resp_ctx.get("response_format") if resp_ctx else None
     if not final_response_format:
