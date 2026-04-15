@@ -39,10 +39,15 @@ class TestMainImports:
         "Spec",
         "Undefined",
         "Unset",
+        "alcall",
         "iModel",
+        "json_dumps",
+        "lcall",
         "ln",
         "load_mcp_tools",
         "logger",
+        "to_dict",
+        "to_list",
         "types",
     )
 

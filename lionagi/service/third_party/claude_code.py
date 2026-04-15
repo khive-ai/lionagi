@@ -278,7 +278,7 @@ class ClaudeCodeRequest(BaseModel):
         description="Automatically finish the conversation after the first response",
     )
     verbose_output: bool = Field(default=False, exclude=True)
-    cli_display_theme: Literal["light", "dark"] = Field(default="dark", exclude=True)
+    cli_display_theme: Literal["light", "dark"] = Field(default="light", exclude=True)
     cli_include_summary: bool = Field(default=False, exclude=True)
 
     # Legacy fields (kept for backward compat, unused in CLI args)

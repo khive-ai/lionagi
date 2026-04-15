@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel, Field
 
     from . import _types as types
+    from .ln import alcall, json_dumps, lcall, to_dict, to_list
     from .models.field_model import FieldModel
     from .models.operable_model import OperableModel
     from .operations.builder import OperationGraphBuilder as Builder
@@ -47,6 +48,11 @@ _LAZY_MAP: dict[str, tuple[str, str | None]] = {
     "HookRegistry": ("service.hooks.hook_registry", "HookRegistry"),
     "HookedEvent": ("service.hooks.hooked_event", "HookedEvent"),
     "Broadcaster": ("service.broadcaster", "Broadcaster"),
+    "alcall": ("ln", "alcall"),
+    "lcall": ("ln", "lcall"),
+    "to_list": ("ln", "to_list"),
+    "to_dict": ("ln", "to_dict"),
+    "json_dumps": ("ln", "json_dumps"),
 }
 
 
@@ -91,9 +97,14 @@ __all__ = (
     "Spec",
     "Undefined",
     "Unset",
+    "alcall",
     "iModel",
+    "json_dumps",
+    "lcall",
     "ln",
     "load_mcp_tools",
     "logger",
+    "to_dict",
+    "to_list",
     "types",
 )

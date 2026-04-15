@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.20.4"
+version = "0.21.0"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -68,6 +68,9 @@ dev = [
     "pytest-timeout>=2.4.0",
     "pytest-benchmark>=5.1.0",
 ]
+
+[project.scripts]
+li = "lionagi.cli.main:main"
 
 [project.optional-dependencies]
 
