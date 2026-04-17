@@ -6,7 +6,7 @@ from pydantic import BaseModel, field_validator
 
 from lionagi.ln.types import ModelConfig
 
-from .message import MessageContent, MessageRole, RoledMessage
+from .message import Message, MessageContent, MessageRole
 
 
 @dataclass(slots=True)
@@ -306,13 +306,13 @@ class InstructionContent(MessageContent):
         return content
 
 
-class Instruction(RoledMessage):
+class Instruction(Message):
     """User instruction message with structured content.
 
     Supports text, images, context, tool schemas, and response format specifications.
     """
 
-    role: MessageRole = MessageRole.USER
+    _role: ClassVar[MessageRole] = MessageRole.USER
     content: InstructionContent
 
     @field_validator("content", mode="before")

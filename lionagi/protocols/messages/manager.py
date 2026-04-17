@@ -12,7 +12,7 @@ from .action_request import ActionRequest
 from .action_response import ActionResponse
 from .assistant_response import AssistantResponse
 from .instruction import Instruction
-from .message import RoledMessage, SenderRecipient
+from .message import Message, SenderRecipient
 from .system import System
 
 DEFAULT_SYSTEM = "You are a helpful AI assistant. Let's think step by step."
@@ -20,14 +20,14 @@ DEFAULT_SYSTEM = "You are a helpful AI assistant. Let's think step by step."
 
 class MessageManager(Manager):
     """
-    A manager maintaining an ordered list of `RoledMessage` items.
+    A manager maintaining an ordered list of `Message` items.
     Capable of setting or replacing a system message, adding instructions,
     assistant responses, or actions, and retrieving them conveniently.
     """
 
     def __init__(
         self,
-        messages: list[RoledMessage] | None = None,
+        messages: list[Message] | None = None,
         progression: Progression | None = None,
         system: System | None = None,
     ):
@@ -37,15 +37,15 @@ class MessageManager(Manager):
         if isinstance(messages, list):
             for i in messages:
                 if isinstance(i, dict):
-                    i = RoledMessage.from_dict(i)
-                if isinstance(i, RoledMessage):
+                    i = Message.from_dict(i)
+                if isinstance(i, Message):
                     m_.append(i)
         if isinstance(messages, dict):
             self.messages = Pile.from_dict(messages)
         else:
-            self.messages: Pile[RoledMessage] = Pile(
+            self.messages: Pile[Message] = Pile(
                 collections=m_,
-                item_type={RoledMessage},
+                item_type={Message},
                 strict_type=False,
                 progression=progression,
             )
@@ -330,7 +330,7 @@ class MessageManager(Manager):
         action_output: Any = None,
         action_request: ActionRequest | None = None,
         action_response: ActionResponse | Any = None,
-    ) -> RoledMessage:
+    ) -> Message:
         """
         The central method to add a new message of various types:
         - System
@@ -535,7 +535,7 @@ class MessageManager(Manager):
     def __bool__(self):
         return bool(self.messages)
 
-    def __contains__(self, message: RoledMessage) -> bool:
+    def __contains__(self, message: Message) -> bool:
         return message in self.messages
 
 

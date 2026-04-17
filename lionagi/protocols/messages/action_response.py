@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import field_validator
 
-from .message import MessageContent, MessageRole, RoledMessage
+from .message import Message, MessageContent, MessageRole
 
 
 @dataclass(slots=True)
@@ -63,10 +63,10 @@ class ActionResponseContent(MessageContent):
         )
 
 
-class ActionResponse(RoledMessage):
+class ActionResponse(Message):
     """Message containing the result of an action/function execution."""
 
-    role: MessageRole = MessageRole.ACTION
+    _role: ClassVar[MessageRole] = MessageRole.ACTION
     content: ActionResponseContent
 
     @field_validator("content", mode="before")
