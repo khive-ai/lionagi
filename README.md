@@ -169,70 +169,50 @@ analysis = await branch.communicate("Analyze these stats", chat_model=sonnet) # 
 
 Seamlessly route to different models in the same workflow.
 
-### Claude Code Integration
+### CLI Agent Integration
 
-LionAGI now supports Anthropic's Claude Code [CLI SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) enabling autonomous coding capabilities with persistent session management. The CLI endpoint
-directly connects to claude code, and is recommended, you can either use it via a [proxy server](https://github.com/khive-ai/lionagi/tree/main/cookbooks/claude_proxy) or directly with `query_cli` endpoint, provided you have already logged onto claude code cli in your terminal.
+LionAGI integrates with coding agent CLIs as providers, enabling multi-agent orchestration across models:
+
+| Provider | CLI | Models |
+|----------|-----|--------|
+| `claude_code` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code/sdk) | sonnet, opus, haiku |
+| `codex` | [OpenAI Codex](https://github.com/openai/codex) | gpt-5.3-codex-spark, gpt-5.4 |
+| `gemini_code` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | gemini-3.1-* (unstable) |
 
 ```python
 from lionagi import iModel, Branch
 
-def create_cc_model():
-  return iModel(
-      provider="claude_code",
-      endpoint="query_cli",
-      model="sonnet",
-      verbose_output=True,  # Enable detailed output for debugging
-  )
+# Use any CLI agent as a model
+agent = Branch(chat_model=iModel(provider="claude_code", model="sonnet"))
+response = await agent.communicate("Explain the architecture of this codebase")
 
-# Start a coding session
-orchestrator = Branch(chat_model=create_cc_model())
-response = await orchestrator.communicate("Explain the architecture of protocols, operations, and branch")
-
-# continue the session with more queries
-response2 = await orchestrator.communicate("how do these parts form lionagi system")
+# Switch providers mid-flow
+codex = iModel(provider="codex", model="gpt-5.3-codex-spark")
+response2 = await agent.communicate("Compare with your analysis", chat_model=codex)
 ```
 
-### Fan out fan in pattern orchestration with claude code
+See the [CLI Guide](docs/cli_guide.md) for the `li` command-line tool that wraps these providers with fan-out orchestration, session persistence, and effort control.
 
-```python
-# use structured outputs with claude code
-from lionagi.fields import LIST_INSTRUCT_FIELD_MODEL, Instruct
+### CLI — `li`
 
-response3 = await orchestrator.operate(
-  instruct=Instruct(
-    instruction="create 4 research questions for parallel discovery",
-    guidance="put into `instruct_model` field as part of your structured result message",
-    context="I'd like to create an orchestration system for AI agents using lionagi"
-  ),
-  field_models=[LIST_INSTRUCT_FIELD_MODEL],
-)
+LionAGI ships a command-line tool `li` for spawning agents and orchestrating multi-agent fan-out patterns directly from your terminal. See the full [CLI Guide](docs/cli_guide.md) for details.
 
-len(response3.instruct_model)  # should be 4
+```bash
+# Single agent
+li agent claude/sonnet "Explain the observer pattern"
+li agent codex/gpt-5.3-codex-spark "Review this function for bugs" --yolo
 
-async def handle_instruct(instruct):
-  sub_branch = Branch(
-    system="You are an diligent research expert.",
-    chat_model=create_cc_model(),
-  )
-  return await sub_branch.operate(instruct=instruct)
+# Fan-out: orchestrator decomposes task, N workers run in parallel, optional synthesis
+li o fanout claude/sonnet "What are the key design patterns in this codebase?" -n 3 --with-synthesis
 
-# run in parallel across all instruct models
-from lionagi.ln import alcall
-responses = await alcall(response3.instruct_model, handle_instruct)
+# Heterogeneous workers + different synthesis model
+li o fanout claude/sonnet "Analyze error handling approaches" \
+    --workers "claude/sonnet, codex/gpt-5.3-codex-spark" \
+    --with-synthesis claude/opus-4-7-high
 
-# now hand these reports back to the orchestrator
-final_response = await orchestrator.communicate(
-  "please synthesize these research findings into a final report",
-  context=responses,
-)
+# Resume any conversation
+li agent -r <branch-id> "follow up on your analysis"
 ```
-
-Key features:
-- **Auto-Resume Sessions**: Conversations automatically continue from where they left off
-- **Tool Permissions**: Fine-grained control over which tools Claude can access
-- **Streaming Support**: Real-time feedback during code generation
-- **Seamless Integration**: Works with existing LionAGI workflows
 
 ### optional dependencies
 
