@@ -1,6 +1,5 @@
 #!/bin/bash
 # Test li CLI — common cases and arg combos
-# cd /Users/lion/projects/libs/opensrc/lionagi
 # Run one at a time, uncomment as needed
 
 # ═══════════════════════════════════════════════════════════
