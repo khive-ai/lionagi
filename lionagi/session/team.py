@@ -198,125 +198,68 @@ class Team:
     # ==================== Persistence ====================
 
     def dump(self, path: str | Path) -> Path:
-        """Save team state: shared messages.jsonl + team index.
+        """Save team state as a single Pile JSON file."""
+        from lionagi.protocols.generic.pile import Pile
 
-        Layout::
-
-            {path}/
-                messages.jsonl   — all unique messages across branches, by id
-                team.json        — team metadata + per-branch index
-
-        Args:
-            path: Directory to save into (created if needed).
-
-        Returns:
-            Path to the saved directory.
-        """
         path = Path(path)
-        path.mkdir(parents=True, exist_ok=True)
-
-        seen_ids = set()
-        all_messages = []
+        path.parent.mkdir(parents=True, exist_ok=True)
 
         all_branches = {self.orchestrator.name: self.orchestrator}
         all_branches.update(self.members)
 
-        branch_index = {}
-        for name, branch in all_branches.items():
-            progression_ids = [str(mid) for mid in branch.msgs.progression]
-            branch_meta = {
-                "id": str(branch.id),
-                "name": branch.name,
-                "progression": progression_ids,
+        p = Pile(metadata={
+            "team": {
+                "task": self.task,
+                "orchestrator": self.orchestrator.name,
+                "branches": {
+                    name: [str(mid) for mid in branch.msgs.progression]
+                    for name, branch in all_branches.items()
+                },
             }
-            if branch.system:
-                branch_meta["system"] = branch.system.to_dict()
-            if hasattr(branch, "chat_model") and branch.chat_model:
-                branch_meta["chat_model"] = branch.chat_model.to_dict()
-            branch_index[name] = branch_meta
+        })
+        for branch in all_branches.values():
+            for msg in branch.msgs.messages:
+                if msg not in p:
+                    p.include(msg)
 
-            for mid in branch.msgs.messages.progression:
-                msg = branch.msgs.messages[mid]
-                if msg.id not in seen_ids:
-                    seen_ids.add(msg.id)
-                    all_messages.append(msg)
-
-        all_messages.sort(key=lambda m: str(m.id))
-
-        with open(path / "messages.jsonl", "w") as f:
-            for msg in all_messages:
-                f.write(json.dumps(msg.to_dict(), default=str) + "\n")
-
-        team_meta = {
-            "task": self.task,
-            "orchestrator": self.orchestrator.name,
-            "members": list(self.members.keys()),
-            "branches": branch_index,
-        }
-        with open(path / "team.json", "w") as f:
-            json.dump(team_meta, f, indent=2, default=str)
-
+        path.write_bytes(json.dumps(p.to_dict(), default=str).encode())
         return path
 
     @classmethod
-    def load(cls, path: str | Path, session: Session | None = None) -> Team:
-        """Load team state from a dump directory.
-
-        Args:
-            path: Directory containing messages.jsonl + team.json.
-            session: Existing session to use, or creates a new one.
-
-        Returns:
-            Reconstructed Team (messenger re-bound, messages restored).
-        """
-        from lionagi.protocols.generic.element import Element
+    def load(cls, path: str | Path, session: Session | None = None) -> "Team":
+        """Load team from a dumped Pile file."""
+        from lionagi.protocols.generic.pile import Pile
 
         path = Path(path)
-
-        with open(path / "team.json") as f:
-            meta = json.load(f)
-
-        messages_by_id = {}
-        with open(path / "messages.jsonl") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                d = json.loads(line)
-                msg = Element.from_dict(d)
-                messages_by_id[msg.id] = msg
-
+        p = Pile.from_dict(json.loads(path.read_bytes()))
+        meta = p.metadata["team"]
         session = session or Session()
 
         branches = {}
-        for name, bmeta in meta["branches"].items():
+        for name, prog_ids in meta["branches"].items():
             branch = session.new_branch(name=name)
-            for mid_str in bmeta["progression"]:
-                mid = UUID(mid_str)
-                if mid in messages_by_id:
-                    msg = messages_by_id[mid]
-                    if msg not in branch.msgs.messages:
-                        branch.msgs.messages.include(msg)
+            for mid_str in prog_ids:
+                msg = p.get(UUID(mid_str))
+                if msg is not None and msg not in branch.msgs.messages:
+                    branch.msgs.messages.include(msg)
             branches[name] = branch
 
         orch_name = meta["orchestrator"]
         orchestrator = branches.pop(orch_name)
-        members = list(branches.values())
 
         team = cls.__new__(cls)
         team.task = meta["task"]
         team.session = session
         team.orchestrator = orchestrator
-        team.members = {b.name: b for b in members}
+        team.members = {b.name: b for b in branches.values()}
         team.messenger = LionMessenger(exchange=session.exchange)
 
-        all_b = {orch_name: orchestrator}
-        all_b.update(team.members)
+        all_b = {orch_name: orchestrator, **team.members}
         team._name_to_id = {n: b.id for n, b in all_b.items()}
         team._id_to_name = {b.id: n for n, b in all_b.items()}
 
         for bname, branch in all_b.items():
             roster = {n: bid for n, bid in team._name_to_id.items() if n != bname}
-            tool = team.messenger.bind(branch=branch, roster=roster, sender_name=bname)
-            branch.register_tools(tool)
+            team.messenger.bind(branch=branch, roster=roster, sender_name=bname)
 
         return team
