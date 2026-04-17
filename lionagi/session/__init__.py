@@ -6,6 +6,6 @@ from lionagi.protocols.messages import Message  # noqa: E402
 from .branch import Branch
 from .exchange import Exchange
 from .session import Session
-from .team import Team, FanoutInstruction
+from .team import FanoutInstruction, Team
 
 __all__ = ["Branch", "Exchange", "Message", "Session", "Team"]

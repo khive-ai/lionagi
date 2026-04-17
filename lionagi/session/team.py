@@ -79,12 +79,8 @@ class Team:
         self.messenger = LionMessenger(exchange=session.exchange)
 
         all_branches = {orchestrator.name: orchestrator, **self.members}
-        self._name_to_id: dict[str, UUID] = {
-            n: b.id for n, b in all_branches.items()
-        }
-        self._id_to_name: dict[UUID, str] = {
-            b.id: n for n, b in all_branches.items()
-        }
+        self._name_to_id: dict[str, UUID] = {n: b.id for n, b in all_branches.items()}
+        self._id_to_name: dict[UUID, str] = {b.id: n for n, b in all_branches.items()}
 
         for name, branch in all_branches.items():
             roster = {n: bid for n, bid in self._name_to_id.items() if n != name}
@@ -118,10 +114,12 @@ class Team:
         ]
         for msg in messages:
             lines.append(f"**{msg['from']}**: {msg['content']}")
-        lines.extend([
-            "",
-            "[end team message]",
-        ])
+        lines.extend(
+            [
+                "",
+                "[end team message]",
+            ]
+        )
         return "\n".join(lines)
 
     def _make_between_rounds(self, branch_id: UUID):
@@ -131,6 +129,7 @@ class Team:
             if unread:
                 return self._format_injection(unread)
             return None
+
         return between_rounds
 
     async def run(
@@ -260,7 +259,7 @@ class Team:
         return path
 
     @classmethod
-    def load(cls, path: str | Path, session: Session | None = None) -> "Team":
+    def load(cls, path: str | Path, session: Session | None = None) -> Team:
         """Load team state from a dump directory.
 
         Args:

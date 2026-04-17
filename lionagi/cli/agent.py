@@ -19,11 +19,7 @@ from ._persistence import (
     load_last_branch,
     save_last_branch_pointer,
 )
-from ._providers import (
-    PROVIDER_TO_ALIAS,
-    build_chat_model,
-    parse_model_spec,
-)
+from ._providers import build_chat_model, parse_model_spec
 
 
 async def _run_agent(
@@ -222,5 +218,5 @@ def run_agent(args: argparse.Namespace) -> int:
     if not args.verbose:
         print(f"\n{result}" if result is not None else "")
 
-    print(f"\n[to resume] li agent -r {branch_id} \"...\"", file=sys.stderr)
+    print(f'\n[to resume] li agent -r {branch_id} "..."', file=sys.stderr)
     return 0
