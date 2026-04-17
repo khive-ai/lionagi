@@ -16,6 +16,7 @@ from lionagi.protocols.action.tool import Tool
 from ..base import LionTool
 
 if TYPE_CHECKING:
+    from lionagi.session.branch import Branch
     from lionagi.session.exchange import Exchange
 
 __all__ = ("LionMessenger",)
@@ -81,7 +82,7 @@ class LionMessenger(LionTool):
 
     def bind(
         self,
-        sender_id: UUID,
+        branch: "Branch",
         roster: dict[str, UUID],
         sender_name: str | None = None,
         channel: str = "team",
@@ -89,7 +90,7 @@ class LionMessenger(LionTool):
         """Create a branch-scoped Tool bound to a specific sender.
 
         Args:
-            sender_id: The branch UUID that will own this tool.
+            branch: The Branch that will own this tool.
             roster: Mapping of teammate names to their branch UUIDs.
             sender_name: Display name of the sender (for callbacks).
             channel: Exchange channel name for messages.
@@ -97,9 +98,17 @@ class LionMessenger(LionTool):
         Returns:
             A Tool instance ready for ``branch.register_tools()``.
         """
+        from lionagi.protocols.messages import Message
+
         exchange = self.exchange
         fire = self._fire
+        sender_id = branch.id
         _sender_name = sender_name or str(sender_id)[:8]
+
+        def _track(msg: Message):
+            """Add message to branch progression for persistence."""
+            if msg not in branch.msgs.messages:
+                branch.msgs.messages.include(msg)
 
         def messenger(action: str, to: str | list[str] = None, content: str = None) -> str:
             """Send messages to teammates, signal done/finished, or wake a teammate.
@@ -121,12 +130,13 @@ class LionMessenger(LionTool):
                     if name not in roster:
                         results.append(f"Unknown recipient: {name}")
                         continue
-                    exchange.send(
+                    msg = exchange.send(
                         sender=sender_id,
                         recipient=roster[name],
                         content=content,
                         channel=channel,
                     )
+                    _track(msg)
                     results.append(f"Sent to {name}")
                 return "; ".join(results)
 
@@ -144,12 +154,13 @@ class LionMessenger(LionTool):
                 target_name = to if isinstance(to, str) else to[0]
                 if target_name not in roster:
                     return f"Unknown teammate: {target_name}"
-                exchange.send(
+                msg = exchange.send(
                     sender=sender_id,
                     recipient=roster[target_name],
                     content=f"[WAKEUP] {content}",
                     channel=channel,
                 )
+                _track(msg)
                 fire("wakeup", name=_sender_name, sender_id=sender_id, target=target_name, message=content)
                 return f"Woke up {target_name}"
 

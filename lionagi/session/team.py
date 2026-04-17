@@ -87,7 +87,7 @@ class Team:
         for name, branch in all_branches.items():
             roster = {n: bid for n, bid in self._name_to_id.items() if n != name}
             tool = self.messenger.bind(
-                sender_id=branch.id,
+                branch=branch,
                 roster=roster,
                 sender_name=name,
             )
@@ -98,10 +98,13 @@ class Team:
         if not messages:
             return []
 
+        branch = self.session.get_branch(branch_id)
         formatted = []
         for msg in messages:
             sender_name = self._id_to_name.get(msg.sender, str(msg.sender)[:8])
             self.session.exchange.pop_message(branch_id, msg.sender)
+            if msg not in branch.msgs.messages:
+                branch.msgs.messages.include(msg)
             formatted.append({"from": sender_name, "content": msg.content})
         return formatted
 
