@@ -3,12 +3,12 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import Field, field_validator
 
 from .base import SenderRecipient
-from .message import MessageContent, MessageRole, RoledMessage
+from .message import Message, MessageContent, MessageRole
 
 
 @dataclass(slots=True)
@@ -50,10 +50,10 @@ class SystemContent(MessageContent):
         return cls(system_message=system_message, system_datetime=system_datetime)
 
 
-class System(RoledMessage):
+class System(Message):
     """System-level message setting context or policy for the conversation."""
 
-    role: MessageRole = MessageRole.SYSTEM
+    _role: ClassVar[MessageRole] = MessageRole.SYSTEM
     content: SystemContent = Field(default_factory=SystemContent)
     sender: SenderRecipient | None = MessageRole.SYSTEM
     recipient: SenderRecipient | None = MessageRole.ASSISTANT

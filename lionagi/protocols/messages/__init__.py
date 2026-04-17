@@ -7,7 +7,7 @@ from .assistant_response import AssistantResponse, AssistantResponseContent
 from .base import MESSAGE_FIELDS, MessageRole, SenderRecipient
 from .instruction import Instruction, InstructionContent
 from .manager import MessageManager
-from .message import MessageContent, RoledMessage
+from .message import Message, MessageContent, RoledMessage
 from .system import System, SystemContent
 
 __all__ = (
@@ -20,6 +20,7 @@ __all__ = (
     "Instruction",
     "InstructionContent",
     "MESSAGE_FIELDS",
+    "Message",
     "MessageContent",
     "MessageManager",
     "MessageRole",

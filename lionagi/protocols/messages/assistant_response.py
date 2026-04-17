@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, field_validator
 
 from .base import SenderRecipient
-from .message import MessageContent, MessageRole, RoledMessage
+from .message import Message, MessageContent, MessageRole
 
 
 def parse_assistant_response(
@@ -111,13 +111,13 @@ class AssistantResponseContent(MessageContent):
         return cls(assistant_response=assistant_response)
 
 
-class AssistantResponse(RoledMessage):
+class AssistantResponse(Message):
     """Message representing an AI assistant's reply.
 
     The raw model output is stored in metadata["model_response"].
     """
 
-    role: MessageRole = MessageRole.ASSISTANT
+    _role: ClassVar[MessageRole] = MessageRole.ASSISTANT
     content: AssistantResponseContent
     recipient: SenderRecipient | None = MessageRole.USER
 

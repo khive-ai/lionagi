@@ -3,13 +3,13 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import field_validator
 
 from lionagi.utils import copy, to_dict
 
-from .message import MessageContent, MessageRole, RoledMessage
+from .message import Message, MessageContent, MessageRole
 
 
 @dataclass(slots=True)
@@ -78,10 +78,10 @@ class ActionRequestContent(MessageContent):
         )
 
 
-class ActionRequest(RoledMessage):
+class ActionRequest(Message):
     """Message requesting an action or function execution."""
 
-    role: MessageRole = MessageRole.ACTION
+    _role: ClassVar[MessageRole] = MessageRole.ACTION
     content: ActionRequestContent
 
     @field_validator("content", mode="before")

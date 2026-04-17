@@ -26,10 +26,10 @@ from .messages.manager import (
     AssistantResponse,
     Instruction,
     MessageManager,
-    RoledMessage,
     SenderRecipient,
     System,
 )
+from .messages.message import Message, RoledMessage
 
 __all__ = (
     "Collective",
@@ -72,6 +72,7 @@ __all__ = (
     "ActionResponse",
     "AssistantResponse",
     "Instruction",
+    "Message",
     "MessageManager",
     "RoledMessage",
     "SenderRecipient",

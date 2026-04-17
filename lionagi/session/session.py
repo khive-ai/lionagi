@@ -24,8 +24,11 @@ from lionagi.protocols.types import (
 
 from .._errors import ItemNotFoundError
 from ..ln import lcall
+from ..protocols.generic import Flow, Progression
+from ..protocols.messages import Message
 from ..service.imodel import iModel
 from .branch import ActionManager, Branch, OperationManager, Tool
+from .exchange import Exchange
 
 
 class Session(Node, Relational):
@@ -40,6 +43,7 @@ class Session(Node, Relational):
     branches: Pile[Branch] = Field(
         default_factory=lambda: Pile(item_type={Branch}, strict_type=False)
     )
+    exchange: Exchange = Field(default_factory=Exchange, exclude=True)
     default_branch: Any = Field(default=None, exclude=True)
     name: str = Field(default="Session")
     user: SenderRecipient | None = None
@@ -62,6 +66,8 @@ class Session(Node, Relational):
 
             branch.user = self.id
             branch._operation_manager = self._operation_manager
+            if not self.exchange.has(branch.id):
+                self.exchange.register(branch.id)
             if self.default_branch is None:
                 self.default_branch = branch
 
@@ -171,6 +177,7 @@ class Session(Node, Relational):
         branch: Branch = self.branches[branch]
 
         self.branches.exclude(branch)
+        self.exchange.unregister(branch.id)
 
         if self.default_branch.id == branch.id:
             if not self.branches:
@@ -220,6 +227,38 @@ class Session(Node, Relational):
         if not isinstance(branch, Branch):
             raise ValueError("Input value for branch is not a valid branch.")
         self.default_branch = branch
+
+    # ==================== Exchange Interface ====================
+
+    def register_participant(self, entity_id: UUID) -> Flow[Message, Progression]:
+        """Register an external entity (non-branch) with the exchange."""
+        return self.exchange.register(entity_id)
+
+    def send(
+        self,
+        sender: UUID,
+        recipient: UUID | None,
+        content: Any,
+        channel: str | None = None,
+    ) -> Message:
+        """Queue a message via the exchange."""
+        return self.exchange.send(sender, recipient, content, channel)
+
+    def receive(self, owner_id: UUID, sender: UUID | None = None) -> list[Message]:
+        """Peek at inbound messages for an entity."""
+        return self.exchange.receive(owner_id, sender)
+
+    def pop_message(self, owner_id: UUID, sender: UUID) -> Message | None:
+        """Pop oldest message from sender's inbox (FIFO)."""
+        return self.exchange.pop_message(owner_id, sender)
+
+    async def collect(self, owner_id: UUID) -> int:
+        """Route one entity's outbox messages to recipients."""
+        return await self.exchange.collect(owner_id)
+
+    async def sync(self) -> int:
+        """Route all pending messages across all entities."""
+        return await self.exchange.sync()
 
     def to_df(
         self,
