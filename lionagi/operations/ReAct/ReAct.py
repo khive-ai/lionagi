@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from pydantic import BaseModel
@@ -145,6 +145,7 @@ async def ReAct(
         verbose_length=verbose_length,
         continue_after_failed_response=continue_after_failed_response,
         return_analysis=return_analysis,
+        between_rounds=kwargs.get("between_rounds"),
     )
 
 
@@ -172,6 +173,7 @@ async def ReAct_v1(
     verbose_length: int = None,
     continue_after_failed_response: bool = False,
     return_analysis: bool = False,
+    between_rounds: Callable[["Branch", int], Awaitable[str | None]] | None = None,
 ):
     """
     Context-based ReAct implementation - collects all outputs from ReActStream.
@@ -206,6 +208,7 @@ async def ReAct_v1(
             display_as=display_as,
             verbose_length=verbose_length,
             continue_after_failed_response=continue_after_failed_response,
+            between_rounds=between_rounds,
         ):
             analysis, str_ = i
             # str_ is already formatted markdown - just print it
@@ -238,6 +241,7 @@ async def ReAct_v1(
             display_as=display_as,
             verbose_length=verbose_length,
             continue_after_failed_response=continue_after_failed_response,
+            between_rounds=between_rounds,
         ):
             outs.append(i)
 
@@ -322,6 +326,7 @@ async def ReActStream(
     display_as: Literal["yaml", "json"] = "yaml",
     verbose_length: int = None,
     continue_after_failed_response: bool = False,
+    between_rounds: Callable[["Branch", int], Awaitable[str | None]] | None = None,
 ) -> AsyncGenerator:
     """Core ReAct streaming implementation with context-based architecture."""
 
@@ -460,6 +465,38 @@ async def ReActStream(
         }
 
     while _extension_allowed(extensions) and _need_extension(analysis):
+        if between_rounds:
+            injected = await between_rounds(branch, round_count)
+            if injected:
+                from ..operate.operate import operate as _op
+
+                _inj_chat = chat_param.with_updates(response_format=ReActAnalysis)
+                analysis = await _op(
+                    branch,
+                    instruction=injected,
+                    chat_param=_inj_chat,
+                    action_param=action_param,
+                    parse_param=(
+                        parse_param.with_updates(response_format=ReActAnalysis)
+                        if parse_param
+                        else None
+                    ),
+                    handle_validation=handle_validation,
+                    invoke_actions=invoke_actions,
+                    skip_validation=False,
+                    clear_messages=False,
+                    reason=reason,
+                    field_models=fms,
+                )
+                round_count += 1
+                out = verbose_yield(
+                    f"\n### ReAct Round No.{round_count} (injected):\n", analysis
+                )
+                yield out
+                if extensions:
+                    extensions -= 1
+                continue
+
         kwargs = prepare_analysis_kwargs(extensions)
 
         # Build parse context for extension
