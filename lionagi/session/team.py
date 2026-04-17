@@ -1,13 +1,12 @@
 # Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Team: concurrent multi-agent collaboration via Exchange + ReAct."""
+"""Team: orchestrator-driven concurrent multi-agent collaboration."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from enum import Enum
 from typing import Any
 from uuid import UUID
 
@@ -15,138 +14,84 @@ from pydantic import BaseModel, Field
 
 from lionagi.tools.communication.messenger import LionMessenger
 
+from .branch import Branch
 from .session import Session
 
 logger = logging.getLogger(__name__)
 
-__all__ = ("Team", "AgentState", "TeamMember")
+__all__ = ("Team",)
 
 
-class AgentState(str, Enum):
-    ACTIVE = "active"
-    DONE = "done"
-    FINISHED = "finished"
+class FanoutInstruction(BaseModel):
+    """Structured output from orchestrator's fanout operate call."""
 
-
-class TeamMember(BaseModel):
-    name: str
-    role: str
-    branch_id: UUID | None = None
-    state: AgentState = AgentState.ACTIVE
-    wake_event: Any = Field(default=None, exclude=True)
+    assignments: dict[str, str] = Field(
+        description="Mapping of member branch names to their instructions."
+    )
 
 
 class Team:
-    """Concurrent multi-agent collaboration.
+    """Orchestrator-driven concurrent multi-agent collaboration.
 
-    Pure setup layer: creates branches, binds LionMessenger, provides a
-    ``between_rounds`` callback for ReAct message injection, then launches
-    concurrent ``branch.ReAct()`` calls. No custom execution loop.
+    The orchestrator branch runs an ``operate()`` to produce structured
+    fanout instructions, then member branches run ``ReAct()`` concurrently
+    with ``LionMessenger`` for inter-agent communication.
 
     Usage::
 
-        team = Team(
-            goal="Build a web app",
-            members={
-                "architect": {"role": "Design the system architecture"},
-                "implementer": {"role": "Write the code"},
-            },
+        session = Session()
+
+        orchestrator = session.new_branch(
+            name="orchestrator",
+            system="You coordinate a team of agents...",
         )
-        results = await team.run(instructions={
-            "architect": "Design a REST API for a todo app",
-            "implementer": "Wait for the architect's design, then implement it",
-        })
+        researcher = session.new_branch(
+            name="researcher",
+            system="You are a research specialist...",
+        )
+        implementer = session.new_branch(
+            name="implementer",
+            system="You are a code implementer...",
+        )
+
+        team = Team(
+            task="Build a REST API for a todo app",
+            orchestrator=orchestrator,
+            members=[researcher, implementer],
+            session=session,
+        )
+        results = await team.run()
     """
 
     def __init__(
         self,
-        goal: str,
-        members: dict[str, dict[str, Any]],
-        session: Session | None = None,
-        **session_kwargs,
+        task: str,
+        orchestrator: Branch,
+        members: list[Branch],
+        session: Session,
     ):
-        self.goal = goal
-        self.session = session or Session(**session_kwargs)
-        self.members: dict[str, TeamMember] = {}
-        self._name_to_branch: dict[str, UUID] = {}
-        self._branch_to_name: dict[UUID, str] = {}
-        self.messenger = LionMessenger(exchange=self.session.exchange)
+        self.task = task
+        self.session = session
+        self.orchestrator = orchestrator
+        self.members = {b.name: b for b in members}
+        self.messenger = LionMessenger(exchange=session.exchange)
 
-        self.messenger.on("done", self._on_done)
-        self.messenger.on("finished", self._on_finished)
-        self.messenger.on("wakeup", self._on_wakeup)
-
-        for name, config in members.items():
-            branch = self.session.new_branch(name=name)
-            member = TeamMember(
-                name=name,
-                role=config.get("role", name),
-                branch_id=branch.id,
-                wake_event=asyncio.Event(),
-            )
-            member.wake_event.set()
-            self.members[name] = member
-            self._name_to_branch[name] = branch.id
-            self._branch_to_name[branch.id] = name
-
-        for name in self.members:
-            self._register_messenger(name)
-
-    # ==================== State Callbacks ====================
-
-    def _on_done(self, name: str, sender_id: UUID, reason: str, **_):
-        if name in self.members:
-            self.members[name].state = AgentState.DONE
-            self.members[name].wake_event.clear()
-
-    def _on_finished(self, name: str, sender_id: UUID, reason: str, **_):
-        if name in self.members:
-            self.members[name].state = AgentState.FINISHED
-            self.members[name].wake_event.clear()
-
-    def _on_wakeup(self, name: str, sender_id: UUID, target: str, message: str, **_):
-        if target in self.members:
-            member = self.members[target]
-            if member.state == AgentState.DONE:
-                member.state = AgentState.ACTIVE
-                member.wake_event.set()
-
-    # ==================== Setup ====================
-
-    def _register_messenger(self, member_name: str):
-        member = self.members[member_name]
-        branch = self.session.get_branch(member.branch_id)
-        roster = {
-            n: m.branch_id for n, m in self.members.items() if n != member_name
+        all_branches = {"orchestrator": orchestrator, **self.members}
+        self._name_to_id: dict[str, UUID] = {
+            n: b.id for n, b in all_branches.items()
         }
-        tool = self.messenger.bind(
-            sender_id=member.branch_id,
-            roster=roster,
-            sender_name=member_name,
-        )
-        branch.register_tools(tool)
+        self._id_to_name: dict[UUID, str] = {
+            b.id: n for n, b in all_branches.items()
+        }
 
-    def _team_system_prompt(self, member_name: str) -> str:
-        member = self.members[member_name]
-        teammates = [
-            f"- **{n}**: {m.role}"
-            for n, m in self.members.items()
-            if n != member_name
-        ]
-        return (
-            f"You are **{member_name}** in a team.\n"
-            f"**Team goal**: {self.goal}\n"
-            f"**Your role**: {member.role}\n\n"
-            f"**Your teammates**:\n" + "\n".join(teammates) + "\n\n"
-            "Use the `messenger` tool to communicate:\n"
-            "- `messenger(action='send', to='name', content='...')` — send a message\n"
-            "- `messenger(action='wakeup', to='name', content='...')` — wake a sleeping teammate\n"
-            "- `messenger(action='done', content='reason')` — you're done (can be woken)\n"
-            "- `messenger(action='finished', content='reason')` — permanently done\n\n"
-            "Focus on your role. Collaborate when needed."
-        )
-
-    # ==================== Message Injection ====================
+        for name, branch in all_branches.items():
+            roster = {n: bid for n, bid in self._name_to_id.items() if n != name}
+            tool = self.messenger.bind(
+                sender_id=branch.id,
+                roster=roster,
+                sender_name=name,
+            )
+            branch.register_tools(tool)
 
     def _collect_unread(self, branch_id: UUID) -> list[dict]:
         messages = self.session.exchange.receive(branch_id)
@@ -155,7 +100,7 @@ class Team:
 
         formatted = []
         for msg in messages:
-            sender_name = self._branch_to_name.get(msg.sender, str(msg.sender)[:8])
+            sender_name = self._id_to_name.get(msg.sender, str(msg.sender)[:8])
             self.session.exchange.pop_message(branch_id, msg.sender)
             formatted.append({"from": sender_name, "content": msg.content})
         return formatted
@@ -163,89 +108,80 @@ class Team:
     @staticmethod
     def _format_injection(messages: list[dict]) -> str:
         lines = [
-            "[begin lion system notice]",
-            "New messages from teammates:",
+            "[begin team message]",
             "",
         ]
         for msg in messages:
             lines.append(f"**{msg['from']}**: {msg['content']}")
         lines.extend([
             "",
-            "[end notice]",
-            "Continue your work. Use `messenger(action='done', ...)` when finished.",
+            "[end team message]",
         ])
         return "\n".join(lines)
 
-    def _make_between_rounds(self, member_name: str):
-        """Create a between_rounds callback for ReActStream."""
-        member = self.members[member_name]
-
+    def _make_between_rounds(self, branch_id: UUID):
         async def between_rounds(branch, round_count) -> str | None:
             await self.session.exchange.sync()
-            unread = self._collect_unread(member.branch_id)
+            unread = self._collect_unread(branch_id)
             if unread:
                 return self._format_injection(unread)
             return None
-
         return between_rounds
-
-    # ==================== Run ====================
-
-    async def _run_agent(
-        self,
-        member_name: str,
-        instruction: str | None = None,
-        max_rounds: int = 10,
-        **react_kwargs,
-    ) -> Any:
-        member = self.members[member_name]
-        branch = self.session.get_branch(member.branch_id)
-
-        system_prompt = self._team_system_prompt(member_name)
-        agent_instruction = instruction or f"Begin your work as {member_name}."
-
-        result = await branch.ReAct(
-            instruct={"instruction": agent_instruction, "guidance": system_prompt},
-            tools=True,
-            max_extensions=max_rounds,
-            extension_allowed=True,
-            between_rounds=self._make_between_rounds(member_name),
-            **react_kwargs,
-        )
-        return result
 
     async def run(
         self,
-        instructions: dict[str, str] | None = None,
+        fanout_instruction: str | None = None,
         max_rounds: int = 10,
         **react_kwargs,
     ) -> dict[str, Any]:
-        """Run all team members concurrently via ReAct.
+        """Run the team: orchestrator fans out, members execute concurrently.
 
         Args:
-            instructions: Per-member instructions keyed by name.
-            max_rounds: Maximum ReAct extension rounds per agent.
+            fanout_instruction: Override instruction for the orchestrator's
+                fanout call. If None, uses self.task with member names.
+            max_rounds: Maximum ReAct extension rounds per member.
 
         Returns:
-            Dict mapping member names to their results.
+            Dict with 'orchestrator' (fanout plan) and per-member results.
         """
-        instructions = instructions or {}
+        member_names = list(self.members.keys())
 
-        tasks = {
-            name: asyncio.create_task(
-                self._run_agent(
-                    name,
-                    instruction=instructions.get(name),
-                    max_rounds=max_rounds,
+        prompt = fanout_instruction or (
+            f"Task: {self.task}\n\n"
+            f"You have these team members: {', '.join(member_names)}.\n"
+            f"Assign each member a specific instruction for their part of the work.\n"
+            f"Return assignments as a mapping of member name to instruction."
+        )
+
+        fanout = await self.orchestrator.operate(
+            instruction=prompt,
+            response_format=FanoutInstruction,
+        )
+
+        if isinstance(fanout, FanoutInstruction):
+            assignments = fanout.assignments
+        elif isinstance(fanout, dict):
+            assignments = fanout.get("assignments", {})
+        else:
+            assignments = {n: f"Work on: {self.task}" for n in member_names}
+
+        tasks = {}
+        for name, branch in self.members.items():
+            instruction = assignments.get(name, f"Work on your part of: {self.task}")
+            tasks[name] = asyncio.create_task(
+                branch.ReAct(
+                    instruct={"instruction": instruction},
+                    tools=True,
+                    max_extensions=max_rounds,
+                    extension_allowed=True,
+                    between_rounds=self._make_between_rounds(branch.id),
                     **react_kwargs,
                 )
             )
-            for name in self.members
-        }
 
         await asyncio.wait(tasks.values(), return_when=asyncio.ALL_COMPLETED)
 
-        results = {}
+        results = {"orchestrator": assignments}
         for name, task in tasks.items():
             try:
                 results[name] = task.result()
@@ -254,14 +190,3 @@ class Team:
                 logger.error(f"Agent {name} failed: {e}")
 
         return results
-
-    @property
-    def active_members(self) -> list[str]:
-        return [n for n, m in self.members.items() if m.state == AgentState.ACTIVE]
-
-    @property
-    def all_finished(self) -> bool:
-        return all(
-            m.state in (AgentState.DONE, AgentState.FINISHED)
-            for m in self.members.values()
-        )
