@@ -76,7 +76,7 @@ class Team:
         self.members = {b.name: b for b in members}
         self.messenger = LionMessenger(exchange=session.exchange)
 
-        all_branches = {"orchestrator": orchestrator, **self.members}
+        all_branches = {orchestrator.name: orchestrator, **self.members}
         self._name_to_id: dict[str, UUID] = {
             n: b.id for n, b in all_branches.items()
         }
