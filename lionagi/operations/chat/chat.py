@@ -7,7 +7,7 @@ from pydantic import JsonValue
 
 from lionagi.ln._to_list import to_list
 from lionagi.protocols.generic import EventStatus
-from lionagi.protocols.messages import ActionResponse, AssistantResponse, Instruction
+from lionagi.protocols.messages import ActionResponse, AssistantResponse, Instruction, MessageRole
 
 from ..types import ChatParam
 
@@ -96,6 +96,7 @@ async def chat(
         )
         _use_ins = j
 
+    _use_msgs = [msg for msg in _use_msgs if msg.role != MessageRole.UNSET]
     messages = _use_msgs
     if _use_msgs and len(_use_msgs) > 1:
         _msgs = [_use_msgs[0]]
