@@ -1305,5 +1305,48 @@ class Branch(Element, Relational):
             else:
                 yield result
 
+    async def run(
+        self,
+        instruction: str = "",
+        *,
+        guidance=None,
+        context=None,
+        sender=None,
+        recipient=None,
+        images=None,
+        image_detail="auto",
+        **kwargs,
+    ) -> "AsyncGenerator[RoledMessage, None]":
+        """Stream Messages from a CLI endpoint.
+
+        Yields an Instruction message immediately, then yields
+        AssistantResponse, ActionRequest, and ActionResponse messages
+        as they arrive from the CLI endpoint's stream_chunks().
+
+        Args:
+            instruction: The user instruction string.
+            guidance: Optional guidance text for the instruction.
+            context: Optional context data for the instruction.
+            sender: Sender ID or role for the instruction.
+            recipient: Recipient ID or role for the instruction.
+            images: Optional images to include in the instruction.
+            image_detail: Image detail level ("low", "high", "auto").
+            **kwargs: Additional keyword arguments forwarded to stream_chunks().
+        """
+        from lionagi.operations.run.run import run as _run
+
+        async for msg in _run(
+            self,
+            instruction=instruction,
+            guidance=guidance,
+            context=context,
+            sender=sender,
+            recipient=recipient,
+            images=images,
+            image_detail=image_detail,
+            **kwargs,
+        ):
+            yield msg
+
 
 # File: lionagi/session/branch.py

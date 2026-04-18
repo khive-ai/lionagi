@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from lionagi.service.connections.cli_endpoint import CLIEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
+from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.claude_code import ClaudeChunk, ClaudeCodeRequest, ClaudeSession
@@ -77,12 +78,72 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
 
     async def stream(
         self, request: dict | BaseModel, **kwargs
-    ) -> AsyncIterator[ClaudeChunk | dict | ClaudeSession]:
+    ) -> AsyncIterator[StreamChunk]:
         payload, _ = self.create_payload(request, **kwargs)
         request_obj = payload["request"]
         async with contextlib.aclosing(stream_claude_code_cli(request_obj)) as gen:
-            async for chunk in gen:
-                yield chunk
+            async for item in gen:
+                if isinstance(item, ClaudeSession):
+                    continue
+                if isinstance(item, dict):
+                    typ = item.get("type", "")
+                    if typ == "system":
+                        yield StreamChunk(
+                            type="system",
+                            metadata={
+                                "session_id": item.get("session_id"),
+                                "model": item.get("model"),
+                                "tools": item.get("tools", []),
+                            },
+                        )
+                    elif typ == "result":
+                        yield StreamChunk(
+                            type="result",
+                            content=item.get("result", ""),
+                            metadata={
+                                k: item.get(k)
+                                for k in (
+                                    "usage",
+                                    "total_cost_usd",
+                                    "num_turns",
+                                    "duration_ms",
+                                    "duration_api_ms",
+                                )
+                                if item.get(k) is not None
+                            },
+                            is_error=item.get("is_error", False),
+                        )
+                    continue
+                if isinstance(item, ClaudeChunk):
+                    raw = item.raw
+                    if item.type in ("assistant", "user"):
+                        msg = raw.get("message", {})
+                        for blk in msg.get("content", []):
+                            btype = blk.get("type")
+                            if btype == "thinking":
+                                yield StreamChunk(
+                                    type="thinking",
+                                    content=blk.get("thinking", ""),
+                                )
+                            elif btype == "text":
+                                yield StreamChunk(
+                                    type="text",
+                                    content=blk.get("text", ""),
+                                )
+                            elif btype == "tool_use":
+                                yield StreamChunk(
+                                    type="tool_use",
+                                    tool_name=blk.get("name"),
+                                    tool_id=blk.get("id"),
+                                    tool_input=blk.get("input"),
+                                )
+                            elif btype == "tool_result":
+                                yield StreamChunk(
+                                    type="tool_result",
+                                    tool_id=blk.get("tool_use_id"),
+                                    tool_output=blk.get("content"),
+                                    is_error=blk.get("is_error", False),
+                                )
 
     async def _call(
         self,

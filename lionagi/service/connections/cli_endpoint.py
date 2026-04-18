@@ -16,6 +16,8 @@ class CLIEndpoint(Endpoint):
     - They may maintain sessions with resumption.
     - They manage their own context and actions.
     - They use subprocess + NDJSON streaming, not aiohttp + JSON.
+
+    Subclasses must implement ``stream()`` yielding ``StreamChunk`` objects.
     """
 
     is_cli: ClassVar[bool] = True
