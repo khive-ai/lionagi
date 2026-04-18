@@ -59,9 +59,10 @@ class TestFieldModelInit:
         with pytest.raises(ValueError):
             FieldModel(base_type=int, validator="not_callable")
 
-    def test_invalid_param_raises(self):
-        with pytest.raises(ValueError, match="Invalid parameter"):
-            FieldModel(nonexistent_kwarg=True)
+    def test_unknown_kwarg_stored_as_metadata(self):
+        # FieldModel's legacy API is permissive: unknown kwargs become Meta entries.
+        f = FieldModel(base_type=int, nonexistent_kwarg=True)
+        assert f.extract_metadata("nonexistent_kwarg") is True
 
 
 class TestFieldModelProperties:
@@ -331,8 +332,12 @@ class TestOperableModelUpdateField:
         m.add_field("n", annotation=int, value=5)
         m.field_setattr("n", "description", "a number")
         fi = m.extra_fields["n"]
+        # Known FieldInfo attributes are set directly on the FieldInfo;
+        # only unknown attrs get routed into json_schema_extra.
+        assert fi.description == "a number"
+        m.field_setattr("n", "custom_attr", "custom_value")
         assert fi.json_schema_extra is not None
-        assert fi.json_schema_extra.get("description") == "a number"
+        assert fi.json_schema_extra.get("custom_attr") == "custom_value"
 
     def test_field_getattr_returns_value(self):
         m = SimpleModel()

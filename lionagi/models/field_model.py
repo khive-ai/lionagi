@@ -170,26 +170,31 @@ class FieldModel(Params):
 
         # Handle annotation alias for base_type
         if "annotation" in kwargs and "base_type" not in kwargs:
-            params["base_type"] = kwargs.pop("annotation")
+            kwargs["base_type"] = kwargs.pop("annotation")
+
+        # "field" is a legacy alias for "name"
+        if "field" in kwargs and "name" not in kwargs:
+            kwargs["name"] = kwargs.pop("field")
+
+        # Take structural fields into params directly (not metadata)
+        if "base_type" in kwargs:
+            params["base_type"] = kwargs.pop("base_type")
+        if "metadata" in kwargs:
+            params["metadata"] = tuple(kwargs.pop("metadata"))
+
+        metadata = list(params.get("metadata", ()))
 
         # Handle name in metadata
         if "name" in kwargs:
             name = kwargs.pop("name")
             if name != "field":  # Only add if non-default
-                metadata = list(kwargs.get("metadata", ()))
                 metadata.append(Meta("name", name))
-                params["metadata"] = tuple(metadata)
 
         # Handle special flags
-        if "nullable" in kwargs and kwargs.pop("nullable"):
-            metadata = list(params.get("metadata", ()))
+        if kwargs.pop("nullable", False):
             metadata.append(Meta("nullable", True))
-            params["metadata"] = tuple(metadata)
-
-        if "listable" in kwargs and kwargs.pop("listable"):
-            metadata = list(params.get("metadata", ()))
+        if kwargs.pop("listable", False):
             metadata.append(Meta("listable", True))
-            params["metadata"] = tuple(metadata)
 
         # Validate conflicting defaults
         if "default" in kwargs and "default_factory" in kwargs:
@@ -203,20 +208,26 @@ class FieldModel(Params):
             ):
                 raise ValueError("Validators must be a list of functions or a function")
 
-        # Convert remaining kwargs to metadata
-        if kwargs:
-            metadata = list(params.get("metadata", ()))
-            for key, value in kwargs.items():
-                metadata.append(Meta(key, value))
+        # Remaining kwargs become metadata entries (permissive legacy API).
+        for key, value in kwargs.items():
+            metadata.append(Meta(key, value))
+
+        if metadata:
             params["metadata"] = tuple(metadata)
 
         return params
 
     def __getattr__(self, name: str) -> Any:
         """Handle access to custom attributes stored in metadata."""
-        # Check if the attribute exists in metadata
-        if not self._is_sentinel(self.metadata):
-            for meta in self.metadata:
+        # Use object.__getattribute__ to avoid recursion when the
+        # metadata slot itself is not yet assigned (during __init__).
+        try:
+            metadata = object.__getattribute__(self, "metadata")
+        except AttributeError:
+            metadata = None
+
+        if metadata is not None and not self._is_sentinel(metadata):
+            for meta in metadata:
                 if meta.key == name:
                     return meta.value
 
@@ -362,7 +373,8 @@ class FieldModel(Params):
         Returns:
             New FieldModel with alias
         """
-        filtered_metadata = tuple(m for m in self.metadata if m.key != "alias")
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != "alias")
         new_metadata = (*filtered_metadata, Meta("alias", alias))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -380,7 +392,8 @@ class FieldModel(Params):
         Returns:
             New FieldModel with title
         """
-        filtered_metadata = tuple(m for m in self.metadata if m.key != "title")
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != "title")
         new_metadata = (*filtered_metadata, Meta("title", title))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
@@ -419,7 +432,8 @@ class FieldModel(Params):
             New FieldModel with custom metadata
         """
         # Replace existing metadata with same key
-        filtered_metadata = tuple(m for m in self.metadata if m.key != key)
+        current_metadata = () if self._is_sentinel(self.metadata) else self.metadata
+        filtered_metadata = tuple(m for m in current_metadata if m.key != key)
         new_metadata = (*filtered_metadata, Meta(key, value))
         # Create new instance directly without going through __init__
         new_instance = object.__new__(type(self))
