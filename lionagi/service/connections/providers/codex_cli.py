@@ -144,19 +144,9 @@ class CodexCLIEndpoint(CLIEndpoint):
         codex_log.info(
             f"Session {session.session_id} finished with {len(responses)} chunks"
         )
-        texts = []
-        for i in session.chunks:
-            if i.text is not None:
-                texts.append(i.text)
-
-        # Guard against double-append: stream_codex_cli already populates
-        # session.result from chunks when the CLI doesn't emit a dedicated
-        # "response" event. Only append if it is genuinely new content.
-        if session.result and (
-            not texts or session.result.strip() != texts[-1].strip()
-        ):
-            texts.append(session.result)
-        session.result = "\n".join(texts)
+        if not session.result:
+            texts = [c.text for c in session.chunks if c.text is not None]
+            session.result = "\n".join(texts)
         if request.cli_include_summary:
             session.populate_summary()
 

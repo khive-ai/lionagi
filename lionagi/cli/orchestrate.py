@@ -254,9 +254,8 @@ async def _run_fanout(
                 f"task the worker will answer itself — not a meta-instruction "
                 f"to generate more agents or decompose further. Workers are "
                 f"leaf executors, not orchestrators. "
-                f"Set actions=false and reason=false in every instruct — "
-                f"workers must NOT use tools, spawn agents, or read files. "
-                f"They answer from their own knowledge only. "
+                f"Workers CAN read files, use tools, and run commands "
+                f"as needed to complete their assigned sub-task. "
                 f"If multiple models are provided, set the model field to "
                 f"the exact model string from the list above. "
                 f"If all workers use the same model, model can be null."
@@ -319,9 +318,9 @@ async def _run_fanout(
             )
         else:
             worker_system = (
-                "You are a leaf worker agent. Answer the instruction directly "
-                "from your own knowledge. Do NOT spawn sub-agents, use tools, "
-                "or read files. Just answer concisely."
+                "You are a leaf worker agent. Complete your assigned task "
+                "directly. You may read files, use tools, and run commands "
+                "as needed. Do NOT spawn sub-agents or delegate further."
             )
         worker_branch = Branch(
             chat_model=worker_imodel,

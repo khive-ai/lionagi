@@ -227,7 +227,7 @@ def run_agent(args: argparse.Namespace) -> int:
         )
     )
     if not args.verbose:
-        print(f"\n{result}" if result is not None else "")
+        print(f"\n{result}" if result is not None else "", flush=True)
 
     print(f'\n[to resume] li agent -r {branch_id} "..."', file=sys.stderr)
     return 0
