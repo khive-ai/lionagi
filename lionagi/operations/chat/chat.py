@@ -123,12 +123,15 @@ async def chat(
     if branch.msgs.system:
         messages = [msg for msg in messages if msg.role != "system"]
         first_instruction = None
+
         def f(x):
             g = x.content.guidance or ""
             if not isinstance(g, str):
                 from lionagi.libs.schema.minimal_yaml import minimal_yaml
+
                 g = minimal_yaml(g).strip()
             return branch.msgs.system.rendered + g
+
         if len(messages) == 0:
             first_instruction = ins.model_copy(
                 update={"content": ins.content.with_updates(guidance=f(ins))}
