@@ -77,7 +77,9 @@ def cmd_create(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     teams_dir = _teams_dir()
-    files = sorted(teams_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(
+        teams_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     if not files:
         print("No teams.")
         return 0
@@ -199,7 +201,8 @@ def add_team_subparser(subparsers: argparse._SubParsersAction) -> None:
     cr = team_sub.add_parser("create", help="Create a new team.")
     cr.add_argument("name", help="Team name.")
     cr.add_argument(
-        "-m", "--members",
+        "-m",
+        "--members",
         required=True,
         help="Comma-separated member names.",
     )
