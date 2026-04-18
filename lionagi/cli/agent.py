@@ -22,7 +22,7 @@ from ._persistence import (
     load_last_branch,
     save_last_branch_pointer,
 )
-from ._providers import build_chat_model, parse_model_spec
+from ._providers import add_common_cli_args, build_chat_model, parse_model_spec
 
 
 async def _run_agent(
@@ -184,53 +184,6 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     agent.add_argument(
-        "--cwd",
-        metavar="DIR",
-        default=None,
-        help="Working directory for the agent (passed as repo to CLI endpoint).",
-    )
-    agent.add_argument(
-        "--timeout",
-        metavar="SECONDS",
-        type=int,
-        default=None,
-        help="Timeout in seconds for the agent run.",
-    )
-    agent.add_argument(
-        "--yolo",
-        action="store_true",
-        help=(
-            "Auto-approve all tool calls. Maps per provider: "
-            "claude→permission_mode=bypassPermissions, "
-            "codex→full_auto (keeps workspace sandbox), gemini→--yolo."
-        ),
-    )
-    agent.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help=(
-            "Stream real-time output to terminal (live chunks, tools, thinking, "
-            "final text). Sets verbose_output=True across all providers."
-        ),
-    )
-    agent.add_argument(
-        "--theme",
-        choices=("light", "dark"),
-        default=None,
-        help="Terminal pretty-print theme.",
-    )
-    agent.add_argument(
-        "--effort",
-        metavar="LEVEL",
-        default=None,
-        help=(
-            "Reasoning effort level. "
-            "claude: low|medium|high|max. "
-            "codex: none|minimal|low|medium|high|xhigh."
-        ),
-    )
-    agent.add_argument(
         "-r",
         "--resume",
         metavar="BRANCH_ID",
@@ -243,6 +196,8 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Continue the most recently used branch.",
     )
+
+    add_common_cli_args(agent)
 
 
 def run_agent(args: argparse.Namespace) -> int:
