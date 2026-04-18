@@ -38,6 +38,7 @@ from lionagi.protocols.generic.log import DataLoggerConfig
 
 from ._persistence import LIONAGI_HOME, save_last_branch_pointer
 from ._providers import add_common_cli_args, build_imodel_from_spec, parse_model_spec
+from .team import _load_team, _now_iso, _save_team, _teams_dir
 
 # ── Agent request model (structured output from orchestrator) ─────────────
 
@@ -90,6 +91,79 @@ def _format_result_json(
     return json_dumps(out)
 
 
+# ── Team-mode guidance ────────────────────────────────────────────────────
+
+TEAM_WORKER_SYSTEM = """\
+You are **{worker_name}**, a specialist on team "{team_name}" (id: {team_id}).
+
+## Your team
+{roster_text}
+
+## How this works
+1. You receive a focused assignment from the orchestrator.
+2. Work independently — produce clear, actionable output.
+3. Your results are automatically shared with the team via `li team`.
+4. After this round, teammates or the orchestrator can follow up:
+   - `li team receive -t {team_id} --as {worker_name}` to read messages
+   - `li team send "..." -t {team_id} --to {worker_name}` to reply
+   - `li agent -r {{branch_id}} "follow-up"` to continue your session
+
+Focus on YOUR assignment. Be specific — your output is the deliverable.\
+"""
+
+
+def _create_fanout_team(
+    team_name: str,
+    worker_names: list[str],
+) -> dict:
+    """Create a team for fanout, returning the team data dict."""
+    from uuid import uuid4
+
+    team_id = uuid4().hex[:12]
+    members = ["orchestrator"] + worker_names
+    data = {
+        "id": team_id,
+        "name": team_name,
+        "members": members,
+        "messages": [],
+        "created_at": _now_iso(),
+    }
+    _save_team(data)
+    return data
+
+
+def _post_results_to_team(
+    team_data: dict,
+    worker_results: list[dict],
+    worker_names: list[str],
+    synthesis_result: dict | None = None,
+) -> None:
+    """Post worker outputs and synthesis as team messages."""
+    from uuid import uuid4
+
+    for wr, name in zip(worker_results, worker_names):
+        team_data["messages"].append({
+            "id": uuid4().hex[:12],
+            "from": name,
+            "to": ["*"],
+            "content": wr.get("response", "(no response)"),
+            "timestamp": _now_iso(),
+            "read_by": [],
+        })
+
+    if synthesis_result:
+        team_data["messages"].append({
+            "id": uuid4().hex[:12],
+            "from": "orchestrator",
+            "to": ["*"],
+            "content": f"[SYNTHESIS]\n{synthesis_result.get('response', '')}",
+            "timestamp": _now_iso(),
+            "read_by": [],
+        })
+
+    _save_team(team_data)
+
+
 # ── Core fanout execution ─────────────────────────────────────────────────
 
 
@@ -109,6 +183,7 @@ async def _run_fanout(
     theme: str | None = None,
     output_format: str = "text",
     save_dir: str | None = None,
+    team_name: str | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
     t0 = time.monotonic()
@@ -128,6 +203,18 @@ async def _run_fanout(
     else:
         ms = parse_model_spec(model_spec)
         worker_model_list = [ms.model] * num_workers
+
+    # ── Team setup (if --team-mode) ─────────────────────────────────
+    team_data = None
+    worker_names = [f"worker-{i+1}" for i in range(len(worker_model_list))]
+    if team_name:
+        team_data = _create_fanout_team(team_name, worker_names)
+        if not verbose:
+            print(
+                f"Team '{team_name}' created ({team_data['id']}): "
+                f"{', '.join(worker_names)}",
+                file=sys.stderr,
+            )
 
     # ── Phase 1: Orchestrator decomposes task ─────────────────────────
     builder = OperationGraphBuilder("Fanout")
@@ -205,15 +292,29 @@ async def _run_fanout(
             effort_override=effort,
             theme=theme,
         )
-        worker_branch = Branch(
-            chat_model=worker_imodel,
-            system=(
+        wname = worker_names[i]
+        if team_data:
+            teammates = [n for n in worker_names if n != wname]
+            roster_lines = [f"- orchestrator (coordinator)"]
+            roster_lines += [f"- {t}" for t in teammates]
+            roster_lines.append(f"- **{wname}** (you)")
+            worker_system = TEAM_WORKER_SYSTEM.format(
+                worker_name=wname,
+                team_name=team_data["name"],
+                team_id=team_data["id"],
+                roster_text="\n".join(roster_lines),
+            )
+        else:
+            worker_system = (
                 "You are a leaf worker agent. Answer the instruction directly "
                 "from your own knowledge. Do NOT spawn sub-agents, use tools, "
                 "or read files. Just answer concisely."
-            ),
+            )
+        worker_branch = Branch(
+            chat_model=worker_imodel,
+            system=worker_system,
             log_config=DataLoggerConfig(auto_save_on_exit=False),
-            name=f"worker-{i+1}",
+            name=wname,
         )
         session.include_branches(worker_branch)
         worker_context = [
@@ -328,6 +429,24 @@ async def _run_fanout(
         (save_path / "meta.json").write_text(json_dumps(meta))
         if not verbose:
             print(f"Saved to {save_path}", file=sys.stderr)
+
+    # ── Post to team ─────────────────────────────────────────────────
+    if team_data:
+        _post_results_to_team(team_data, worker_results, worker_names, synthesis_result)
+        if not verbose:
+            print(
+                f"\nTeam '{team_data['name']}' ({team_data['id']}): "
+                f"{len(worker_results)} results posted.",
+                file=sys.stderr,
+            )
+            print(
+                f"  li team receive -t {team_data['id']} --as orchestrator",
+                file=sys.stderr,
+            )
+            print(
+                f"  li team show {team_data['id']}",
+                file=sys.stderr,
+            )
 
     # ── Persist all branches ─────────────────────────────────────────
     orc_provider = orc_branch.chat_model.endpoint.config.provider
@@ -444,6 +563,19 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Save outputs to directory.",
     )
 
+    fo.add_argument(
+        "--team-mode",
+        nargs="?",
+        const="fanout",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Create a persistent team for this fanout. Workers get team context "
+            "and results are posted as team messages. Bare flag uses 'fanout' as "
+            "team name; with arg uses that name."
+        ),
+    )
+
     add_common_cli_args(fo)
 
 
@@ -470,6 +602,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 theme=args.theme,
                 output_format=args.output,
                 save_dir=args.save,
+                team_name=args.team_mode,
             )
         )
         if not args.verbose:
