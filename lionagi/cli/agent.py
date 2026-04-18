@@ -12,6 +12,7 @@ from lionagi import Branch, iModel, json_dumps
 from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import run_async
 from lionagi.protocols.generic.log import DataLoggerConfig
+from lionagi.protocols.messages import AssistantResponse
 
 from ._persistence import (
     LIONAGI_HOME,
@@ -99,7 +100,10 @@ async def _run_agent(
         # so persisted verbose/yolo don't leak into new invocations
         branch.chat_model.endpoint.config.kwargs["verbose_output"] = verbose
 
-    res = await branch.communicate(prompt)
+    res = ""
+    async for msg in branch.run(prompt):
+        if isinstance(msg, AssistantResponse):
+            res = msg.response
 
     path = await acreate_path(
         directory=LIONAGI_HOME / "logs" / "agents" / provider,
