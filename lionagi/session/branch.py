@@ -1305,5 +1305,42 @@ class Branch(Element, Relational):
             else:
                 yield result
 
+    async def run(
+        self,
+        instruction: str = "",
+        *,
+        chat_model: "iModel | None" = None,
+        guidance=None,
+        context=None,
+        sender=None,
+        recipient=None,
+        images=None,
+        image_detail="auto",
+        **kwargs,
+    ) -> "AsyncGenerator[RoledMessage, None]":
+        """Stream Messages from a CLI endpoint.
+
+        Yields Instruction, AssistantResponse, ActionRequest, and
+        ActionResponse messages as they arrive from the stream.
+
+        Pass ``chat_model`` to override the branch default, enabling
+        multi-model conversations on a single branch.
+        """
+        from lionagi.operations.run.run import run as _run
+
+        async for msg in _run(
+            self,
+            instruction=instruction,
+            chat_model=chat_model,
+            guidance=guidance,
+            context=context,
+            sender=sender,
+            recipient=recipient,
+            images=images,
+            image_detail=image_detail,
+            **kwargs,
+        ):
+            yield msg
+
 
 # File: lionagi/session/branch.py

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from lionagi.service.connections.cli_endpoint import CLIEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
+from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.codex_models import CodexChunk, CodexCodeRequest, CodexSession
@@ -74,12 +75,52 @@ class CodexCLIEndpoint(CLIEndpoint):
 
     async def stream(
         self, request: dict | BaseModel, **kwargs
-    ) -> AsyncIterator[CodexChunk | dict | CodexSession]:
+    ) -> AsyncIterator[StreamChunk]:
         payload, _ = self.create_payload(request, **kwargs)
         request_obj = payload["request"]
         async with contextlib.aclosing(stream_codex_cli(request_obj)) as gen:
-            async for chunk in gen:
-                yield chunk
+            async for item in gen:
+                if isinstance(item, CodexSession):
+                    continue
+                if isinstance(item, dict):
+                    typ = item.get("type", "")
+                    if typ == "result":
+                        yield StreamChunk(
+                            type="result",
+                            content=item.get("result", ""),
+                            metadata=item,
+                        )
+                    continue
+                if isinstance(item, CodexChunk):
+                    if item.text is not None:
+                        yield StreamChunk(type="text", content=item.text)
+                    if item.tool_use is not None:
+                        tu = item.tool_use
+                        yield StreamChunk(
+                            type="tool_use",
+                            tool_name=tu.get("name"),
+                            tool_id=tu.get("id"),
+                            tool_input=tu.get("input"),
+                        )
+                    if item.tool_result is not None:
+                        tr = item.tool_result
+                        yield StreamChunk(
+                            type="tool_result",
+                            tool_id=tr.get("tool_use_id"),
+                            tool_output=tr.get("content"),
+                            is_error=tr.get("is_error", False),
+                        )
+                    if (
+                        item.text is None
+                        and item.tool_use is None
+                        and item.tool_result is None
+                        and item.type == "result"
+                    ):
+                        yield StreamChunk(
+                            type="result",
+                            content=item.raw.get("result", ""),
+                            metadata=item.raw,
+                        )
 
     async def _call(
         self,
