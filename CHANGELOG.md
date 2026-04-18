@@ -3,6 +3,12 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.22.1] - 2026-04-18
+
+### Fixed
+- CLI orchestration: guidance coercion, worker tool access, output dedup (#902)
+- `chat`: improved guidance handling in chat function (#903)
+
 ## [0.22.0] - 2026-04-18
 
 ### Added
