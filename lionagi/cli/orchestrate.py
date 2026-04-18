@@ -142,24 +142,28 @@ def _post_results_to_team(
     from uuid import uuid4
 
     for wr, name in zip(worker_results, worker_names):
-        team_data["messages"].append({
-            "id": uuid4().hex[:12],
-            "from": name,
-            "to": ["*"],
-            "content": wr.get("response", "(no response)"),
-            "timestamp": _now_iso(),
-            "read_by": [],
-        })
+        team_data["messages"].append(
+            {
+                "id": uuid4().hex[:12],
+                "from": name,
+                "to": ["*"],
+                "content": wr.get("response", "(no response)"),
+                "timestamp": _now_iso(),
+                "read_by": [],
+            }
+        )
 
     if synthesis_result:
-        team_data["messages"].append({
-            "id": uuid4().hex[:12],
-            "from": "orchestrator",
-            "to": ["*"],
-            "content": f"[SYNTHESIS]\n{synthesis_result.get('response', '')}",
-            "timestamp": _now_iso(),
-            "read_by": [],
-        })
+        team_data["messages"].append(
+            {
+                "id": uuid4().hex[:12],
+                "from": "orchestrator",
+                "to": ["*"],
+                "content": f"[SYNTHESIS]\n{synthesis_result.get('response', '')}",
+                "timestamp": _now_iso(),
+                "read_by": [],
+            }
+        )
 
     _save_team(team_data)
 

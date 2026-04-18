@@ -141,9 +141,7 @@ class TestProcessorStreamingPath:
     @pytest.mark.asyncio
     async def test_process_non_streaming_no_semaphore(self):
         """Non-streaming with concurrency_limit=0 hits _invoke_safe without semaphore."""
-        proc = _Proc(
-            queue_capacity=5, capacity_refresh_time=0.01, concurrency_limit=0
-        )
+        proc = _Proc(queue_capacity=5, capacity_refresh_time=0.01, concurrency_limit=0)
         event = _OkEvent()
         await proc.enqueue(event)
         await asyncio.wait_for(proc.process(), timeout=3.0)
@@ -568,10 +566,13 @@ class TestReActV1VerboseAnalysis:
             call_count += 1
             return analysis_obj if call_count == 1 else final_obj
 
-        with patch(
-            "lionagi.operations.operate.operate.operate",
-            new=AsyncMock(side_effect=mock_operate),
-        ), patch("lionagi.libs.schema.as_readable.as_readable", return_value=""):
+        with (
+            patch(
+                "lionagi.operations.operate.operate.operate",
+                new=AsyncMock(side_effect=mock_operate),
+            ),
+            patch("lionagi.libs.schema.as_readable.as_readable", return_value=""),
+        ):
             result = await asyncio.wait_for(
                 ReAct_v1(
                     branch=branch,
@@ -919,10 +920,13 @@ class TestReActWrapper:
 
         from lionagi.operations.ReAct.ReAct import ReAct
 
-        with patch(
-            "lionagi.operations.operate.operate.operate",
-            new=AsyncMock(side_effect=mock_operate),
-        ), patch("lionagi.libs.schema.as_readable.as_readable", return_value=""):
+        with (
+            patch(
+                "lionagi.operations.operate.operate.operate",
+                new=AsyncMock(side_effect=mock_operate),
+            ),
+            patch("lionagi.libs.schema.as_readable.as_readable", return_value=""),
+        ):
             result = await asyncio.wait_for(
                 ReAct(
                     branch=branch,

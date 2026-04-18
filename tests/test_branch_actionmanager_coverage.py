@@ -7,21 +7,25 @@ Coverage-targeted tests for:
   - lionagi/protocols/action/manager.py (82%, ~32 uncovered lines)
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 import pytest_asyncio
-from unittest.mock import MagicMock, AsyncMock
 
-from lionagi.session.branch import Branch
 from lionagi.protocols.action.manager import ActionManager
 from lionagi.protocols.action.tool import Tool
-from lionagi.protocols.messages.action_request import ActionRequest, ActionRequestContent
+from lionagi.protocols.messages.action_request import (
+    ActionRequest,
+    ActionRequestContent,
+)
 from lionagi.protocols.messages.manager import MessageManager
 from lionagi.service.manager import iModelManager
-
+from lionagi.session.branch import Branch
 
 # ---------------------------------------------------------------------------
 # Test tools
 # ---------------------------------------------------------------------------
+
 
 def add(a: int, b: int) -> int:
     """Add two integers."""
@@ -41,6 +45,7 @@ def greet(name: str) -> str:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def plain_branch():
@@ -77,6 +82,7 @@ def populated_manager():
 # ===========================================================================
 # Branch tests
 # ===========================================================================
+
 
 class TestBranchSystemMessage:
     """Branch(system=...) stores the system message correctly."""
@@ -137,6 +143,7 @@ class TestBranchMessages:
     def test_message_has_role(self, system_branch):
         msg = list(system_branch.messages)[0]
         from lionagi.protocols.messages.base import MessageRole
+
         assert msg.role == MessageRole.SYSTEM
 
     def test_empty_messages(self, plain_branch):
@@ -251,6 +258,7 @@ class TestBranchSerialization:
 # ActionManager tests
 # ===========================================================================
 
+
 class TestActionManagerInit:
     """ActionManager() empty and populated initialization."""
 
@@ -352,16 +360,23 @@ class TestActionManagerMatchTool:
     """match_tool() converts ActionRequest/dict to FunctionCalling."""
 
     def test_match_tool_with_dict(self, populated_manager):
-        fc = populated_manager.match_tool({"function": "add", "arguments": {"a": 1, "b": 2}})
+        fc = populated_manager.match_tool(
+            {"function": "add", "arguments": {"a": 1, "b": 2}}
+        )
         assert fc is not None
 
     def test_match_tool_returns_function_calling(self, populated_manager):
         from lionagi.protocols.action.function_calling import FunctionCalling
-        fc = populated_manager.match_tool({"function": "add", "arguments": {"a": 1, "b": 2}})
+
+        fc = populated_manager.match_tool(
+            {"function": "add", "arguments": {"a": 1, "b": 2}}
+        )
         assert isinstance(fc, FunctionCalling)
 
     def test_match_tool_function_name(self, populated_manager):
-        fc = populated_manager.match_tool({"function": "add", "arguments": {"a": 1, "b": 2}})
+        fc = populated_manager.match_tool(
+            {"function": "add", "arguments": {"a": 1, "b": 2}}
+        )
         assert fc.function == "add"
 
     def test_match_unknown_raises(self, populated_manager):
@@ -370,6 +385,7 @@ class TestActionManagerMatchTool:
 
     def test_match_tool_with_action_request(self, populated_manager):
         from lionagi.protocols.action.function_calling import FunctionCalling
+
         content = ActionRequestContent(function="add", arguments={"a": 3, "b": 4})
         req = ActionRequest(content=content)
         fc = populated_manager.match_tool(req)
@@ -436,13 +452,17 @@ class TestActionManagerInvoke:
 
     @pytest.mark.asyncio
     async def test_invoke_with_dict(self, populated_manager):
-        fc = await populated_manager.invoke({"function": "add", "arguments": {"a": 2, "b": 3}})
+        fc = await populated_manager.invoke(
+            {"function": "add", "arguments": {"a": 2, "b": 3}}
+        )
         assert fc.execution is not None
         assert fc.execution.response == 5
 
     @pytest.mark.asyncio
     async def test_invoke_add_result(self, populated_manager):
-        fc = await populated_manager.invoke({"function": "add", "arguments": {"a": 10, "b": 20}})
+        fc = await populated_manager.invoke(
+            {"function": "add", "arguments": {"a": 10, "b": 20}}
+        )
         assert fc.execution.response == 30
 
     @pytest.mark.asyncio
@@ -462,7 +482,10 @@ class TestActionManagerInvoke:
     @pytest.mark.asyncio
     async def test_invoke_returns_function_calling(self, populated_manager):
         from lionagi.protocols.action.function_calling import FunctionCalling
-        fc = await populated_manager.invoke({"function": "add", "arguments": {"a": 1, "b": 1}})
+
+        fc = await populated_manager.invoke(
+            {"function": "add", "arguments": {"a": 1, "b": 1}}
+        )
         assert isinstance(fc, FunctionCalling)
 
     @pytest.mark.asyncio

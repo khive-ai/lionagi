@@ -9,7 +9,6 @@ from pydantic.fields import FieldInfo
 from lionagi.models.field_model import FieldModel
 from lionagi.models.operable_model import OperableModel
 
-
 # ---------------------------------------------------------------------------
 # FieldModel tests
 # ---------------------------------------------------------------------------
@@ -130,7 +129,9 @@ class TestFieldModelMethods:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             d = f.to_dict()
-            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
+            assert any(
+                issubclass(warning.category, DeprecationWarning) for warning in w
+            )
         assert isinstance(d, dict)
 
     def test_metadata_dict_returns_dict(self):

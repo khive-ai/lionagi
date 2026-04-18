@@ -17,7 +17,6 @@ from lionagi.protocols.generic.event import Event, EventStatus
 from lionagi.protocols.generic.processor import Processor
 from lionagi.protocols.generic.progression import Progression, prog
 
-
 # ---------------------------------------------------------------------------
 # Minimal concrete helpers
 # ---------------------------------------------------------------------------
@@ -727,9 +726,7 @@ class TestProcessorExecutionMode:
 
         stopper_task = asyncio.create_task(stopper())
         exec_task = asyncio.create_task(p.execute())
-        await asyncio.wait_for(
-            asyncio.gather(exec_task, stopper_task), timeout=2.0
-        )
+        await asyncio.wait_for(asyncio.gather(exec_task, stopper_task), timeout=2.0)
         assert p.execution_mode is False
 
 

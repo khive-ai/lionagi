@@ -10,7 +10,6 @@ from pydantic_core import PydanticUndefined
 from lionagi.models.field_model import FieldModel
 from lionagi.models.operable_model import OperableModel
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -354,7 +353,9 @@ class TestFieldModelProperties:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = fm.to_dict()
-            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
+            assert any(
+                issubclass(warning.category, DeprecationWarning) for warning in w
+            )
         assert isinstance(result, dict)
 
 

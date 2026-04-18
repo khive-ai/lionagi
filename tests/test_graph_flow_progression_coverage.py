@@ -11,6 +11,7 @@ by items already present in the Flow.
 """
 
 import asyncio
+
 import pytest
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError, RelationError
@@ -20,7 +21,6 @@ from lionagi.protocols.generic.progression import Progression, prog
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
 from lionagi.protocols.graph.node import Node
-
 
 # ============================================================
 # Shared fixtures
