@@ -63,9 +63,7 @@ class TestFromDictModes:
         assert m.count == 4
 
     def test_from_dict_db_restores_metadata(self):
-        m = _Sample.from_dict(
-            {"name": "x", "node_metadata": {"k": "v"}}, mode="db"
-        )
+        m = _Sample.from_dict({"name": "x", "node_metadata": {"k": "v"}}, mode="db")
         assert m.metadata == {"k": "v"}
 
     def test_from_dict_db_without_node_metadata(self):
@@ -82,7 +80,7 @@ class TestJsonRoundtrip:
         m = _Sample(name="x", count=1)
         s = m.to_json(decode=True)
         assert isinstance(s, str)
-        assert "\"name\":\"x\"" in s.replace(" ", "")
+        assert '"name":"x"' in s.replace(" ", "")
 
     def test_to_json_bytes(self):
         m = _Sample(name="x")
@@ -128,7 +126,7 @@ class TestDefaultSerializer:
         o = _Outer(inner=_Inner(v=5))
         # Should serialize without raising via the default orjson serializer.
         s = o.to_json()
-        assert "\"v\":5" in s.replace(" ", "")
+        assert '"v":5' in s.replace(" ", "")
 
     def test_serializer_caches_on_subsequent_calls(self):
         from lionagi.models import hashable_model as hm

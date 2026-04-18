@@ -147,9 +147,7 @@ class TestMessengerBindSend:
         alice_id = uuid4()
         ex.register(alice_id)
         tool = m.bind(branch, roster={"alice": alice_id})
-        result = tool.func_callable(
-            action="send", to=["alice", "ghost"], content="hey"
-        )
+        result = tool.func_callable(action="send", to=["alice", "ghost"], content="hey")
         assert "Sent to alice" in result
         assert "Unknown recipient: ghost" in result
 
@@ -240,9 +238,7 @@ class TestMessengerBindWakeup:
         tool = m.bind(
             branch, roster={"alice": alice_id}, sender_name="bob", channel="team"
         )
-        result = tool.func_callable(
-            action="wakeup", to="alice", content="stand up"
-        )
+        result = tool.func_callable(action="wakeup", to="alice", content="stand up")
         assert "Woke up alice" in result
         assert len(branch._included) == 1
         assert events[0]["target"] == "alice"

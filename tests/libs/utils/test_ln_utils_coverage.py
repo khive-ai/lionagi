@@ -231,9 +231,7 @@ class TestAcreatePathTimeout:
         # will never complete within that window.
         async def main():
             with pytest.raises(TimeoutError, match="timed out"):
-                await acreate_path(
-                    str(tmp_path), "f.txt", timeout=0.0
-                )
+                await acreate_path(str(tmp_path), "f.txt", timeout=0.0)
 
         anyio.run(main)
 

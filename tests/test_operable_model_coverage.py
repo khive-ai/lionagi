@@ -194,9 +194,7 @@ class TestNewModel:
         # Patch ModelParams.create_new_model to return our Boom class.
         from lionagi.models import operable_model as om
 
-        monkeypatch.setattr(
-            om.ModelParams, "create_new_model", lambda self: _Boom
-        )
+        monkeypatch.setattr(om.ModelParams, "create_new_model", lambda self: _Boom)
         # Should NOT raise.
         cls = m.new_model(use_fields={"base"}, update_forward_refs=True)
         assert cls is _Boom
