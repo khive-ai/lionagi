@@ -7,13 +7,13 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 ChunkType = Literal[
-    "system",       # session init (model, session_id, tools)
-    "thinking",     # reasoning trace
-    "text",         # assistant text content
-    "tool_use",     # model requests a tool call
+    "system",  # session init (model, session_id, tools)
+    "thinking",  # reasoning trace
+    "text",  # assistant text content
+    "tool_use",  # model requests a tool call
     "tool_result",  # tool execution output
-    "result",       # final aggregated result
-    "error",        # error
+    "result",  # final aggregated result
+    "error",  # error
 ]
 
 

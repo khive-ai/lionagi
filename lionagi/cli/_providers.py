@@ -279,3 +279,16 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
             "codex: none|minimal|low|medium|high|xhigh."
         ),
     )
+    parser.add_argument(
+        "--cwd",
+        metavar="DIR",
+        default=None,
+        help="Working directory for CLI endpoints.",
+    )
+    parser.add_argument(
+        "--timeout",
+        metavar="SECONDS",
+        type=int,
+        default=None,
+        help="Timeout in seconds.",
+    )

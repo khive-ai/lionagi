@@ -24,6 +24,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 import time
 from pathlib import Path
@@ -188,6 +189,8 @@ async def _run_fanout(
     output_format: str = "text",
     save_dir: str | None = None,
     team_name: str | None = None,
+    cwd: str | None = None,
+    timeout: int | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
     t0 = time.monotonic()
@@ -219,6 +222,10 @@ async def _run_fanout(
                 f"{', '.join(worker_names)}",
                 file=sys.stderr,
             )
+
+    # Apply cwd to endpoint if specified
+    if cwd:
+        orc_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
 
     # ── Phase 1: Orchestrator decomposes task ─────────────────────────
     builder = OperationGraphBuilder("Fanout")
@@ -296,6 +303,8 @@ async def _run_fanout(
             effort_override=effort,
             theme=theme,
         )
+        if cwd:
+            worker_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
         wname = worker_names[i]
         if team_data:
             teammates = [n for n in worker_names if n != wname]
@@ -590,25 +599,34 @@ def run_orchestrate(args: argparse.Namespace) -> int:
         with_synthesis = synth is not False
         synthesis_model = synth if isinstance(synth, str) else None
 
-        output = run_async(
-            _run_fanout(
-                model_spec=args.model,
-                prompt=args.prompt,
-                num_workers=args.num_workers,
-                workers_str=args.workers,
-                with_synthesis=with_synthesis,
-                synthesis_model=synthesis_model,
-                synthesis_prompt=args.synthesis_prompt,
-                max_concurrent=args.max_concurrent,
-                yolo=args.yolo,
-                verbose=args.verbose,
-                effort=args.effort,
-                theme=args.theme,
-                output_format=args.output,
-                save_dir=args.save,
-                team_name=args.team_mode,
+        try:
+            output = run_async(
+                _run_fanout(
+                    model_spec=args.model,
+                    prompt=args.prompt,
+                    num_workers=args.num_workers,
+                    workers_str=args.workers,
+                    with_synthesis=with_synthesis,
+                    synthesis_model=synthesis_model,
+                    synthesis_prompt=args.synthesis_prompt,
+                    max_concurrent=args.max_concurrent,
+                    yolo=args.yolo,
+                    verbose=args.verbose,
+                    effort=args.effort,
+                    theme=args.theme,
+                    output_format=args.output,
+                    save_dir=args.save,
+                    team_name=args.team_mode,
+                    cwd=args.cwd,
+                    timeout=args.timeout,
+                )
             )
-        )
+        except asyncio.TimeoutError:
+            print(
+                f"Orchestration timed out after {args.timeout}s",
+                file=sys.stderr,
+            )
+            return 1
         if not args.verbose:
             print(output)
         return 0

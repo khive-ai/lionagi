@@ -271,12 +271,18 @@ class TestStreamMethod:
             "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli"
         ) as mock_stream:
             chunk1 = ClaudeChunk(
-                raw={"type": "assistant", "message": {"content": [{"type": "text", "text": "hello"}]}},
+                raw={
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "hello"}]},
+                },
                 type="assistant",
                 text="hello",
             )
             chunk2 = ClaudeChunk(
-                raw={"type": "assistant", "message": {"content": [{"type": "text", "text": "world"}]}},
+                raw={
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "world"}]},
+                },
                 type="assistant",
                 text="world",
             )
