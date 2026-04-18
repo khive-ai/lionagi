@@ -40,7 +40,9 @@ def _find_lionagi_dir() -> Path | None:
     try:
         root = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if root.returncode == 0:
             candidate = Path(root.stdout.strip()) / ".lionagi"
@@ -117,6 +119,7 @@ def _parse_profile(name: str, text: str) -> AgentProfile:
         model=frontmatter.get("model"),
         effort=frontmatter.get("effort"),
         yolo=bool(frontmatter.get("yolo", False)),
-        extra={k: v for k, v in frontmatter.items()
-               if k not in ("model", "effort", "yolo")},
+        extra={
+            k: v for k, v in frontmatter.items() if k not in ("model", "effort", "yolo")
+        },
     )

@@ -132,9 +132,7 @@ async def run(
             case "tool_result":
                 # Link to the originating ActionRequest when we have the id
                 orig_req = (
-                    pending_requests.pop(chunk.tool_id, None)
-                    if chunk.tool_id
-                    else None
+                    pending_requests.pop(chunk.tool_id, None) if chunk.tool_id else None
                 )
                 if orig_req is not None:
                     act_res = branch.msgs.create_action_response(
