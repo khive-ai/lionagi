@@ -1309,6 +1309,7 @@ class Branch(Element, Relational):
         self,
         instruction: str = "",
         *,
+        chat_model: "iModel | None" = None,
         guidance=None,
         context=None,
         sender=None,
@@ -1319,25 +1320,18 @@ class Branch(Element, Relational):
     ) -> "AsyncGenerator[RoledMessage, None]":
         """Stream Messages from a CLI endpoint.
 
-        Yields an Instruction message immediately, then yields
-        AssistantResponse, ActionRequest, and ActionResponse messages
-        as they arrive from the CLI endpoint's stream_chunks().
+        Yields Instruction, AssistantResponse, ActionRequest, and
+        ActionResponse messages as they arrive from the stream.
 
-        Args:
-            instruction: The user instruction string.
-            guidance: Optional guidance text for the instruction.
-            context: Optional context data for the instruction.
-            sender: Sender ID or role for the instruction.
-            recipient: Recipient ID or role for the instruction.
-            images: Optional images to include in the instruction.
-            image_detail: Image detail level ("low", "high", "auto").
-            **kwargs: Additional keyword arguments forwarded to stream_chunks().
+        Pass ``chat_model`` to override the branch default, enabling
+        multi-model conversations on a single branch.
         """
         from lionagi.operations.run.run import run as _run
 
         async for msg in _run(
             self,
             instruction=instruction,
+            chat_model=chat_model,
             guidance=guidance,
             context=context,
             sender=sender,

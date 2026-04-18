@@ -20,33 +20,40 @@ if TYPE_CHECKING:
 
 async def run(
     branch: Branch,
-    instruction: str = "",
+    instruction=None,
+    chat_model=None,
+    sender=None,
+    recipient=None,
+    guidance=None,
+    context=None,
+    images=None,
+    image_detail=None,
     **kwargs,
 ) -> AsyncGenerator[RoledMessage, None]:
     """Stream Messages from a CLI endpoint.
 
     Yields Instruction, AssistantResponse, ActionRequest, and ActionResponse
-    messages as they arrive from the endpoint's stream_chunks().
+    messages as they arrive from the endpoint stream.
 
-    Args:
-        branch: The Branch to operate on.
-        instruction: The user instruction string.
-        **kwargs: Forwarded to stream_chunks(). Special keys consumed here:
-            sender, recipient, guidance, context, images, image_detail.
+    Accepts chat_model to override the branch default, enabling
+    multi-model conversations on a single branch:
+
+        sonnet = iModel(model="claude_code/sonnet")
+        codex  = iModel(model="codex/gpt-5.3-codex-spark")
+        async for msg in branch.run("step 1", chat_model=sonnet): ...
+        async for msg in branch.run("step 2", chat_model=codex): ...
     """
-    endpoint = branch.chat_model.endpoint
-
-    # Build and add the Instruction message
-    ins = branch.msgs.create_instruction(
+    model = chat_model or branch.chat_model
+    endpoint = model.endpoint
+    ins = branch.msgs.add_message(
         instruction=instruction,
-        sender=kwargs.get("sender") or branch.user or "user",
-        recipient=kwargs.get("recipient") or branch.id,
-        guidance=kwargs.get("guidance"),
-        context=kwargs.get("context"),
-        images=kwargs.get("images"),
-        image_detail=kwargs.get("image_detail", "auto"),
+        sender=sender,
+        recipient=recipient,
+        guidance=guidance,
+        context=context,
+        images=images,
+        image_detail=image_detail,
     )
-    branch.msgs.add_message(instruction=ins)
     yield ins
 
     # Build the request dict for the endpoint
@@ -57,14 +64,10 @@ async def run(
         if hasattr(msg, "chat_msg") and msg.chat_msg is not None:
             chat_msgs.append(msg.chat_msg)
 
-    # Keys consumed above — don't forward them to the endpoint
-    _consumed = {"sender", "recipient", "guidance", "context", "images", "image_detail"}
-    stream_kw = {k: v for k, v in kwargs.items() if k not in _consumed}
-
     request_dict: dict = {
         "messages": chat_msgs,
         **({"resume": session_id} if session_id else {}),
-        **stream_kw,
+        **kwargs,
     }
 
     # Accumulation buffers
