@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 
 from .agent import add_agent_subparser, run_agent
@@ -24,6 +25,8 @@ from .team import add_team_subparser, run_team
 
 
 def main(argv: list[str] | None = None) -> int:
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
     # Check for verbose early to set log level before anything runs
     _argv = argv if argv is not None else sys.argv[1:]
     if "-v" not in _argv and "--verbose" not in _argv:

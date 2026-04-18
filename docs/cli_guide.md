@@ -120,6 +120,57 @@ li o fanout claude/sonnet "Review authentication flow" \
     -n 2 --with-synthesis --save ./review-output --output json
 ```
 
+### `li team` — Team Messaging
+
+Persistent inbox-style messaging for coordinating agent teams.
+
+```bash
+li team COMMAND [OPTIONS]
+```
+
+**Commands**:
+
+| Command | Description |
+|---------|-------------|
+| `create NAME -m "A,B,C"` | Create a named team with members |
+| `list` | List all teams |
+| `show TEAM_ID` | Show team details and all messages |
+| `send CONTENT -t ID --to RECIPIENTS` | Send message (`all` or comma-separated names) |
+| `receive -t ID --as NAME` | Read inbox (marks messages as read) |
+
+**Examples**:
+
+```bash
+# Create a team
+li team create "research" -m "analyst,writer,reviewer"
+
+# Send to everyone
+li team send "analyze the auth module" -t abc123 --to all
+
+# Send to specific member
+li team send "focus on JWT handling" -t abc123 --to writer --from analyst
+
+# Check inbox
+li team receive -t abc123 --as writer
+```
+
+Teams persist at `~/.lionagi/teams/{id}.json`. Messages track read state per member.
+
+### `--team-mode` with Fan-Out
+
+Add `--team-mode` to any fanout to auto-create a team. Workers get named identities and team context in their system prompt. Results are posted as team messages after completion.
+
+```bash
+# Workers get team context, results tracked as messages
+li o fanout claude/sonnet "Improve test coverage" \
+    -n 5 --yolo --team-mode "coverage-boost" --with-synthesis
+
+# After completion, follow up with any worker
+li team receive -t <team-id> --as orchestrator
+li agent -r <worker-branch-id> "dig deeper on the auth module"
+li team send "found 3 more edge cases" -t <team-id> --to all --from worker-1
+```
+
 ### Resuming Conversations
 
 Every agent and fanout session persists its conversation state. After any command, you'll see:
