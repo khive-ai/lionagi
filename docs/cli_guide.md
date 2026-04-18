@@ -53,12 +53,15 @@ Aliases: `claude` = `claude/sonnet`, `codex` = `codex/gpt-5.3-codex-spark`
 
 | Flag | Description |
 |------|-------------|
+| `-a, --agent NAME` | Load agent profile from `.lionagi/agents/<NAME>.md` |
+| `-r BRANCH_ID` | Resume a previous conversation |
+| `-c` | Continue the most recent conversation |
 | `-v, --verbose` | Stream real-time output (thinking, tool use, text) |
 | `--yolo` | Auto-approve all tool calls |
 | `--effort LEVEL` | Override effort (claude: low/medium/high/xhigh/max, codex: none/minimal/low/medium/high/xhigh) |
 | `--theme light\|dark` | Terminal display theme |
-| `-r BRANCH_ID` | Resume a previous conversation |
-| `-c` | Continue the most recent conversation |
+| `--cwd DIR` | Working directory for the agent |
+| `--timeout SECONDS` | Timeout for the agent run |
 
 **Examples**:
 
@@ -66,14 +69,20 @@ Aliases: `claude` = `claude/sonnet`, `codex` = `codex/gpt-5.3-codex-spark`
 # Basic
 li agent claude/sonnet "Explain the observer pattern in 3 sentences"
 
+# With agent profile (model + system prompt from profile)
+li agent -a implementer "Fix the bug in main.py"
+
+# Profile + model override (CLI wins over profile default)
+li agent claude/opus -a reviewer "Review this PR"
+
 # With verbose streaming
 li agent claude/opus-4-7-high "Review this code for security issues" -v
 
-# Auto-approve tool calls (claude code will read/write files)
+# Auto-approve tool calls
 li agent claude/sonnet "Fix the bug in main.py" --yolo
 
-# Using codex
-li agent codex/gpt-5.4-xhigh "Audit this function for edge cases"
+# Working directory + timeout
+li agent -a implementer --cwd /path/to/repo --timeout 300 "Add tests"
 ```
 
 ### `li o fanout` — Multi-Agent Fan-Out
@@ -98,7 +107,7 @@ The orchestrator (MODEL) decomposes your prompt into N agent requests using stru
 | `--output text\|json` | Output format |
 | `--save DIR` | Save outputs to directory |
 
-Plus all shared flags: `-v`, `--yolo`, `--effort`, `--theme`
+Plus all shared flags: `-v`, `--yolo`, `--effort`, `--theme`, `--cwd`, `--timeout`
 
 **Examples**:
 
@@ -194,6 +203,129 @@ li agent -r adf15442-8d0c-4499-a88b-16d8d1adaeeb "expand on point 2"
 ```
 
 Sessions are stored at `~/.lionagi/logs/agents/{provider}/{branch-id}`.
+
+## Agent Profiles (`.lionagi/agents/`)
+
+Agent profiles define reusable agent configurations — system prompt, default model, effort level, and permissions. Profiles live in your repository's `.lionagi/agents/` directory.
+
+### Profile format
+
+```markdown
+---
+model: claude_code/sonnet
+effort: high
+yolo: true
+---
+
+You are an implementer agent. Write production code — no stubs, no
+placeholders. Read existing code before writing. Match the codebase's
+style and conventions. Write tests alongside implementation.
+```
+
+**Frontmatter fields** (all optional, CLI flags override):
+
+| Field | Description |
+|-------|-------------|
+| `model` | Default model spec (e.g. `claude_code/opus`, `codex/gpt-5.4`) |
+| `effort` | Default reasoning effort level |
+| `yolo` | Auto-approve tool calls by default |
+
+The markdown body becomes the system prompt injected into the conversation.
+
+### Profile discovery
+
+`li` walks up from the current directory to the git root looking for `.lionagi/`. This means profiles are project-scoped — different repos can have different agent configurations.
+
+### Using profiles
+
+```bash
+# Use profile (model from frontmatter, system prompt injected)
+li agent -a implementer "fix the auth bug"
+
+# Profile + explicit model (CLI overrides profile default)
+li agent claude/opus -a reviewer "review the PR"
+
+# Profile with common flags
+li agent -a implementer --cwd ./myrepo --timeout 300 "add integration tests"
+```
+
+### Creating profiles
+
+```bash
+mkdir -p .lionagi/agents
+
+cat > .lionagi/agents/implementer.md << 'EOF'
+---
+model: claude_code/sonnet
+effort: high
+---
+
+You are an implementer. Write production code, not stubs...
+EOF
+```
+
+## Programmatic Usage (`branch.run()`)
+
+The CLI is built on `branch.run()`, a streaming async generator that yields typed `Message` objects. You can use it directly in Python for more control.
+
+```python
+from lionagi import Branch
+from lionagi.service.imodel import iModel
+
+sonnet = iModel(model="claude_code/sonnet")
+branch = Branch()
+
+# Stream message objects
+async for msg in branch.run("analyze this code", chat_model=sonnet):
+    match type(msg).__name__:
+        case "Instruction":    print(f"You: {msg.content.instruction}")
+        case "AssistantResponse": print(f"AI: {msg.response}")
+        case "ActionRequest":  print(f"Tool: {msg.content.function}")
+        case "ActionResponse": print(f"Result: {msg.content.output[:100]}")
+```
+
+### Multi-model conversations
+
+Switch providers mid-conversation on the same branch — context carries forward:
+
+```python
+sonnet = iModel(model="claude_code/sonnet")
+gpt    = iModel(model="openai/gpt-4.1-mini")
+
+branch = Branch()
+
+# Step 1: Claude analyzes (CLI endpoint, streaming)
+async for msg in branch.run("What is the capital of Japan?", chat_model=sonnet):
+    pass
+
+# Step 2: GPT extracts structured data (API endpoint)
+from pydantic import BaseModel, Field
+
+class CityInfo(BaseModel):
+    city: str = Field(description="City name")
+    country: str = Field(description="Country")
+    population_millions: float = Field(description="Population in millions")
+
+result = await branch.operate(
+    "Extract the city info from our conversation",
+    chat_model=gpt,
+    response_format=CityInfo,
+)
+# CityInfo(city='Tokyo', country='Japan', population_millions=14.0)
+```
+
+### Message types
+
+`branch.run()` yields these message types:
+
+| Type | When | Content |
+|------|------|---------|
+| `Instruction` | Start of each turn | User's prompt |
+| `AssistantResponse` | Model's reply | `.response` for text, `.metadata["thinking"]` for reasoning |
+| `ActionRequest` | Model calls a tool | `.content.function`, `.content.arguments` |
+| `ActionResponse` | Tool returns result | `.content.output` |
+
+Thinking traces are folded into `AssistantResponse.metadata["thinking"]` — not yielded as separate messages.
 
 ## Provider Support
 
