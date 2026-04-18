@@ -260,23 +260,30 @@ class TestStreamMethod:
 
     @pytest.mark.asyncio
     async def test_stream_yields_chunks(self):
-        """Test stream method yields chunks from CLI."""
+        """Test stream method yields StreamChunk objects."""
         from lionagi.service.connections.providers.claude_code_cli import (
             ClaudeCodeCLIEndpoint,
         )
+        from lionagi.service.third_party.claude_code import ClaudeChunk
+        from lionagi.service.types.stream_chunk import StreamChunk
 
         with patch(
             "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli"
         ) as mock_stream:
-            # Create mock chunks
-            mock_chunk1 = MagicMock()
-            mock_chunk1.text = "chunk1"
-            mock_chunk2 = MagicMock()
-            mock_chunk2.text = "chunk2"
+            chunk1 = ClaudeChunk(
+                raw={"type": "assistant", "message": {"content": [{"type": "text", "text": "hello"}]}},
+                type="assistant",
+                text="hello",
+            )
+            chunk2 = ClaudeChunk(
+                raw={"type": "assistant", "message": {"content": [{"type": "text", "text": "world"}]}},
+                type="assistant",
+                text="world",
+            )
 
             async def async_gen(*args, **kwargs):
-                yield mock_chunk1
-                yield mock_chunk2
+                yield chunk1
+                yield chunk2
 
             mock_stream.return_value = async_gen()
 
@@ -291,8 +298,10 @@ class TestStreamMethod:
                 chunks.append(chunk)
 
             assert len(chunks) == 2
-            assert chunks[0].text == "chunk1"
-            assert chunks[1].text == "chunk2"
+            assert all(isinstance(c, StreamChunk) for c in chunks)
+            assert chunks[0].type == "text"
+            assert chunks[0].content == "hello"
+            assert chunks[1].content == "world"
 
     @pytest.mark.asyncio
     async def test_stream_with_kwargs(self):
