@@ -195,7 +195,7 @@ See the [CLI Guide](docs/cli_guide.md) for the `li` command-line tool that wraps
 
 ### CLI — `li`
 
-LionAGI ships a command-line tool `li` for spawning agents and orchestrating multi-agent fan-out patterns directly from your terminal. See the full [CLI Guide](docs/cli_guide.md) for details.
+LionAGI ships a command-line tool `li` for spawning agents, orchestrating multi-agent fan-out, and team messaging. See the full [CLI Guide](docs/cli_guide.md) for details.
 
 ```bash
 # Single agent
@@ -205,10 +205,14 @@ li agent codex/gpt-5.3-codex-spark "Review this function for bugs" --yolo
 # Fan-out: orchestrator decomposes task, N workers run in parallel, optional synthesis
 li o fanout claude/sonnet "What are the key design patterns in this codebase?" -n 3 --with-synthesis
 
-# Heterogeneous workers + different synthesis model
-li o fanout claude/sonnet "Analyze error handling approaches" \
-    --workers "claude/sonnet, codex/gpt-5.3-codex-spark" \
-    --with-synthesis claude/opus-4-7-high
+# Fan-out with team tracking: workers get named identities, results posted as messages
+li o fanout claude/sonnet "Improve test coverage for this project" \
+    -n 5 --yolo --team-mode "coverage-boost" --with-synthesis
+
+# Team messaging: inbox-style coordination between agents
+li team create "research" -m "analyst,writer,reviewer"
+li team send "analyze auth middleware" -t <team-id> --to all
+li team receive -t <team-id> --as writer
 
 # Resume any conversation
 li agent -r <branch-id> "follow up on your analysis"

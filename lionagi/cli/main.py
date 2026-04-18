@@ -16,13 +16,17 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 
 from .agent import add_agent_subparser, run_agent
 from .orchestrate import add_orchestrate_subparser, run_orchestrate
+from .team import add_team_subparser, run_team
 
 
 def main(argv: list[str] | None = None) -> int:
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
     # Check for verbose early to set log level before anything runs
     _argv = argv if argv is not None else sys.argv[1:]
     if "-v" not in _argv and "--verbose" not in _argv:
@@ -38,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
 
     add_orchestrate_subparser(sub)
     add_agent_subparser(sub)
+    add_team_subparser(sub)
 
     args = parser.parse_args(argv)
 
@@ -46,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent":
         return run_agent(args)
+
+    if args.command == "team":
+        return run_team(args)
 
     parser.print_help()
     return 1

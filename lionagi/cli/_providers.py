@@ -21,9 +21,17 @@ from lionagi import iModel
 
 # ── Effort levels (stripped from spec, mapped to provider kwarg) ──────────
 
-EFFORT_LEVELS = frozenset({
-    "none", "minimal", "low", "medium", "high", "xhigh", "max",
-})
+EFFORT_LEVELS = frozenset(
+    {
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    }
+)
 
 # provider name → kwarg name for effort
 PROVIDER_EFFORT_KWARG: dict[str, str] = {
@@ -33,9 +41,15 @@ PROVIDER_EFFORT_KWARG: dict[str, str] = {
 }
 
 # providers that do NOT support effort
-PROVIDERS_NO_EFFORT: frozenset[str] = frozenset({
-    "gemini_code", "gemini-code", "gemini_cli", "gemini-cli", "gemini",
-})
+PROVIDERS_NO_EFFORT: frozenset[str] = frozenset(
+    {
+        "gemini_code",
+        "gemini-code",
+        "gemini_cli",
+        "gemini-cli",
+        "gemini",
+    }
+)
 
 # ── Per-provider yolo kwargs ──────────────────────────────────────────────
 
@@ -77,7 +91,8 @@ _EFFORT_SUFFIX_RE = re.compile(
 @dataclass(frozen=True)
 class ModelSpec:
     """Parsed model spec: raw model string (for iModel) + extracted effort."""
-    model: str          # "claude/opus-4-7" or "codex/gpt-5.4" — passed to iModel as-is
+
+    model: str  # "claude/opus-4-7" or "codex/gpt-5.4" — passed to iModel as-is
     effort: str | None  # extracted effort or None
 
     def __str__(self) -> str:
@@ -89,9 +104,13 @@ class ModelSpec:
 _CLAUDE_MODEL_PREFIXES = ("opus", "sonnet", "haiku")
 
 
-_CLAUDE_PROVIDER_NAMES = frozenset({
-    "claude", "claude-code", "claude_code",
-})
+_CLAUDE_PROVIDER_NAMES = frozenset(
+    {
+        "claude",
+        "claude-code",
+        "claude_code",
+    }
+)
 
 
 def _normalize_model(spec_or_model: str, provider_hint: str | None = None) -> str:
@@ -114,7 +133,11 @@ def _normalize_model_name(model: str, provider_hint: str | None = None) -> str:
     """Normalize bare model name (no provider prefix)."""
     if provider_hint and provider_hint in _CLAUDE_PROVIDER_NAMES:
         for prefix in _CLAUDE_MODEL_PREFIXES:
-            if model.startswith(prefix) and model != prefix and not model.startswith("claude-"):
+            if (
+                model.startswith(prefix)
+                and model != prefix
+                and not model.startswith("claude-")
+            ):
                 return f"claude-{model}"
     return model
 
@@ -148,12 +171,15 @@ def parse_model_spec(spec: str) -> ModelSpec:
                 f"Provider '{provider_raw}' does not support effort levels. "
                 f"Remove '-{effort}' from '{spec}'."
             )
-        return ModelSpec(model=_normalize_model(model_clean, provider_raw), effort=effort)
+        return ModelSpec(
+            model=_normalize_model(model_clean, provider_raw), effort=effort
+        )
 
     return ModelSpec(model=_normalize_model(spec, provider_raw), effort=None)
 
 
 # ── iModel construction ───────────────────────────────────────────────────
+
 
 def build_imodel_from_spec(
     spec: str,
@@ -233,11 +259,16 @@ def resolve_model_spec(spec: str) -> tuple[str, str]:
 
 # ── CLI common args ───────────────────────────────────────────────────────
 
+
 def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
     """Add shared CLI flags to any subparser."""
     parser.add_argument("--yolo", action="store_true", help="Auto-approve tool calls.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Stream real-time output.")
-    parser.add_argument("--theme", choices=("light", "dark"), default=None, help="Terminal theme.")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Stream real-time output."
+    )
+    parser.add_argument(
+        "--theme", choices=("light", "dark"), default=None, help="Terminal theme."
+    )
     parser.add_argument(
         "--effort",
         metavar="LEVEL",

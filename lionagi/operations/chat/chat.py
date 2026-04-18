@@ -7,7 +7,12 @@ from pydantic import JsonValue
 
 from lionagi.ln._to_list import to_list
 from lionagi.protocols.generic import EventStatus
-from lionagi.protocols.messages import ActionResponse, AssistantResponse, Instruction, MessageRole
+from lionagi.protocols.messages import (
+    ActionResponse,
+    AssistantResponse,
+    Instruction,
+    MessageRole,
+)
 
 from ..types import ChatParam
 
