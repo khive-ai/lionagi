@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 
@@ -14,6 +15,7 @@ from lionagi.ln.concurrency import run_async
 from lionagi.protocols.generic.log import DataLoggerConfig
 from lionagi.protocols.messages import AssistantResponse
 
+from ._agents import load_agent_profile
 from ._persistence import (
     LIONAGI_HOME,
     find_branch_json,
@@ -32,6 +34,9 @@ async def _run_agent(
     resume: str | None = None,
     continue_last: bool = False,
     effort: str | None = None,
+    agent_name: str | None = None,
+    cwd: str | None = None,
+    timeout: int | None = None,
 ) -> tuple[str, str, str]:
     """Execute one agent turn (new or resumed).
 
@@ -41,6 +46,17 @@ async def _run_agent(
         raise ValueError(
             "--resume / -r and --continue-last / -c are mutually exclusive."
         )
+
+    # Load agent profile if specified — provides defaults for model/effort/yolo
+    profile = None
+    if agent_name:
+        profile = load_agent_profile(agent_name)
+        if profile.model and model_str is None:
+            model_str = profile.model
+        if profile.effort and effort is None:
+            effort = profile.effort
+        if profile.yolo and not yolo:
+            yolo = True
 
     branch: Branch | None = None
     if continue_last:
@@ -96,14 +112,32 @@ async def _run_agent(
             else:
                 branch.chat_model = chat_model
     elif branch is not None:
-        # Resumed without explicit flags — reset runtime-only settings
-        # so persisted verbose/yolo don't leak into new invocations
         branch.chat_model.endpoint.config.kwargs["verbose_output"] = verbose
 
-    res = ""
-    async for msg in branch.run(prompt):
-        if isinstance(msg, AssistantResponse):
-            res = msg.response
+    # Inject agent system prompt
+    if profile and profile.system_prompt:
+        branch.msgs.add_message(system=profile.system_prompt)
+
+    # Build run kwargs
+    run_kw = {}
+    if cwd:
+        run_kw["repo"] = cwd
+
+    async def _do_run():
+        res = ""
+        async for msg in branch.run(prompt, **run_kw):
+            if isinstance(msg, AssistantResponse):
+                res = msg.response
+        return res
+
+    try:
+        if timeout:
+            res = await asyncio.wait_for(_do_run(), timeout=timeout)
+        else:
+            res = await _do_run()
+    except asyncio.TimeoutError:
+        res = "[timed out]"
+        print(f"Agent timed out after {timeout}s", file=sys.stderr)
 
     path = await acreate_path(
         directory=LIONAGI_HOME / "logs" / "agents" / provider,
@@ -123,7 +157,8 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Spawn one-shot subagent (blocking); prints final response.",
         description=(
             "Spawn a single subagent and wait for its final response. "
-            "Use -r / -c to continue a previous conversation."
+            "Use -r / -c to continue a previous conversation. "
+            "Use -a to load a profile from .lionagi/agents/."
         ),
     )
     agent.add_argument(
@@ -132,19 +167,42 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         help=(
             "One of 'claude', 'codex', 'gemini-code' (defaults), or a full spec "
-            "like 'claude/opus'. Optional when --resume / --continue-last is set; "
-            "providing it on resume overrides the saved chat_model."
+            "like 'claude/opus'. Optional when -a (agent profile) provides a model, "
+            "or when --resume / --continue-last is set."
         ),
     )
     agent.add_argument("prompt", help="Prompt to send to the subagent.")
+    agent.add_argument(
+        "-a",
+        "--agent",
+        metavar="NAME",
+        default=None,
+        help=(
+            "Load agent profile from .lionagi/agents/<NAME>.md. "
+            "Profile provides system prompt, default model, effort, yolo. "
+            "CLI flags override profile settings."
+        ),
+    )
+    agent.add_argument(
+        "--cwd",
+        metavar="DIR",
+        default=None,
+        help="Working directory for the agent (passed as repo to CLI endpoint).",
+    )
+    agent.add_argument(
+        "--timeout",
+        metavar="SECONDS",
+        type=int,
+        default=None,
+        help="Timeout in seconds for the agent run.",
+    )
     agent.add_argument(
         "--yolo",
         action="store_true",
         help=(
             "Auto-approve all tool calls. Maps per provider: "
             "claude→permission_mode=bypassPermissions, "
-            "codex→full_auto (keeps workspace sandbox), gemini→--yolo. "
-            "Provider request classes will emit their own safety warnings."
+            "codex→full_auto (keeps workspace sandbox), gemini→--yolo."
         ),
     )
     agent.add_argument(
@@ -160,20 +218,16 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         "--theme",
         choices=("light", "dark"),
         default=None,
-        help=(
-            "Terminal pretty-print theme. Default provider value (light) is used "
-            "when unset. Applies to claude_code, codex, and gemini_code."
-        ),
+        help="Terminal pretty-print theme.",
     )
     agent.add_argument(
         "--effort",
         metavar="LEVEL",
         default=None,
         help=(
-            "Reasoning effort level. Provider-specific values: "
-            "claude=low|medium|high|max, "
-            "codex=none|minimal|low|medium|high|xhigh. "
-            "Silently ignored for gemini_code (no equivalent)."
+            "Reasoning effort level. "
+            "claude: low|medium|high|max. "
+            "codex: none|minimal|low|medium|high|xhigh."
         ),
     )
     agent.add_argument(
@@ -181,27 +235,22 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         "--resume",
         metavar="BRANCH_ID",
         default=None,
-        help=(
-            "Resume a specific previous branch by ID. Loads "
-            "~/.lionagi/logs/agents/*/<BRANCH_ID> and continues the conversation."
-        ),
+        help="Resume a previous branch by ID.",
     )
     agent.add_argument(
         "-c",
         "--continue-last",
         action="store_true",
-        help=(
-            "Continue the most recently used branch "
-            "(tracked in ~/.lionagi/last_branch.json)."
-        ),
+        help="Continue the most recently used branch.",
     )
 
 
 def run_agent(args: argparse.Namespace) -> int:
     """Dispatch agent command."""
-    if args.model is None and not (args.resume or args.continue_last):
+    has_model = args.model is not None or args.agent is not None
+    if not has_model and not (args.resume or args.continue_last):
         print(
-            "error: model is required unless --resume / -r or "
+            "error: model or --agent is required unless --resume / -r or "
             "--continue-last / -c is set",
             file=sys.stderr,
         )
@@ -217,6 +266,9 @@ def run_agent(args: argparse.Namespace) -> int:
             resume=args.resume,
             continue_last=args.continue_last,
             effort=args.effort,
+            agent_name=args.agent,
+            cwd=args.cwd,
+            timeout=args.timeout,
         )
     )
     if not args.verbose:
