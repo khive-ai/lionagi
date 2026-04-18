@@ -172,9 +172,7 @@ class TestAnyOfOneOfAllOf:
     def test_oneof_multiple_variants(self):
         schema = {
             "type": "object",
-            "properties": {
-                "x": {"oneOf": [{"type": "string"}, {"type": "integer"}]}
-            },
+            "properties": {"x": {"oneOf": [{"type": "string"}, {"type": "integer"}]}},
         }
         cls = load_pydantic_model_from_schema(schema, "M")
         assert cls(x="s").x == "s"
@@ -215,9 +213,7 @@ class TestRequiredAndDefault:
         schema = {
             "type": "object",
             "required": ["n"],
-            "properties": {
-                "n": {"type": "integer", "description": "must"}
-            },
+            "properties": {"n": {"type": "integer", "description": "must"}},
         }
         cls = load_pydantic_model_from_schema(schema, "M")
         with pytest.raises(Exception):
