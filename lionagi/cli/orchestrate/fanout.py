@@ -10,14 +10,13 @@ from pathlib import Path
 
 from lionagi import Branch, Session, json_dumps
 from lionagi._errors import TimeoutError as LionTimeoutError
-from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import move_on_after
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import load_agent_profile
-from .._persistence import LIONAGI_HOME, save_last_branch_pointer
+from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
     AGENT_REQUEST_FIELDS,
@@ -27,23 +26,8 @@ from ._common import (
     _format_result_text,
     _post_results_to_team,
     _resolve_worker_spec,
+    persist_session_branches,
 )
-
-
-async def _persist_session_branches(session, save_dir=None):
-    """Persist all branches in a session. Used for timeout recovery."""
-    branch_ids = []
-    for branch in session.branches:
-        provider = branch.chat_model.endpoint.config.provider
-        branch_id = str(branch.id)
-        bp = await acreate_path(
-            directory=LIONAGI_HOME / "logs" / "agents" / provider,
-            filename=branch_id,
-            file_exist_ok=True,
-        )
-        await bp.write_text(json_dumps(branch.to_dict()))
-        branch_ids.append((provider, branch_id, branch.name))
-    return branch_ids
 
 
 async def _run_fanout(
@@ -95,7 +79,7 @@ async def _run_fanout(
         if cancel_scope.cancelled_caught:
             session = _shared.get("session")
             if session:
-                await _persist_session_branches(session, save_dir)
+                await persist_session_branches(session, save_dir)
             n_saved = len(_shared.get("saved_workers", []))
             msg = f"Fanout timed out after {timeout}s"
             if n_saved:
@@ -488,39 +472,19 @@ async def _run_fanout_inner(
             )
 
     # ── Persist all branches ─────────────────────────────────────────
-    orc_provider = orc_branch.chat_model.endpoint.config.provider
+    branch_ids = await persist_session_branches(session)
     orc_branch_id = str(orc_branch.id)
-
-    # Save orchestrator
-    orc_path = await acreate_path(
-        directory=LIONAGI_HOME / "logs" / "agents" / orc_provider,
-        filename=orc_branch_id,
-        file_exist_ok=True,
+    save_last_branch_pointer(
+        orc_branch.chat_model.endpoint.config.provider, orc_branch_id,
     )
-    await orc_path.write_text(json_dumps(orc_branch.to_dict()))
-    save_last_branch_pointer(orc_provider, orc_branch_id)
-
-    # Save all worker branches (everything in session except orchestrator)
-    worker_branch_ids = []
-    for branch in session.branches:
-        if str(branch.id) == orc_branch_id:
-            continue
-        w_provider = branch.chat_model.endpoint.config.provider
-        w_branch_id = str(branch.id)
-        w_path = await acreate_path(
-            directory=LIONAGI_HOME / "logs" / "agents" / w_provider,
-            filename=w_branch_id,
-            file_exist_ok=True,
-        )
-        await w_path.write_text(json_dumps(branch.to_dict()))
-        worker_branch_ids.append((w_provider, w_branch_id))
 
     t_total = time.monotonic() - t0
     if not verbose:
         print(f"\nTotal: {t_total:.1f}s", file=sys.stderr)
 
     print(f'\n[orchestrator] li agent -r {orc_branch_id} "..."', file=sys.stderr)
-    for i, (wp, wid) in enumerate(worker_branch_ids):
-        print(f'[worker-{i+1}]      li agent -r {wid} "..."', file=sys.stderr)
+    for provider, bid, bname in branch_ids:
+        if bid != orc_branch_id:
+            print(f'[{bname}]      li agent -r {bid} "..."', file=sys.stderr)
 
     return output

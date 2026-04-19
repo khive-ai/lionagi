@@ -10,7 +10,6 @@ from pathlib import Path
 
 from lionagi import Branch, FieldModel, Session, json_dumps
 from lionagi._errors import TimeoutError as LionTimeoutError
-from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import move_on_after
 from lionagi.models import HashableModel
 from lionagi.operations.builder import OperationGraphBuilder
@@ -18,7 +17,7 @@ from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import list_agents, load_agent_profile
-from .._persistence import LIONAGI_HOME, save_last_branch_pointer
+from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
     TEAM_WORKER_SYSTEM,
@@ -752,36 +751,21 @@ async def _run_flow_inner(
         )
 
     # ── Persist branches ─────────────────────────────────────────────
-    orc_provider = orc_branch.chat_model.endpoint.config.provider
-    orc_branch_id = str(orc_branch.id)
-    orc_path = await acreate_path(
-        directory=LIONAGI_HOME / "logs" / "agents" / orc_provider,
-        filename=orc_branch_id,
-        file_exist_ok=True,
-    )
-    await orc_path.write_text(json_dumps(orc_branch.to_dict()))
-    save_last_branch_pointer(orc_provider, orc_branch_id)
+    from ._common import persist_session_branches
 
-    worker_branch_ids = []
-    for branch in session.branches:
-        if str(branch.id) == orc_branch_id:
-            continue
-        w_provider = branch.chat_model.endpoint.config.provider
-        w_branch_id = str(branch.id)
-        w_path = await acreate_path(
-            directory=LIONAGI_HOME / "logs" / "agents" / w_provider,
-            filename=w_branch_id,
-            file_exist_ok=True,
-        )
-        await w_path.write_text(json_dumps(branch.to_dict()))
-        worker_branch_ids.append((w_provider, w_branch_id, branch.name))
+    branch_ids = await persist_session_branches(session)
+    orc_branch_id = str(orc_branch.id)
+    save_last_branch_pointer(
+        orc_branch.chat_model.endpoint.config.provider, orc_branch_id,
+    )
 
     t_total = time.monotonic() - t0
     if not verbose:
         print(f"\nTotal: {t_total:.1f}s", file=sys.stderr)
 
     print(f'\n[orchestrator] li agent -r {orc_branch_id} "..."', file=sys.stderr)
-    for wp, wid, wn in worker_branch_ids:
-        print(f'[{wn}] li agent -r {wid} "..."', file=sys.stderr)
+    for provider, bid, bname in branch_ids:
+        if bid != orc_branch_id:
+            print(f'[{bname}] li agent -r {bid} "..."', file=sys.stderr)
 
     return output
