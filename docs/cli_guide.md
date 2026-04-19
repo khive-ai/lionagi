@@ -129,6 +129,80 @@ li o fanout claude/sonnet "Review authentication flow" \
     -n 2 --with-synthesis --save ./review-output --output json
 ```
 
+### `li o flow` — DAG Flow
+
+Orchestrator plans a directed acyclic graph of agents with dependency edges, then executes with automatic parallelism where dependencies allow.
+
+```bash
+li o flow MODEL PROMPT [OPTIONS]
+```
+
+The orchestrator analyzes your prompt, generates a `FlowPlan` with agents linked by `depends_on` edges, and the engine executes them — parallel where possible, sequential where needed.
+
+**Options**:
+
+| Flag | Description |
+|------|-------------|
+| `--with-synthesis [MODEL]` | Enable final synthesis. Bare flag uses orchestrator model |
+| `--max-concurrent N` | Limit concurrent agents (default: all) |
+| `--bare` | Ignore agent profiles — all workers use the CLI model |
+| `--max-agents N` | Cap total agents (0 = unlimited) |
+| `--dry-run` | Plan the DAG without executing. Shows agents, deps, models |
+| `--output text\|json` | Output format |
+| `--save DIR` | Save outputs to directory |
+
+Plus all shared flags: `-v`, `--yolo`, `--effort`, `--theme`, `--cwd`, `--timeout`
+
+**How it works**:
+
+1. Orchestrator generates a `FlowPlan`: a flat list of agents, each with an `id`, `role`, `instruction`, and optional `depends_on` (list of agent ids)
+2. Agents with no dependencies run immediately in parallel
+3. Agents with dependencies wait for their predecessors to complete
+4. **Control nodes** (`control=true`): critic agents that review prior work and produce a structured `FlowControlVerdict`. If `should_continue=true`, the orchestrator re-plans and adds more agents (up to 3 rounds)
+
+**Examples**:
+
+```bash
+# Simple: let orchestrator plan everything
+li o flow claude/sonnet "Audit this codebase for security issues"
+
+# Dry-run: see the plan without executing
+li o flow claude/sonnet "Refactor the auth module" --dry-run
+
+# Bare mode: all workers use sonnet (ignore profile models)
+li o flow claude/sonnet "Find dead code in lionagi/cli/" --bare --with-synthesis
+
+# Budget: limit agents + timeout
+li o flow claude/sonnet "Analyze error handling patterns" \
+    --max-agents 3 --timeout 300 --with-synthesis
+
+# Full auto: yolo + bare + synthesis
+li o flow claude/sonnet "Review the test coverage gaps" \
+    --bare --yolo --with-synthesis --save ./review
+```
+
+**Dry-run output** shows the DAG structure and model resolution:
+
+```
+FlowPlan (3 agents, synthesis=True)
+
+  a1: analyst
+    instruction: Read all files in lionagi/cli/...
+  s1: suggester
+    instruction: Using the findings from a1...
+  depends_on: a1
+  c1: critic [CONTROL]
+    instruction: Review a1's findings and s1's suggestions...
+  depends_on: a1, s1
+
+Model resolution:
+  a1: claude/sonnet (bare)
+  s1: claude/sonnet (bare)
+  c1: claude/sonnet (bare)
+```
+
+**Flow vs Fanout**: Fanout is flat parallel (N workers, same task, different angles). Flow is a DAG — agents can depend on each other's output, enabling multi-step pipelines with critic-driven iteration.
+
 ### `li team` — Team Messaging
 
 Persistent inbox-style messaging for coordinating agent teams.
@@ -326,6 +400,32 @@ result = await branch.operate(
 | `ActionResponse` | Tool returns result | `.content.output` |
 
 Thinking traces are folded into `AssistantResponse.metadata["thinking"]` — not yielded as separate messages.
+
+### `branch.instruct()` — Universal structured output
+
+`instruct()` is the unified operation for structured extraction across any endpoint type. It automatically routes based on the model's backend:
+
+- **CLI endpoints** (Claude Code, Codex): streams via `run()`, then `parse()` extracts fields
+- **API endpoints** (OpenAI, Anthropic API): delegates to `operate()` with structured output
+
+```python
+from lionagi import Branch, FieldModel
+from lionagi.models import HashableModel
+
+class Analysis(HashableModel):
+    patterns: list[str]
+    recommendation: str
+
+result = await branch.instruct(
+    "Analyze the error handling in this module",
+    field_models=[FieldModel(Analysis, name="analysis")],
+    reason=True,  # adds a 'reason' field to the output
+)
+# result.analysis → Analysis(patterns=[...], recommendation="...")
+# result.reason → "I identified three patterns..."
+```
+
+This is what `li o flow` uses internally for all agent operations — you get the same routing in Python.
 
 ## Provider Support
 
