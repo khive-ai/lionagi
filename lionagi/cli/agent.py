@@ -5,9 +5,10 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sys
+
+from anyio import move_on_after
 
 from lionagi import Branch, json_dumps
 from lionagi.ln import acreate_path
@@ -129,14 +130,14 @@ async def _run_agent(
                 res = msg.response
         return res
 
-    try:
-        if timeout:
-            res = await asyncio.wait_for(_do_run(), timeout=timeout)
-        else:
+    if timeout:
+        with move_on_after(timeout) as cancel_scope:
             res = await _do_run()
-    except asyncio.TimeoutError:
-        res = "[timed out]"
-        print(f"Agent timed out after {timeout}s", file=sys.stderr)
+        if cancel_scope.cancelled_caught:
+            res = "[timed out]"
+            print(f"Agent timed out after {timeout}s", file=sys.stderr)
+    else:
+        res = await _do_run()
 
     path = await acreate_path(
         directory=LIONAGI_HOME / "logs" / "agents" / provider,

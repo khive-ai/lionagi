@@ -24,12 +24,14 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import sys
 import time
 from pathlib import Path
 
+from anyio import move_on_after
+
 from lionagi import Branch, FieldModel, Session, iModel, json_dumps
+from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import run_async
 from lionagi.models import HashableModel
@@ -212,6 +214,52 @@ async def _run_fanout(
     agent_name: str | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
+    if timeout:
+        with move_on_after(timeout) as cancel_scope:
+            result = await _run_fanout_inner(
+                model_spec, prompt,
+                num_workers=num_workers, workers_str=workers_str,
+                with_synthesis=with_synthesis, synthesis_model=synthesis_model,
+                synthesis_prompt=synthesis_prompt, max_concurrent=max_concurrent,
+                yolo=yolo, verbose=verbose, effort=effort, theme=theme,
+                output_format=output_format, save_dir=save_dir,
+                team_name=team_name, cwd=cwd, agent_name=agent_name,
+            )
+        if cancel_scope.cancelled_caught:
+            raise LionTimeoutError(f"Fanout timed out after {timeout}s")
+        return result
+    return await _run_fanout_inner(
+        model_spec, prompt,
+        num_workers=num_workers, workers_str=workers_str,
+        with_synthesis=with_synthesis, synthesis_model=synthesis_model,
+        synthesis_prompt=synthesis_prompt, max_concurrent=max_concurrent,
+        yolo=yolo, verbose=verbose, effort=effort, theme=theme,
+        output_format=output_format, save_dir=save_dir,
+        team_name=team_name, cwd=cwd, agent_name=agent_name,
+    )
+
+
+async def _run_fanout_inner(
+    model_spec: str,
+    prompt: str,
+    *,
+    num_workers: int = 3,
+    workers_str: str | None = None,
+    with_synthesis: bool = False,
+    synthesis_model: str | None = None,
+    synthesis_prompt: str | None = None,
+    max_concurrent: int = 0,
+    yolo: bool = False,
+    verbose: bool = False,
+    effort: str | None = None,
+    theme: str | None = None,
+    output_format: str = "text",
+    save_dir: str | None = None,
+    team_name: str | None = None,
+    cwd: str | None = None,
+    agent_name: str | None = None,
+) -> str:
+    """Inner fanout logic (no timeout wrapper)."""
     t0 = time.monotonic()
 
     # Load orchestrator agent profile if specified
@@ -643,6 +691,47 @@ async def _run_flow(
     agent_name: str | None = None,
 ) -> str:
     """Auto-DAG flow: orchestrator plans phases → engine executes sequentially."""
+    if timeout:
+        with move_on_after(timeout) as cancel_scope:
+            result = await _run_flow_inner(
+                model_spec, prompt,
+                with_synthesis=with_synthesis, synthesis_model=synthesis_model,
+                max_concurrent=max_concurrent, yolo=yolo, verbose=verbose,
+                effort=effort, theme=theme, output_format=output_format,
+                save_dir=save_dir, team_name=team_name, cwd=cwd,
+                agent_name=agent_name,
+            )
+        if cancel_scope.cancelled_caught:
+            raise LionTimeoutError(f"Flow timed out after {timeout}s")
+        return result
+    return await _run_flow_inner(
+        model_spec, prompt,
+        with_synthesis=with_synthesis, synthesis_model=synthesis_model,
+        max_concurrent=max_concurrent, yolo=yolo, verbose=verbose,
+        effort=effort, theme=theme, output_format=output_format,
+        save_dir=save_dir, team_name=team_name, cwd=cwd,
+        agent_name=agent_name,
+    )
+
+
+async def _run_flow_inner(
+    model_spec: str,
+    prompt: str,
+    *,
+    with_synthesis: bool = False,
+    synthesis_model: str | None = None,
+    max_concurrent: int = 0,
+    yolo: bool = False,
+    verbose: bool = False,
+    effort: str | None = None,
+    theme: str | None = None,
+    output_format: str = "text",
+    save_dir: str | None = None,
+    team_name: str | None = None,
+    cwd: str | None = None,
+    agent_name: str | None = None,
+) -> str:
+    """Inner flow logic (no timeout wrapper)."""
     t0 = time.monotonic()
 
     # Load orchestrator profile
@@ -1154,11 +1243,8 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                     agent_name=args.agent,
                 )
             )
-        except asyncio.TimeoutError:
-            print(
-                f"Orchestration timed out after {args.timeout}s",
-                file=sys.stderr,
-            )
+        except LionTimeoutError as e:
+            print(str(e), file=sys.stderr)
             return 1
         if not args.verbose:
             print(output)
@@ -1194,8 +1280,8 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                     agent_name=args.agent,
                 )
             )
-        except asyncio.TimeoutError:
-            print(f"Flow timed out after {args.timeout}s", file=sys.stderr)
+        except LionTimeoutError as e:
+            print(str(e), file=sys.stderr)
             return 1
         if not args.verbose:
             print(output)
