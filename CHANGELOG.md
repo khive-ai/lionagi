@@ -3,6 +3,29 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.22.3] - 2026-04-19
+
+### Added
+- Stream persist — three-phase write-ahead logging for `branch.run()` / `branch.instruct()`:
+  - Init: branch snapshot created at start
+  - Stream: JSONL buffer appended per chunk via `imodel.streaming_process_func`
+  - Consolidate: final `branch.to_dict()` written in `try/finally`, buffer removed
+- `RunParam` frozen dataclass for clean parameter passing through the run pipeline
+- `imodel.provider_session_id` for tracking CLI provider sessions
+- `persist_session_branches()` shared helper for orchestration session persistence
+- `LIONAGI_HOME` centralized in `utils.py` (single source of truth for `~/.lionagi`)
+- `Instruct.handle()` for structured output result handling
+
+### Changed
+- `branch.instruct()` is now the universal operation — `li agent` uses it instead of manual `run()` + file write
+- `_prepare_run_kwargs` extracted from `chat.py` into `chat/_prepare.py` (shared by chat and run)
+- Orchestration `fanout` and `flow` use `persist_session_branches()` instead of inline persistence
+- `run()` integrates `stream_persist` and `persist_dir` via `RunParam`
+
+### Fixed
+- Double `create_payload` bug in all 3 CLI endpoints — `APICalling._core_stream` was re-calling `endpoint.create_payload` on an already-built payload (claude, codex, gemini)
+- `fanout` timeout recovery now catches `TimeoutError` properly
+
 ## [0.22.2] - 2026-04-19
 
 ### Added
