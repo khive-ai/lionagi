@@ -18,6 +18,7 @@ from ..types import ChatParam, RunParam
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
 
+
 def _prepare_run_kwargs(
     branch: "Branch",
     instruction: JsonValue | Instruction,

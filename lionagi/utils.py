@@ -212,4 +212,5 @@ def create_path(
 
     return full_path
 
+
 LIONAGI_HOME = Path.home() / ".lionagi"

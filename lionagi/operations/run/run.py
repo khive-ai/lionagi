@@ -4,23 +4,23 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from pathlib import Path
 from typing import TYPE_CHECKING
 
+import anyio
 from pydantic import JsonValue
 
-from lionagi import json_dumps
-from lionagi.ln import acreate_path
-from lionagi.operations.types import RunParam
-from lionagi.protocols.messages.action_request import ActionRequest
-from lionagi.protocols.messages.action_response import ActionResponse
-from lionagi.protocols.messages.assistant_response import (
+from lionagi.ln import acreate_path, json_dumps
+from lionagi.protocols.messages import (
+    ActionRequest,
+    ActionResponse,
     AssistantResponse,
     AssistantResponseContent,
+    Instruction,
 )
-from lionagi.protocols.messages.instruction import Instruction
+from lionagi.service.connections import APICalling
 
 from ..chat._prepare import _prepare_run_kwargs
+from ..types import RunParam
 
 if TYPE_CHECKING:
     from lionagi.protocols.messages.message import RoledMessage
@@ -45,9 +45,23 @@ async def run(
     if branch.chat_model.provider_session_id is not None:
         kw["resume"] = branch.chat_model.provider_session_id
 
-    # Stream persistence: JSONL buffer for crash recovery
+    model = branch.chat_model
+    endpoint = model.endpoint
+    prev_stream_func = model.streaming_process_func
     bfp = None
+
     if param.stream_persist:
+        # Placeholder: branch log with initial state
+        fp = await acreate_path(
+            param.persist_dir,
+            str(branch.id),
+            ".json",
+            file_exist_ok=True,
+        )
+        async with await anyio.open_file(fp, "w") as f:
+            await f.write(json_dumps(branch.to_dict()))
+
+        # JSONL buffer for real-time monitoring
         bfp = await acreate_path(
             param.persist_dir,
             str(branch.id) + ".buffer",
@@ -55,10 +69,20 @@ async def run(
             file_exist_ok=True,
         )
 
-    def _buffer_msg(msg):
-        if bfp is not None and hasattr(msg, "to_dict"):
-            with open(bfp, "a") as f:
-                f.write(json_dumps(msg.to_dict()) + "\n")
+        # Inject streaming persist into imodel's chunk processor
+        async def _persist_chunk(chunk):
+            if hasattr(chunk, "to_dict"):
+                async with await anyio.open_file(bfp, "a") as f:
+                    await f.write(json_dumps(chunk.to_dict()) + "\n")
+            if prev_stream_func is not None:
+                from lionagi.ln import is_coro_func
+
+                if is_coro_func(prev_stream_func):
+                    return await prev_stream_func(chunk)
+                return prev_stream_func(chunk)
+            return None
+
+        model.streaming_process_func = _persist_chunk
 
     # Accumulation buffers
     thinking_parts: list[str] = []
@@ -84,10 +108,14 @@ async def run(
         return res
 
     pending_requests: dict[str, ActionRequest] = {}
-    endpoint = branch.chat_model.endpoint
+    api_call_event = None
 
     try:
-        async for chunk in endpoint.stream(kw):
+        async for chunk in model.stream(**kw):
+            if isinstance(chunk, APICalling):
+                api_call_event = chunk
+                continue
+
             match chunk.type:
                 case "system":
                     if sid := chunk.metadata.get("session_id"):
@@ -103,7 +131,6 @@ async def run(
 
                 case "tool_use":
                     if res := _flush_response():
-                        _buffer_msg(res)
                         yield res
 
                     act_req = branch.msgs.create_action_request(
@@ -115,7 +142,6 @@ async def run(
                     if chunk.tool_id:
                         pending_requests[chunk.tool_id] = act_req
                     branch.msgs.add_message(action_request=act_req)
-                    _buffer_msg(act_req)
                     yield act_req
 
                 case "tool_result":
@@ -147,7 +173,6 @@ async def run(
                         if chunk.tool_id:
                             act_res.metadata["tool_id"] = chunk.tool_id
                         branch.msgs.messages.include(act_res)
-                    _buffer_msg(act_res)
                     yield act_res
 
                 case "result":
@@ -158,15 +183,28 @@ async def run(
                         chunk.content or "Stream error from CLI endpoint"
                     )
 
-        # Flush remaining accumulated text
+        # Flush remaining text — attach APICalling metadata to final response
         if res := _flush_response():
-            _buffer_msg(res)
+            if api_call_event is not None:
+                call_meta = api_call_event.to_dict()
+                call_meta["execution"].pop("response", None)
+                res.metadata["api_call_meta"] = call_meta
             yield res
     finally:
+        # Restore original streaming func
+        model.streaming_process_func = prev_stream_func
+
+        # Consolidate: always persist branch state on any exit
         if param.stream_persist:
-            persist_dir = Path(param.persist_dir)
-            persist_dir.mkdir(parents=True, exist_ok=True)
-            fp = persist_dir / f"{branch.id}.json"
-            fp.write_text(json_dumps(branch.to_dict()))
-            if bfp and Path(bfp).exists():
-                Path(bfp).unlink()
+            fp = await acreate_path(
+                param.persist_dir,
+                str(branch.id),
+                ".json",
+                file_exist_ok=True,
+            )
+            async with await anyio.open_file(fp, "w") as f:
+                await f.write(json_dumps(branch.to_dict()))
+            if bfp is not None:
+                bfp_path = anyio.Path(bfp)
+                if await bfp_path.exists():
+                    await bfp_path.unlink()

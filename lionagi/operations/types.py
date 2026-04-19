@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
-from typing import ClassVar, Literal
 from pathlib import Path
+from typing import ClassVar, Literal
+
 from pydantic import BaseModel, JsonValue
 
 from lionagi.ln import AlcallParams
@@ -58,11 +59,12 @@ class ChatParam(MorphParam):
     imodel: iModel = None
     imodel_kw: dict = None
 
+
 @dataclass(slots=True, frozen=True, init=False)
 class RunParam(ChatParam):
     stream_persist: bool = False
     persist_dir: str | Path = LIONAGI_HOME / "logs" / "runs"
-    
+
 
 @dataclass(slots=True, frozen=True, init=False)
 class InterpretParam(MorphParam):
