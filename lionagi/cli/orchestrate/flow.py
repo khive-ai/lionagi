@@ -114,6 +114,7 @@ async def _run_flow(
     bare: bool = False,
     max_agents: int = 0,
     dry_run: bool = False,
+    show_graph: bool = False,
 ) -> str:
     """Auto-DAG flow: orchestrator plans DAG → engine executes with deps."""
     if timeout:
@@ -136,6 +137,7 @@ async def _run_flow(
                 bare=bare,
                 max_agents=max_agents,
                 dry_run=dry_run,
+                show_graph=show_graph,
             )
         if cancel_scope.cancelled_caught:
             raise LionTimeoutError(f"Flow timed out after {timeout}s")
@@ -158,6 +160,7 @@ async def _run_flow(
         bare=bare,
         max_agents=max_agents,
         dry_run=dry_run,
+        show_graph=show_graph,
     )
 
 
@@ -180,6 +183,7 @@ async def _run_flow_inner(
     bare: bool = False,
     max_agents: int = 0,
     dry_run: bool = False,
+    show_graph: bool = False,
 ) -> str:
     """Inner flow logic (no timeout wrapper)."""
     t0 = time.monotonic()
@@ -348,6 +352,18 @@ async def _run_flow_inner(
                     rm = a.model
                 src = "plan" if a.model else ("profile" if rp else "default")
                 lines.append(f"  {a.id}: {rm} ({src})")
+
+        if show_graph:
+            from lionagi.operations._visualize_graph import visualize_graph
+            graph_save = None
+            if save_dir:
+                graph_save = str(Path(save_dir) / "flow_dag.png")
+            visualize_graph(
+                builder,
+                title=f"Flow DAG — {len(plan.agents)} agents",
+                save_path=graph_save,
+            )
+
         return "\n".join(lines)
 
     # ── Build agent name registry ───────────────────────────────────
@@ -466,6 +482,16 @@ async def _run_flow_inner(
             "depends_on": a.depends_on or [],
         }
 
+    # Progress callback for real-time status
+    def _progress(op_id, name, status, elapsed):
+        if not verbose:
+            if status == "started":
+                print(f"  ▶ {name} started", file=sys.stderr)
+            elif status == "completed":
+                print(f"  ✓ {name} done ({elapsed:.1f}s)", file=sys.stderr)
+            elif status == "failed":
+                print(f"  ✗ {name} FAILED ({elapsed:.1f}s)", file=sys.stderr)
+
     # Execute regular agents
     t_exec = time.monotonic()
     conc = max_concurrent if max_concurrent > 0 else max(len(regular_agents), 1)
@@ -473,6 +499,7 @@ async def _run_flow_inner(
         builder.get_graph(),
         max_concurrent=conc,
         verbose=verbose,
+        on_progress=_progress,
     )
     t_exec_elapsed = time.monotonic() - t_exec
 
@@ -759,6 +786,17 @@ async def _run_flow_inner(
         orc_branch.chat_model.endpoint.config.provider,
         orc_branch_id,
     )
+
+    if show_graph:
+        from lionagi.operations._visualize_graph import visualize_graph
+        graph_save = None
+        if save_dir:
+            graph_save = str(Path(save_dir) / "flow_dag.png")
+        visualize_graph(
+            builder,
+            title=f"Flow DAG — {len(plan.agents)} agents (completed)",
+            save_path=graph_save,
+        )
 
     t_total = time.monotonic() - t0
     if not verbose:

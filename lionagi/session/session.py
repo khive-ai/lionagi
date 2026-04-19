@@ -309,12 +309,10 @@ class Session(Node, Relational):
         verbose: bool = False,
         default_branch: Branch | ID.Ref | None = None,
         alcall_params: Any = None,
+        on_progress: Any = None,
     ) -> dict[str, Any]:
         """
         Execute a graph-based workflow using multi-branch orchestration.
-
-        This is a Session-native operation that coordinates execution across
-        multiple branches for parallel processing.
 
         Args:
             graph: The workflow graph containing Operation nodes
@@ -324,13 +322,10 @@ class Session(Node, Relational):
             verbose: Enable verbose logging
             default_branch: Branch to use as default (defaults to self.default_branch)
             alcall_params: Parameters for async parallel call execution
-
-        Returns:
-            Execution results with completed operations and final context
+            on_progress: Callback(op_id, name, status, elapsed_s) for progress tracking
         """
         from lionagi.operations.flow import flow
 
-        # Use specified branch or session's default
         branch = default_branch or self.default_branch
         if isinstance(branch, (str, UUID)):
             branch = self.branches[branch]
@@ -344,6 +339,7 @@ class Session(Node, Relational):
             max_concurrent=max_concurrent,
             verbose=verbose,
             alcall_params=alcall_params,
+            on_progress=on_progress,
         )
 
 

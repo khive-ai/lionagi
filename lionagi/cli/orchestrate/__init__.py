@@ -181,6 +181,16 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Plan the DAG but don't execute. Shows agents, deps, and model resolution.",
     )
     fl.add_argument(
+        "--show-graph",
+        action="store_true",
+        help="Render DAG as matplotlib visualization. With --save, saves PNG to save dir.",
+    )
+    fl.add_argument(
+        "--background",
+        action="store_true",
+        help="Run flow in background. Requires --save. Check output in save dir.",
+    )
+    fl.add_argument(
         "--bare",
         action="store_true",
         help=(
@@ -249,6 +259,25 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             print("error: model or --agent is required", file=sys.stderr)
             return 1
 
+        background = getattr(args, "background", False)
+        if background and not args.save:
+            print("error: --background requires --save", file=sys.stderr)
+            return 1
+
+        if background:
+            import subprocess
+            bg_args = [a for a in sys.argv[1:] if a != "--background"]
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "lionagi.cli", *bg_args],
+                stdout=open(f"{args.save}/flow.log", "w"),
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            print(f"Flow running in background (PID {proc.pid})", file=sys.stderr)
+            print(f"Output: {args.save}/flow.log", file=sys.stderr)
+            print(f"Monitor: tail -f {args.save}/flow.log", file=sys.stderr)
+            return 0
+
         synth = args.with_synthesis
         with_synthesis = synth is not False
         synthesis_model = synth if isinstance(synth, str) else None
@@ -274,6 +303,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                     bare=args.bare,
                     max_agents=args.max_agents,
                     dry_run=args.dry_run,
+                    show_graph=getattr(args, "show_graph", False),
                 )
             )
         except LionTimeoutError as e:
