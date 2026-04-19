@@ -365,6 +365,7 @@ class TestStreamModeHandling:
     """Test stream vs invoke selection."""
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(reason="chat() no longer has stream path — streaming moved to run()")
     async def test_chat_uses_stream_when_kwarg_set(self, make_mocked_branch_for_chat):
         """Verify imodel.stream called when stream=True."""
         branch = make_mocked_branch_for_chat()
