@@ -28,10 +28,9 @@ import sys
 import time
 from pathlib import Path
 
-from anyio import move_on_after
-
 from lionagi import Branch, FieldModel, Session, iModel, json_dumps
 from lionagi._errors import TimeoutError as LionTimeoutError
+from lionagi.ln.concurrency import move_on_after
 from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import run_async
 from lionagi.models import HashableModel
