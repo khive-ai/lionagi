@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.22.1"
+version = "0.22.2"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -41,7 +41,7 @@ dev = [
     "black[jupyter]>=26.3.1",
     "isort>=6.0.0",
     "pre-commit>=4.2.0",
-    "pytest>=8.0.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=1.1.0",
     "sphinx-autobuild>=2024.10.3",
     "sphinx>=8.0.0",
@@ -198,9 +198,11 @@ exclude = [
 [tool.uv]
 # Force minimum versions for transitive deps with known vulnerabilities
 constraint-dependencies = [
-    "authlib>=1.6.9",       # CVE: OIDC hash binding, JWE padding oracle, JWS header injection
+    "authlib>=1.6.11",      # CVE: CSRF when using cache
+    "python-multipart>=0.0.26",  # CVE: DoS via large multipart preamble/epilogue
+    "pytest>=9.0.3",        # CVE: vulnerable tmpdir handling
+    "pillow>=12.2.0",       # CVE: FITS GZIP decompression bomb
     "pyjwt>=2.12.0",        # CVE: unknown crit header extensions
-    "pillow>=12.1.1",       # CVE: out-of-bounds write loading PSD images
     "tornado>=6.5.5",       # CVE: multipart DoS, cookie validation
     "cairosvg>=2.9.0",      # CVE: recursive <use> exponential DoS
     "cryptography>=46.0.7", # CVE: buffer overflow on non-contiguous buffers; DNS name constraint enforcement
