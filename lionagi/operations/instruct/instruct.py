@@ -5,12 +5,6 @@
 Routes automatically based on endpoint type:
   - CLI endpoints → stream via branch.run(), then branch.parse()
   - API endpoints → branch.operate() with field_models
-
-    result = await branch.instruct(
-        instruction="Analyze auth middleware",
-        field_models=[AGENT_REQUEST_FIELDS],
-        reason=True,
-    )
 """
 
 from __future__ import annotations
@@ -24,117 +18,117 @@ from lionagi.models import FieldModel
 from lionagi.protocols.messages.assistant_response import AssistantResponse
 
 from ..fields import Instruct
+from ..types import RunParam
 
 if TYPE_CHECKING:
     from lionagi.service.imodel import iModel
     from lionagi.session.branch import Branch
 
+HandleValidation = Literal["raise", "return_value", "return_none"]
 
-async def instruct(
+
+def prepare_instruct_kw(
     branch: Branch,
-    instruction: str | Instruct | None = None,
     *,
+    instruct: Instruct | None = None,
+    instruction: str | None = None,
     guidance: JsonValue = None,
     context: JsonValue = None,
+    reason: bool = False,
     chat_model: iModel | None = None,
     field_models: list[FieldModel | Spec] | None = None,
     response_format: type[BaseModel] | None = None,
-    reason: bool = False,
     skip_validation: bool = False,
-    handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
+    handle_validation: HandleValidation = "return_value",
     max_retries: int = 3,
     images: list | None = None,
     image_detail: str = "auto",
+    stream_persist: bool = False,
+    persist_dir: str | None = None,
+    sender=None,
+    recipient=None,
     **kwargs,
-) -> BaseModel | dict | str | None:
-    """Run instruction, extract structured output.
-
-    Routes based on endpoint type:
-      - CLI (is_cli=True): stream via run() → parse()
-      - API (is_cli=False): operate() with field_models/response_format
-    """
-    if isinstance(instruction, Instruct):
-        inst = instruction
-    elif isinstance(instruction, dict):
-        inst = Instruct(**instruction)
-    else:
-        inst = Instruct(
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
-        )
-
-    if guidance and not inst.guidance:
-        inst.guidance = guidance
-    if context and not inst.context:
-        inst.context = context
-    if reason:
-        inst.reason = True
-
+) -> dict:
+    inst = Instruct.handle(instruct, instruction, guidance, context, reason)
     model = chat_model or branch.chat_model
-    if not model.is_cli:
+
+    request_type = _resolve_response_type(
+        field_models, response_format, inst.reason or False
+    )
+
+    run_param_kw = dict(
+        guidance=inst.guidance,
+        context=inst.context,
+        sender=sender or branch.user or "user",
+        recipient=recipient or branch.id,
+        images=images,
+        image_detail=image_detail,
+        stream_persist=stream_persist,
+    )
+    if chat_model is not None:
+        run_param_kw["imodel"] = chat_model
+    if persist_dir is not None:
+        run_param_kw["persist_dir"] = persist_dir
+    if request_type:
+        run_param_kw["response_format"] = request_type
+    if kwargs:
+        run_param_kw["imodel_kw"] = kwargs
+
+    return {
+        "instruction": inst.instruction,
+        "run_param": RunParam(**run_param_kw),
+        "request_type": request_type,
+        "skip_validation": skip_validation,
+        "handle_validation": handle_validation,
+        "max_retries": max_retries,
+        "is_cli": model.is_cli,
+        "inst": inst,
+    }
+
+
+async def instruct(
+    branch: Branch,
+    instruction: str,
+    run_param: RunParam,
+    *,
+    request_type: type[BaseModel] | None = None,
+    skip_validation: bool = False,
+    handle_validation: HandleValidation = "return_value",
+    max_retries: int = 3,
+    is_cli: bool = True,
+    inst: Instruct | None = None,
+) -> BaseModel | dict | str | None:
+    if not is_cli:
         return await _instruct_api(
-            branch,
-            inst,
-            chat_model=chat_model,
-            field_models=field_models,
-            response_format=response_format,
-            reason=reason,
-            images=images,
-            image_detail=image_detail,
-            **kwargs,
+            branch, inst or Instruct(instruction=instruction), run_param
         )
 
     return await _instruct_cli(
         branch,
-        inst,
-        chat_model=chat_model,
-        field_models=field_models,
-        response_format=response_format,
-        reason=reason,
+        instruction,
+        run_param,
+        request_type=request_type,
         skip_validation=skip_validation,
         handle_validation=handle_validation,
         max_retries=max_retries,
-        images=images,
-        image_detail=image_detail,
-        **kwargs,
     )
 
 
 async def _instruct_cli(
     branch: Branch,
-    inst: Instruct,
+    instruction: str,
+    run_param: RunParam,
     *,
-    chat_model: iModel | None = None,
-    field_models: list[FieldModel | Spec] | None = None,
-    response_format: type[BaseModel] | None = None,
-    reason: bool = False,
+    request_type: type[BaseModel] | None = None,
     skip_validation: bool = False,
-    handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
+    handle_validation: HandleValidation = "return_value",
     max_retries: int = 3,
-    images: list | None = None,
-    image_detail: str = "auto",
-    **kwargs,
 ) -> BaseModel | dict | str | None:
     """CLI path: stream via run() → collect text → parse()."""
-    request_type = _resolve_response_type(
-        field_models, response_format, inst.reason or False
-    )
-
-    run_kwargs = dict(kwargs)
-    if request_type:
-        run_kwargs["response_format"] = request_type
+    from ..run.run import run as _run
 
     all_texts: list[str] = []
-    async for msg in branch.run(
-        instruction=inst.instruction,
-        chat_model=chat_model,
-        guidance=inst.guidance,
-        context=inst.context,
-        images=images,
-        image_detail=image_detail,
-        **run_kwargs,
-    ):
+    async for msg in _run(branch, instruction, run_param):
         if isinstance(msg, AssistantResponse):
             text = msg.response or ""
             if text:
@@ -159,25 +153,15 @@ async def _instruct_cli(
 async def _instruct_api(
     branch: Branch,
     inst: Instruct,
-    *,
-    chat_model: iModel | None = None,
-    field_models: list[FieldModel | Spec] | None = None,
-    response_format: type[BaseModel] | None = None,
-    reason: bool = False,
-    images: list | None = None,
-    image_detail: str = "auto",
-    **kwargs,
+    run_param: RunParam,
 ) -> BaseModel | dict | str | None:
     """API path: delegate to branch.operate() for structured output."""
     return await branch.operate(
         instruct=inst,
-        chat_model=chat_model,
-        field_models=field_models,
-        response_format=response_format,
-        reason=reason,
-        images=images,
-        image_detail=image_detail,
-        **kwargs,
+        chat_model=run_param.imodel,
+        response_format=run_param.response_format,
+        images=run_param.images,
+        image_detail=run_param.image_detail,
     )
 
 
