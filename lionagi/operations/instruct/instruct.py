@@ -1,9 +1,10 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""branch.instruct() — CLI-endpoint operate.
+"""branch.instruct() — universal structured-output operation.
 
-Uses branch.run() (CLI streaming) to execute, then branch.parse()
-for structured extraction. Two-phase: stream → parse.
+Routes automatically based on endpoint type:
+  - CLI endpoints → stream via branch.run(), then branch.parse()
+  - API endpoints → branch.operate() with field_models
 
     result = await branch.instruct(
         instruction="Analyze auth middleware",
@@ -46,12 +47,11 @@ async def instruct(
     image_detail: str = "auto",
     **kwargs,
 ) -> BaseModel | dict | str | None:
-    """Run instruction via CLI endpoint, extract structured output.
+    """Run instruction, extract structured output.
 
-    1. Resolve response type from field_models/response_format
-    2. Stream via branch.run() with response_format passed to endpoint
-    3. Collect all AssistantResponse texts
-    4. Parse via branch.parse() if structured output requested
+    Routes based on endpoint type:
+      - CLI (is_cli=True): stream via run() → parse()
+      - API (is_cli=False): operate() with field_models/response_format
     """
     if isinstance(instruction, Instruct):
         inst = instruction
@@ -71,11 +71,45 @@ async def instruct(
     if reason:
         inst.reason = True
 
+    model = chat_model or branch.chat_model
+    if not model.is_cli:
+        return await _instruct_api(
+            branch, inst, chat_model=chat_model,
+            field_models=field_models, response_format=response_format,
+            reason=reason, images=images, image_detail=image_detail,
+            **kwargs,
+        )
+
+    return await _instruct_cli(
+        branch, inst, chat_model=chat_model,
+        field_models=field_models, response_format=response_format,
+        reason=reason, skip_validation=skip_validation,
+        handle_validation=handle_validation, max_retries=max_retries,
+        images=images, image_detail=image_detail,
+        **kwargs,
+    )
+
+
+async def _instruct_cli(
+    branch: "Branch",
+    inst: Instruct,
+    *,
+    chat_model: "iModel | None" = None,
+    field_models: list[FieldModel | Spec] | None = None,
+    response_format: type[BaseModel] | None = None,
+    reason: bool = False,
+    skip_validation: bool = False,
+    handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
+    max_retries: int = 3,
+    images: list | None = None,
+    image_detail: str = "auto",
+    **kwargs,
+) -> BaseModel | dict | str | None:
+    """CLI path: stream via run() → collect text → parse()."""
     request_type = _resolve_response_type(
         field_models, response_format, inst.reason or False
     )
 
-    # Stream via run — pass response_format to CLI endpoint
     run_kwargs = dict(kwargs)
     if request_type:
         run_kwargs["response_format"] = request_type
@@ -111,6 +145,31 @@ async def instruct(
     )
 
 
+async def _instruct_api(
+    branch: "Branch",
+    inst: Instruct,
+    *,
+    chat_model: "iModel | None" = None,
+    field_models: list[FieldModel | Spec] | None = None,
+    response_format: type[BaseModel] | None = None,
+    reason: bool = False,
+    images: list | None = None,
+    image_detail: str = "auto",
+    **kwargs,
+) -> BaseModel | dict | str | None:
+    """API path: delegate to branch.operate() for structured output."""
+    return await branch.operate(
+        instruct=inst,
+        chat_model=chat_model,
+        field_models=field_models,
+        response_format=response_format,
+        reason=reason,
+        images=images,
+        image_detail=image_detail,
+        **kwargs,
+    )
+
+
 def _resolve_response_type(
     field_models: list[FieldModel | Spec] | None,
     response_format: type[BaseModel] | None,
@@ -120,13 +179,13 @@ def _resolve_response_type(
     if response_format:
         return response_format
 
-    if not field_models:
+    if not field_models and not reason:
         return None
 
     from ..operate.step import Step
 
     fields_dict = {}
-    for fm in field_models:
+    for fm in (field_models or []):
         if isinstance(fm, FieldModel):
             spec = fm.to_spec()
         elif isinstance(fm, Spec):
