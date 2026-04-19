@@ -9,7 +9,7 @@ import asyncio
 import json
 import sys
 
-from lionagi import Branch, iModel, json_dumps
+from lionagi import Branch, json_dumps
 from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import run_async
 from lionagi.protocols.generic.log import DataLoggerConfig
@@ -22,7 +22,13 @@ from ._persistence import (
     load_last_branch,
     save_last_branch_pointer,
 )
-from ._providers import add_common_cli_args, build_chat_model, parse_model_spec
+from ._providers import (
+    PROVIDER_EFFORT_KWARG,
+    PROVIDER_YOLO_KWARGS,
+    add_common_cli_args,
+    build_chat_model,
+    parse_model_spec,
+)
 
 
 async def _run_agent(
@@ -85,34 +91,27 @@ async def _run_agent(
             "or use --resume / --continue-last to reopen an existing one."
         )
 
-    need_new_imodel = (
-        branch is None
-        or model_str is not None
-        or yolo
-        or verbose
-        or theme is not None
-        or effort is not None
-    )
-
-    if need_new_imodel:
+    if branch is None:
         chat_model = build_chat_model(provider, model, yolo, verbose, theme, effort)
-        if branch is None:
-            branch = Branch(
-                chat_model=chat_model,
-                log_config=DataLoggerConfig(auto_save_on_exit=False),
-            )
-        else:
-            if isinstance(chat_model, str):
-                branch.chat_model = iModel(
-                    provider=provider,
-                    endpoint="query_cli",
-                    model=model,
-                    api_key="dummy",
-                )
-            else:
-                branch.chat_model = chat_model
-    elif branch is not None:
-        branch.chat_model.endpoint.config.kwargs["verbose_output"] = verbose
+        branch = Branch(
+            chat_model=chat_model,
+            log_config=DataLoggerConfig(auto_save_on_exit=False),
+        )
+    else:
+        # Update existing endpoint config — no new iModel needed
+        cfg = branch.chat_model.endpoint.config.kwargs
+        if model_str is not None:
+            cfg["model"] = model
+        if verbose:
+            cfg["verbose_output"] = True
+        if theme is not None:
+            cfg["cli_display_theme"] = theme
+        if effort is not None:
+            kwarg = PROVIDER_EFFORT_KWARG.get(provider)
+            if kwarg:
+                cfg[kwarg] = effort
+        if yolo:
+            cfg.update(PROVIDER_YOLO_KWARGS.get(provider, {}))
 
     # Inject agent system prompt
     if profile and profile.system_prompt:
