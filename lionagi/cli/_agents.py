@@ -35,8 +35,14 @@ class AgentProfile:
     extra: dict = field(default_factory=dict)
 
 
-def _find_lionagi_dir() -> Path | None:
-    """Find .lionagi/ directory — walk up from cwd to git root."""
+def _find_lionagi_dirs() -> list[Path]:
+    """Find .lionagi/ directories — project-local first, then global ~/.lionagi/.
+
+    Returns all found directories in priority order (project-local wins).
+    """
+    dirs: list[Path] = []
+
+    # 1. Git root
     try:
         root = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -47,50 +53,66 @@ def _find_lionagi_dir() -> Path | None:
         if root.returncode == 0:
             candidate = Path(root.stdout.strip()) / ".lionagi"
             if candidate.is_dir():
-                return candidate
+                dirs.append(candidate)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
+    # 2. Walk up from cwd
     cwd = Path.cwd()
     for parent in [cwd, *cwd.parents]:
         candidate = parent / ".lionagi"
-        if candidate.is_dir():
-            return candidate
-    return None
+        if candidate.is_dir() and candidate not in dirs:
+            dirs.append(candidate)
+
+    # 3. Global ~/.lionagi/ (always check)
+    home_candidate = Path.home() / ".lionagi"
+    if home_candidate.is_dir() and home_candidate not in dirs:
+        dirs.append(home_candidate)
+
+    return dirs
+
+
+def _find_lionagi_dir() -> Path | None:
+    """Find first .lionagi/ directory (backward compat)."""
+    dirs = _find_lionagi_dirs()
+    return dirs[0] if dirs else None
 
 
 def list_agents() -> list[str]:
-    """List available agent profile names."""
-    d = _find_lionagi_dir()
-    if not d:
-        return []
-    agents_dir = d / "agents"
-    if not agents_dir.is_dir():
-        return []
-    return sorted(p.stem for p in agents_dir.glob("*.md"))
+    """List available agent profile names (merged across all .lionagi/ dirs)."""
+    seen: set[str] = set()
+    for d in _find_lionagi_dirs():
+        agents_dir = d / "agents"
+        if agents_dir.is_dir():
+            for p in agents_dir.glob("*.md"):
+                seen.add(p.stem)
+    return sorted(seen)
 
 
 def load_agent_profile(name: str) -> AgentProfile:
     """Load an agent profile by name.
 
-    Raises FileNotFoundError if .lionagi/agents/{name}.md doesn't exist.
+    Searches project-local .lionagi/agents/ first, then ~/.lionagi/agents/.
+    Raises FileNotFoundError if not found in any location.
     """
-    d = _find_lionagi_dir()
-    if not d:
+    dirs = _find_lionagi_dirs()
+    if not dirs:
         raise FileNotFoundError(
-            "No .lionagi/ directory found. Create .lionagi/agents/ in your repo."
+            "No .lionagi/ directory found. Create .lionagi/agents/ in your repo "
+            "or ~/.lionagi/agents/ globally."
         )
 
-    path = d / "agents" / f"{name}.md"
-    if not path.exists():
-        available = list_agents()
-        msg = f"Agent profile not found: {path}"
-        if available:
-            msg += f"\nAvailable: {', '.join(available)}"
-        raise FileNotFoundError(msg)
+    for d in dirs:
+        path = d / "agents" / f"{name}.md"
+        if path.exists():
+            text = path.read_text()
+            return _parse_profile(name, text)
 
-    text = path.read_text()
-    return _parse_profile(name, text)
+    available = list_agents()
+    msg = f"Agent profile '{name}' not found"
+    if available:
+        msg += f"\nAvailable: {', '.join(available)}"
+    raise FileNotFoundError(msg)
 
 
 def _parse_profile(name: str, text: str) -> AgentProfile:

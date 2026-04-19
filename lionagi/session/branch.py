@@ -1342,5 +1342,51 @@ class Branch(Element, Relational):
         ):
             yield msg
 
+    async def instruct(
+        self,
+        instruction=None,
+        *,
+        guidance=None,
+        context=None,
+        chat_model: "iModel | None" = None,
+        field_models: list = None,
+        response_format: type[BaseModel] = None,
+        reason: bool = False,
+        skip_validation: bool = False,
+        handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
+        images: list = None,
+        image_detail: str = "auto",
+        **kwargs,
+    ) -> "BaseModel | dict | str | None":
+        """CLI-endpoint operate: stream via run(), extract structured output.
+
+        Like operate() but uses CLI endpoints (Claude Code, Codex, Gemini CLI)
+        instead of API endpoints. Collects the stream, then parses structured
+        fields from the final assistant response.
+
+            result = await branch.instruct(
+                "Analyze auth middleware",
+                field_models=[AGENT_REQUEST_FIELDS],
+                reason=True,
+            )
+        """
+        from lionagi.operations.instruct.instruct import instruct as _instruct
+
+        return await _instruct(
+            self,
+            instruction=instruction,
+            guidance=guidance,
+            context=context,
+            chat_model=chat_model,
+            field_models=field_models,
+            response_format=response_format,
+            reason=reason,
+            skip_validation=skip_validation,
+            handle_validation=handle_validation,
+            images=images,
+            image_detail=image_detail,
+            **kwargs,
+        )
+
 
 # File: lionagi/session/branch.py

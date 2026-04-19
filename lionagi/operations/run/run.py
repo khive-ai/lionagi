@@ -28,6 +28,7 @@ async def run(
     context=None,
     images=None,
     image_detail=None,
+    response_format=None,
     **kwargs,
 ) -> AsyncGenerator[RoledMessage, None]:
     """Stream Messages from a CLI endpoint.
@@ -53,6 +54,7 @@ async def run(
         context=context,
         images=images,
         image_detail=image_detail,
+        response_format=response_format,
     )
     yield ins
 
@@ -141,6 +143,7 @@ async def run(
                         sender=branch.user or "user",
                         recipient=branch.id,
                     )
+                    branch.msgs.messages.include(act_res)
                 else:
                     # No matching request (e.g. resumed session mid-stream)
                     act_res = ActionResponse(

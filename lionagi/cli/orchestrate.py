@@ -37,6 +37,7 @@ from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
+from ._agents import AgentProfile, load_agent_profile
 from ._persistence import LIONAGI_HOME, save_last_branch_pointer
 from ._providers import add_common_cli_args, build_imodel_from_spec, parse_model_spec
 from .team import _load_team, _now_iso, _save_team, _teams_dir
@@ -172,6 +173,23 @@ def _post_results_to_team(
 # ── Core fanout execution ─────────────────────────────────────────────────
 
 
+def _resolve_worker_spec(
+    token: str,
+) -> tuple[str, AgentProfile | None]:
+    """Resolve a worker token to (model_spec, profile_or_None).
+
+    If token contains '/' → model spec (e.g. 'codex/gpt-5.4').
+    Otherwise → try loading as agent profile name.
+    """
+    if "/" in token:
+        return token, None
+    try:
+        profile = load_agent_profile(token)
+        return profile.model or "codex/gpt-5.4", profile
+    except FileNotFoundError:
+        return token, None
+
+
 async def _run_fanout(
     model_spec: str,
     prompt: str,
@@ -191,9 +209,26 @@ async def _run_fanout(
     team_name: str | None = None,
     cwd: str | None = None,
     timeout: int | None = None,
+    agent_name: str | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
     t0 = time.monotonic()
+
+    # Load orchestrator agent profile if specified
+    orc_profile: AgentProfile | None = None
+    if agent_name:
+        orc_profile = load_agent_profile(agent_name)
+        if orc_profile.model and not model_spec:
+            model_spec = orc_profile.model
+        if orc_profile.effort and not effort:
+            effort = orc_profile.effort
+        if orc_profile.yolo and not yolo:
+            yolo = True
+
+    if not model_spec:
+        raise ValueError(
+            "Provide a model spec or use -a/--agent to load a profile with a model."
+        )
 
     # Build orchestrator model
     orc_imodel = build_imodel_from_spec(
@@ -204,16 +239,29 @@ async def _run_fanout(
         theme=theme,
     )
 
-    # Determine available worker models for the orchestrator's guidance
+    # Determine available workers — resolve agent profile names
+    worker_profiles: list[AgentProfile | None] = []
     if workers_str:
-        worker_model_list = [s.strip() for s in workers_str.split(",")]
+        worker_model_list = []
+        for token in (s.strip() for s in workers_str.split(",")):
+            wmodel, wprofile = _resolve_worker_spec(token)
+            worker_model_list.append(wmodel)
+            worker_profiles.append(wprofile)
     else:
         ms = parse_model_spec(model_spec)
         worker_model_list = [ms.model] * num_workers
+        worker_profiles = [None] * num_workers
 
     # ── Team setup (if --team-mode) ─────────────────────────────────
     team_data = None
-    worker_names = [f"worker-{i+1}" for i in range(len(worker_model_list))]
+    worker_names = []
+    for i, wp in enumerate(worker_profiles):
+        if wp and wp.name:
+            base = wp.name
+            count = sum(1 for n in worker_names if n == base or n.startswith(f"{base}-"))
+            worker_names.append(f"{base}-{count + 1}" if count > 0 else base)
+        else:
+            worker_names.append(f"worker-{i + 1}")
     if team_name:
         team_data = _create_fanout_team(team_name, worker_names)
         if not verbose:
@@ -229,14 +277,25 @@ async def _run_fanout(
 
     # ── Phase 1: Orchestrator decomposes task ─────────────────────────
     builder = OperationGraphBuilder("Fanout")
+    orc_system = orc_profile.system_prompt if orc_profile else None
     orc_branch = Branch(
         chat_model=orc_imodel,
+        system=orc_system,
         log_config=DataLoggerConfig(auto_save_on_exit=False),
         name="orchestrator",
     )
     session = Session(default_branch=orc_branch)
 
-    models_guidance = ", ".join(worker_model_list)
+    # Build guidance with role names when workers are agent profiles
+    worker_descriptions = []
+    for i, wm in enumerate(worker_model_list):
+        wp = worker_profiles[i] if i < len(worker_profiles) else None
+        if wp and wp.name:
+            worker_descriptions.append(f"{worker_names[i]} (role: {wp.name}, model: {wm})")
+        else:
+            worker_descriptions.append(f"{worker_names[i]} (model: {wm})")
+    roster_guidance = "; ".join(worker_descriptions)
+
     root = builder.add_operation(
         "operate",
         branch=orc_branch,
@@ -249,15 +308,16 @@ async def _run_fanout(
             ),
             context={"user_prompt": prompt},
             guidance=(
-                f"Available worker models: {models_guidance}. "
+                f"Available workers: {roster_guidance}. "
                 f"IMPORTANT: Each AgentRequest instruction must be a DIRECT "
                 f"task the worker will answer itself — not a meta-instruction "
                 f"to generate more agents or decompose further. Workers are "
                 f"leaf executors, not orchestrators. "
                 f"Workers CAN read files, use tools, and run commands "
                 f"as needed to complete their assigned sub-task. "
+                f"Match each sub-task to the worker's role strengths. "
                 f"If multiple models are provided, set the model field to "
-                f"the exact model string from the list above. "
+                f"the exact model string for that worker. "
                 f"If all workers use the same model, model can be null."
             ),
         ),
@@ -294,12 +354,21 @@ async def _run_fanout(
     fanned_labels = []
 
     for i, a in enumerate(agents):
+        wprofile = worker_profiles[i] if i < len(worker_profiles) else None
         worker_model = a.model or default_ms.model
+        if wprofile and wprofile.model:
+            worker_model = wprofile.model
+        w_effort = effort
+        if wprofile and wprofile.effort and not effort:
+            w_effort = wprofile.effort
+        w_yolo = yolo
+        if wprofile and wprofile.yolo:
+            w_yolo = True
         worker_imodel = build_imodel_from_spec(
             worker_model,
-            yolo=yolo,
+            yolo=w_yolo,
             verbose=verbose,
-            effort_override=effort,
+            effort_override=w_effort,
             theme=theme,
         )
         if cwd:
@@ -316,6 +385,8 @@ async def _run_fanout(
                 team_id=team_data["id"],
                 roster_text="\n".join(roster_lines),
             )
+        elif wprofile and wprofile.system_prompt:
+            worker_system = wprofile.system_prompt
         else:
             worker_system = (
                 "You are a leaf worker agent. Complete your assigned task "
@@ -499,6 +570,386 @@ async def _run_fanout(
     return output
 
 
+# ── Flow: DAG pipeline execution ──────────────────────────────────────────
+
+
+class FlowAgentSpec(HashableModel):
+    """One agent in a flow phase."""
+
+    role: str
+    instruction: str
+    guidance: str | None = None
+    model: str | None = None
+
+
+class FlowPhase(HashableModel):
+    """One phase in a flow plan — agents within run in parallel."""
+
+    phase: int
+    agents: list[FlowAgentSpec]
+
+
+class FlowPlan(HashableModel):
+    """DAG execution plan generated by the orchestrator."""
+
+    phases: list[FlowPhase]
+    synthesis: bool = False
+
+
+FLOW_PLAN_FIELDS = FieldModel(FlowPlan, name="plan")
+
+
+def _format_flow_result_text(
+    phase_results: list[list[dict]],
+    synthesis_result: dict | None = None,
+) -> str:
+    lines = []
+    for phase_idx, phase in enumerate(phase_results, 1):
+        for w in phase:
+            lines.append(f"{'═' * 60}")
+            lines.append(f"  Phase {phase_idx} — {w['name']}  [{w['model']}]")
+            lines.append(f"  {w['time_ms']:.0f}ms")
+            lines.append(f"{'═' * 60}")
+            lines.append(w.get("response", "(no response)"))
+            lines.append("")
+
+    if synthesis_result is not None:
+        lines.append(f"{'═' * 60}")
+        lines.append(f"  Synthesis  [{synthesis_result['model']}]")
+        lines.append(f"  {synthesis_result['time_ms']:.0f}ms")
+        lines.append(f"{'═' * 60}")
+        lines.append(synthesis_result.get("response", "(no response)"))
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+async def _run_flow(
+    model_spec: str,
+    prompt: str,
+    *,
+    with_synthesis: bool = False,
+    synthesis_model: str | None = None,
+    max_concurrent: int = 0,
+    yolo: bool = False,
+    verbose: bool = False,
+    effort: str | None = None,
+    theme: str | None = None,
+    output_format: str = "text",
+    save_dir: str | None = None,
+    team_name: str | None = None,
+    cwd: str | None = None,
+    timeout: int | None = None,
+    agent_name: str | None = None,
+) -> str:
+    """Auto-DAG flow: orchestrator plans phases → engine executes sequentially."""
+    t0 = time.monotonic()
+
+    # Load orchestrator profile
+    orc_profile: AgentProfile | None = None
+    if agent_name:
+        orc_profile = load_agent_profile(agent_name)
+        if orc_profile.model and not model_spec:
+            model_spec = orc_profile.model
+        if orc_profile.effort and not effort:
+            effort = orc_profile.effort
+        if orc_profile.yolo and not yolo:
+            yolo = True
+
+    if not model_spec:
+        raise ValueError(
+            "Provide a model spec or use -a/--agent to load a profile with a model."
+        )
+
+    orc_imodel = build_imodel_from_spec(
+        model_spec, yolo=yolo, verbose=verbose, effort_override=effort, theme=theme,
+    )
+    if cwd:
+        orc_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
+
+    # ── Phase 0: Orchestrator plans the DAG ──────────────────────────
+    builder = OperationGraphBuilder("Flow")
+    orc_system = orc_profile.system_prompt if orc_profile else None
+    orc_branch = Branch(
+        chat_model=orc_imodel,
+        system=orc_system,
+        log_config=DataLoggerConfig(auto_save_on_exit=False),
+        name="orchestrator",
+    )
+    session = Session(default_branch=orc_branch)
+
+    # Available roles for planning guidance
+    from ._agents import list_agents
+    available_roles = list_agents()
+    roles_str = ", ".join(available_roles)
+
+    plan_root = builder.add_operation(
+        "operate",
+        branch=orc_branch,
+        instruct=Instruct(
+            instruction=(
+                "Create a FlowPlan for the following task. "
+                "Decompose it into sequential phases, with parallel agents within each phase. "
+                "Each agent must have a specific role, a concrete instruction, and optional guidance. "
+                "Follow the artifact handoff protocol: specify what each agent should produce "
+                "and what downstream agents will consume."
+            ),
+            context={"task": prompt},
+            guidance=(
+                f"Available agent roles: {roles_str}. "
+                "Design the minimal number of phases needed. "
+                "Agents within the same phase run in parallel — only split into a new phase "
+                "when there's a genuine data dependency. "
+                "Set synthesis=true if the task benefits from a final consolidated output."
+            ),
+        ),
+        field_models=[FLOW_PLAN_FIELDS],
+        reason=True,
+    )
+
+    if not verbose:
+        print("Phase 0: Orchestrator planning DAG...", file=sys.stderr)
+
+    result0 = await session.flow(builder.get_graph())
+    t_plan = time.monotonic() - t0
+
+    plan_result = result0.get("operation_results", {}).get(plan_root)
+    plan: FlowPlan | None = getattr(plan_result, "plan", None)
+
+    if not plan or not plan.phases:
+        return "Orchestrator produced no flow plan."
+
+    if not verbose:
+        phase_summary = " → ".join(
+            ",".join(a.role for a in p.agents) for p in plan.phases
+        )
+        print(
+            f"Phase 0 done ({t_plan:.1f}s): {len(plan.phases)} phases planned: {phase_summary}",
+            file=sys.stderr,
+        )
+
+    # Override synthesis from plan if not explicitly set by CLI
+    if plan.synthesis and not with_synthesis:
+        with_synthesis = True
+
+    # ── Team setup ───────────────────────────────────────────────────
+    all_agent_names: list[str] = []
+    for phase in plan.phases:
+        for a in phase.agents:
+            base = a.role
+            count = sum(1 for n in all_agent_names if n == base or n.startswith(f"{base}-"))
+            all_agent_names.append(f"{base}-{count + 1}" if count > 0 else base)
+
+    team_data = None
+    if team_name:
+        team_data = _create_fanout_team(team_name, all_agent_names)
+        if not verbose:
+            print(
+                f"Team '{team_name}' created ({team_data['id']})",
+                file=sys.stderr,
+            )
+
+    # ── Execute phases sequentially ──────────────────────────────────
+    phase_results: list[list[dict]] = []
+    all_artifacts: list[str] = []  # accumulated labeled artifacts
+    prev_phase_nodes: list = []
+    agent_name_idx = 0
+
+    for phase in plan.phases:
+        phase_num = phase.phase
+        phase_nodes = []
+        phase_labels = []
+        phase_names = []
+
+        if not verbose:
+            agents_str = ", ".join(a.role for a in phase.agents)
+            print(f"Phase {phase_num}: [{agents_str}]...", file=sys.stderr)
+
+        for a in phase.agents:
+            # Resolve agent profile
+            w_model, w_profile = _resolve_worker_spec(a.role)
+            if a.model:
+                w_model = a.model
+            w_effort = effort
+            if w_profile and w_profile.effort and not effort:
+                w_effort = w_profile.effort
+            w_yolo = yolo
+            if w_profile and w_profile.yolo:
+                w_yolo = True
+
+            w_imodel = build_imodel_from_spec(
+                w_model, yolo=w_yolo, verbose=verbose,
+                effort_override=w_effort, theme=theme,
+            )
+            if cwd:
+                w_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
+
+            wname = all_agent_names[agent_name_idx]
+            agent_name_idx += 1
+
+            w_system = None
+            if team_data:
+                teammates = [n for n in all_agent_names if n != wname]
+                roster_lines = [f"- orchestrator (coordinator)"]
+                roster_lines += [f"- {t}" for t in teammates]
+                roster_lines.append(f"- **{wname}** (you)")
+                w_system = TEAM_WORKER_SYSTEM.format(
+                    worker_name=wname,
+                    team_name=team_data["name"],
+                    team_id=team_data["id"],
+                    roster_text="\n".join(roster_lines),
+                )
+            elif w_profile and w_profile.system_prompt:
+                w_system = w_profile.system_prompt
+
+            w_branch = Branch(
+                chat_model=w_imodel,
+                system=w_system,
+                log_config=DataLoggerConfig(auto_save_on_exit=False),
+                name=wname,
+            )
+            session.include_branches(w_branch)
+
+            # Build context: original task + all prior artifacts
+            w_context = [{"original_task": prompt}]
+            if all_artifacts:
+                w_context.append({"prior_artifacts": "\n\n".join(all_artifacts)})
+            if a.guidance:
+                w_context.append({"orchestrator_guidance": a.guidance})
+
+            deps = prev_phase_nodes if prev_phase_nodes else [plan_root]
+            node = builder.add_operation(
+                "communicate",
+                branch=w_branch,
+                depends_on=deps,
+                instruction=a.instruction,
+                context=w_context,
+            )
+            phase_nodes.append(node)
+            phase_labels.append(w_model)
+            phase_names.append(wname)
+
+        # Execute this phase
+        t_phase = time.monotonic()
+        conc = max_concurrent if max_concurrent > 0 else len(phase_nodes)
+        phase_result = await session.flow(
+            builder.get_graph(), max_concurrent=conc, verbose=verbose,
+        )
+        t_phase_elapsed = time.monotonic() - t_phase
+
+        # Collect results and build artifacts for next phase
+        op_results = phase_result.get("operation_results", {})
+        phase_worker_results = []
+        for i, nid in enumerate(phase_nodes):
+            res = op_results.get(nid)
+            response_text = str(res) if res is not None else "(no response)"
+            phase_worker_results.append({
+                "name": phase_names[i],
+                "model": phase_labels[i],
+                "response": response_text,
+                "time_ms": t_phase_elapsed * 1000,
+            })
+            all_artifacts.append(f"[From {phase_names[i]} (Phase {phase_num})]: {response_text}")
+
+        phase_results.append(phase_worker_results)
+        prev_phase_nodes = phase_nodes
+
+        if not verbose:
+            print(f"Phase {phase_num} done ({t_phase_elapsed:.1f}s).", file=sys.stderr)
+
+    # ── Synthesis ────────────────────────────────────────────────────
+    synthesis_result = None
+    if with_synthesis and all_artifacts:
+        synth_spec = synthesis_model or model_spec
+        synth_label = str(parse_model_spec(synth_spec))
+
+        if not verbose:
+            print(f"Synthesis [{synth_label}]...", file=sys.stderr)
+
+        synth_node = builder.add_operation(
+            "communicate",
+            branch=orc_branch,
+            depends_on=prev_phase_nodes,
+            instruction=(
+                f"Synthesize all phase artifacts into a final cohesive deliverable.\n\n"
+                f"Original task: {prompt}"
+            ),
+            context=all_artifacts,
+        )
+
+        t_synth = time.monotonic()
+        synth_result = await session.flow(builder.get_graph(), verbose=verbose)
+        t_synth_elapsed = time.monotonic() - t_synth
+
+        synth_res = synth_result.get("operation_results", {}).get(synth_node)
+        synthesis_result = {
+            "model": synth_label,
+            "response": str(synth_res) if synth_res is not None else "(no response)",
+            "time_ms": t_synth_elapsed * 1000,
+        }
+
+        if not verbose:
+            print(f"Synthesis done ({t_synth_elapsed:.1f}s).", file=sys.stderr)
+
+    # ── Output ───────────────────────────────────────────────────────
+    if output_format == "json":
+        flat_workers = [w for phase in phase_results for w in phase]
+        output = _format_result_json(flat_workers, synthesis_result)
+    else:
+        output = _format_flow_result_text(phase_results, synthesis_result)
+
+    # ── Save ─────────────────────────────────────────────────────────
+    if save_dir:
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        for pi, phase in enumerate(phase_results, 1):
+            for w in phase:
+                p = save_path / f"phase{pi}_{w['name']}.md"
+                p.write_text(w["response"])
+        if synthesis_result:
+            (save_path / "synthesis.md").write_text(synthesis_result["response"])
+        if not verbose:
+            print(f"Saved to {save_path}", file=sys.stderr)
+
+    # ── Post to team ─────────────────────────────────────────────────
+    if team_data:
+        flat_workers = [w for phase in phase_results for w in phase]
+        _post_results_to_team(team_data, flat_workers, all_agent_names, synthesis_result)
+
+    # ��─ Persist branches ─────────────────────────────────────────────
+    orc_provider = orc_branch.chat_model.endpoint.config.provider
+    orc_branch_id = str(orc_branch.id)
+    orc_path = await acreate_path(
+        directory=LIONAGI_HOME / "logs" / "agents" / orc_provider,
+        filename=orc_branch_id, file_exist_ok=True,
+    )
+    await orc_path.write_text(json_dumps(orc_branch.to_dict()))
+    save_last_branch_pointer(orc_provider, orc_branch_id)
+
+    worker_branch_ids = []
+    for branch in session.branches:
+        if str(branch.id) == orc_branch_id:
+            continue
+        w_provider = branch.chat_model.endpoint.config.provider
+        w_branch_id = str(branch.id)
+        w_path = await acreate_path(
+            directory=LIONAGI_HOME / "logs" / "agents" / w_provider,
+            filename=w_branch_id, file_exist_ok=True,
+        )
+        await w_path.write_text(json_dumps(branch.to_dict()))
+        worker_branch_ids.append((w_provider, w_branch_id, branch.name))
+
+    t_total = time.monotonic() - t0
+    if not verbose:
+        print(f"\nTotal: {t_total:.1f}s", file=sys.stderr)
+
+    print(f'\n[orchestrator] li agent -r {orc_branch_id} "..."', file=sys.stderr)
+    for wp, wid, wn in worker_branch_ids:
+        print(f'[{wn}] li agent -r {wid} "..."', file=sys.stderr)
+
+    return output
+
+
 # ── CLI registration ──────────────────────────────────────────────────────
 
 
@@ -523,12 +974,26 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
     )
     fo.add_argument(
         "model",
+        nargs="?",
+        default=None,
         help=(
             "Orchestrator model spec (provider/model-effort). "
-            "Also used as default worker model unless --workers specified."
+            "Also used as default worker model unless --workers specified. "
+            "Optional when -a/--agent provides a model."
         ),
     )
     fo.add_argument("prompt", help="Task prompt for the orchestrator to decompose.")
+    fo.add_argument(
+        "-a",
+        "--agent",
+        metavar="NAME",
+        default=None,
+        help=(
+            "Load orchestrator profile from .lionagi/agents/<NAME>.md. "
+            "Profile provides system prompt, default model, effort, yolo. "
+            "CLI flags and positional model override profile settings."
+        ),
+    )
 
     fo.add_argument(
         "-n",
@@ -590,10 +1055,78 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
 
     add_common_cli_args(fo)
 
+    # ── flow sub-command ─────────────────────────────────────────────
+    fl = orch_sub.add_parser(
+        "flow",
+        help="Auto-DAG pipeline: orchestrator plans phases, engine executes.",
+        description=(
+            "Orchestrator analyzes the task, composes a DAG of phases "
+            "(each phase = parallel agents), and executes sequentially. "
+            "Artifacts flow forward between phases automatically."
+        ),
+    )
+    fl.add_argument(
+        "model",
+        nargs="?",
+        default=None,
+        help="Orchestrator model spec. Optional when -a/--agent provides one.",
+    )
+    fl.add_argument("prompt", help="Task for the orchestrator to plan and execute.")
+    fl.add_argument(
+        "-a",
+        "--agent",
+        metavar="NAME",
+        default=None,
+        help="Load orchestrator profile from .lionagi/agents/<NAME>.md.",
+    )
+    fl.add_argument(
+        "--with-synthesis",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="MODEL",
+        help="Enable final synthesis. Bare flag uses orchestrator model.",
+    )
+    fl.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=0,
+        help="Max concurrent agents within a phase (default: all).",
+    )
+    fl.add_argument(
+        "--output",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text).",
+    )
+    fl.add_argument(
+        "--save",
+        metavar="DIR",
+        default=None,
+        help="Save outputs to directory.",
+    )
+    fl.add_argument(
+        "--team-mode",
+        nargs="?",
+        const="flow",
+        default=None,
+        metavar="NAME",
+        help="Create a persistent team for this flow.",
+    )
+    add_common_cli_args(fl)
+
 
 def run_orchestrate(args: argparse.Namespace) -> int:
     """Dispatch orchestrate sub-commands."""
     if args.orch_command == "fanout":
+        has_model = args.model is not None or args.agent is not None
+        if not has_model:
+            print(
+                "error: model or --agent is required",
+                file=sys.stderr,
+            )
+            return 1
+
         synth = args.with_synthesis
         with_synthesis = synth is not False
         synthesis_model = synth if isinstance(synth, str) else None
@@ -601,7 +1134,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
         try:
             output = run_async(
                 _run_fanout(
-                    model_spec=args.model,
+                    model_spec=args.model or "",
                     prompt=args.prompt,
                     num_workers=args.num_workers,
                     workers_str=args.workers,
@@ -618,6 +1151,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                     team_name=args.team_mode,
                     cwd=args.cwd,
                     timeout=args.timeout,
+                    agent_name=args.agent,
                 )
             )
         except asyncio.TimeoutError:
@@ -625,6 +1159,43 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 f"Orchestration timed out after {args.timeout}s",
                 file=sys.stderr,
             )
+            return 1
+        if not args.verbose:
+            print(output)
+        return 0
+
+    if args.orch_command == "flow":
+        has_model = args.model is not None or args.agent is not None
+        if not has_model:
+            print("error: model or --agent is required", file=sys.stderr)
+            return 1
+
+        synth = args.with_synthesis
+        with_synthesis = synth is not False
+        synthesis_model = synth if isinstance(synth, str) else None
+
+        try:
+            output = run_async(
+                _run_flow(
+                    model_spec=args.model or "",
+                    prompt=args.prompt,
+                    with_synthesis=with_synthesis,
+                    synthesis_model=synthesis_model,
+                    max_concurrent=args.max_concurrent,
+                    yolo=args.yolo,
+                    verbose=args.verbose,
+                    effort=args.effort,
+                    theme=args.theme,
+                    output_format=args.output,
+                    save_dir=args.save,
+                    team_name=args.team_mode,
+                    cwd=args.cwd,
+                    timeout=args.timeout,
+                    agent_name=args.agent,
+                )
+            )
+        except asyncio.TimeoutError:
+            print(f"Flow timed out after {args.timeout}s", file=sys.stderr)
             return 1
         if not args.verbose:
             print(output)
