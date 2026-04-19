@@ -32,7 +32,7 @@ async def run(
     instruction: JsonValue | Instruction,
     param: RunParam,
 ) -> AsyncGenerator[RoledMessage, None]:
-    if param.imodel is not None:
+    if not param._is_sentinel(param.imodel):
         branch.chat_model = param.imodel
 
     if not branch.chat_model.is_cli:
@@ -110,8 +110,12 @@ async def run(
     pending_requests: dict[str, ActionRequest] = {}
     api_call_event = None
 
+    kw["stream"] = True
+    api_call = await model.create_event(**kw)
+    await model.executor.append(api_call)
+
     try:
-        async for chunk in model.stream(**kw):
+        async for chunk in model.stream(api_call=api_call):
             if isinstance(chunk, APICalling):
                 api_call_event = chunk
                 continue
