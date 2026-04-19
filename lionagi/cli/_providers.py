@@ -56,7 +56,7 @@ PROVIDERS_NO_EFFORT: frozenset[str] = frozenset(
 PROVIDER_YOLO_KWARGS: dict[str, dict] = {
     "claude_code": {"permission_mode": "bypassPermissions"},
     "claude": {"permission_mode": "bypassPermissions"},
-    "codex": {"full_auto": True},
+    "codex": {"full_auto": True, "skip_git_repo_check": True},
     "gemini_code": {"yolo": True},
     "gemini-code": {"yolo": True},
 }
