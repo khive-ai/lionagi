@@ -8,11 +8,9 @@ import argparse
 import json
 import sys
 
-from lionagi import Branch, json_dumps
-from lionagi.ln import acreate_path
+from lionagi import Branch
 from lionagi.ln.concurrency import run_async
 from lionagi.protocols.generic.log import DataLoggerConfig
-from lionagi.protocols.messages import AssistantResponse
 
 from ._agents import load_agent_profile
 from ._persistence import (
@@ -116,40 +114,20 @@ async def _run_agent(
     if profile and profile.system_prompt:
         branch.msgs.add_message(system=profile.system_prompt)
 
-    # Build run kwargs
-    run_kw = {}
-    if cwd:
-        run_kw["repo"] = cwd
+    persist_dir = LIONAGI_HOME / "logs" / "agents" / provider
 
-    # Create log file and JSONL buffer at branch init
-    log_dir = LIONAGI_HOME / "logs" / "agents" / provider
-    log_dir.mkdir(parents=True, exist_ok=True)
-    buffer_path = log_dir / f"{branch.id}.jsonl"
-
-    async def _do_run():
-        texts = []
-        async for msg in branch.run(prompt, **run_kw):
-            if hasattr(msg, "to_dict"):
-                with open(buffer_path, "a") as f:
-                    f.write(json_dumps(msg.to_dict()) + "\n")
-            if isinstance(msg, AssistantResponse):
-                texts.append(msg.response)
-        return "\n\n".join(texts)
-
-    res = await _do_run()
-
-    # Consolidate: write full branch state, remove buffer
-    path = await acreate_path(
-        directory=log_dir,
-        filename=str(branch.id),
-        file_exist_ok=True,
+    instruct_kw = dict(
+        stream_persist=True,
+        persist_dir=str(persist_dir),
     )
-    await path.write_text(json_dumps(branch.to_dict()))
-    if buffer_path.exists():
-        buffer_path.unlink()
+    if cwd:
+        instruct_kw["repo"] = cwd
+
+    res = await branch.instruct(prompt, **instruct_kw)
+
     save_last_branch_pointer(provider, str(branch.id))
 
-    return res, provider, str(branch.id)
+    return res or "", provider, str(branch.id)
 
 
 def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
