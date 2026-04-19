@@ -66,6 +66,7 @@ __all__ = (
     "is_import_installed",
     "import_module",
     "to_dict",
+    "LIONAGI_HOME",
 )
 
 
@@ -210,3 +211,5 @@ def create_path(
         )
 
     return full_path
+
+LIONAGI_HOME = Path.home() / ".lionagi"

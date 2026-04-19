@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import re
 from typing import TYPE_CHECKING, Any, Literal
@@ -8,7 +10,7 @@ if TYPE_CHECKING:
     from lionagi.models.field_model import FieldModel
 
 from lionagi.ln import extract_json, to_dict, to_list
-from lionagi.ln.types import Unset
+from lionagi.ln.types import Unset, not_sentinel
 from lionagi.models import HashableModel
 
 logger = logging.getLogger(__name__)
@@ -104,6 +106,35 @@ class Instruct(HashableModel):
         if v not in ["batch", "sequential", "concurrent"]:
             return "concurrent"
         return v
+
+    @classmethod
+    def handle(
+        cls,
+        instruct: Instruct | dict | None = None,
+        instruction: str | None = None,
+        guidance: JsonValue | None = None,
+        context: JsonValue | None = None,
+        reason: bool | None = None,
+    ):
+        if instruct is None:
+            instruct = {}
+        elif isinstance(instruct, Instruct):
+            instruct = instruct.to_dict()
+
+        overrides = {
+            "instruction": instruction,
+            "guidance": guidance,
+            "context": context,
+            "reason": reason,
+        }
+        instruct.update(
+            {
+                k: v
+                for k, v in overrides.items()
+                if not_sentinel(v, none_as_sentinel=True, empty_as_sentinel=True)
+            }
+        )
+        return cls.from_dict(instruct)
 
 
 class Reason(HashableModel):

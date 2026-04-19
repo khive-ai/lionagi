@@ -31,6 +31,12 @@ class CLIEndpoint(Endpoint):
         self._session_id: str | None = None
 
     @property
+    def provider_session_id(self) -> str | None:
+        """Current provider session ID for resume, if any."""
+        return self._session_id
+
+    # mark this as deprecated
+    @property
     def session_id(self) -> str | None:
         """Current session ID for resume, if any."""
         return self._session_id

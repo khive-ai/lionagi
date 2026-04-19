@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from typing import ClassVar, Literal
-
+from pathlib import Path
 from pydantic import BaseModel, JsonValue
 
 from lionagi.ln import AlcallParams
@@ -12,6 +12,7 @@ from lionagi.ln.types import ModelConfig, Params
 from lionagi.protocols.action.tool import ToolRef
 from lionagi.protocols.types import ID, SenderRecipient
 from lionagi.service.imodel import iModel
+from lionagi.utils import LIONAGI_HOME
 
 HandleValidation = Literal["raise", "return_value", "return_none"]
 
@@ -53,10 +54,15 @@ class ChatParam(MorphParam):
     images: list = None
     image_detail: Literal["low", "high", "auto"] = None
     plain_content: str = None
-    include_token_usage_to_model: bool = False
+    include_token_usage_to_model: bool = False  # deprecated
     imodel: iModel = None
     imodel_kw: dict = None
 
+@dataclass(slots=True, frozen=True, init=False)
+class RunParam(ChatParam):
+    stream_persist: bool = False
+    persist_dir: str | Path = LIONAGI_HOME / "logs" / "runs"
+    
 
 @dataclass(slots=True, frozen=True, init=False)
 class InterpretParam(MorphParam):

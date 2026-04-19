@@ -121,21 +121,32 @@ async def _run_agent(
     if cwd:
         run_kw["repo"] = cwd
 
+    # Create log file and JSONL buffer at branch init
+    log_dir = LIONAGI_HOME / "logs" / "agents" / provider
+    log_dir.mkdir(parents=True, exist_ok=True)
+    buffer_path = log_dir / f"{branch.id}.jsonl"
+
     async def _do_run():
-        res = ""
+        texts = []
         async for msg in branch.run(prompt, **run_kw):
+            if hasattr(msg, "to_dict"):
+                with open(buffer_path, "a") as f:
+                    f.write(json_dumps(msg.to_dict()) + "\n")
             if isinstance(msg, AssistantResponse):
-                res = msg.response
-        return res
+                texts.append(msg.response)
+        return "\n\n".join(texts)
 
     res = await _do_run()
 
+    # Consolidate: write full branch state, remove buffer
     path = await acreate_path(
-        directory=LIONAGI_HOME / "logs" / "agents" / provider,
+        directory=log_dir,
         filename=str(branch.id),
         file_exist_ok=True,
     )
     await path.write_text(json_dumps(branch.to_dict()))
+    if buffer_path.exists():
+        buffer_path.unlink()
     save_last_branch_pointer(provider, str(branch.id))
 
     return res, provider, str(branch.id)

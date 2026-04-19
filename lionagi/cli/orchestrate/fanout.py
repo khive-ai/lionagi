@@ -30,6 +30,22 @@ from ._common import (
 )
 
 
+async def _persist_session_branches(session, save_dir=None):
+    """Persist all branches in a session. Used for timeout recovery."""
+    branch_ids = []
+    for branch in session.branches:
+        provider = branch.chat_model.endpoint.config.provider
+        branch_id = str(branch.id)
+        bp = await acreate_path(
+            directory=LIONAGI_HOME / "logs" / "agents" / provider,
+            filename=branch_id,
+            file_exist_ok=True,
+        )
+        await bp.write_text(json_dumps(branch.to_dict()))
+        branch_ids.append((provider, branch_id, branch.name))
+    return branch_ids
+
+
 async def _run_fanout(
     model_spec: str,
     prompt: str,
@@ -52,6 +68,8 @@ async def _run_fanout(
     agent_name: str | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
+    _shared: dict = {}
+
     if timeout:
         with move_on_after(timeout) as cancel_scope:
             result = await _run_fanout_inner(
@@ -72,9 +90,18 @@ async def _run_fanout(
                 team_name=team_name,
                 cwd=cwd,
                 agent_name=agent_name,
+                _shared=_shared,
             )
         if cancel_scope.cancelled_caught:
-            raise LionTimeoutError(f"Fanout timed out after {timeout}s")
+            session = _shared.get("session")
+            if session:
+                await _persist_session_branches(session, save_dir)
+            n_saved = len(_shared.get("saved_workers", []))
+            msg = f"Fanout timed out after {timeout}s"
+            if n_saved:
+                msg += f" ({n_saved} worker results already saved to {save_dir})"
+            print(msg, file=sys.stderr)
+            raise LionTimeoutError(msg)
         return result
     return await _run_fanout_inner(
         model_spec,
@@ -94,6 +121,7 @@ async def _run_fanout(
         team_name=team_name,
         cwd=cwd,
         agent_name=agent_name,
+        _shared=_shared,
     )
 
 
@@ -116,6 +144,7 @@ async def _run_fanout_inner(
     team_name: str | None = None,
     cwd: str | None = None,
     agent_name: str | None = None,
+    _shared: dict | None = None,
 ) -> str:
     """Inner fanout logic (no timeout wrapper)."""
     t0 = time.monotonic()
@@ -193,6 +222,8 @@ async def _run_fanout_inner(
         name="orchestrator",
     )
     session = Session(default_branch=orc_branch)
+    if _shared is not None:
+        _shared["session"] = session
 
     # Build guidance with role names when workers are agent profiles
     worker_descriptions = []
@@ -364,6 +395,21 @@ async def _run_fanout_inner(
     if not verbose:
         print(f"Phase 2 done ({t_fanout:.1f}s).", file=sys.stderr)
 
+    # ── Incremental save: persist worker results immediately ─────────
+    if save_dir:
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        for wr in worker_results:
+            p = save_path / f"worker_{wr['worker']}.md"
+            p.write_text(wr["response"])
+        if not verbose:
+            print(
+                f"Saved {len(worker_results)} worker results to {save_path}",
+                file=sys.stderr,
+            )
+    if _shared is not None:
+        _shared["saved_workers"] = worker_results
+
     # ── Phase 3: Synthesis ────────────────────────────────────────────
     synthesis_result = None
     if with_synthesis and contexts:
@@ -407,13 +453,10 @@ async def _run_fanout_inner(
     else:
         output = _format_result_text(worker_results, synthesis_result)
 
-    # ── Save ──────────────────────────────────────────────────────────
+    # ── Save synthesis + meta (workers already saved incrementally) ──
     if save_dir:
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)
-        for wr in worker_results:
-            p = save_path / f"worker_{wr['worker']}.md"
-            p.write_text(wr["response"])
         if synthesis_result:
             (save_path / "synthesis.md").write_text(synthesis_result["response"])
         meta = {
