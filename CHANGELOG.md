@@ -3,6 +3,12 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.22.5] - 2026-04-19
+
+### Fixed
+- Unified all orchestration operations to `instruct` — flow/fanout orchestrator, workers, and synthesis nodes were mixing `operate`, `communicate`, and `instruct` with incompatible parameter sets, causing `Invalid parameter` crashes on CLI endpoints
+- Fixed `_prepare_run_kwargs` return type annotation (`tuple[Instruction, dict]`)
+
 ## [0.22.4] - 2026-04-19
 
 ### Fixed

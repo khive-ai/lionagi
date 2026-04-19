@@ -249,7 +249,7 @@ async def _run_flow_inner(
         budget_note = f"BUDGET: You may define at most {max_agents} agents total. "
 
     plan_root = builder.add_operation(
-        "operate",
+        "instruct",
         branch=orc_branch,
         instruct=Instruct(
             instruction=(
@@ -579,7 +579,7 @@ async def _run_flow_inner(
                 )
 
             replan_node = builder.add_operation(
-                "operate",
+                "instruct",
                 branch=orc_branch,
                 depends_on=[ctrl_node],
                 instruct=Instruct(

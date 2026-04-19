@@ -23,7 +23,7 @@ def _prepare_run_kwargs(
     branch: "Branch",
     instruction: JsonValue | Instruction,
     param: ChatParam,
-) -> tuple[Instruction, AssistantResponse] | str:
+) -> tuple[Instruction, dict]:
     to_exlcude = {"imodel", "imodel_kw", "include_token_usage_to_model", "progression"}
     if isinstance(param, RunParam):
         to_exlcude.add("stream_persist")
