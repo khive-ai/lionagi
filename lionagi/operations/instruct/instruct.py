@@ -30,12 +30,12 @@ if TYPE_CHECKING:
 
 
 async def instruct(
-    branch: "Branch",
+    branch: Branch,
     instruction: str | Instruct | None = None,
     *,
     guidance: JsonValue = None,
     context: JsonValue = None,
-    chat_model: "iModel | None" = None,
+    chat_model: iModel | None = None,
     field_models: list[FieldModel | Spec] | None = None,
     response_format: type[BaseModel] | None = None,
     reason: bool = False,
@@ -71,7 +71,9 @@ async def instruct(
     if reason:
         inst.reason = True
 
-    request_type = _resolve_response_type(field_models, response_format, inst.reason or False)
+    request_type = _resolve_response_type(
+        field_models, response_format, inst.reason or False
+    )
 
     # Stream via run — pass response_format to CLI endpoint
     run_kwargs = dict(kwargs)

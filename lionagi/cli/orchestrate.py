@@ -30,9 +30,8 @@ from pathlib import Path
 
 from lionagi import Branch, FieldModel, Session, iModel, json_dumps
 from lionagi._errors import TimeoutError as LionTimeoutError
-from lionagi.ln.concurrency import move_on_after
 from lionagi.ln import acreate_path
-from lionagi.ln.concurrency import run_async
+from lionagi.ln.concurrency import move_on_after, run_async
 from lionagi.models import HashableModel
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.fields import Instruct
@@ -216,25 +215,45 @@ async def _run_fanout(
     if timeout:
         with move_on_after(timeout) as cancel_scope:
             result = await _run_fanout_inner(
-                model_spec, prompt,
-                num_workers=num_workers, workers_str=workers_str,
-                with_synthesis=with_synthesis, synthesis_model=synthesis_model,
-                synthesis_prompt=synthesis_prompt, max_concurrent=max_concurrent,
-                yolo=yolo, verbose=verbose, effort=effort, theme=theme,
-                output_format=output_format, save_dir=save_dir,
-                team_name=team_name, cwd=cwd, agent_name=agent_name,
+                model_spec,
+                prompt,
+                num_workers=num_workers,
+                workers_str=workers_str,
+                with_synthesis=with_synthesis,
+                synthesis_model=synthesis_model,
+                synthesis_prompt=synthesis_prompt,
+                max_concurrent=max_concurrent,
+                yolo=yolo,
+                verbose=verbose,
+                effort=effort,
+                theme=theme,
+                output_format=output_format,
+                save_dir=save_dir,
+                team_name=team_name,
+                cwd=cwd,
+                agent_name=agent_name,
             )
         if cancel_scope.cancelled_caught:
             raise LionTimeoutError(f"Fanout timed out after {timeout}s")
         return result
     return await _run_fanout_inner(
-        model_spec, prompt,
-        num_workers=num_workers, workers_str=workers_str,
-        with_synthesis=with_synthesis, synthesis_model=synthesis_model,
-        synthesis_prompt=synthesis_prompt, max_concurrent=max_concurrent,
-        yolo=yolo, verbose=verbose, effort=effort, theme=theme,
-        output_format=output_format, save_dir=save_dir,
-        team_name=team_name, cwd=cwd, agent_name=agent_name,
+        model_spec,
+        prompt,
+        num_workers=num_workers,
+        workers_str=workers_str,
+        with_synthesis=with_synthesis,
+        synthesis_model=synthesis_model,
+        synthesis_prompt=synthesis_prompt,
+        max_concurrent=max_concurrent,
+        yolo=yolo,
+        verbose=verbose,
+        effort=effort,
+        theme=theme,
+        output_format=output_format,
+        save_dir=save_dir,
+        team_name=team_name,
+        cwd=cwd,
+        agent_name=agent_name,
     )
 
 
@@ -305,7 +324,9 @@ async def _run_fanout_inner(
     for i, wp in enumerate(worker_profiles):
         if wp and wp.name:
             base = wp.name
-            count = sum(1 for n in worker_names if n == base or n.startswith(f"{base}-"))
+            count = sum(
+                1 for n in worker_names if n == base or n.startswith(f"{base}-")
+            )
             worker_names.append(f"{base}-{count + 1}" if count > 0 else base)
         else:
             worker_names.append(f"worker-{i + 1}")
@@ -338,7 +359,9 @@ async def _run_fanout_inner(
     for i, wm in enumerate(worker_model_list):
         wp = worker_profiles[i] if i < len(worker_profiles) else None
         if wp and wp.name:
-            worker_descriptions.append(f"{worker_names[i]} (role: {wp.name}, model: {wm})")
+            worker_descriptions.append(
+                f"{worker_names[i]} (role: {wp.name}, model: {wm})"
+            )
         else:
             worker_descriptions.append(f"{worker_names[i]} (model: {wm})")
     roster_guidance = "; ".join(worker_descriptions)
@@ -696,22 +719,38 @@ async def _run_flow(
     if timeout:
         with move_on_after(timeout) as cancel_scope:
             result = await _run_flow_inner(
-                model_spec, prompt,
-                with_synthesis=with_synthesis, synthesis_model=synthesis_model,
-                max_concurrent=max_concurrent, yolo=yolo, verbose=verbose,
-                effort=effort, theme=theme, output_format=output_format,
-                save_dir=save_dir, team_name=team_name, cwd=cwd,
+                model_spec,
+                prompt,
+                with_synthesis=with_synthesis,
+                synthesis_model=synthesis_model,
+                max_concurrent=max_concurrent,
+                yolo=yolo,
+                verbose=verbose,
+                effort=effort,
+                theme=theme,
+                output_format=output_format,
+                save_dir=save_dir,
+                team_name=team_name,
+                cwd=cwd,
                 agent_name=agent_name,
             )
         if cancel_scope.cancelled_caught:
             raise LionTimeoutError(f"Flow timed out after {timeout}s")
         return result
     return await _run_flow_inner(
-        model_spec, prompt,
-        with_synthesis=with_synthesis, synthesis_model=synthesis_model,
-        max_concurrent=max_concurrent, yolo=yolo, verbose=verbose,
-        effort=effort, theme=theme, output_format=output_format,
-        save_dir=save_dir, team_name=team_name, cwd=cwd,
+        model_spec,
+        prompt,
+        with_synthesis=with_synthesis,
+        synthesis_model=synthesis_model,
+        max_concurrent=max_concurrent,
+        yolo=yolo,
+        verbose=verbose,
+        effort=effort,
+        theme=theme,
+        output_format=output_format,
+        save_dir=save_dir,
+        team_name=team_name,
+        cwd=cwd,
         agent_name=agent_name,
     )
 
@@ -753,7 +792,11 @@ async def _run_flow_inner(
         )
 
     orc_imodel = build_imodel_from_spec(
-        model_spec, yolo=yolo, verbose=verbose, effort_override=effort, theme=theme,
+        model_spec,
+        yolo=yolo,
+        verbose=verbose,
+        effort_override=effort,
+        theme=theme,
     )
     if cwd:
         orc_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
@@ -771,6 +814,7 @@ async def _run_flow_inner(
 
     # Available roles for planning guidance
     from ._agents import list_agents
+
     available_roles = list_agents()
     roles_str = ", ".join(available_roles)
 
@@ -835,7 +879,9 @@ async def _run_flow_inner(
     for phase in plan.phases:
         for a in phase.agents:
             base = a.role
-            count = sum(1 for n in all_agent_names if n == base or n.startswith(f"{base}-"))
+            count = sum(
+                1 for n in all_agent_names if n == base or n.startswith(f"{base}-")
+            )
             all_agent_names.append(f"{base}-{count + 1}" if count > 0 else base)
 
     team_data = None
@@ -879,8 +925,11 @@ async def _run_flow_inner(
                 w_yolo = True
 
             w_imodel = build_imodel_from_spec(
-                w_model, yolo=w_yolo, verbose=verbose,
-                effort_override=w_effort, theme=theme,
+                w_model,
+                yolo=w_yolo,
+                verbose=verbose,
+                effort_override=w_effort,
+                theme=theme,
             )
             if cwd:
                 w_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
@@ -939,7 +988,9 @@ async def _run_flow_inner(
         t_phase = time.monotonic()
         conc = max_concurrent if max_concurrent > 0 else len(phase_nodes)
         phase_result = await session.flow(
-            builder.get_graph(), max_concurrent=conc, verbose=verbose,
+            builder.get_graph(),
+            max_concurrent=conc,
+            verbose=verbose,
         )
         t_phase_elapsed = time.monotonic() - t_phase
 
@@ -949,13 +1000,17 @@ async def _run_flow_inner(
         for i, nid in enumerate(phase_nodes):
             res = op_results.get(nid)
             response_text = str(res) if res is not None else "(no response)"
-            phase_worker_results.append({
-                "name": phase_names[i],
-                "model": phase_labels[i],
-                "response": response_text,
-                "time_ms": t_phase_elapsed * 1000,
-            })
-            all_artifacts.append(f"[From {phase_names[i]} (Phase {phase_num})]: {response_text}")
+            phase_worker_results.append(
+                {
+                    "name": phase_names[i],
+                    "model": phase_labels[i],
+                    "response": response_text,
+                    "time_ms": t_phase_elapsed * 1000,
+                }
+            )
+            all_artifacts.append(
+                f"[From {phase_names[i]} (Phase {phase_num})]: {response_text}"
+            )
 
         phase_results.append(phase_worker_results)
         prev_phase_nodes = phase_nodes
@@ -1020,14 +1075,17 @@ async def _run_flow_inner(
     # ── Post to team ─────────────────────────────────────────────────
     if team_data:
         flat_workers = [w for phase in phase_results for w in phase]
-        _post_results_to_team(team_data, flat_workers, all_agent_names, synthesis_result)
+        _post_results_to_team(
+            team_data, flat_workers, all_agent_names, synthesis_result
+        )
 
     # ��─ Persist branches ─────────────────────────────────────────────
     orc_provider = orc_branch.chat_model.endpoint.config.provider
     orc_branch_id = str(orc_branch.id)
     orc_path = await acreate_path(
         directory=LIONAGI_HOME / "logs" / "agents" / orc_provider,
-        filename=orc_branch_id, file_exist_ok=True,
+        filename=orc_branch_id,
+        file_exist_ok=True,
     )
     await orc_path.write_text(json_dumps(orc_branch.to_dict()))
     save_last_branch_pointer(orc_provider, orc_branch_id)
@@ -1040,7 +1098,8 @@ async def _run_flow_inner(
         w_branch_id = str(branch.id)
         w_path = await acreate_path(
             directory=LIONAGI_HOME / "logs" / "agents" / w_provider,
-            filename=w_branch_id, file_exist_ok=True,
+            filename=w_branch_id,
+            file_exist_ok=True,
         )
         await w_path.write_text(json_dumps(branch.to_dict()))
         worker_branch_ids.append((w_provider, w_branch_id, branch.name))

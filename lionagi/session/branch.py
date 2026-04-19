@@ -1353,7 +1353,9 @@ class Branch(Element, Relational):
         response_format: type[BaseModel] = None,
         reason: bool = False,
         skip_validation: bool = False,
-        handle_validation: Literal["raise", "return_value", "return_none"] = "return_value",
+        handle_validation: Literal[
+            "raise", "return_value", "return_none"
+        ] = "return_value",
         images: list = None,
         image_detail: str = "auto",
         **kwargs,
