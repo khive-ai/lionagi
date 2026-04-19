@@ -756,7 +756,8 @@ async def _run_flow_inner(
     branch_ids = await persist_session_branches(session)
     orc_branch_id = str(orc_branch.id)
     save_last_branch_pointer(
-        orc_branch.chat_model.endpoint.config.provider, orc_branch_id,
+        orc_branch.chat_model.endpoint.config.provider,
+        orc_branch_id,
     )
 
     t_total = time.monotonic() - t0

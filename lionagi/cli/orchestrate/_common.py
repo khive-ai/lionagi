@@ -9,9 +9,8 @@ from lionagi.ln import acreate_path
 from lionagi.models import HashableModel
 from lionagi.operations.fields import Instruct
 
-from .._persistence import LIONAGI_HOME
-
 from .._agents import AgentProfile, load_agent_profile
+from .._persistence import LIONAGI_HOME
 from ..team import _now_iso, _save_team
 
 # ── Agent request model (structured output from orchestrator) ─────────────
