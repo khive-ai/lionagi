@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from lionagi import Session, iModel
+from lionagi import Branch, Session, json_dumps
 from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import move_on_after
@@ -28,8 +28,6 @@ from ._common import (
     _post_results_to_team,
     _resolve_worker_spec,
 )
-
-from lionagi import Branch, json_dumps
 
 
 async def _run_fanout(

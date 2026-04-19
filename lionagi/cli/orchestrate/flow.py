@@ -17,7 +17,7 @@ from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
-from .._agents import load_agent_profile, list_agents
+from .._agents import list_agents, load_agent_profile
 from .._persistence import LIONAGI_HOME, save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
@@ -27,7 +27,6 @@ from ._common import (
     _post_results_to_team,
     _resolve_worker_spec,
 )
-
 
 # ── Flow models ───────────────────────────────────────────────────────────
 
@@ -302,7 +301,9 @@ async def _run_flow_inner(
     if max_agents > 0 and len(plan.agents) > max_agents:
         plan.agents = plan.agents[:max_agents]
         if not verbose:
-            print(f"Plan truncated to {max_agents} agents (--max-agents)", file=sys.stderr)
+            print(
+                f"Plan truncated to {max_agents} agents (--max-agents)", file=sys.stderr
+            )
 
     if not verbose:
         dag_lines = []
@@ -386,8 +387,11 @@ async def _run_flow_inner(
         if not bare and w_profile and w_profile.yolo:
             w_yolo = True
         w_imodel = build_imodel_from_spec(
-            w_model, yolo=w_yolo, verbose=verbose,
-            effort_override=w_effort, theme=theme,
+            w_model,
+            yolo=w_yolo,
+            verbose=verbose,
+            effort_override=w_effort,
+            theme=theme,
         )
         if cwd:
             w_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
@@ -399,7 +403,8 @@ async def _run_flow_inner(
             roster_lines += [f"- {t}" for t in teammates]
             roster_lines.append(f"- **{wname}** (you)")
             w_system = TEAM_WORKER_SYSTEM.format(
-                worker_name=wname, team_name=team_data["name"],
+                worker_name=wname,
+                team_name=team_data["name"],
                 team_id=team_data["id"],
                 roster_text="\n".join(roster_lines),
             )
@@ -412,8 +417,10 @@ async def _run_flow_inner(
                 "as needed. Do NOT spawn sub-agents or delegate further."
             )
         wb = Branch(
-            chat_model=w_imodel, system=w_system,
-            log_config=DataLoggerConfig(auto_save_on_exit=False), name=wname,
+            chat_model=w_imodel,
+            system=w_system,
+            log_config=DataLoggerConfig(auto_save_on_exit=False),
+            name=wname,
         )
         session.include_branches(wb)
         return wb, w_model
@@ -427,7 +434,10 @@ async def _run_flow_inner(
 
     if not verbose:
         ctrl_note = f" ({len(control_agents)} control)" if control_agents else ""
-        print(f"Executing DAG: {len(regular_agents)} agents{ctrl_note}...", file=sys.stderr)
+        print(
+            f"Executing DAG: {len(regular_agents)} agents{ctrl_note}...",
+            file=sys.stderr,
+        )
 
     # Build regular agent nodes
     for idx, a in enumerate(plan.agents):
@@ -442,21 +452,28 @@ async def _run_flow_inner(
         if not dep_nodes:
             dep_nodes = [plan_root]
         node_id = builder.add_operation(
-            "instruct", branch=w_branch, depends_on=dep_nodes,
-            instruction=a.instruction, guidance=a.guidance,
+            "instruct",
+            branch=w_branch,
+            depends_on=dep_nodes,
+            instruction=a.instruction,
+            guidance=a.guidance,
             context=[{"original_task": prompt}],
         )
         spec_to_node[a.id] = node_id
         agent_meta[node_id] = {
-            "name": all_agent_names[idx], "model": w_model,
-            "spec_id": a.id, "depends_on": a.depends_on or [],
+            "name": all_agent_names[idx],
+            "model": w_model,
+            "spec_id": a.id,
+            "depends_on": a.depends_on or [],
         }
 
     # Execute regular agents
     t_exec = time.monotonic()
     conc = max_concurrent if max_concurrent > 0 else max(len(regular_agents), 1)
     dag_result = await session.flow(
-        builder.get_graph(), max_concurrent=conc, verbose=verbose,
+        builder.get_graph(),
+        max_concurrent=conc,
+        verbose=verbose,
     )
     t_exec_elapsed = time.monotonic() - t_exec
 
@@ -465,12 +482,17 @@ async def _run_flow_inner(
         nid = spec_to_node[a.id]
         meta = agent_meta[nid]
         res = op_results.get(nid)
-        agent_results.append({
-            "id": a.id, "name": meta["name"], "model": meta["model"],
-            "depends_on": meta["depends_on"], "control": False,
-            "response": str(res) if res is not None else "(no response)",
-            "time_ms": t_exec_elapsed * 1000,
-        })
+        agent_results.append(
+            {
+                "id": a.id,
+                "name": meta["name"],
+                "model": meta["model"],
+                "depends_on": meta["depends_on"],
+                "control": False,
+                "response": str(res) if res is not None else "(no response)",
+                "time_ms": t_exec_elapsed * 1000,
+            }
+        )
 
     if not verbose:
         print(f"DAG done ({t_exec_elapsed:.1f}s).", file=sys.stderr)
@@ -482,7 +504,9 @@ async def _run_flow_inner(
         idx = next(i for i, a in enumerate(plan.agents) if a.id == ca.id)
         c_branch, c_model = _make_worker_branch(ca, idx)
 
-        artifacts = [f"[{r['id']} ({r['name']})]: {r['response']}" for r in agent_results]
+        artifacts = [
+            f"[{r['id']} ({r['name']})]: {r['response']}" for r in agent_results
+        ]
         dep_nodes = []
         if ca.depends_on:
             for dep_id in ca.depends_on:
@@ -496,7 +520,9 @@ async def _run_flow_inner(
             print(f"Control [{ca.id}]: evaluating...", file=sys.stderr)
 
         ctrl_node = builder.add_operation(
-            "instruct", branch=c_branch, depends_on=dep_nodes,
+            "instruct",
+            branch=c_branch,
+            depends_on=dep_nodes,
             instruction=(
                 f"{ca.instruction}\n\n"
                 "Review all prior agent outputs and produce a verdict: "
@@ -518,18 +544,22 @@ async def _run_flow_inner(
         verdict: FlowControlVerdict | None = getattr(ctrl_res, "verdict", None)
         verdict_text = str(ctrl_res) if ctrl_res is not None else "(no response)"
 
-        agent_results.append({
-            "id": ca.id, "name": all_agent_names[idx], "model": c_model,
-            "depends_on": ca.depends_on or [], "control": True,
-            "response": verdict_text,
-            "time_ms": t_ctrl_elapsed * 1000,
-        })
+        agent_results.append(
+            {
+                "id": ca.id,
+                "name": all_agent_names[idx],
+                "model": c_model,
+                "depends_on": ca.depends_on or [],
+                "control": True,
+                "response": verdict_text,
+                "time_ms": t_ctrl_elapsed * 1000,
+            }
+        )
 
         if not verbose:
             cont = verdict.should_continue if verdict else False
             print(
-                f"Control [{ca.id}] done ({t_ctrl_elapsed:.1f}s): "
-                f"continue={cont}",
+                f"Control [{ca.id}] done ({t_ctrl_elapsed:.1f}s): " f"continue={cont}",
                 file=sys.stderr,
             )
 
@@ -538,14 +568,21 @@ async def _run_flow_inner(
             round_num += 1
             if round_num >= max_rounds:
                 if not verbose:
-                    print(f"Max rounds ({max_rounds}) reached, stopping.", file=sys.stderr)
+                    print(
+                        f"Max rounds ({max_rounds}) reached, stopping.", file=sys.stderr
+                    )
                 break
 
             if not verbose:
-                print(f"Round {round_num + 1}: orchestrator re-planning...", file=sys.stderr)
+                print(
+                    f"Round {round_num + 1}: orchestrator re-planning...",
+                    file=sys.stderr,
+                )
 
             replan_node = builder.add_operation(
-                "operate", branch=orc_branch, depends_on=[ctrl_node],
+                "operate",
+                branch=orc_branch,
+                depends_on=[ctrl_node],
                 instruct=Instruct(
                     instruction=(
                         "The control node requested continuation. Plan additional agents "
@@ -576,7 +613,10 @@ async def _run_flow_inner(
             if next_plan and next_plan.agents:
                 if not verbose:
                     ids = ", ".join(a.id for a in next_plan.agents)
-                    print(f"Re-plan: {len(next_plan.agents)} new agents: {ids}", file=sys.stderr)
+                    print(
+                        f"Re-plan: {len(next_plan.agents)} new agents: {ids}",
+                        file=sys.stderr,
+                    )
 
                 # Build and execute new agents
                 new_names = []
@@ -587,7 +627,9 @@ async def _run_flow_inner(
                 all_agent_names.extend(new_names)
 
                 for ni, na in enumerate(next_plan.agents):
-                    nb, nm = _make_worker_branch(na, len(all_agent_names) - len(new_names) + ni)
+                    nb, nm = _make_worker_branch(
+                        na, len(all_agent_names) - len(new_names) + ni
+                    )
                     nd = []
                     if na.depends_on:
                         for did in na.depends_on:
@@ -596,19 +638,29 @@ async def _run_flow_inner(
                     if not nd:
                         nd = [ctrl_node]
                     nid = builder.add_operation(
-                        "instruct", branch=nb, depends_on=nd,
-                        instruction=na.instruction, guidance=na.guidance,
-                        context=[{"original_task": prompt}, {"prior_results": artifacts}],
+                        "instruct",
+                        branch=nb,
+                        depends_on=nd,
+                        instruction=na.instruction,
+                        guidance=na.guidance,
+                        context=[
+                            {"original_task": prompt},
+                            {"prior_results": artifacts},
+                        ],
                     )
                     spec_to_node[na.id] = nid
                     agent_meta[nid] = {
-                        "name": new_names[ni], "model": nm,
-                        "spec_id": na.id, "depends_on": na.depends_on or [],
+                        "name": new_names[ni],
+                        "model": nm,
+                        "spec_id": na.id,
+                        "depends_on": na.depends_on or [],
                     }
 
                 t_new = time.monotonic()
                 new_result = await session.flow(
-                    builder.get_graph(), max_concurrent=conc, verbose=verbose,
+                    builder.get_graph(),
+                    max_concurrent=conc,
+                    verbose=verbose,
                 )
                 t_new_elapsed = time.monotonic() - t_new
                 new_op = new_result.get("operation_results", {})
@@ -616,14 +668,24 @@ async def _run_flow_inner(
                     nid = spec_to_node[na.id]
                     meta = agent_meta[nid]
                     res = new_op.get(nid)
-                    agent_results.append({
-                        "id": na.id, "name": meta["name"], "model": meta["model"],
-                        "depends_on": meta["depends_on"], "control": False,
-                        "response": str(res) if res is not None else "(no response)",
-                        "time_ms": t_new_elapsed * 1000,
-                    })
+                    agent_results.append(
+                        {
+                            "id": na.id,
+                            "name": meta["name"],
+                            "model": meta["model"],
+                            "depends_on": meta["depends_on"],
+                            "control": False,
+                            "response": (
+                                str(res) if res is not None else "(no response)"
+                            ),
+                            "time_ms": t_new_elapsed * 1000,
+                        }
+                    )
                 if not verbose:
-                    print(f"Round {round_num + 1} done ({t_new_elapsed:.1f}s).", file=sys.stderr)
+                    print(
+                        f"Round {round_num + 1} done ({t_new_elapsed:.1f}s).",
+                        file=sys.stderr,
+                    )
 
     # ── Synthesis ────────────────────────────────────────────────────
     synthesis_result = None
@@ -636,14 +698,18 @@ async def _run_flow_inner(
         all_node_ids = set(spec_to_node.values())
         depended_on = set()
         for a in plan.agents:
-            for d in (a.depends_on or []):
+            for d in a.depends_on or []:
                 if d in spec_to_node:
                     depended_on.add(spec_to_node[d])
         leaf_nodes = list(all_node_ids - depended_on) or list(all_node_ids)
 
-        artifacts = [f"[{r['id']} ({r['name']})]: {r['response']}" for r in agent_results]
+        artifacts = [
+            f"[{r['id']} ({r['name']})]: {r['response']}" for r in agent_results
+        ]
         synth_node = builder.add_operation(
-            "instruct", branch=orc_branch, depends_on=leaf_nodes,
+            "instruct",
+            branch=orc_branch,
+            depends_on=leaf_nodes,
             instruction=(
                 f"Synthesize all agent outputs into a final cohesive deliverable.\n\n"
                 f"Original task: {prompt}"
@@ -681,7 +747,9 @@ async def _run_flow_inner(
             print(f"Saved to {save_path}", file=sys.stderr)
 
     if team_data:
-        _post_results_to_team(team_data, agent_results, all_agent_names, synthesis_result)
+        _post_results_to_team(
+            team_data, agent_results, all_agent_names, synthesis_result
+        )
 
     # ── Persist branches ─────────────────────────────────────────────
     orc_provider = orc_branch.chat_model.endpoint.config.provider

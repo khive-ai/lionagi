@@ -74,27 +74,38 @@ async def instruct(
     model = chat_model or branch.chat_model
     if not model.is_cli:
         return await _instruct_api(
-            branch, inst, chat_model=chat_model,
-            field_models=field_models, response_format=response_format,
-            reason=reason, images=images, image_detail=image_detail,
+            branch,
+            inst,
+            chat_model=chat_model,
+            field_models=field_models,
+            response_format=response_format,
+            reason=reason,
+            images=images,
+            image_detail=image_detail,
             **kwargs,
         )
 
     return await _instruct_cli(
-        branch, inst, chat_model=chat_model,
-        field_models=field_models, response_format=response_format,
-        reason=reason, skip_validation=skip_validation,
-        handle_validation=handle_validation, max_retries=max_retries,
-        images=images, image_detail=image_detail,
+        branch,
+        inst,
+        chat_model=chat_model,
+        field_models=field_models,
+        response_format=response_format,
+        reason=reason,
+        skip_validation=skip_validation,
+        handle_validation=handle_validation,
+        max_retries=max_retries,
+        images=images,
+        image_detail=image_detail,
         **kwargs,
     )
 
 
 async def _instruct_cli(
-    branch: "Branch",
+    branch: Branch,
     inst: Instruct,
     *,
-    chat_model: "iModel | None" = None,
+    chat_model: iModel | None = None,
     field_models: list[FieldModel | Spec] | None = None,
     response_format: type[BaseModel] | None = None,
     reason: bool = False,
@@ -146,10 +157,10 @@ async def _instruct_cli(
 
 
 async def _instruct_api(
-    branch: "Branch",
+    branch: Branch,
     inst: Instruct,
     *,
-    chat_model: "iModel | None" = None,
+    chat_model: iModel | None = None,
     field_models: list[FieldModel | Spec] | None = None,
     response_format: type[BaseModel] | None = None,
     reason: bool = False,
@@ -185,7 +196,7 @@ def _resolve_response_type(
     from ..operate.step import Step
 
     fields_dict = {}
-    for fm in (field_models or []):
+    for fm in field_models or []:
         if isinstance(fm, FieldModel):
             spec = fm.to_spec()
         elif isinstance(fm, Spec):

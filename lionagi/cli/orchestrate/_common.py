@@ -4,17 +4,11 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-from lionagi import Branch, FieldModel, json_dumps
+from lionagi import FieldModel, json_dumps
 from lionagi.models import HashableModel
 from lionagi.operations.fields import Instruct
-from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import AgentProfile, load_agent_profile
-from .._persistence import LIONAGI_HOME, save_last_branch_pointer
-from .._providers import build_imodel_from_spec, parse_model_spec
 from ..team import _now_iso, _save_team
 
 # ── Agent request model (structured output from orchestrator) ─────────────
