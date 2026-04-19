@@ -356,12 +356,15 @@ async def _run_fanout_inner(
             context={"user_prompt": prompt},
             guidance=(
                 f"Available workers: {roster_guidance}. "
-                f"IMPORTANT: Each AgentRequest instruction must be a DIRECT "
-                f"task the worker will answer itself — not a meta-instruction "
-                f"to generate more agents or decompose further. Workers are "
-                f"leaf executors, not orchestrators. "
-                f"Workers CAN read files, use tools, and run commands "
-                f"as needed to complete their assigned sub-task. "
+                f"CRITICAL: You MUST produce your output ONLY via the structured "
+                f"output fields (the AgentRequest list). Do NOT use any provider-native "
+                f"subagent or tool-spawning features (no Agent tool, no subprocess "
+                f"spawning, no delegation tools). The ONLY correct way to dispatch "
+                f"workers is by filling in the structured AgentRequest output. "
+                f"Each AgentRequest instruction must be a DIRECT task the worker "
+                f"will answer itself — not a meta-instruction to generate more "
+                f"agents or decompose further. Workers are leaf executors, not "
+                f"orchestrators. "
                 f"Match each sub-task to the worker's role strengths. "
                 f"If multiple models are provided, set the model field to "
                 f"the exact model string for that worker. "
@@ -785,6 +788,13 @@ async def _run_flow_inner(
             context={"task": prompt},
             guidance=(
                 f"Available agent roles: {roles_str}. "
+                "CRITICAL: You MUST produce your output ONLY via the structured "
+                "output fields (the FlowPlan). Do NOT use any provider-native "
+                "subagent or tool-spawning features (no Agent tool, no subprocess "
+                "spawning, no delegation tools). The ONLY correct way to define "
+                "workers is by filling in the FlowPlan structured output. "
+                "Use ONLY roles from the available list above — do not invent "
+                "custom role names. "
                 "Design the minimal number of phases needed. "
                 "Agents within the same phase run in parallel — only split into a new phase "
                 "when there's a genuine data dependency. "
@@ -838,6 +848,7 @@ async def _run_flow_inner(
             )
 
     # ── Execute phases sequentially ──────────────────────────────────
+    default_ms = parse_model_spec(model_spec)
     phase_results: list[list[dict]] = []
     all_artifacts: list[str] = []  # accumulated labeled artifacts
     prev_phase_nodes: list = []
@@ -858,6 +869,8 @@ async def _run_flow_inner(
             w_model, w_profile = _resolve_worker_spec(a.role)
             if a.model:
                 w_model = a.model
+            elif not w_profile:
+                w_model = default_ms.model
             w_effort = effort
             if w_profile and w_profile.effort and not effort:
                 w_effort = w_profile.effort
@@ -889,6 +902,12 @@ async def _run_flow_inner(
                 )
             elif w_profile and w_profile.system_prompt:
                 w_system = w_profile.system_prompt
+            else:
+                w_system = (
+                    "You are a leaf worker agent. Complete your assigned task "
+                    "directly. You may read files, use tools, and run commands "
+                    "as needed. Do NOT spawn sub-agents or delegate further."
+                )
 
             w_branch = Branch(
                 chat_model=w_imodel,
@@ -902,8 +921,6 @@ async def _run_flow_inner(
             w_context = [{"original_task": prompt}]
             if all_artifacts:
                 w_context.append({"prior_artifacts": "\n\n".join(all_artifacts)})
-            if a.guidance:
-                w_context.append({"orchestrator_guidance": a.guidance})
 
             deps = prev_phase_nodes if prev_phase_nodes else [plan_root]
             node = builder.add_operation(
@@ -911,6 +928,7 @@ async def _run_flow_inner(
                 branch=w_branch,
                 depends_on=deps,
                 instruction=a.instruction,
+                guidance=a.guidance,
                 context=w_context,
             )
             phase_nodes.append(node)
