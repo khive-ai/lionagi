@@ -3,6 +3,38 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.22.2] - 2026-04-19
+
+### Added
+- `li o flow` — DAG-based multi-agent orchestration with dependency edges
+  - Agents declare `depends_on` for true DAG execution (not just phases)
+  - Control nodes (`control=true`) produce structured `FlowControlVerdict` for critic-driven iteration loops (up to 3 rounds)
+  - `--bare` flag: all workers use CLI model, ignore agent profiles
+  - `--max-agents N`: cap total agents the orchestrator may plan
+  - `--dry-run`: plan the DAG without executing — shows agents, deps, model resolution
+- `branch.instruct()` routes automatically based on endpoint type:
+  - CLI endpoints → `run()` stream + `parse()` extraction
+  - API endpoints → `operate()` with structured output
+- Orchestrator guidance now includes per-role model and effort info for informed routing
+- `reason=True` on `instruct()` now works without `field_models` (was silently dropped)
+
+### Fixed
+- Flow workers pass `guidance` as proper kwarg (was buried in context dict)
+- Default model fallback when role has no agent profile (was crashing with "Provider must be provided")
+- Default system prompt for workers without profiles (was `None`)
+- Orchestrator prompts hardened against provider-native subagent spawning
+
+### Changed
+- `orchestrate.py` (1610 lines) split into `orchestrate/` package: `_common.py`, `fanout.py`, `flow.py`, `__init__.py`
+- Flow plan model redesigned: flat agent list with `depends_on` edges replaces phase-based pipeline
+- All flow operations use `instruct` (unified routing) instead of `communicate`
+
+### Security
+- authlib bumped to >=1.6.11 (CSRF when using cache)
+- python-multipart bumped to >=0.0.26 (DoS via large preamble/epilogue)
+- pytest bumped to >=9.0.3 (vulnerable tmpdir handling)
+- pillow bumped to >=12.2.0 (FITS GZIP decompression bomb)
+
 ## [0.22.1] - 2026-04-18
 
 ### Fixed
