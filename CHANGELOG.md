@@ -3,6 +3,11 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.22.4] - 2026-04-19
+
+### Fixed
+- CLI endpoints crash with `Invalid parameter: stream_persist` when flow/fanout passes ChatParam fields (guidance, context, response_format, etc.) through to `CodexCodeRequest` / `ClaudeCodeRequest` — now filters `req_dict` to only keys in the request model's `model_fields`
+
 ## [0.22.3] - 2026-04-19
 
 ### Added

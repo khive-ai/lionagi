@@ -73,6 +73,7 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages")
+        req_dict = {k: v for k, v in req_dict.items() if k in ClaudeCodeRequest.model_fields}
         req_obj = ClaudeCodeRequest(messages=messages, **req_dict)
         return {"request": req_obj}, {}
 
