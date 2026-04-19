@@ -438,7 +438,10 @@ async def _run_flow_inner(
                 "as needed. Do NOT spawn sub-agents or delegate further. "
                 "IMPORTANT: Write all output artifacts as files in your "
                 "current working directory. Do not just print to stdout — "
-                "write .md files that downstream agents can read."
+                "write .md files that downstream agents can read. "
+                "BASH QUOTING: When running CLI commands with multi-word "
+                "arguments, use variable assignment to avoid arg splitting: "
+                'Q="your query" && command "$Q" (NOT command "your query").'
             )
         wb = Branch(
             chat_model=w_imodel,
