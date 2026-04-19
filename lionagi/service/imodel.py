@@ -487,3 +487,10 @@ class iModel:
             created_at=data.get("created_at"),
             **data.get("processor_config", {}),
         )
+
+    @property
+    def provider_session_id(self):
+        """Get the session ID from provider metadata if available."""
+        if self.is_cli:
+            return self.endpoint.session_id
+        return self.provider_metadata.get("session_id")

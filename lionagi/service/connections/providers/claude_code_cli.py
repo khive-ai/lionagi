@@ -79,8 +79,11 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
-        payload, _ = self.create_payload(request, **kwargs)
-        request_obj = payload["request"]
+        if isinstance(request, dict) and "request" in request:
+            request_obj = request["request"]
+        else:
+            payload, _ = self.create_payload(request, **kwargs)
+            request_obj = payload["request"]
         async with contextlib.aclosing(stream_claude_code_cli(request_obj)) as gen:
             async for item in gen:
                 if isinstance(item, ClaudeSession):

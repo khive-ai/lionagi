@@ -1316,6 +1316,9 @@ class Branch(Element, Relational):
         recipient=None,
         images=None,
         image_detail="auto",
+        stream_persist: bool = False,
+        persist_dir: str | None = None,
+        response_format=None,
         **kwargs,
     ) -> "AsyncGenerator[RoledMessage, None]":
         """Stream Messages from a CLI endpoint.
@@ -1325,29 +1328,43 @@ class Branch(Element, Relational):
 
         Pass ``chat_model`` to override the branch default, enabling
         multi-model conversations on a single branch.
+
+        Set ``stream_persist=True`` to enable real-time JSONL logging
+        of each message as it arrives, with branch state consolidated
+        on exit (including timeout/interrupt).
         """
         from lionagi.operations.run.run import run as _run
+        from lionagi.operations.types import RunParam
 
-        async for msg in _run(
-            self,
-            instruction=instruction,
-            chat_model=chat_model,
-            guidance=guidance,
-            context=context,
+        param_kw = dict(
             sender=sender,
             recipient=recipient,
+            guidance=guidance,
+            context=context,
             images=images,
             image_detail=image_detail,
-            **kwargs,
-        ):
+            stream_persist=stream_persist,
+            response_format=response_format,
+        )
+        if chat_model is not None:
+            param_kw["imodel"] = chat_model
+        if persist_dir is not None:
+            param_kw["persist_dir"] = persist_dir
+        if kwargs:
+            param_kw["imodel_kw"] = kwargs
+
+        async for msg in _run(self, instruction, RunParam(**param_kw)):
             yield msg
 
     async def instruct(
         self,
         instruction=None,
         *,
+        instruct: "Instruct" = None,
         guidance=None,
         context=None,
+        sender=None,
+        recipient=None,
         chat_model: "iModel | None" = None,
         field_models: list = None,
         response_format: type[BaseModel] = None,
@@ -1356,39 +1373,30 @@ class Branch(Element, Relational):
         handle_validation: Literal[
             "raise", "return_value", "return_none"
         ] = "return_value",
+        max_retries: int = 3,
         images: list = None,
         image_detail: str = "auto",
+        stream_persist: bool = False,
+        persist_dir: str | None = None,
         **kwargs,
     ) -> "BaseModel | dict | str | None":
-        """CLI-endpoint operate: stream via run(), extract structured output.
+        """Universal structured-output operation.
 
-        Like operate() but uses CLI endpoints (Claude Code, Codex, Gemini CLI)
-        instead of API endpoints. Collects the stream, then parses structured
-        fields from the final assistant response.
+        Routes based on endpoint type:
+          - CLI (is_cli=True): stream via run() → parse()
+          - API (is_cli=False): operate() with field_models
 
-            result = await branch.instruct(
-                "Analyze auth middleware",
-                field_models=[AGENT_REQUEST_FIELDS],
-                reason=True,
-            )
+        Set ``stream_persist=True`` for real-time JSONL logging.
         """
+        _pms = {
+            k: v
+            for k, v in locals().items()
+            if k not in ("self", "_pms") and v is not None
+        }
         from lionagi.operations.instruct.instruct import instruct as _instruct
+        from lionagi.operations.instruct.instruct import prepare_instruct_kw
 
-        return await _instruct(
-            self,
-            instruction=instruction,
-            guidance=guidance,
-            context=context,
-            chat_model=chat_model,
-            field_models=field_models,
-            response_format=response_format,
-            reason=reason,
-            skip_validation=skip_validation,
-            handle_validation=handle_validation,
-            images=images,
-            image_detail=image_detail,
-            **kwargs,
-        )
+        return await _instruct(self, **prepare_instruct_kw(self, **_pms))
 
 
 # File: lionagi/session/branch.py

@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 from lionagi import FieldModel, json_dumps
+from lionagi.ln import acreate_path
 from lionagi.models import HashableModel
 from lionagi.operations.fields import Instruct
 
 from .._agents import AgentProfile, load_agent_profile
+from .._persistence import LIONAGI_HOME
 from ..team import _now_iso, _save_team
 
 # ── Agent request model (structured output from orchestrator) ─────────────
@@ -155,3 +157,19 @@ def _resolve_worker_spec(
         return profile.model or "codex/gpt-5.4", profile
     except FileNotFoundError:
         return token, None
+
+
+async def persist_session_branches(session) -> list[tuple[str, str, str]]:
+    """Persist all branches in a session. Returns [(provider, branch_id, name)]."""
+    branch_ids = []
+    for branch in session.branches:
+        provider = branch.chat_model.endpoint.config.provider
+        branch_id = str(branch.id)
+        bp = await acreate_path(
+            directory=LIONAGI_HOME / "logs" / "agents" / provider,
+            filename=branch_id,
+            file_exist_ok=True,
+        )
+        await bp.write_text(json_dumps(branch.to_dict()))
+        branch_ids.append((provider, branch_id, branch.name))
+    return branch_ids

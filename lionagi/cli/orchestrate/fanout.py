@@ -10,14 +10,13 @@ from pathlib import Path
 
 from lionagi import Branch, Session, json_dumps
 from lionagi._errors import TimeoutError as LionTimeoutError
-from lionagi.ln import acreate_path
 from lionagi.ln.concurrency import move_on_after
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import load_agent_profile
-from .._persistence import LIONAGI_HOME, save_last_branch_pointer
+from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
     AGENT_REQUEST_FIELDS,
@@ -27,6 +26,7 @@ from ._common import (
     _format_result_text,
     _post_results_to_team,
     _resolve_worker_spec,
+    persist_session_branches,
 )
 
 
@@ -52,6 +52,8 @@ async def _run_fanout(
     agent_name: str | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
+    _shared: dict = {}
+
     if timeout:
         with move_on_after(timeout) as cancel_scope:
             result = await _run_fanout_inner(
@@ -72,9 +74,18 @@ async def _run_fanout(
                 team_name=team_name,
                 cwd=cwd,
                 agent_name=agent_name,
+                _shared=_shared,
             )
         if cancel_scope.cancelled_caught:
-            raise LionTimeoutError(f"Fanout timed out after {timeout}s")
+            session = _shared.get("session")
+            if session:
+                await persist_session_branches(session, save_dir)
+            n_saved = len(_shared.get("saved_workers", []))
+            msg = f"Fanout timed out after {timeout}s"
+            if n_saved:
+                msg += f" ({n_saved} worker results already saved to {save_dir})"
+            print(msg, file=sys.stderr)
+            raise LionTimeoutError(msg)
         return result
     return await _run_fanout_inner(
         model_spec,
@@ -94,6 +105,7 @@ async def _run_fanout(
         team_name=team_name,
         cwd=cwd,
         agent_name=agent_name,
+        _shared=_shared,
     )
 
 
@@ -116,6 +128,7 @@ async def _run_fanout_inner(
     team_name: str | None = None,
     cwd: str | None = None,
     agent_name: str | None = None,
+    _shared: dict | None = None,
 ) -> str:
     """Inner fanout logic (no timeout wrapper)."""
     t0 = time.monotonic()
@@ -193,6 +206,8 @@ async def _run_fanout_inner(
         name="orchestrator",
     )
     session = Session(default_branch=orc_branch)
+    if _shared is not None:
+        _shared["session"] = session
 
     # Build guidance with role names when workers are agent profiles
     worker_descriptions = []
@@ -364,6 +379,21 @@ async def _run_fanout_inner(
     if not verbose:
         print(f"Phase 2 done ({t_fanout:.1f}s).", file=sys.stderr)
 
+    # ── Incremental save: persist worker results immediately ─────────
+    if save_dir:
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        for wr in worker_results:
+            p = save_path / f"worker_{wr['worker']}.md"
+            p.write_text(wr["response"])
+        if not verbose:
+            print(
+                f"Saved {len(worker_results)} worker results to {save_path}",
+                file=sys.stderr,
+            )
+    if _shared is not None:
+        _shared["saved_workers"] = worker_results
+
     # ── Phase 3: Synthesis ────────────────────────────────────────────
     synthesis_result = None
     if with_synthesis and contexts:
@@ -407,13 +437,10 @@ async def _run_fanout_inner(
     else:
         output = _format_result_text(worker_results, synthesis_result)
 
-    # ── Save ──────────────────────────────────────────────────────────
+    # ── Save synthesis + meta (workers already saved incrementally) ──
     if save_dir:
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)
-        for wr in worker_results:
-            p = save_path / f"worker_{wr['worker']}.md"
-            p.write_text(wr["response"])
         if synthesis_result:
             (save_path / "synthesis.md").write_text(synthesis_result["response"])
         meta = {
@@ -445,39 +472,20 @@ async def _run_fanout_inner(
             )
 
     # ── Persist all branches ─────────────────────────────────────────
-    orc_provider = orc_branch.chat_model.endpoint.config.provider
+    branch_ids = await persist_session_branches(session)
     orc_branch_id = str(orc_branch.id)
-
-    # Save orchestrator
-    orc_path = await acreate_path(
-        directory=LIONAGI_HOME / "logs" / "agents" / orc_provider,
-        filename=orc_branch_id,
-        file_exist_ok=True,
+    save_last_branch_pointer(
+        orc_branch.chat_model.endpoint.config.provider,
+        orc_branch_id,
     )
-    await orc_path.write_text(json_dumps(orc_branch.to_dict()))
-    save_last_branch_pointer(orc_provider, orc_branch_id)
-
-    # Save all worker branches (everything in session except orchestrator)
-    worker_branch_ids = []
-    for branch in session.branches:
-        if str(branch.id) == orc_branch_id:
-            continue
-        w_provider = branch.chat_model.endpoint.config.provider
-        w_branch_id = str(branch.id)
-        w_path = await acreate_path(
-            directory=LIONAGI_HOME / "logs" / "agents" / w_provider,
-            filename=w_branch_id,
-            file_exist_ok=True,
-        )
-        await w_path.write_text(json_dumps(branch.to_dict()))
-        worker_branch_ids.append((w_provider, w_branch_id))
 
     t_total = time.monotonic() - t0
     if not verbose:
         print(f"\nTotal: {t_total:.1f}s", file=sys.stderr)
 
     print(f'\n[orchestrator] li agent -r {orc_branch_id} "..."', file=sys.stderr)
-    for i, (wp, wid) in enumerate(worker_branch_ids):
-        print(f'[worker-{i+1}]      li agent -r {wid} "..."', file=sys.stderr)
+    for provider, bid, bname in branch_ids:
+        if bid != orc_branch_id:
+            print(f'[{bname}]      li agent -r {bid} "..."', file=sys.stderr)
 
     return output

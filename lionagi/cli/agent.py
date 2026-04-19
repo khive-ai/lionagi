@@ -8,11 +8,9 @@ import argparse
 import json
 import sys
 
-from lionagi import Branch, json_dumps
-from lionagi.ln import acreate_path
+from lionagi import Branch
 from lionagi.ln.concurrency import run_async
 from lionagi.protocols.generic.log import DataLoggerConfig
-from lionagi.protocols.messages import AssistantResponse
 
 from ._agents import load_agent_profile
 from ._persistence import (
@@ -116,29 +114,20 @@ async def _run_agent(
     if profile and profile.system_prompt:
         branch.msgs.add_message(system=profile.system_prompt)
 
-    # Build run kwargs
-    run_kw = {}
-    if cwd:
-        run_kw["repo"] = cwd
+    persist_dir = LIONAGI_HOME / "logs" / "agents" / provider
 
-    async def _do_run():
-        res = ""
-        async for msg in branch.run(prompt, **run_kw):
-            if isinstance(msg, AssistantResponse):
-                res = msg.response
-        return res
-
-    res = await _do_run()
-
-    path = await acreate_path(
-        directory=LIONAGI_HOME / "logs" / "agents" / provider,
-        filename=str(branch.id),
-        file_exist_ok=True,
+    instruct_kw = dict(
+        stream_persist=True,
+        persist_dir=str(persist_dir),
     )
-    await path.write_text(json_dumps(branch.to_dict()))
+    if cwd:
+        instruct_kw["repo"] = cwd
+
+    res = await branch.instruct(prompt, **instruct_kw)
+
     save_last_branch_pointer(provider, str(branch.id))
 
-    return res, provider, str(branch.id)
+    return res or "", provider, str(branch.id)
 
 
 def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
