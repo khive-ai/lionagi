@@ -20,6 +20,7 @@ from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
     AGENT_REQUEST_FIELDS,
+    BARE_WORKER_SYSTEM,
     TEAM_WORKER_SYSTEM,
     _create_fanout_team,
     _format_result_json,
@@ -316,11 +317,7 @@ async def _run_fanout_inner(
         elif wprofile and wprofile.system_prompt:
             worker_system = wprofile.system_prompt
         else:
-            worker_system = (
-                "You are a leaf worker agent. Complete your assigned task "
-                "directly. You may read files, use tools, and run commands "
-                "as needed. Do NOT spawn sub-agents or delegate further."
-            )
+            worker_system = BARE_WORKER_SYSTEM
         worker_branch = Branch(
             chat_model=worker_imodel,
             system=worker_system,

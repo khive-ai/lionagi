@@ -64,6 +64,34 @@ def _format_result_json(
     return json_dumps(out)
 
 
+# ── Default worker system prompt (shared by flow + fanout) ────────────────
+
+BARE_WORKER_SYSTEM = """\
+You are a specialist worker agent in a DAG pipeline. \
+Complete your assigned task directly and precisely. \
+You may read files, use tools, and run commands as needed. \
+Do NOT spawn sub-agents or delegate further — you are a leaf executor.
+
+ARTIFACTS (mandatory): Write all deliverables as files in your current \
+working directory. Use the filename specified in your instruction. \
+Do NOT print deliverables to stdout — downstream agents read your files. \
+Use descriptive filenames (inventory.md, gap_analysis.md), never output.md.
+
+READING UPSTREAM: Your instruction specifies which files to read from \
+prior agents using relative paths like ../e1/inventory.md. \
+Read those files before starting your analysis.
+
+DOMAIN CONTEXT: If your task domain is unfamiliar, run: \
+Q="<task keywords>" && khived lore suggest "$Q" -r <your_role> -l 6
+
+SESSION PERSISTENCE: Your session persists. If given follow-up work \
+later, your conversation history is retained.
+
+BASH QUOTING: Use variable assignment for multi-word CLI args: \
+Q="your query" && command "$Q" (NOT command "your query").\
+"""
+
+
 # ── Team-mode guidance ────────────────────────────────────────────────────
 
 TEAM_WORKER_SYSTEM = """\

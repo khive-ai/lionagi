@@ -20,6 +20,7 @@ from .._agents import list_agents, load_agent_profile
 from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
+    BARE_WORKER_SYSTEM,
     TEAM_WORKER_SYSTEM,
     _create_fanout_team,
     _format_result_json,
@@ -252,6 +253,32 @@ async def _run_flow_inner(
     if max_agents > 0:
         budget_note = f"BUDGET: You may define at most {max_agents} agents total. "
 
+    # Build guidance blocks for plan root
+    artifact_guidance = ""
+    if save_dir:
+        artifact_guidance = (
+            "ARTIFACT PROTOCOL: Each agent gets its own directory at "
+            f"{save_dir}/{{agent_id}}/. In EVERY agent instruction you MUST specify: "
+            "(1) WHERE to write: 'Write output to your current directory as <name>.md'. "
+            "(2) WHAT to name files: descriptive names (inventory.md, gap_analysis.md). "
+            "(3) WHERE to read upstream: 'Read ../{{dep_id}}/{{filename}}.md' for each depends_on. "
+            "NEVER say 'use the prior output' — always give explicit relative paths. "
+        )
+
+    effort_guidance = (
+        "EFFORT TIERS: Use the agent 'guidance' field for behavioral framing. "
+        "low=skim structure quickly; medium=careful read; high=thorough analysis; "
+        "xhigh=deep multi-step reasoning. Match effort to task weight. "
+    )
+
+    team_guidance = ""
+    if team_name:
+        team_guidance = (
+            f"TEAM MODE active (team: {team_name}). In each agent instruction, "
+            "tell agents to check inbox before starting and send coordination "
+            "signals to relevant teammates if they discover something affecting them. "
+        )
+
     plan_root = builder.add_operation(
         "instruct",
         branch=orc_branch,
@@ -267,6 +294,9 @@ async def _run_flow_inner(
             guidance=(
                 f"{roles_guidance} "
                 f"{budget_note}"
+                f"{artifact_guidance}"
+                f"{effort_guidance}"
+                f"{team_guidance}"
                 "CRITICAL: You MUST produce your output ONLY via the structured "
                 "output fields (the FlowPlan). Do NOT use any provider-native "
                 "subagent or tool-spawning features (no Agent tool, no subprocess "
@@ -432,17 +462,7 @@ async def _run_flow_inner(
         elif not bare and w_profile and w_profile.system_prompt:
             w_system = w_profile.system_prompt
         else:
-            w_system = (
-                "You are a leaf worker agent. Complete your assigned task "
-                "directly. You may read files, use tools, and run commands "
-                "as needed. Do NOT spawn sub-agents or delegate further. "
-                "IMPORTANT: Write all output artifacts as files in your "
-                "current working directory. Do not just print to stdout — "
-                "write .md files that downstream agents can read. "
-                "BASH QUOTING: When running CLI commands with multi-word "
-                "arguments, use variable assignment to avoid arg splitting: "
-                'Q="your query" && command "$Q" (NOT command "your query").'
-            )
+            w_system = BARE_WORKER_SYSTEM
         wb = Branch(
             chat_model=w_imodel,
             system=w_system,
@@ -480,11 +500,23 @@ async def _run_flow_inner(
             dep_nodes = [plan_root]
         ctx = [{"original_task": prompt}]
         if save_dir:
-            artifact_note = f"Your artifact directory: {Path(save_dir) / a.id}/ — write ALL output files here."
+            artifact_note = (
+                f"Your artifact directory: {Path(save_dir) / a.id}/ — "
+                "write ALL output files here with descriptive names."
+            )
             if a.depends_on:
-                dep_dirs = {d: str(Path(save_dir) / d) for d in a.depends_on}
-                artifact_note += f" Prior agent artifacts: {dep_dirs}"
+                dep_notes = [f"{d}: {Path(save_dir) / d}/ (read .md files there)" for d in a.depends_on]
+                artifact_note += f" Upstream artifacts: {'; '.join(dep_notes)}."
             ctx.append({"artifact_instructions": artifact_note})
+        if team_data:
+            ctx.append({"team": {"id": team_data["id"], "name": team_data["name"], "your_name": all_agent_names[idx]}})
+        w_effort = effort
+        if not bare and w_profile and w_profile.effort:
+            w_effort = w_profile.effort
+        if w_effort:
+            emap = {"low": "Skim quickly, structured output.", "medium": "Read carefully, balance depth/speed.",
+                    "high": "Thorough analysis, take your time.", "xhigh": "Deep reasoning, maximum effort."}
+            ctx.append({"effort_guidance": emap.get(w_effort, "")})
 
         node_id = builder.add_operation(
             "instruct",
@@ -565,6 +597,14 @@ async def _run_flow_inner(
         if not verbose:
             print(f"Control [{ca.id}]: evaluating...", file=sys.stderr)
 
+        artifact_read_note = ""
+        if save_dir and ca.depends_on:
+            dep_dirs = [f"{save_dir}/{d}/" for d in ca.depends_on]
+            artifact_read_note = (
+                "\n\nREAD ARTIFACTS: Agents wrote files to these directories. "
+                f"Read ALL .md files before reaching your verdict: {', '.join(dep_dirs)}"
+            )
+
         ctrl_node = builder.add_operation(
             "instruct",
             branch=c_branch,
@@ -574,6 +614,12 @@ async def _run_flow_inner(
                 "Review all prior agent outputs and produce a verdict: "
                 "should_continue (bool), reason (str), and optional "
                 "next_steps (str) guidance if continuing."
+                f"{artifact_read_note}"
+                "\n\nVERDICT CONSEQUENCES: "
+                "If should_continue=False, the flow ends. "
+                "If should_continue=True, the orchestrator plans ADDITIONAL targeted agents "
+                "to address your next_steps — a surgical re-plan, not a full restart. "
+                "Be specific in next_steps: name EXACT gaps, not 'improve quality'."
             ),
             guidance=ca.guidance,
             context=[{"original_task": prompt}, {"agent_outputs": artifacts}],
@@ -683,16 +729,26 @@ async def _run_flow_inner(
                                 nd.append(spec_to_node[did])
                     if not nd:
                         nd = [ctrl_node]
+                    round_ctx = [
+                        {"original_task": prompt},
+                        {"critic_verdict": verdict_text},
+                        {"critic_next_steps": verdict.next_steps or ""},
+                    ]
+                    if save_dir:
+                        round_ctx.append({
+                            "artifact_note": (
+                                f"Your directory: {Path(save_dir) / na.id}/. "
+                                f"Prior artifacts in {save_dir}/*/. "
+                                "Read critic verdict and fix what was flagged."
+                            )
+                        })
                     nid = builder.add_operation(
                         "instruct",
                         branch=nb,
                         depends_on=nd,
                         instruction=na.instruction,
                         guidance=na.guidance,
-                        context=[
-                            {"original_task": prompt},
-                            {"prior_results": artifacts},
-                        ],
+                        context=round_ctx,
                     )
                     spec_to_node[na.id] = nid
                     agent_meta[nid] = {
@@ -752,13 +808,35 @@ async def _run_flow_inner(
         artifacts = [
             f"[{r['id']} ({r['name']})]: {r['response']}" for r in agent_results
         ]
+        artifact_chain_note = ""
+        if save_dir:
+            adirs = [f"{save_dir}/{a.id}/" for a in plan.agents]
+            artifact_chain_note = (
+                f"\n\nARTIFACT CHAIN: Read ALL files in: {', '.join(adirs)}. "
+                "Trace how work flowed through the DAG."
+            )
+        team_synth_note = ""
+        if team_data:
+            team_synth_note = (
+                f"\n\nTEAM MESSAGES: Review inter-agent messages (team {team_data['id']}) "
+                "for coordination context not captured in artifacts."
+            )
+
         synth_node = builder.add_operation(
             "instruct",
             branch=orc_branch,
             depends_on=leaf_nodes,
             instruction=(
                 f"Synthesize all agent outputs into a final cohesive deliverable.\n\n"
-                f"Original task: {prompt}"
+                f"Original task: {prompt}\n\n"
+                "Your synthesis must:\n"
+                "1. RECONCILE: When agents disagree, present both views with evidence.\n"
+                "2. FILL GAPS: Name what no agent covered.\n"
+                "3. TRACE: Show how work flowed through the DAG.\n"
+                "4. HONOR CRITIC: If a critic was in the pipeline, its verdict is authoritative.\n"
+                "5. RESUME: End with branch IDs so the user can follow up with any agent."
+                f"{artifact_chain_note}"
+                f"{team_synth_note}"
             ),
             context=artifacts,
         )
