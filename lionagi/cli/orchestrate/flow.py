@@ -408,8 +408,14 @@ async def _run_flow_inner(
             effort_override=w_effort,
             theme=theme,
         )
-        if cwd:
-            w_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
+        # Per-agent artifact directory: {save_dir}/{agent_id}/
+        agent_cwd = cwd
+        if save_dir:
+            agent_artifact_dir = Path(save_dir) / a.id
+            agent_artifact_dir.mkdir(parents=True, exist_ok=True)
+            agent_cwd = str(agent_artifact_dir)
+        if agent_cwd:
+            w_imodel.endpoint.config.kwargs["repo"] = Path(agent_cwd)
         wname = all_agent_names[idx]
         w_system = None
         if team_data:
@@ -429,7 +435,10 @@ async def _run_flow_inner(
             w_system = (
                 "You are a leaf worker agent. Complete your assigned task "
                 "directly. You may read files, use tools, and run commands "
-                "as needed. Do NOT spawn sub-agents or delegate further."
+                "as needed. Do NOT spawn sub-agents or delegate further. "
+                "IMPORTANT: Write all output artifacts as files in your "
+                "current working directory. Do not just print to stdout — "
+                "write .md files that downstream agents can read."
             )
         wb = Branch(
             chat_model=w_imodel,
@@ -466,13 +475,21 @@ async def _run_flow_inner(
                     dep_nodes.append(spec_to_node[dep_id])
         if not dep_nodes:
             dep_nodes = [plan_root]
+        ctx = [{"original_task": prompt}]
+        if save_dir:
+            artifact_note = f"Your artifact directory: {Path(save_dir) / a.id}/ — write ALL output files here."
+            if a.depends_on:
+                dep_dirs = {d: str(Path(save_dir) / d) for d in a.depends_on}
+                artifact_note += f" Prior agent artifacts: {dep_dirs}"
+            ctx.append({"artifact_instructions": artifact_note})
+
         node_id = builder.add_operation(
             "instruct",
             branch=w_branch,
             depends_on=dep_nodes,
             instruction=a.instruction,
             guidance=a.guidance,
-            context=[{"original_task": prompt}],
+            context=ctx,
         )
         spec_to_node[a.id] = node_id
         agent_meta[node_id] = {
