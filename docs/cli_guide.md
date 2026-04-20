@@ -401,12 +401,14 @@ result = await branch.operate(
 
 Thinking traces are folded into `AssistantResponse.metadata["thinking"]` — not yielded as separate messages.
 
-### `branch.instruct()` — Universal structured output
+### `branch.operate()` — Universal structured output
 
-`instruct()` is the unified operation for structured extraction across any endpoint type. It automatically routes based on the model's backend:
+`operate()` is the unified operation for structured extraction across any endpoint type. The middle function auto-selects based on the model's backend:
 
-- **CLI endpoints** (Claude Code, Codex): streams via `run()`, then `parse()` extracts fields
-- **API endpoints** (OpenAI, Anthropic API): delegates to `operate()` with structured output
+- **CLI endpoints** (Claude Code, Codex): streams via `run()`, accumulates assistant text, then `parse()` extracts fields
+- **API endpoints** (OpenAI, Anthropic API): round-trips through `communicate()` with structured output
+
+Pass `middle=...` to override the dispatch explicitly, or `stream_persist=True` / `persist_dir=...` for JSONL chunk logging on CLI runs.
 
 ```python
 from lionagi import Branch, FieldModel
@@ -416,8 +418,8 @@ class Analysis(HashableModel):
     patterns: list[str]
     recommendation: str
 
-result = await branch.instruct(
-    "Analyze the error handling in this module",
+result = await branch.operate(
+    instruction="Analyze the error handling in this module",
     field_models=[FieldModel(Analysis, name="analysis")],
     reason=True,  # adds a 'reason' field to the output
 )

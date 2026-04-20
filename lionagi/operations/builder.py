@@ -50,7 +50,7 @@ class OperationGraphBuilder:
         ...     builder.expand_from_result(
         ...         result.instruct_model,
         ...         source_node_id=builder.last_operation_id,
-        ...         operation="instruct"
+        ...         operation="operate"
         ...     )
         >>>
         >>> # Get expanded graph and continue execution

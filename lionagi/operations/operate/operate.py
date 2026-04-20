@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import warnings
-from typing import TYPE_CHECKING, Literal, Union
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 from pydantic import BaseModel, JsonValue
 
@@ -14,13 +15,16 @@ from lionagi.protocols.generic import Progression
 from lionagi.protocols.messages import Instruction, SenderRecipient
 
 from ..fields import Instruct
-from ..types import ActionParam, ChatParam, HandleValidation, ParseParam
+from ..types import ActionParam, ChatParam, HandleValidation, ParseParam, RunParam
 
 if TYPE_CHECKING:
     from lionagi.service.imodel import iModel
     from lionagi.session.branch import Branch, ToolRef
 
     from .operative import Operative
+
+# middle protocol: (branch, instruction, chat_param, parse_param, clear_messages, *, skip_validation, request_fields) -> Any
+Middle = Callable[..., Awaitable[Any]]
 
 
 def prepare_operate_kw(
@@ -55,6 +59,9 @@ def prepare_operate_kw(
     request_model: type[BaseModel] = None,  # deprecated
     include_token_usage_to_model: bool = False,
     clear_messages: bool = False,
+    stream_persist: bool = False,
+    persist_dir: str | None = None,
+    middle: Middle | None = None,
     **kwargs,
 ) -> dict:
     # Handle deprecated parameters
@@ -142,8 +149,15 @@ def prepare_operate_kw(
 
     final_response_format = operative.response_type if operative else response_format
 
-    # Build contexts
-    chat_param = ChatParam(
+    # Choose ChatParam vs RunParam. RunParam is required when the middle
+    # streams via run() (CLI endpoints, explicit stream_persist, or when
+    # caller passes a middle that needs persist_dir). Defaulting to
+    # RunParam for CLI endpoints keeps the call sites free of path plumbing.
+    is_cli = bool(getattr(chat_model, "is_cli", False))
+    use_run_param = is_cli or stream_persist or persist_dir is not None
+
+    param_cls = RunParam if use_run_param else ChatParam
+    param_kw = dict(
         guidance=instruct.guidance,
         context=instruct.context,
         sender=sender or branch.user or "user",
@@ -158,6 +172,11 @@ def prepare_operate_kw(
         imodel=chat_model,
         imodel_kw=kwargs,
     )
+    if use_run_param:
+        param_kw["stream_persist"] = stream_persist
+        if persist_dir is not None:
+            param_kw["persist_dir"] = persist_dir
+    chat_param = param_cls(**param_kw)
 
     parse_param = None
     if final_response_format and not skip_validation:
@@ -194,6 +213,7 @@ def prepare_operate_kw(
         "skip_validation": skip_validation,
         "clear_messages": clear_messages,
         "operative": operative,
+        "middle": middle,
     }
 
 
@@ -210,6 +230,7 @@ async def operate(
     reason: bool = False,
     field_models: list[FieldModel | Spec] | None = None,
     operative: Union["Operative", None] = None,
+    middle: Middle | None = None,
 ) -> BaseModel | dict | str | None:
     """Execute operation with optional action handling.
 
@@ -289,9 +310,19 @@ async def operate(
             _cctx = _cctx.with_updates(response_format=response_fmt)
             _pctx = _pctx.with_updates(response_format=response_fmt)
 
-    from ..communicate.communicate import communicate
+    if middle is None:
+        if isinstance(_cctx, RunParam) or getattr(
+            branch.chat_model, "is_cli", False
+        ):
+            from ..run.run import run_and_collect
 
-    result = await communicate(
+            middle = run_and_collect
+        else:
+            from ..communicate.communicate import communicate
+
+            middle = communicate
+
+    result = await middle(
         branch,
         instruction,
         _cctx,

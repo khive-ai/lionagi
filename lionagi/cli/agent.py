@@ -116,14 +116,14 @@ async def _run_agent(
 
     persist_dir = LIONAGI_HOME / "logs" / "agents" / provider
 
-    instruct_kw = dict(
+    operate_kw = dict(
         stream_persist=True,
         persist_dir=str(persist_dir),
     )
     if cwd:
-        instruct_kw["repo"] = cwd
+        operate_kw["repo"] = cwd
 
-    res = await branch.instruct(prompt, **instruct_kw)
+    res = await branch.operate(instruction=prompt, **operate_kw)
 
     save_last_branch_pointer(provider, str(branch.id))
 

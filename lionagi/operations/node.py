@@ -1,13 +1,10 @@
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, PrivateAttr
 
-from lionagi.protocols.types import ID, Event, EventStatus, Node
-
-if TYPE_CHECKING:
-    from lionagi.session.branch import Branch
+from lionagi.protocols.types import ID, Event, Node
 
 BranchOperations = Literal[
     "chat",
@@ -20,7 +17,6 @@ BranchOperations = Literal[
     "interpret",
     "act",
     "ReActStream",
-    "instruct",
 ]
 
 logger = logging.getLogger("operation")

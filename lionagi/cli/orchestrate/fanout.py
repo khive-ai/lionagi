@@ -223,7 +223,7 @@ async def _run_fanout_inner(
     roster_guidance = "; ".join(worker_descriptions)
 
     root = builder.add_operation(
-        "instruct",
+        "operate",
         branch=orc_branch,
         instruct=Instruct(
             instruction=(
@@ -330,7 +330,7 @@ async def _run_fanout_inner(
             a.instruct.context or "",
         ]
         node = builder.add_operation(
-            "instruct",
+            "operate",
             branch=worker_branch,
             depends_on=[root],
             instruction=a.instruct.instruction,
@@ -407,7 +407,7 @@ async def _run_fanout_inner(
         )
 
         synth_node = builder.add_operation(
-            "instruct",
+            "operate",
             branch=orc_branch,
             depends_on=fanned_nodes,
             instruction=synth_instruction,

@@ -28,9 +28,8 @@ Style: factual, clear, precise. No fluff. Evidence over speculation.
 | Operation | What it does |
 |-----------|-------------|
 | `branch.chat` | Simple LLM call — input → response |
-| `branch.instruct` | Universal structured output — routes CLI (stream + parse) or API (operate) automatically |
 | `branch.run` | Streaming CLI operation — async generator yielding typed messages |
-| `branch.operate` | Structured extraction with tool calling and iteration |
+| `branch.operate` | Universal structured operation — routes to run-and-collect (CLI) or communicate (API); supports tool calling, field models, stream persist |
 | `branch.parse` | Extract structured data from text into Pydantic models |
 | `branch.ReAct` | Think-act-observe reasoning loops with tools |
 | `branch.act` | Execute tool actions against the environment |

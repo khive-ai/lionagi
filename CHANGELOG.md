@@ -3,6 +3,16 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+- `branch.operate()` absorbs `branch.instruct()` — the only real difference was the middle function (`communicate` for API, `run`-and-collect for CLI). `operate` now accepts a `middle` callable and auto-selects based on `chat_model.is_cli`. Added `stream_persist` and `persist_dir` kwargs for CLI streaming.
+- `run_and_collect()` added to `lionagi.operations.run.run` — stream via `run()`, accumulate assistant text, optionally parse. Drop-in `communicate`-compatible middle for CLI endpoints.
+- Orchestrator DAG nodes (`li o flow`, `li o fanout`) now add `"operate"` operations; prior `"instruct"` name removed.
+
+### Removed
+- `branch.instruct()` method and `lionagi.operations.instruct` module. Callers migrate to `branch.operate(instruction=..., stream_persist=..., persist_dir=...)`.
+
 ## [0.22.5] - 2026-04-19
 
 ### Fixed

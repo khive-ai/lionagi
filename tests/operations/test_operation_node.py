@@ -254,7 +254,6 @@ async def test_operation_invoke_all_operations():
     branch.translate = AsyncMock(return_value="translated_text")
     branch.interpret = AsyncMock(return_value={"interpretation": "complete"})
     branch.act = AsyncMock(return_value={"action": "taken"})
-    branch.instruct = AsyncMock(return_value="instruction_result")
 
     # Mock get_operation to return the correct async method
     def mock_get_operation(operation: str):
@@ -268,7 +267,6 @@ async def test_operation_invoke_all_operations():
             "translate": branch.translate,
             "interpret": branch.interpret,
             "act": branch.act,
-            "instruct": branch.instruct,
         }
         return operation_map.get(operation)
 
@@ -284,7 +282,6 @@ async def test_operation_invoke_all_operations():
         ("translate", "translated_text"),
         ("interpret", {"interpretation": "complete"}),
         ("act", {"action": "taken"}),
-        ("instruct", "instruction_result"),
     ]
 
     for op_type, expected_response in operations_and_expected:

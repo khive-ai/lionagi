@@ -280,7 +280,7 @@ async def _run_flow_inner(
         )
 
     plan_root = builder.add_operation(
-        "instruct",
+        "operate",
         branch=orc_branch,
         instruct=Instruct(
             instruction=(
@@ -519,7 +519,7 @@ async def _run_flow_inner(
             ctx.append({"effort_guidance": emap.get(w_effort, "")})
 
         node_id = builder.add_operation(
-            "instruct",
+            "operate",
             branch=w_branch,
             depends_on=dep_nodes,
             instruction=a.instruction,
@@ -606,7 +606,7 @@ async def _run_flow_inner(
             )
 
         ctrl_node = builder.add_operation(
-            "instruct",
+            "operate",
             branch=c_branch,
             depends_on=dep_nodes,
             instruction=(
@@ -672,7 +672,7 @@ async def _run_flow_inner(
                 )
 
             replan_node = builder.add_operation(
-                "instruct",
+                "operate",
                 branch=orc_branch,
                 depends_on=[ctrl_node],
                 instruct=Instruct(
@@ -743,7 +743,7 @@ async def _run_flow_inner(
                             )
                         })
                     nid = builder.add_operation(
-                        "instruct",
+                        "operate",
                         branch=nb,
                         depends_on=nd,
                         instruction=na.instruction,
@@ -823,7 +823,7 @@ async def _run_flow_inner(
             )
 
         synth_node = builder.add_operation(
-            "instruct",
+            "operate",
             branch=orc_branch,
             depends_on=leaf_nodes,
             instruction=(
