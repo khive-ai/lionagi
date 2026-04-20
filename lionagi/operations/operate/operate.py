@@ -356,12 +356,15 @@ async def operate(
     if not invoke_actions:
         return result
 
-    # Handle actions
-    requests = (
-        getattr(result, "action_requests", None)
-        if model_class
-        else result.get("action_requests", None)
-    )
+    # Handle actions. Middle may return a BaseModel (structured), a dict
+    # (fuzzy-parsed), or a raw str (CLI text path with no response_format).
+    # Only dicts and BaseModels can carry action_requests — raw text can't.
+    if model_class:
+        requests = getattr(result, "action_requests", None)
+    elif isinstance(result, dict):
+        requests = result.get("action_requests")
+    else:
+        requests = None
 
     action_response_models = None
     if action_param and requests is not None:
@@ -378,8 +381,11 @@ async def operate(
     if not action_response_models:
         return result
 
-    if not model_class:  # Dict response
-        result.update({"action_responses": action_response_models})
+    if not model_class:
+        # Dict response: merge action_responses in. Raw-text results stay
+        # untouched (text has no structured slot for action_responses).
+        if isinstance(result, dict):
+            result["action_responses"] = action_response_models
         return result
 
     # If we have model_class, we must have operative (created at line 268)

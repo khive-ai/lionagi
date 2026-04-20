@@ -13,7 +13,6 @@ BranchOperations = Literal[
     "parse",
     "ReAct",
     "select",
-    "translate",
     "interpret",
     "act",
     "ReActStream",
