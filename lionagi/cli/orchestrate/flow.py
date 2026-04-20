@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
 
@@ -17,6 +16,7 @@ from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import list_agents, load_agent_profile
+from .._logging import hint, log_error, progress
 from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
@@ -319,8 +319,7 @@ async def _run_flow_inner(
         reason=True,
     )
 
-    if not verbose:
-        print("Planning DAG...", file=sys.stderr)
+    progress("Planning DAG...")
 
     result0 = await session.flow(builder.get_graph())
     t_plan = time.monotonic() - t0
@@ -333,21 +332,16 @@ async def _run_flow_inner(
 
     if max_agents > 0 and len(plan.agents) > max_agents:
         plan.agents = plan.agents[:max_agents]
-        if not verbose:
-            print(
-                f"Plan truncated to {max_agents} agents (--max-agents)", file=sys.stderr
-            )
+        progress(f"Plan truncated to {max_agents} agents (--max-agents)")
 
-    if not verbose:
-        dag_lines = []
-        for a in plan.agents:
-            deps = f" ← {','.join(a.depends_on)}" if a.depends_on else ""
-            dag_lines.append(f"{a.id}:{a.role}{deps}")
-        print(
-            f"Plan done ({t_plan:.1f}s): {len(plan.agents)} agents: "
-            f"{' | '.join(dag_lines)}",
-            file=sys.stderr,
-        )
+    dag_lines = []
+    for a in plan.agents:
+        deps = f" ← {','.join(a.depends_on)}" if a.depends_on else ""
+        dag_lines.append(f"{a.id}:{a.role}{deps}")
+    progress(
+        f"Plan done ({t_plan:.1f}s): {len(plan.agents)} agents: "
+        f"{' | '.join(dag_lines)}"
+    )
 
     if plan.synthesis and not with_synthesis:
         with_synthesis = True
@@ -411,8 +405,7 @@ async def _run_flow_inner(
     team_data = None
     if team_name:
         team_data = _create_fanout_team(team_name, all_agent_names)
-        if not verbose:
-            print(f"Team '{team_name}' created ({team_data['id']})", file=sys.stderr)
+        progress(f"Team '{team_name}' created ({team_data['id']})")
 
     # ── Helper: resolve model/system/branch for an agent spec ─────
     def _make_worker_branch(a: FlowAgentSpec, idx: int) -> tuple[Branch, str]:
@@ -479,12 +472,8 @@ async def _run_flow_inner(
     regular_agents = [a for a in plan.agents if not a.control]
     control_agents = [a for a in plan.agents if a.control]
 
-    if not verbose:
-        ctrl_note = f" ({len(control_agents)} control)" if control_agents else ""
-        print(
-            f"Executing DAG: {len(regular_agents)} agents{ctrl_note}...",
-            file=sys.stderr,
-        )
+    ctrl_note = f" ({len(control_agents)} control)" if control_agents else ""
+    progress(f"Executing DAG: {len(regular_agents)} agents{ctrl_note}...")
 
     # Build regular agent nodes
     for idx, a in enumerate(plan.agents):
@@ -536,13 +525,12 @@ async def _run_flow_inner(
 
     # Progress callback for real-time status
     def _progress(op_id, name, status, elapsed):
-        if not verbose:
-            if status == "started":
-                print(f"  ▶ {name} started", file=sys.stderr)
-            elif status == "completed":
-                print(f"  ✓ {name} done ({elapsed:.1f}s)", file=sys.stderr)
-            elif status == "failed":
-                print(f"  ✗ {name} FAILED ({elapsed:.1f}s)", file=sys.stderr)
+        if status == "started":
+            progress(f"  ▶ {name} started")
+        elif status == "completed":
+            progress(f"  ✓ {name} done ({elapsed:.1f}s)")
+        elif status == "failed":
+            progress(f"  ✗ {name} FAILED ({elapsed:.1f}s)")
 
     # Execute regular agents
     t_exec = time.monotonic()
@@ -572,8 +560,7 @@ async def _run_flow_inner(
             }
         )
 
-    if not verbose:
-        print(f"DAG done ({t_exec_elapsed:.1f}s).", file=sys.stderr)
+    progress(f"DAG done ({t_exec_elapsed:.1f}s).")
 
     # ── Execute control nodes: instruct with prior results ─────────
     max_rounds = 3
@@ -594,8 +581,7 @@ async def _run_flow_inner(
             all_node_ids = list(spec_to_node.values())
             dep_nodes = all_node_ids[-1:] if all_node_ids else [plan_root]
 
-        if not verbose:
-            print(f"Control [{ca.id}]: evaluating...", file=sys.stderr)
+        progress(f"Control [{ca.id}]: evaluating...")
 
         artifact_read_note = ""
         if save_dir and ca.depends_on:
@@ -648,28 +634,17 @@ async def _run_flow_inner(
             }
         )
 
-        if not verbose:
-            cont = verdict.should_continue if verdict else False
-            print(
-                f"Control [{ca.id}] done ({t_ctrl_elapsed:.1f}s): " f"continue={cont}",
-                file=sys.stderr,
-            )
+        cont = verdict.should_continue if verdict else False
+        progress(f"Control [{ca.id}] done ({t_ctrl_elapsed:.1f}s): continue={cont}")
 
         # ── If verdict says continue: orchestrator re-plans ────────
         if verdict and verdict.should_continue:
             round_num += 1
             if round_num >= max_rounds:
-                if not verbose:
-                    print(
-                        f"Max rounds ({max_rounds}) reached, stopping.", file=sys.stderr
-                    )
+                progress(f"Max rounds ({max_rounds}) reached, stopping.")
                 break
 
-            if not verbose:
-                print(
-                    f"Round {round_num + 1}: orchestrator re-planning...",
-                    file=sys.stderr,
-                )
+            progress(f"Round {round_num + 1}: orchestrator re-planning...")
 
             replan_node = builder.add_operation(
                 "operate",
@@ -703,12 +678,8 @@ async def _run_flow_inner(
             next_plan: FlowPlan | None = getattr(replan_res, "plan", None)
 
             if next_plan and next_plan.agents:
-                if not verbose:
-                    ids = ", ".join(a.id for a in next_plan.agents)
-                    print(
-                        f"Re-plan: {len(next_plan.agents)} new agents: {ids}",
-                        file=sys.stderr,
-                    )
+                ids = ", ".join(a.id for a in next_plan.agents)
+                progress(f"Re-plan: {len(next_plan.agents)} new agents: {ids}")
 
                 # Build and execute new agents
                 new_names = []
@@ -783,19 +754,14 @@ async def _run_flow_inner(
                             "time_ms": t_new_elapsed * 1000,
                         }
                     )
-                if not verbose:
-                    print(
-                        f"Round {round_num + 1} done ({t_new_elapsed:.1f}s).",
-                        file=sys.stderr,
-                    )
+                progress(f"Round {round_num + 1} done ({t_new_elapsed:.1f}s).")
 
     # ── Synthesis ────────────────────────────────────────────────────
     synthesis_result = None
     if with_synthesis and agent_results:
         synth_spec = synthesis_model or model_spec
         synth_label = str(parse_model_spec(synth_spec))
-        if not verbose:
-            print(f"Synthesis [{synth_label}]...", file=sys.stderr)
+        progress(f"Synthesis [{synth_label}]...")
 
         all_node_ids = set(spec_to_node.values())
         depended_on = set()
@@ -849,8 +815,7 @@ async def _run_flow_inner(
             "response": str(synth_res) if synth_res is not None else "(no response)",
             "time_ms": t_synth_elapsed * 1000,
         }
-        if not verbose:
-            print(f"Synthesis done ({t_synth_elapsed:.1f}s).", file=sys.stderr)
+        progress(f"Synthesis done ({t_synth_elapsed:.1f}s).")
 
     # ── Output ───────────────────────────────────────────────────────
     if output_format == "json":
@@ -867,8 +832,7 @@ async def _run_flow_inner(
             p.write_text(r["response"])
         if synthesis_result:
             (save_path / "synthesis.md").write_text(synthesis_result["response"])
-        if not verbose:
-            print(f"Saved to {save_path}", file=sys.stderr)
+        progress(f"Saved to {save_path}")
 
     if team_data:
         _post_results_to_team(
@@ -897,12 +861,11 @@ async def _run_flow_inner(
         )
 
     t_total = time.monotonic() - t0
-    if not verbose:
-        print(f"\nTotal: {t_total:.1f}s", file=sys.stderr)
+    progress(f"\nTotal: {t_total:.1f}s")
 
-    print(f'\n[orchestrator] li agent -r {orc_branch_id} "..."', file=sys.stderr)
+    hint(f'\n[orchestrator] li agent -r {orc_branch_id} "..."')
     for provider, bid, bname in branch_ids:
         if bid != orc_branch_id:
-            print(f'[{bname}] li agent -r {bid} "..."', file=sys.stderr)
+            hint(f'[{bname}] li agent -r {bid} "..."')
 
     return output

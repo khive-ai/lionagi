@@ -10,6 +10,7 @@ import sys
 from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.ln.concurrency import run_async
 
+from .._logging import hint, log_error
 from .._providers import add_common_cli_args
 from .fanout import _run_fanout
 from .flow import _run_flow
@@ -213,10 +214,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
     if args.orch_command == "fanout":
         has_model = args.model is not None or args.agent is not None
         if not has_model:
-            print(
-                "error: model or --agent is required",
-                file=sys.stderr,
-            )
+            log_error("model or --agent is required")
             return 1
 
         synth = args.with_synthesis
@@ -247,7 +245,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 )
             )
         except LionTimeoutError as e:
-            print(str(e), file=sys.stderr)
+            log_error(str(e))
             return 1
         if not args.verbose:
             print(output)
@@ -256,12 +254,12 @@ def run_orchestrate(args: argparse.Namespace) -> int:
     if args.orch_command == "flow":
         has_model = args.model is not None or args.agent is not None
         if not has_model:
-            print("error: model or --agent is required", file=sys.stderr)
+            log_error("model or --agent is required")
             return 1
 
         background = getattr(args, "background", False)
         if background and not args.save:
-            print("error: --background requires --save", file=sys.stderr)
+            log_error("--background requires --save")
             return 1
 
         if background:
@@ -273,9 +271,9 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
-            print(f"Flow running in background (PID {proc.pid})", file=sys.stderr)
-            print(f"Output: {args.save}/flow.log", file=sys.stderr)
-            print(f"Monitor: tail -f {args.save}/flow.log", file=sys.stderr)
+            hint(f"Flow running in background (PID {proc.pid})")
+            hint(f"Output: {args.save}/flow.log")
+            hint(f"Monitor: tail -f {args.save}/flow.log")
             return 0
 
         synth = args.with_synthesis
@@ -307,11 +305,11 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 )
             )
         except LionTimeoutError as e:
-            print(str(e), file=sys.stderr)
+            log_error(str(e))
             return 1
         if not args.verbose:
             print(output)
         return 0
 
-    print(f"Unknown orchestrate command: {args.orch_command}", file=sys.stderr)
+    log_error(f"Unknown orchestrate command: {args.orch_command}")
     return 1

@@ -15,10 +15,10 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import logging
 import signal
 import sys
 
+from ._logging import configure_cli_logging
 from .agent import add_agent_subparser, run_agent
 from .orchestrate import add_orchestrate_subparser, run_orchestrate
 from .team import add_team_subparser, run_team
@@ -27,13 +27,12 @@ from .team import add_team_subparser, run_team
 def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
-    # Check for verbose early to set log level before anything runs
+    # Resolve verbose once before any CLI code emits. argparse happens
+    # below but we need the flag now to configure log levels.
     _argv = argv if argv is not None else sys.argv[1:]
-    if "-v" not in _argv and "--verbose" not in _argv:
-        logging.getLogger("claude-cli").setLevel(logging.WARNING)
-        logging.getLogger("codex-cli").setLevel(logging.WARNING)
-        logging.getLogger("gemini-cli").setLevel(logging.WARNING)
-        logging.getLogger("lionagi").setLevel(logging.WARNING)
+    verbose = "-v" in _argv or "--verbose" in _argv
+    configure_cli_logging(verbose)
+
     parser = argparse.ArgumentParser(
         prog="li",
         description="lionagi command line — spawn subagents via any CLI-backed provider.",

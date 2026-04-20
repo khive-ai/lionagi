@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import load_agent_profile
+from .._logging import hint, log_error, progress
 from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
 from ._common import (
@@ -85,7 +85,7 @@ async def _run_fanout(
             msg = f"Fanout timed out after {timeout}s"
             if n_saved:
                 msg += f" ({n_saved} worker results already saved to {save_dir})"
-            print(msg, file=sys.stderr)
+            log_error(msg)
             raise LionTimeoutError(msg)
         return result
     return await _run_fanout_inner(
@@ -186,12 +186,10 @@ async def _run_fanout_inner(
             worker_names.append(f"worker-{i + 1}")
     if team_name:
         team_data = _create_fanout_team(team_name, worker_names)
-        if not verbose:
-            print(
-                f"Team '{team_name}' created ({team_data['id']}): "
-                f"{', '.join(worker_names)}",
-                file=sys.stderr,
-            )
+        progress(
+            f"Team '{team_name}' created ({team_data['id']}): "
+            f"{', '.join(worker_names)}"
+        )
 
     # Apply cwd to endpoint if specified
     if cwd:
@@ -254,12 +252,10 @@ async def _run_fanout_inner(
         reason=True,
     )
 
-    if not verbose:
-        print(
-            f"Phase 1: Orchestrator decomposing task into "
-            f"{len(worker_model_list)} agent requests...",
-            file=sys.stderr,
-        )
+    progress(
+        f"Phase 1: Orchestrator decomposing task into "
+        f"{len(worker_model_list)} agent requests..."
+    )
 
     result1 = await session.flow(builder.get_graph())
     t_decompose = time.monotonic() - t0
@@ -271,11 +267,7 @@ async def _run_fanout_inner(
     if not agents:
         return "Orchestrator produced no agent requests."
 
-    if not verbose:
-        print(
-            f"Phase 1 done ({t_decompose:.1f}s): {len(agents)} requests generated.",
-            file=sys.stderr,
-        )
+    progress(f"Phase 1 done ({t_decompose:.1f}s): {len(agents)} requests generated.")
 
     # ── Phase 2: Fan out ──────────────────────────────────────────────
     default_ms = parse_model_spec(model_spec)
@@ -340,12 +332,8 @@ async def _run_fanout_inner(
         fanned_nodes.append(node)
         fanned_labels.append(worker_model)
 
-    if not verbose:
-        labels = ", ".join(fanned_labels)
-        print(
-            f"Phase 2: Fanning out to {len(fanned_nodes)} workers: [{labels}]",
-            file=sys.stderr,
-        )
+    labels = ", ".join(fanned_labels)
+    progress(f"Phase 2: Fanning out to {len(fanned_nodes)} workers: [{labels}]")
 
     t1 = time.monotonic()
     conc = max_concurrent if max_concurrent > 0 else len(fanned_nodes)
@@ -373,8 +361,7 @@ async def _run_fanout_inner(
         )
         contexts.append(response_text)
 
-    if not verbose:
-        print(f"Phase 2 done ({t_fanout:.1f}s).", file=sys.stderr)
+    progress(f"Phase 2 done ({t_fanout:.1f}s).")
 
     # ── Incremental save: persist worker results immediately ─────────
     if save_dir:
@@ -383,11 +370,7 @@ async def _run_fanout_inner(
         for wr in worker_results:
             p = save_path / f"worker_{wr['worker']}.md"
             p.write_text(wr["response"])
-        if not verbose:
-            print(
-                f"Saved {len(worker_results)} worker results to {save_path}",
-                file=sys.stderr,
-            )
+        progress(f"Saved {len(worker_results)} worker results to {save_path}")
     if _shared is not None:
         _shared["saved_workers"] = worker_results
 
@@ -397,8 +380,7 @@ async def _run_fanout_inner(
         synth_spec = synthesis_model or model_spec
         synth_label = str(parse_model_spec(synth_spec))
 
-        if not verbose:
-            print(f"Phase 3: Synthesis [{synth_label}]...", file=sys.stderr)
+        progress(f"Phase 3: Synthesis [{synth_label}]...")
 
         synth_instruction = synthesis_prompt or (
             f"Synthesize the following {len(contexts)} worker responses "
@@ -425,8 +407,7 @@ async def _run_fanout_inner(
             "time_ms": t_synth * 1000,
         }
 
-        if not verbose:
-            print(f"Phase 3 done ({t_synth:.1f}s).", file=sys.stderr)
+        progress(f"Phase 3 done ({t_synth:.1f}s).")
 
     # ── Output ────────────────────────────────────────────────────────
     if output_format == "json":
@@ -447,26 +428,17 @@ async def _run_fanout_inner(
             "total_time_ms": (time.monotonic() - t0) * 1000,
         }
         (save_path / "meta.json").write_text(json_dumps(meta))
-        if not verbose:
-            print(f"Saved to {save_path}", file=sys.stderr)
+        progress(f"Saved to {save_path}")
 
     # ── Post to team ─────────────────────────────────────────────────
     if team_data:
         _post_results_to_team(team_data, worker_results, worker_names, synthesis_result)
-        if not verbose:
-            print(
-                f"\nTeam '{team_data['name']}' ({team_data['id']}): "
-                f"{len(worker_results)} results posted.",
-                file=sys.stderr,
-            )
-            print(
-                f"  li team receive -t {team_data['id']} --as orchestrator",
-                file=sys.stderr,
-            )
-            print(
-                f"  li team show {team_data['id']}",
-                file=sys.stderr,
-            )
+        progress(
+            f"\nTeam '{team_data['name']}' ({team_data['id']}): "
+            f"{len(worker_results)} results posted."
+        )
+        progress(f"  li team receive -t {team_data['id']} --as orchestrator")
+        progress(f"  li team show {team_data['id']}")
 
     # ── Persist all branches ─────────────────────────────────────────
     branch_ids = await persist_session_branches(session)
@@ -477,12 +449,11 @@ async def _run_fanout_inner(
     )
 
     t_total = time.monotonic() - t0
-    if not verbose:
-        print(f"\nTotal: {t_total:.1f}s", file=sys.stderr)
+    progress(f"\nTotal: {t_total:.1f}s")
 
-    print(f'\n[orchestrator] li agent -r {orc_branch_id} "..."', file=sys.stderr)
+    hint(f'\n[orchestrator] li agent -r {orc_branch_id} "..."')
     for provider, bid, bname in branch_ids:
         if bid != orc_branch_id:
-            print(f'[{bname}]      li agent -r {bid} "..."', file=sys.stderr)
+            hint(f'[{bname}]      li agent -r {bid} "..."')
 
     return output

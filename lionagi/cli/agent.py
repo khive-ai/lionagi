@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 
 from lionagi import Branch
 from lionagi.ln.concurrency import run_async
 from lionagi.protocols.generic.log import DataLoggerConfig
 
 from ._agents import load_agent_profile
+from ._logging import hint, log_error
 from ._persistence import (
     LIONAGI_HOME,
     find_branch_json,
@@ -184,10 +184,9 @@ def run_agent(args: argparse.Namespace) -> int:
     """Dispatch agent command."""
     has_model = args.model is not None or args.agent is not None
     if not has_model and not (args.resume or args.continue_last):
-        print(
-            "error: model or --agent is required unless --resume / -r or "
-            "--continue-last / -c is set",
-            file=sys.stderr,
+        log_error(
+            "model or --agent is required unless --resume / -r or "
+            "--continue-last / -c is set"
         )
         return 1
 
@@ -207,7 +206,8 @@ def run_agent(args: argparse.Namespace) -> int:
         )
     )
     if not args.verbose:
+        # The final response is user-facing result output — stdout, not a log.
         print(f"\n{result}" if result is not None else "", flush=True)
 
-    print(f'\n[to resume] li agent -r {branch_id} "..."', file=sys.stderr)
+    hint(f'\n[to resume] li agent -r {branch_id} "..."')
     return 0

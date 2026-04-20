@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from ._logging import log_error, warn
 from ._persistence import LIONAGI_HOME
 
 TEAMS_DIR = LIONAGI_HOME / "teams"
@@ -56,7 +56,7 @@ def _now_iso() -> str:
 def cmd_create(args: argparse.Namespace) -> int:
     members = [m.strip() for m in args.members.split(",") if m.strip()]
     if not members:
-        print("error: --members requires at least one name", file=sys.stderr)
+        log_error("--members requires at least one name")
         return 1
 
     team_id = uuid4().hex[:12]
@@ -121,7 +121,7 @@ def cmd_send(args: argparse.Namespace) -> int:
 
     sender = args.sender or "_cli"
     if sender != "_cli" and sender not in members:
-        print(f"warning: '{sender}' is not a team member", file=sys.stderr)
+        warn(f"'{sender}' is not a team member")
 
     if args.to.lower() == "all":
         recipients = ["*"]
@@ -129,7 +129,7 @@ def cmd_send(args: argparse.Namespace) -> int:
         recipients = [r.strip() for r in args.to.split(",") if r.strip()]
         for r in recipients:
             if r not in members:
-                print(f"warning: '{r}' is not a team member", file=sys.stderr)
+                warn(f"'{r}' is not a team member")
 
     msg = {
         "id": uuid4().hex[:12],
@@ -152,7 +152,7 @@ def cmd_receive(args: argparse.Namespace) -> int:
     me = args.member
 
     if me and me not in data["members"]:
-        print(f"warning: '{me}' is not a member of '{data['name']}'", file=sys.stderr)
+        warn(f"'{me}' is not a member of '{data['name']}'")
 
     msgs = data.get("messages", [])
     unread = []
@@ -242,5 +242,5 @@ def run_team(args: argparse.Namespace) -> int:
         return cmd_send(args)
     if cmd in ("receive", "recv"):
         return cmd_receive(args)
-    print(f"Unknown team command: {cmd}", file=sys.stderr)
+    log_error(f"Unknown team command: {cmd}")
     return 1
