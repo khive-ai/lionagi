@@ -24,6 +24,12 @@ from .orchestrate import add_orchestrate_subparser, run_orchestrate
 from .team import add_team_subparser, run_team
 
 
+def _get_version() -> str:
+    from lionagi.version import __version__
+
+    return __version__
+
+
 def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
@@ -36,6 +42,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="li",
         description="lionagi command line — spawn subagents via any CLI-backed provider.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_get_version()}",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
