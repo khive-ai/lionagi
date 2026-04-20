@@ -90,9 +90,7 @@ async def _run_fanout(
             n_saved = len(_shared.get("saved_workers", []))
             msg = f"Fanout timed out after {timeout}s"
             if n_saved:
-                msg += (
-                    f" ({n_saved} worker results already saved to {env.run.artifact_root})"
-                )
+                msg += f" ({n_saved} worker results already saved to {env.run.artifact_root})"
             log_error(msg)
             raise LionTimeoutError(msg)
         return result
@@ -207,7 +205,9 @@ async def _run_fanout_inner(
     for i, a in enumerate(agents):
         # Pick the model: orchestrator override > profile > default
         wprofile = worker_profiles[i] if i < len(worker_profiles) else None
-        desired_model = a.model or (wprofile.model if wprofile else None) or default_ms.model
+        desired_model = (
+            a.model or (wprofile.model if wprofile else None) or default_ms.model
+        )
         wname = worker_names[i]
 
         w_branch, w_model, _ = build_worker_branch(

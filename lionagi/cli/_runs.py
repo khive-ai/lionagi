@@ -267,7 +267,5 @@ def list_runs(limit: int | None = None) -> list[RunDir]:
                     artifact_root = Path(art)
             except (OSError, json.JSONDecodeError):
                 pass
-        out.append(
-            RunDir(run_id=d.name, state_root=d, artifact_root=artifact_root)
-        )
+        out.append(RunDir(run_id=d.name, state_root=d, artifact_root=artifact_root))
     return out

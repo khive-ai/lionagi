@@ -257,6 +257,7 @@ class DependencyAwareExecutor:
                 branch_name = getattr(branch, "name", None) or ref_id
 
                 import time as _time
+
                 self._op_start_times[operation.id] = _time.monotonic()
 
                 if self.on_progress:
@@ -267,7 +268,9 @@ class DependencyAwareExecutor:
                 operation._branch = branch
                 await operation.invoke()
 
-                elapsed = _time.monotonic() - self._op_start_times.get(operation.id, _time.monotonic())
+                elapsed = _time.monotonic() - self._op_start_times.get(
+                    operation.id, _time.monotonic()
+                )
 
                 # Store results based on status (set by Event.invoke())
                 if operation.execution.status == EventStatus.COMPLETED:
@@ -281,7 +284,9 @@ class DependencyAwareExecutor:
                         self.context.update(operation.response["context"])
 
                     if self.on_progress:
-                        self.on_progress(str(operation.id), branch_name, "completed", elapsed)
+                        self.on_progress(
+                            str(operation.id), branch_name, "completed", elapsed
+                        )
                     if self.verbose:
                         logger.debug("Completed operation: %s (%.1fs)", ref_id, elapsed)
 
@@ -290,11 +295,14 @@ class DependencyAwareExecutor:
                         "error": str(operation.execution.error)
                     }
                     if self.on_progress:
-                        self.on_progress(str(operation.id), branch_name, "failed", elapsed)
+                        self.on_progress(
+                            str(operation.id), branch_name, "failed", elapsed
+                        )
                     if self.verbose:
                         logger.error(
                             "Operation %s failed (%.1fs): %s",
-                            ref_id, elapsed,
+                            ref_id,
+                            elapsed,
                             operation.execution.error,
                         )
 

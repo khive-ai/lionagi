@@ -18,11 +18,7 @@ from lionagi.operations.fields import Instruct
 from .._agents import AgentProfile, list_agents, load_agent_profile
 from .._logging import progress
 from .._providers import parse_model_spec
-from ._common import (
-    _create_fanout_team,
-    _format_result_json,
-    _post_results_to_team,
-)
+from ._common import _create_fanout_team, _format_result_json, _post_results_to_team
 from ._orchestration import (
     EFFORT_GUIDANCE,
     EFFORT_MAP,
@@ -491,11 +487,7 @@ async def _run_flow_inner(
         lines.append("Operations:")
         for op in plan.operations:
             ctrl = " [CONTROL]" if op.control else ""
-            deps = (
-                f"  depends_on: {', '.join(op.depends_on)}"
-                if op.depends_on
-                else ""
-            )
+            deps = f"  depends_on: {', '.join(op.depends_on)}" if op.depends_on else ""
             lines.append(f"  {op.id} → {op.agent_id}{ctrl}")
             lines.append(f"    instruction: {op.instruction[:120]}...")
             if deps:
@@ -519,6 +511,7 @@ async def _run_flow_inner(
 
         if show_graph:
             from lionagi.operations._visualize_graph import visualize_graph
+
             visualize_graph(
                 builder,
                 title=f"Flow DAG — {len(plan.agents)} agents / {len(plan.operations)} ops",
@@ -651,9 +644,7 @@ async def _run_flow_inner(
         a = agent_spec_by_id[op.agent_id]
         b = agents_by_id[op.agent_id]
         p = agent_profile_by_id[op.agent_id]
-        dep_nodes = [
-            op_to_node[d] for d in (op.depends_on or []) if d in op_to_node
-        ]
+        dep_nodes = [op_to_node[d] for d in (op.depends_on or []) if d in op_to_node]
         if not dep_nodes:
             dep_nodes = [plan_root]
         node_id = _add_op_node(op, a, p, b, dep_nodes, op_id_to_agent)
@@ -718,9 +709,7 @@ async def _run_flow_inner(
         artifacts = [
             f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results
         ]
-        dep_nodes = [
-            op_to_node[d] for d in (cop.depends_on or []) if d in op_to_node
-        ]
+        dep_nodes = [op_to_node[d] for d in (cop.depends_on or []) if d in op_to_node]
         if not dep_nodes:
             dep_nodes = list(op_to_node.values())[-1:] or [plan_root]
 
@@ -780,9 +769,7 @@ async def _run_flow_inner(
 
             progress(f"Round {round_num + 1}: orchestrator re-planning...")
 
-            existing_roster = ", ".join(
-                f"{a.id} ({a.role})" for a in plan.agents
-            )
+            existing_roster = ", ".join(f"{a.id} ({a.role})" for a in plan.agents)
             replan_node = builder.add_operation(
                 "operate",
                 branch=orc_branch,
@@ -826,11 +813,7 @@ async def _run_flow_inner(
 
                 base = na.role
                 name_counts[base] = name_counts.get(base, 0) + 1
-                wname = (
-                    f"{base}-{name_counts[base]}"
-                    if name_counts[base] > 1
-                    else base
-                )
+                wname = f"{base}-{name_counts[base]}" if name_counts[base] > 1 else base
                 agent_id_to_name[na.id] = wname
                 all_agent_names.append(wname)
                 nb, nm, np = _build_agent_branch(na)
@@ -868,9 +851,7 @@ async def _run_flow_inner(
                 na = agent_spec_by_id[nop.agent_id]
                 nb = agents_by_id[nop.agent_id]
                 np = agent_profile_by_id[nop.agent_id]
-                nd = [
-                    op_to_node[d] for d in (nop.depends_on or []) if d in op_to_node
-                ]
+                nd = [op_to_node[d] for d in (nop.depends_on or []) if d in op_to_node]
                 if not nd:
                     nd = [ctrl_node]
                 nid = _add_op_node(nop, na, np, nb, nd, op_id_to_agent)
@@ -923,9 +904,7 @@ async def _run_flow_inner(
                 if d in op_to_node:
                     depended_on_nodes.add(op_to_node[d])
         all_op_node_ids = set(op_to_node.values())
-        leaf_nodes = list(all_op_node_ids - depended_on_nodes) or list(
-            all_op_node_ids
-        )
+        leaf_nodes = list(all_op_node_ids - depended_on_nodes) or list(all_op_node_ids)
 
         artifacts = [
             f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results
@@ -1017,6 +996,7 @@ async def _run_flow_inner(
 
     if show_graph:
         from lionagi.operations._visualize_graph import visualize_graph
+
         visualize_graph(
             builder,
             title=f"Flow DAG — {len(plan.agents)} agents (completed)",

@@ -280,6 +280,7 @@ def visualize_graph(
 
     if save_path:
         from pathlib import Path
+
         p = Path(save_path)
         p.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(p, dpi=150, bbox_inches="tight")

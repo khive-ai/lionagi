@@ -314,9 +314,7 @@ async def operate(
             _pctx = _pctx.with_updates(response_format=response_fmt)
 
     if middle is None:
-        if isinstance(_cctx, RunParam) or getattr(
-            branch.chat_model, "is_cli", False
-        ):
+        if isinstance(_cctx, RunParam) or getattr(branch.chat_model, "is_cli", False):
             from ..run.run import run_and_collect
 
             middle = run_and_collect

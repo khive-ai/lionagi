@@ -70,7 +70,9 @@ class CodexCLIEndpoint(CLIEndpoint):
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages")
-        req_dict = {k: v for k, v in req_dict.items() if k in CodexCodeRequest.model_fields}
+        req_dict = {
+            k: v for k, v in req_dict.items() if k in CodexCodeRequest.model_fields
+        }
         req_obj = CodexCodeRequest(messages=messages, **req_dict)
         return {"request": req_obj}, {}
 

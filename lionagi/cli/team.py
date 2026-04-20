@@ -167,10 +167,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     for msg in msgs:
         to_str = msg["to"] if isinstance(msg["to"], str) else ", ".join(msg["to"])
         read_by = _read_by_map(msg.get("read_by"))
-        marker = (
-            "" if not read_by
-            else f"  (read by: {', '.join(read_by)})"
-        )
+        marker = "" if not read_by else f"  (read by: {', '.join(read_by)})"
         ts = msg.get("timestamp", "")[:19]
         op = msg.get("from_op")
         op_str = f" op={op}" if op else ""

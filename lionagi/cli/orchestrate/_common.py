@@ -114,6 +114,7 @@ def _format_result_json(
 
 def _bare_worker_system() -> str:
     from lionagi.session.prompts import LION_SYSTEM_MESSAGE
+
     return LION_SYSTEM_MESSAGE.strip() + "\n\n" + _BARE_WORKER_BODY
 
 
@@ -265,9 +266,7 @@ def _post_results_to_team(
 # ── Session persistence ──────────────────────────────────────────────────
 
 
-def persist_session_branches(
-    session, run: RunDir
-) -> list[tuple[str, str, str]]:
+def persist_session_branches(session, run: RunDir) -> list[tuple[str, str, str]]:
     """Persist all branches in a session into the run's ``branches/`` dir.
 
     Returns ``[(provider, branch_id, branch_name)]`` for each branch

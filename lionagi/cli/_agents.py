@@ -140,6 +140,7 @@ def _parse_profile(name: str, text: str) -> AgentProfile:
     lion_system = bool(frontmatter.get("lion_system", True))
     if lion_system:
         from lionagi.session.prompts import LION_SYSTEM_MESSAGE
+
         body = LION_SYSTEM_MESSAGE.strip() + "\n\n" + body
 
     return AgentProfile(

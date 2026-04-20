@@ -375,9 +375,7 @@ def build_worker_branch(
 
     # Team mode APPENDS the coord section — does not replace the base.
     team_section = team_worker_system(env.team_data, wname)
-    w_system = (
-        f"{base_system}\n\n{team_section}" if team_section else base_system
-    )
+    w_system = f"{base_system}\n\n{team_section}" if team_section else base_system
 
     wb = Branch(
         chat_model=w_imodel,
