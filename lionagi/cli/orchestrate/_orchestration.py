@@ -227,13 +227,13 @@ def build_worker_branch(
         The stable id used for this worker's artifact directory
         (``run.agent_artifact_dir(agent_id)``). In fanout this is the
         pre-assigned worker name; in flow it is the plan-assigned
-        ``FlowAgentSpec.id``.
+        ``FlowAgent.id``.
     role
         The role name used for profile lookup and name dedup
         (``explorer``, ``analyst``, ...). Ignored if ``env.bare``.
     model_override
         If set, overrides the profile/default model. The orchestrator
-        may emit a specific model per worker (``FlowAgentSpec.model``).
+        may emit a specific model per worker (``FlowAgent.model``).
     explicit_name
         If the caller has its own naming scheme (fanout pre-computes),
         pass the name here; we still register it so ``env.all_names``
