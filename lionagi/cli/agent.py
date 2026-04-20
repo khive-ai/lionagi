@@ -13,18 +13,19 @@ from lionagi.protocols.generic.log import DataLoggerConfig
 
 from ._agents import load_agent_profile
 from ._logging import hint, log_error
-from ._persistence import (
-    LIONAGI_HOME,
-    find_branch_json,
-    load_last_branch,
-    save_last_branch_pointer,
-)
 from ._providers import (
     PROVIDER_EFFORT_KWARG,
     PROVIDER_YOLO_KWARGS,
     add_common_cli_args,
     build_chat_model,
     parse_model_spec,
+)
+from ._runs import (
+    RunDir,
+    allocate_run,
+    find_branch,
+    load_last_branch,
+    save_last_branch_pointer,
 )
 
 
@@ -64,10 +65,10 @@ async def _run_agent(
     branch: Branch | None = None
     if continue_last:
         _, branch_id = load_last_branch()
-        _, branch_path = find_branch_json(branch_id)
+        _, branch_path = find_branch(branch_id)
         branch = Branch.from_dict(json.loads(branch_path.read_text()))
     elif resume:
-        _, branch_path = find_branch_json(resume)
+        _, branch_path = find_branch(resume)
         branch = Branch.from_dict(json.loads(branch_path.read_text()))
 
     if model_str is not None:
@@ -114,20 +115,30 @@ async def _run_agent(
     if profile and profile.system_prompt:
         branch.msgs.add_message(system=profile.system_prompt)
 
-    persist_dir = LIONAGI_HOME / "logs" / "agents" / provider
+    run = allocate_run()
+    branch_id = str(branch.id)
 
-    operate_kw = dict(
+    res = await branch.operate(
+        instruction=prompt,
         stream_persist=True,
-        persist_dir=str(persist_dir),
+        persist_dir=str(run.stream_dir),
+        **({"repo": cwd} if cwd else {}),
     )
-    if cwd:
-        operate_kw["repo"] = cwd
 
-    res = await branch.operate(instruction=prompt, **operate_kw)
+    # Final branch snapshot + run manifest
+    run.branch_path(branch_id).write_text(json.dumps(branch.to_dict()))
+    run.write_manifest(
+        {
+            "kind": "agent",
+            "model": model,
+            "provider": provider,
+            "prompt": prompt,
+            "branches": [{"id": branch_id, "provider": provider, "model": model}],
+        }
+    )
+    save_last_branch_pointer(run.run_id, branch_id)
 
-    save_last_branch_pointer(provider, str(branch.id))
-
-    return res or "", provider, str(branch.id)
+    return res or "", provider, branch_id
 
 
 def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:

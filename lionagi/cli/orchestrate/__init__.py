@@ -264,16 +264,21 @@ def run_orchestrate(args: argparse.Namespace) -> int:
 
         if background:
             import subprocess
+            from pathlib import Path as _Path
+
             bg_args = [a for a in sys.argv[1:] if a != "--background"]
+            log_root = _Path(args.save).expanduser()
+            log_root.mkdir(parents=True, exist_ok=True)
+            log_path = log_root / "flow.log"
             proc = subprocess.Popen(
                 [sys.executable, "-m", "lionagi.cli", *bg_args],
-                stdout=open(f"{args.save}/flow.log", "w"),
+                stdout=open(log_path, "w"),
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
             hint(f"Flow running in background (PID {proc.pid})")
-            hint(f"Output: {args.save}/flow.log")
-            hint(f"Monitor: tail -f {args.save}/flow.log")
+            hint(f"Output: {log_path}")
+            hint(f"Monitor: tail -f {log_path}")
             return 0
 
         synth = args.with_synthesis

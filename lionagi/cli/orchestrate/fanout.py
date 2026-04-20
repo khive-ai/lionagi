@@ -16,8 +16,8 @@ from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import load_agent_profile
 from .._logging import hint, log_error, progress
-from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
+from .._runs import RunDir, allocate_run, save_last_branch_pointer
 from ._common import (
     AGENT_REQUEST_FIELDS,
     BARE_WORKER_SYSTEM,
@@ -53,44 +53,11 @@ async def _run_fanout(
     agent_name: str | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
+    run = allocate_run(save_dir=save_dir)
+    run.ensure_artifact_root()
     _shared: dict = {}
 
-    if timeout:
-        with move_on_after(timeout) as cancel_scope:
-            result = await _run_fanout_inner(
-                model_spec,
-                prompt,
-                num_workers=num_workers,
-                workers_str=workers_str,
-                with_synthesis=with_synthesis,
-                synthesis_model=synthesis_model,
-                synthesis_prompt=synthesis_prompt,
-                max_concurrent=max_concurrent,
-                yolo=yolo,
-                verbose=verbose,
-                effort=effort,
-                theme=theme,
-                output_format=output_format,
-                save_dir=save_dir,
-                team_name=team_name,
-                cwd=cwd,
-                agent_name=agent_name,
-                _shared=_shared,
-            )
-        if cancel_scope.cancelled_caught:
-            session = _shared.get("session")
-            if session:
-                await persist_session_branches(session, save_dir)
-            n_saved = len(_shared.get("saved_workers", []))
-            msg = f"Fanout timed out after {timeout}s"
-            if n_saved:
-                msg += f" ({n_saved} worker results already saved to {save_dir})"
-            log_error(msg)
-            raise LionTimeoutError(msg)
-        return result
-    return await _run_fanout_inner(
-        model_spec,
-        prompt,
+    inner_kw = dict(
         num_workers=num_workers,
         workers_str=workers_str,
         with_synthesis=with_synthesis,
@@ -102,12 +69,30 @@ async def _run_fanout(
         effort=effort,
         theme=theme,
         output_format=output_format,
-        save_dir=save_dir,
+        run=run,
         team_name=team_name,
         cwd=cwd,
         agent_name=agent_name,
         _shared=_shared,
     )
+
+    if timeout:
+        with move_on_after(timeout) as cancel_scope:
+            result = await _run_fanout_inner(model_spec, prompt, **inner_kw)
+        if cancel_scope.cancelled_caught:
+            session = _shared.get("session")
+            if session:
+                persist_session_branches(session, run)
+            n_saved = len(_shared.get("saved_workers", []))
+            msg = f"Fanout timed out after {timeout}s"
+            if n_saved:
+                msg += (
+                    f" ({n_saved} worker results already saved to {run.artifact_root})"
+                )
+            log_error(msg)
+            raise LionTimeoutError(msg)
+        return result
+    return await _run_fanout_inner(model_spec, prompt, **inner_kw)
 
 
 async def _run_fanout_inner(
@@ -125,7 +110,7 @@ async def _run_fanout_inner(
     effort: str | None = None,
     theme: str | None = None,
     output_format: str = "text",
-    save_dir: str | None = None,
+    run: RunDir,
     team_name: str | None = None,
     cwd: str | None = None,
     agent_name: str | None = None,
@@ -364,13 +349,9 @@ async def _run_fanout_inner(
     progress(f"Phase 2 done ({t_fanout:.1f}s).")
 
     # ── Incremental save: persist worker results immediately ─────────
-    if save_dir:
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
-        for wr in worker_results:
-            p = save_path / f"worker_{wr['worker']}.md"
-            p.write_text(wr["response"])
-        progress(f"Saved {len(worker_results)} worker results to {save_path}")
+    for wr in worker_results:
+        (run.artifact_root / f"worker_{wr['worker']}.md").write_text(wr["response"])
+    progress(f"Saved {len(worker_results)} worker results to {run.artifact_root}")
     if _shared is not None:
         _shared["saved_workers"] = worker_results
 
@@ -416,19 +397,21 @@ async def _run_fanout_inner(
         output = _format_result_text(worker_results, synthesis_result)
 
     # ── Save synthesis + meta (workers already saved incrementally) ──
-    if save_dir:
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
-        if synthesis_result:
-            (save_path / "synthesis.md").write_text(synthesis_result["response"])
-        meta = {
-            "prompt": prompt,
-            "workers": fanned_labels,
-            "synthesis_model": synthesis_result["model"] if synthesis_result else None,
-            "total_time_ms": (time.monotonic() - t0) * 1000,
-        }
-        (save_path / "meta.json").write_text(json_dumps(meta))
-        progress(f"Saved to {save_path}")
+    if synthesis_result:
+        run.synthesis_path.write_text(synthesis_result["response"])
+    (run.artifact_root / "meta.json").write_text(
+        json_dumps(
+            {
+                "prompt": prompt,
+                "workers": fanned_labels,
+                "synthesis_model": (
+                    synthesis_result["model"] if synthesis_result else None
+                ),
+                "total_time_ms": (time.monotonic() - t0) * 1000,
+            }
+        )
+    )
+    progress(f"Saved to {run.artifact_root}")
 
     # ── Post to team ─────────────────────────────────────────────────
     if team_data:
@@ -440,13 +423,22 @@ async def _run_fanout_inner(
         progress(f"  li team receive -t {team_data['id']} --as orchestrator")
         progress(f"  li team show {team_data['id']}")
 
-    # ── Persist all branches ─────────────────────────────────────────
-    branch_ids = await persist_session_branches(session)
+    # ── Persist all branches + run manifest ──────────────────────────
+    branch_ids = persist_session_branches(session, run)
     orc_branch_id = str(orc_branch.id)
-    save_last_branch_pointer(
-        orc_branch.chat_model.endpoint.config.provider,
-        orc_branch_id,
+    run.write_manifest(
+        {
+            "kind": "fanout",
+            "prompt": prompt,
+            "model_spec": model_spec,
+            "orchestrator_branch_id": orc_branch_id,
+            "branches": [
+                {"id": bid, "provider": prov, "name": bname}
+                for prov, bid, bname in branch_ids
+            ],
+        }
     )
+    save_last_branch_pointer(run.run_id, orc_branch_id)
 
     t_total = time.monotonic() - t0
     progress(f"\nTotal: {t_total:.1f}s")

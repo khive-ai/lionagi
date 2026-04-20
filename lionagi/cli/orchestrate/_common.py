@@ -5,12 +5,11 @@
 from __future__ import annotations
 
 from lionagi import FieldModel, json_dumps
-from lionagi.ln import acreate_path
 from lionagi.models import HashableModel
 from lionagi.operations.fields import Instruct
 
 from .._agents import AgentProfile, load_agent_profile
-from .._persistence import LIONAGI_HOME
+from .._runs import RunDir
 from ..team import _now_iso, _save_team
 
 # ── Agent request model (structured output from orchestrator) ─────────────
@@ -213,17 +212,21 @@ def _resolve_worker_spec(
         return token, None
 
 
-async def persist_session_branches(session) -> list[tuple[str, str, str]]:
-    """Persist all branches in a session. Returns [(provider, branch_id, name)]."""
-    branch_ids = []
+def persist_session_branches(
+    session, run: RunDir
+) -> list[tuple[str, str, str]]:
+    """Persist all branches in a session into the run's ``branches/`` dir.
+
+    Returns ``[(provider, branch_id, branch_name)]`` for each branch
+    written. Synchronous: each snapshot is a single ``write_text`` and
+    there is no gain from async I/O here; removing it also lets callers
+    invoke from sync contexts (e.g. timeout-cancel paths).
+    """
+    run.ensure_state_dirs()
+    branch_ids: list[tuple[str, str, str]] = []
     for branch in session.branches:
         provider = branch.chat_model.endpoint.config.provider
         branch_id = str(branch.id)
-        bp = await acreate_path(
-            directory=LIONAGI_HOME / "logs" / "agents" / provider,
-            filename=branch_id,
-            file_exist_ok=True,
-        )
-        await bp.write_text(json_dumps(branch.to_dict()))
+        run.branch_path(branch_id).write_text(json_dumps(branch.to_dict()))
         branch_ids.append((provider, branch_id, branch.name))
     return branch_ids

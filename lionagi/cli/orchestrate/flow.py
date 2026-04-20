@@ -15,10 +15,10 @@ from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.fields import Instruct
 from lionagi.protocols.generic.log import DataLoggerConfig
 
-from .._agents import list_agents, load_agent_profile
+from .._agents import AgentProfile, list_agents, load_agent_profile
 from .._logging import hint, log_error, progress
-from .._persistence import save_last_branch_pointer
 from .._providers import build_imodel_from_spec, parse_model_spec
+from .._runs import RunDir, allocate_run, save_last_branch_pointer
 from ._common import (
     BARE_WORKER_SYSTEM,
     TEAM_WORKER_SYSTEM,
@@ -118,34 +118,10 @@ async def _run_flow(
     show_graph: bool = False,
 ) -> str:
     """Auto-DAG flow: orchestrator plans DAG → engine executes with deps."""
-    if timeout:
-        with move_on_after(timeout) as cancel_scope:
-            result = await _run_flow_inner(
-                model_spec,
-                prompt,
-                with_synthesis=with_synthesis,
-                synthesis_model=synthesis_model,
-                max_concurrent=max_concurrent,
-                yolo=yolo,
-                verbose=verbose,
-                effort=effort,
-                theme=theme,
-                output_format=output_format,
-                save_dir=save_dir,
-                team_name=team_name,
-                cwd=cwd,
-                agent_name=agent_name,
-                bare=bare,
-                max_agents=max_agents,
-                dry_run=dry_run,
-                show_graph=show_graph,
-            )
-        if cancel_scope.cancelled_caught:
-            raise LionTimeoutError(f"Flow timed out after {timeout}s")
-        return result
-    return await _run_flow_inner(
-        model_spec,
-        prompt,
+    run = allocate_run(save_dir=save_dir)
+    run.ensure_artifact_root()
+
+    inner_kw = dict(
         with_synthesis=with_synthesis,
         synthesis_model=synthesis_model,
         max_concurrent=max_concurrent,
@@ -154,7 +130,7 @@ async def _run_flow(
         effort=effort,
         theme=theme,
         output_format=output_format,
-        save_dir=save_dir,
+        run=run,
         team_name=team_name,
         cwd=cwd,
         agent_name=agent_name,
@@ -163,12 +139,20 @@ async def _run_flow(
         dry_run=dry_run,
         show_graph=show_graph,
     )
+    if timeout:
+        with move_on_after(timeout) as cancel_scope:
+            result = await _run_flow_inner(model_spec, prompt, **inner_kw)
+        if cancel_scope.cancelled_caught:
+            raise LionTimeoutError(f"Flow timed out after {timeout}s")
+        return result
+    return await _run_flow_inner(model_spec, prompt, **inner_kw)
 
 
 async def _run_flow_inner(
     model_spec: str,
     prompt: str,
     *,
+    run: RunDir,
     with_synthesis: bool = False,
     synthesis_model: str | None = None,
     max_concurrent: int = 0,
@@ -177,7 +161,6 @@ async def _run_flow_inner(
     effort: str | None = None,
     theme: str | None = None,
     output_format: str = "text",
-    save_dir: str | None = None,
     team_name: str | None = None,
     cwd: str | None = None,
     agent_name: str | None = None,
@@ -254,16 +237,15 @@ async def _run_flow_inner(
         budget_note = f"BUDGET: You may define at most {max_agents} agents total. "
 
     # Build guidance blocks for plan root
-    artifact_guidance = ""
-    if save_dir:
-        artifact_guidance = (
-            "ARTIFACT PROTOCOL: Each agent gets its own directory at "
-            f"{save_dir}/{{agent_id}}/. In EVERY agent instruction you MUST specify: "
-            "(1) WHERE to write: 'Write output to your current directory as <name>.md'. "
-            "(2) WHAT to name files: descriptive names (inventory.md, gap_analysis.md). "
-            "(3) WHERE to read upstream: 'Read ../{{dep_id}}/{{filename}}.md' for each depends_on. "
-            "NEVER say 'use the prior output' — always give explicit relative paths. "
-        )
+    artifact_guidance = (
+        "ARTIFACT PROTOCOL: Each agent gets its own directory at "
+        f"{run.artifact_root}/{{agent_id}}/. In EVERY agent instruction you MUST "
+        "specify: (1) WHERE to write: 'Write output to your current directory as "
+        "<name>.md'. (2) WHAT to name files: descriptive names (inventory.md, "
+        "gap_analysis.md). (3) WHERE to read upstream: 'Read ../{{dep_id}}/"
+        "{{filename}}.md' for each depends_on. NEVER say 'use the prior output' — "
+        "always give explicit relative paths. "
+    )
 
     effort_guidance = (
         "EFFORT TIERS: Use the agent 'guidance' field for behavioral framing. "
@@ -379,9 +361,7 @@ async def _run_flow_inner(
 
         if show_graph:
             from lionagi.operations._visualize_graph import visualize_graph
-            graph_save = None
-            if save_dir:
-                graph_save = str(Path(save_dir) / "flow_dag.png")
+            graph_save = str(run.dag_image_path)
             visualize_graph(
                 builder,
                 title=f"Flow DAG — {len(plan.agents)} agents",
@@ -408,8 +388,10 @@ async def _run_flow_inner(
         progress(f"Team '{team_name}' created ({team_data['id']})")
 
     # ── Helper: resolve model/system/branch for an agent spec ─────
-    def _make_worker_branch(a: FlowAgentSpec, idx: int) -> tuple[Branch, str]:
-        w_profile = None
+    def _make_worker_branch(
+        a: FlowAgentSpec, idx: int
+    ) -> tuple[Branch, str, "AgentProfile | None"]:
+        w_profile: AgentProfile | None = None
         if bare:
             w_model = a.model or default_ms.model
         else:
@@ -431,14 +413,10 @@ async def _run_flow_inner(
             effort_override=w_effort,
             theme=theme,
         )
-        # Per-agent artifact directory: {save_dir}/{agent_id}/
-        agent_cwd = cwd
-        if save_dir:
-            agent_artifact_dir = Path(save_dir) / a.id
-            agent_artifact_dir.mkdir(parents=True, exist_ok=True)
-            agent_cwd = str(agent_artifact_dir)
-        if agent_cwd:
-            w_imodel.endpoint.config.kwargs["repo"] = Path(agent_cwd)
+        # Per-agent artifact directory: {artifact_root}/{agent_id}/
+        agent_artifact_dir = run.agent_artifact_dir(a.id)
+        agent_artifact_dir.mkdir(parents=True, exist_ok=True)
+        w_imodel.endpoint.config.kwargs["repo"] = agent_artifact_dir
         wname = all_agent_names[idx]
         w_system = None
         if team_data:
@@ -463,7 +441,7 @@ async def _run_flow_inner(
             name=wname,
         )
         session.include_branches(wb)
-        return wb, w_model
+        return wb, w_model, w_profile
 
     # ── Build DAG: split regular agents and control nodes ──────────
     spec_to_node: dict[str, str] = {}
@@ -479,7 +457,7 @@ async def _run_flow_inner(
     for idx, a in enumerate(plan.agents):
         if a.control:
             continue
-        w_branch, w_model = _make_worker_branch(a, idx)
+        w_branch, w_model, w_profile = _make_worker_branch(a, idx)
         dep_nodes = []
         if a.depends_on:
             for dep_id in a.depends_on:
@@ -488,15 +466,17 @@ async def _run_flow_inner(
         if not dep_nodes:
             dep_nodes = [plan_root]
         ctx = [{"original_task": prompt}]
-        if save_dir:
-            artifact_note = (
-                f"Your artifact directory: {Path(save_dir) / a.id}/ — "
-                "write ALL output files here with descriptive names."
-            )
-            if a.depends_on:
-                dep_notes = [f"{d}: {Path(save_dir) / d}/ (read .md files there)" for d in a.depends_on]
-                artifact_note += f" Upstream artifacts: {'; '.join(dep_notes)}."
-            ctx.append({"artifact_instructions": artifact_note})
+        artifact_note = (
+            f"Your artifact directory: {run.agent_artifact_dir(a.id)}/ — "
+            "write ALL output files here with descriptive names."
+        )
+        if a.depends_on:
+            dep_notes = [
+                f"{d}: {run.agent_artifact_dir(d)}/ (read .md files there)"
+                for d in a.depends_on
+            ]
+            artifact_note += f" Upstream artifacts: {'; '.join(dep_notes)}."
+        ctx.append({"artifact_instructions": artifact_note})
         if team_data:
             ctx.append({"team": {"id": team_data["id"], "name": team_data["name"], "your_name": all_agent_names[idx]}})
         w_effort = effort
@@ -567,7 +547,7 @@ async def _run_flow_inner(
     round_num = 0
     for ca in control_agents:
         idx = next(i for i, a in enumerate(plan.agents) if a.id == ca.id)
-        c_branch, c_model = _make_worker_branch(ca, idx)
+        c_branch, c_model, _ = _make_worker_branch(ca, idx)
 
         artifacts = [
             f"[{r['id']} ({r['name']})]: {r['response']}" for r in agent_results
@@ -584,8 +564,8 @@ async def _run_flow_inner(
         progress(f"Control [{ca.id}]: evaluating...")
 
         artifact_read_note = ""
-        if save_dir and ca.depends_on:
-            dep_dirs = [f"{save_dir}/{d}/" for d in ca.depends_on]
+        if ca.depends_on:
+            dep_dirs = [str(run.agent_artifact_dir(d)) for d in ca.depends_on]
             artifact_read_note = (
                 "\n\nREAD ARTIFACTS: Agents wrote files to these directories. "
                 f"Read ALL .md files before reaching your verdict: {', '.join(dep_dirs)}"
@@ -690,7 +670,7 @@ async def _run_flow_inner(
                 all_agent_names.extend(new_names)
 
                 for ni, na in enumerate(next_plan.agents):
-                    nb, nm = _make_worker_branch(
+                    nb, nm, _ = _make_worker_branch(
                         na, len(all_agent_names) - len(new_names) + ni
                     )
                     nd = []
@@ -704,15 +684,14 @@ async def _run_flow_inner(
                         {"original_task": prompt},
                         {"critic_verdict": verdict_text},
                         {"critic_next_steps": verdict.next_steps or ""},
-                    ]
-                    if save_dir:
-                        round_ctx.append({
+                        {
                             "artifact_note": (
-                                f"Your directory: {Path(save_dir) / na.id}/. "
-                                f"Prior artifacts in {save_dir}/*/. "
+                                f"Your directory: {run.agent_artifact_dir(na.id)}/. "
+                                f"Prior artifacts in {run.artifact_root}/*/. "
                                 "Read critic verdict and fix what was flagged."
                             )
-                        })
+                        },
+                    ]
                     nid = builder.add_operation(
                         "operate",
                         branch=nb,
@@ -774,13 +753,11 @@ async def _run_flow_inner(
         artifacts = [
             f"[{r['id']} ({r['name']})]: {r['response']}" for r in agent_results
         ]
-        artifact_chain_note = ""
-        if save_dir:
-            adirs = [f"{save_dir}/{a.id}/" for a in plan.agents]
-            artifact_chain_note = (
-                f"\n\nARTIFACT CHAIN: Read ALL files in: {', '.join(adirs)}. "
-                "Trace how work flowed through the DAG."
-            )
+        adirs = [str(run.agent_artifact_dir(a.id)) for a in plan.agents]
+        artifact_chain_note = (
+            f"\n\nARTIFACT CHAIN: Read ALL files in: {', '.join(adirs)}. "
+            "Trace how work flowed through the DAG."
+        )
         team_synth_note = ""
         if team_data:
             team_synth_note = (
@@ -823,41 +800,51 @@ async def _run_flow_inner(
     else:
         output = _format_flow_result_text(agent_results, synthesis_result)
 
-    # ── Save ─────────────────────────────────────────────────────────
-    if save_dir:
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
-        for r in agent_results:
-            p = save_path / f"{r['id']}_{r['name']}.md"
-            p.write_text(r["response"])
-        if synthesis_result:
-            (save_path / "synthesis.md").write_text(synthesis_result["response"])
-        progress(f"Saved to {save_path}")
+    # ── Save synthesis (per-agent files are already in run.artifact_root/{id}/) ──
+    if synthesis_result:
+        run.synthesis_path.write_text(synthesis_result["response"])
+    progress(f"Saved to {run.artifact_root}")
 
     if team_data:
         _post_results_to_team(
             team_data, agent_results, all_agent_names, synthesis_result
         )
 
-    # ── Persist branches ─────────────────────────────────────────────
+    # ── Persist branches + run manifest ──────────────────────────────
     from ._common import persist_session_branches
 
-    branch_ids = await persist_session_branches(session)
+    branch_ids = persist_session_branches(session, run)
     orc_branch_id = str(orc_branch.id)
-    save_last_branch_pointer(
-        orc_branch.chat_model.endpoint.config.provider,
-        orc_branch_id,
+    run.write_manifest(
+        {
+            "kind": "flow",
+            "prompt": prompt,
+            "model_spec": model_spec,
+            "orchestrator_branch_id": orc_branch_id,
+            "agents": [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "model": r["model"],
+                    "control": r.get("control", False),
+                    "artifact_dir": str(run.agent_artifact_dir(r["id"])),
+                }
+                for r in agent_results
+            ],
+            "branches": [
+                {"id": bid, "provider": prov, "name": bname}
+                for prov, bid, bname in branch_ids
+            ],
+        }
     )
+    save_last_branch_pointer(run.run_id, orc_branch_id)
 
     if show_graph:
         from lionagi.operations._visualize_graph import visualize_graph
-        graph_save = None
-        if save_dir:
-            graph_save = str(Path(save_dir) / "flow_dag.png")
         visualize_graph(
             builder,
             title=f"Flow DAG — {len(plan.agents)} agents (completed)",
-            save_path=graph_save,
+            save_path=str(run.dag_image_path),
         )
 
     t_total = time.monotonic() - t0

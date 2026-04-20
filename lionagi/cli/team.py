@@ -19,8 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from lionagi.utils import LIONAGI_HOME
+
 from ._logging import log_error, warn
-from ._persistence import LIONAGI_HOME
 
 TEAMS_DIR = LIONAGI_HOME / "teams"
 
