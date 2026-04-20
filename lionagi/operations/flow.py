@@ -63,12 +63,14 @@ class DependencyAwareExecutor:
         self.verbose = verbose
         self._alcall = alcall_params or AlcallParams()
         self._default_branch = default_branch
+        self.on_progress = None  # callback(op_id, ref_id, status, elapsed_s)
 
         # Track results and completion
         self.results = {}
         self.completion_events = {}  # operation_id -> Event
         self.operation_branches = {}  # operation_id -> Branch
         self.skipped_operations = set()  # Track skipped operations
+        self._op_start_times = {}  # operation_id -> monotonic start time
 
         # Initialize completion events for all operations
         # and check for already completed operations
@@ -248,15 +250,27 @@ class DependencyAwareExecutor:
                 # Prepare operation context
                 self._prepare_operation(operation)
 
-                # Execute the operation — Event.invoke() handles the state machine
-                if self.verbose:
-                    logger.debug("Executing operation: %s", str(operation.id)[:8])
-
+                ref_id = operation.metadata.get("reference_id", str(operation.id)[:8])
                 branch = self.operation_branches.get(
                     operation.id, self.session.default_branch
                 )
+                branch_name = getattr(branch, "name", None) or ref_id
+
+                import time as _time
+
+                self._op_start_times[operation.id] = _time.monotonic()
+
+                if self.on_progress:
+                    self.on_progress(str(operation.id), branch_name, "started", 0)
+                if self.verbose:
+                    logger.debug("Executing operation: %s", ref_id)
+
                 operation._branch = branch
                 await operation.invoke()
+
+                elapsed = _time.monotonic() - self._op_start_times.get(
+                    operation.id, _time.monotonic()
+                )
 
                 # Store results based on status (set by Event.invoke())
                 if operation.execution.status == EventStatus.COMPLETED:
@@ -269,17 +283,26 @@ class DependencyAwareExecutor:
                     ):
                         self.context.update(operation.response["context"])
 
+                    if self.on_progress:
+                        self.on_progress(
+                            str(operation.id), branch_name, "completed", elapsed
+                        )
                     if self.verbose:
-                        logger.debug("Completed operation: %s", str(operation.id)[:8])
+                        logger.debug("Completed operation: %s (%.1fs)", ref_id, elapsed)
 
                 elif operation.execution.status == EventStatus.FAILED:
                     self.results[operation.id] = {
                         "error": str(operation.execution.error)
                     }
+                    if self.on_progress:
+                        self.on_progress(
+                            str(operation.id), branch_name, "failed", elapsed
+                        )
                     if self.verbose:
                         logger.error(
-                            "Operation %s failed: %s",
-                            str(operation.id)[:8],
+                            "Operation %s failed (%.1fs): %s",
+                            ref_id,
+                            elapsed,
                             operation.execution.error,
                         )
 
@@ -542,6 +565,7 @@ async def flow(
     max_concurrent: int = None,
     verbose: bool = False,
     alcall_params: AlcallParams | None = None,
+    on_progress: Any = None,
 ) -> dict[str, Any]:
     """Execute a graph using structured concurrency primitives.
 
@@ -576,6 +600,8 @@ async def flow(
         default_branch=branch,
         alcall_params=alcall_params,
     )
+    if on_progress is not None:
+        executor.on_progress = on_progress
 
     return await executor.execute()
 

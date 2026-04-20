@@ -28,11 +28,12 @@ Pytest defaults: `-n auto --dist loadfile --maxfail=5 --tb=short`, async mode au
 ## Repository Map
 
 - `lionagi/session/`: Branch and session-layer orchestration entry points
-- `lionagi/operations/`: Operation implementations (communicate, operate, chat, parse, ReAct, etc.)
+- `lionagi/operations/`: Operation implementations (communicate, operate, chat, parse, ReAct, run, etc.); `operate` is the universal structured operation routed through a `Middle` protocol (see `operations/types.Middle`)
 - `lionagi/protocols/`: Foundational types (messages, graph, generic/action abstractions)
 - `lionagi/service/`: Model/service integration and provider connection logic
 - `lionagi/ln/`: Low-level utilities and concurrency primitives
 - `lionagi/tools/`: Tool interfaces and built-in tools
+- `lionagi/cli/`: The `li` command and its subcommands. Entry point in `cli/main.py`; orchestration in `cli/orchestrate/` (`flow.py`, `fanout.py`, shared `_orchestration.py`); persistence in `cli/_runs.py` (`RunDir`, `allocate_run`); logging in `cli/_logging.py`; team messaging in `cli/team.py`. `cli/__main__.py` exists so `python -m lionagi.cli` works (used by `--background`).
 - `tests/`: Mirrors package areas; prefer colocated test updates for each code change
 - `benchmarks/`: Micro-benchmark runners and baselines for performance regression checks
 
@@ -44,8 +45,10 @@ Branch behavior contracts (from `lionagi/session/branch.py`):
 - If `parse_model` is not provided, it defaults to the active `chat_model`.
 - Passing `system`-related args creates a system message through `MessageManager.add_message(...)`.
 - `use_lion_system_message=True` prepends Lion's system prompt before any developer/system content.
+- `branch.operate()` is the universal structured-output entry point. CLI endpoints stream (via `run_and_collect`); API endpoints one-shot (via `communicate`). Override dispatch with `middle=<callable>` or force streaming with `stream_persist=True` / `persist_dir=<path>`.
+- `Session.flow()` honors pre-set `branch_id` on operations — multiple ops with the same `branch=` reference reuse the Branch without cloning. This is the mechanism behind the CLI's two-level flow (one `FlowAgent` branch, many `FlowOp` nodes).
 
-When editing `session` or `operations`, preserve these contracts unless the task explicitly requires a behavior change and tests/docs are updated with it.
+When editing `session`, `operations`, or `cli/orchestrate/`, preserve these contracts unless the task explicitly requires a behavior change and tests/docs are updated with it.
 
 ## Testing Strategy by Change Type
 
@@ -54,6 +57,9 @@ When editing `session` or `operations`, preserve these contracts unless the task
 - `lionagi/protocols/*` -> `tests/protocols/*`
 - `lionagi/service/*` -> `tests/service/*`
 - `lionagi/ln/*` -> `tests/libs/concurrency/*`, `tests/ln/*`
+- `lionagi/cli/*` -> verify via `li` smoke test (editable install, then `li o flow ... --dry-run` for structure, `--bare --yolo` for a short real run). CLI has no unit test suite yet; add smoke assertions in `tests/docs/` when changing user-facing output shape.
+
+**Editable install for CLI smoke**: `uv pip install -e . --python <venv-python>` then `uv cache clean` if the install claims editable but imports from site-packages. Hatchling editable installs sometimes copy files the first time; clearing pycache and reinstalling forces the `.pth` linker.
 
 For performance-sensitive changes:
 ```bash

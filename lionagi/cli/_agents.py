@@ -13,9 +13,10 @@ Profile format (YAML frontmatter + markdown body):
     You are an implementer. Write production code, not stubs...
 
 Frontmatter fields (all optional, CLI flags override):
-  model:  provider/model spec
-  effort: reasoning effort level
-  yolo:   auto-approve tool calls
+  model:       provider/model spec
+  effort:      reasoning effort level
+  yolo:        auto-approve tool calls
+  lion_system: prepend LION_SYSTEM_MESSAGE (default: true)
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ class AgentProfile:
     model: str | None = None
     effort: str | None = None
     yolo: bool = False
+    lion_system: bool = True
     extra: dict = field(default_factory=dict)
 
 
@@ -135,13 +137,22 @@ def _parse_profile(name: str, text: str) -> AgentProfile:
                     else:
                         frontmatter[key.strip()] = val
 
+    lion_system = bool(frontmatter.get("lion_system", True))
+    if lion_system:
+        from lionagi.session.prompts import LION_SYSTEM_MESSAGE
+
+        body = LION_SYSTEM_MESSAGE.strip() + "\n\n" + body
+
     return AgentProfile(
         name=name,
         system_prompt=body,
         model=frontmatter.get("model"),
         effort=frontmatter.get("effort"),
         yolo=bool(frontmatter.get("yolo", False)),
+        lion_system=lion_system,
         extra={
-            k: v for k, v in frontmatter.items() if k not in ("model", "effort", "yolo")
+            k: v
+            for k, v in frontmatter.items()
+            if k not in ("model", "effort", "yolo", "lion_system")
         },
     )

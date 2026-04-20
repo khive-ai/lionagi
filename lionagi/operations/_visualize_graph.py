@@ -2,6 +2,7 @@ def visualize_graph(
     builder,
     title: str = "Operation Graph",
     figsize=(14, 10),
+    save_path: str | None = None,
 ):
     """Visualization with improved layout for complex graphs."""
     from lionagi.utils import is_import_installed
@@ -276,4 +277,13 @@ def visualize_graph(
     )
 
     plt.tight_layout()
+
+    if save_path:
+        from pathlib import Path
+
+        p = Path(save_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(p, dpi=150, bbox_inches="tight")
+        print(f"Graph saved: {p}")
+
     plt.show()

@@ -10,6 +10,7 @@ import sys
 from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.ln.concurrency import run_async
 
+from .._logging import hint, log_error
 from .._providers import add_common_cli_args
 from .fanout import _run_fanout
 from .flow import _run_flow
@@ -181,6 +182,16 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Plan the DAG but don't execute. Shows agents, deps, and model resolution.",
     )
     fl.add_argument(
+        "--show-graph",
+        action="store_true",
+        help="Render DAG as matplotlib visualization. With --save, saves PNG to save dir.",
+    )
+    fl.add_argument(
+        "--background",
+        action="store_true",
+        help="Run flow in background. Requires --save. Check output in save dir.",
+    )
+    fl.add_argument(
         "--bare",
         action="store_true",
         help=(
@@ -203,10 +214,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
     if args.orch_command == "fanout":
         has_model = args.model is not None or args.agent is not None
         if not has_model:
-            print(
-                "error: model or --agent is required",
-                file=sys.stderr,
-            )
+            log_error("model or --agent is required")
             return 1
 
         synth = args.with_synthesis
@@ -237,7 +245,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 )
             )
         except LionTimeoutError as e:
-            print(str(e), file=sys.stderr)
+            log_error(str(e))
             return 1
         if not args.verbose:
             print(output)
@@ -246,8 +254,32 @@ def run_orchestrate(args: argparse.Namespace) -> int:
     if args.orch_command == "flow":
         has_model = args.model is not None or args.agent is not None
         if not has_model:
-            print("error: model or --agent is required", file=sys.stderr)
+            log_error("model or --agent is required")
             return 1
+
+        background = getattr(args, "background", False)
+        if background and not args.save:
+            log_error("--background requires --save")
+            return 1
+
+        if background:
+            import subprocess
+            from pathlib import Path as _Path
+
+            bg_args = [a for a in sys.argv[1:] if a != "--background"]
+            log_root = _Path(args.save).expanduser()
+            log_root.mkdir(parents=True, exist_ok=True)
+            log_path = log_root / "flow.log"
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "lionagi.cli", *bg_args],
+                stdout=open(log_path, "w"),
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            hint(f"Flow running in background (PID {proc.pid})")
+            hint(f"Output: {log_path}")
+            hint(f"Monitor: tail -f {log_path}")
+            return 0
 
         synth = args.with_synthesis
         with_synthesis = synth is not False
@@ -274,14 +306,15 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                     bare=args.bare,
                     max_agents=args.max_agents,
                     dry_run=args.dry_run,
+                    show_graph=getattr(args, "show_graph", False),
                 )
             )
         except LionTimeoutError as e:
-            print(str(e), file=sys.stderr)
+            log_error(str(e))
             return 1
         if not args.verbose:
             print(output)
         return 0
 
-    print(f"Unknown orchestrate command: {args.orch_command}", file=sys.stderr)
+    log_error(f"Unknown orchestrate command: {args.orch_command}")
     return 1

@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING
+from dataclasses import fields
+from typing import TYPE_CHECKING, Any
 
 import anyio
 from pydantic import JsonValue
@@ -20,7 +21,7 @@ from lionagi.protocols.messages import (
 from lionagi.service.connections import APICalling
 
 from ..chat._prepare import _prepare_run_kwargs
-from ..types import RunParam
+from ..types import ChatParam, ParseParam, RunParam
 
 if TYPE_CHECKING:
     from lionagi.protocols.messages.message import RoledMessage
@@ -212,3 +213,53 @@ async def run(
                 bfp_path = anyio.Path(bfp)
                 if await bfp_path.exists():
                     await bfp_path.unlink()
+
+
+def _promote_to_run_param(chat_param: ChatParam) -> RunParam:
+    if isinstance(chat_param, RunParam):
+        return chat_param
+    kw = {f.name: getattr(chat_param, f.name) for f in fields(ChatParam)}
+    return RunParam(**kw)
+
+
+async def run_and_collect(
+    branch: Branch,
+    instruction: JsonValue | Instruction,
+    chat_param: ChatParam,
+    parse_param: ParseParam | None = None,
+    clear_messages: bool = False,
+    skip_validation: bool = False,
+) -> Any:
+    """Stream via run(), accumulate assistant text, optionally parse.
+
+    Satisfies the ``Middle`` protocol for operate(). Stream the model,
+    collect assistant text across chunks, then parse via ``parse_param``
+    if a response_format is set. ``clear_messages`` clears branch
+    messages before the turn.
+    """
+    if clear_messages:
+        branch.msgs.clear_messages()
+
+    run_param = _promote_to_run_param(chat_param)
+
+    all_texts: list[str] = []
+    async for msg in run(branch, instruction, run_param):
+        if isinstance(msg, AssistantResponse):
+            text = msg.response or ""
+            if text:
+                all_texts.append(text)
+
+    if not all_texts:
+        return None
+
+    full_text = "\n\n".join(all_texts)
+
+    if skip_validation:
+        return full_text
+
+    if parse_param is None or parse_param.response_format is None:
+        return full_text
+
+    from ..parse.parse import parse as _parse
+
+    return await _parse(branch, full_text, parse_param)

@@ -44,6 +44,7 @@ from .prompts import LION_SYSTEM_MESSAGE
 
 if TYPE_CHECKING:
     from lionagi.operations.operate.operative import Operative
+    from lionagi.operations.types import Middle
 
 
 __all__ = ("Branch",)
@@ -779,12 +780,20 @@ class Branch(Element, Relational):
             "raise", "return_value", "return_none"
         ] = "return_value",
         include_token_usage_to_model: bool = False,
+        stream_persist: bool = False,
+        persist_dir: str | None = None,
+        middle: "Middle | None" = None,
         **kwargs,
     ) -> list | BaseModel | None | dict | str:
         """
         Orchestrates an "operate" flow with optional tool invocation and
         structured response validation. Messages **are** automatically
         added to the conversation.
+
+        CLI endpoints (``chat_model.is_cli``) stream via ``run()`` and
+        accumulate text; API endpoints round-trip through ``communicate()``.
+        Pass ``middle`` to override the dispatch explicitly, or use
+        ``stream_persist``/``persist_dir`` for JSONL chunk logging on CLI runs.
 
         **Workflow**:
         1) Builds or updates an `Operative` object to specify how the LLM should respond.
@@ -1355,48 +1364,6 @@ class Branch(Element, Relational):
 
         async for msg in _run(self, instruction, RunParam(**param_kw)):
             yield msg
-
-    async def instruct(
-        self,
-        instruction=None,
-        *,
-        instruct: "Instruct" = None,
-        guidance=None,
-        context=None,
-        sender=None,
-        recipient=None,
-        chat_model: "iModel | None" = None,
-        field_models: list = None,
-        response_format: type[BaseModel] = None,
-        reason: bool = False,
-        skip_validation: bool = False,
-        handle_validation: Literal[
-            "raise", "return_value", "return_none"
-        ] = "return_value",
-        max_retries: int = 3,
-        images: list = None,
-        image_detail: str = "auto",
-        stream_persist: bool = False,
-        persist_dir: str | None = None,
-        **kwargs,
-    ) -> "BaseModel | dict | str | None":
-        """Universal structured-output operation.
-
-        Routes based on endpoint type:
-          - CLI (is_cli=True): stream via run() → parse()
-          - API (is_cli=False): operate() with field_models
-
-        Set ``stream_persist=True`` for real-time JSONL logging.
-        """
-        _pms = {
-            k: v
-            for k, v in locals().items()
-            if k not in ("self", "_pms") and v is not None
-        }
-        from lionagi.operations.instruct.instruct import instruct as _instruct
-        from lionagi.operations.instruct.instruct import prepare_instruct_kw
-
-        return await _instruct(self, **prepare_instruct_kw(self, **_pms))
 
 
 # File: lionagi/session/branch.py
