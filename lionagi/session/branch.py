@@ -44,6 +44,7 @@ from .prompts import LION_SYSTEM_MESSAGE
 
 if TYPE_CHECKING:
     from lionagi.operations.operate.operative import Operative
+    from lionagi.operations.types import Middle
 
 
 __all__ = ("Branch",)
@@ -781,7 +782,7 @@ class Branch(Element, Relational):
         include_token_usage_to_model: bool = False,
         stream_persist: bool = False,
         persist_dir: str | None = None,
-        middle: "Callable | None" = None,
+        middle: "Middle | None" = None,
         **kwargs,
     ) -> list | BaseModel | None | dict | str:
         """

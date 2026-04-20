@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import warnings
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Literal, Union
 
 from pydantic import BaseModel, JsonValue
 
@@ -15,16 +14,20 @@ from lionagi.protocols.generic import Progression
 from lionagi.protocols.messages import Instruction, SenderRecipient
 
 from ..fields import Instruct
-from ..types import ActionParam, ChatParam, HandleValidation, ParseParam, RunParam
+from ..types import (
+    ActionParam,
+    ChatParam,
+    HandleValidation,
+    Middle,
+    ParseParam,
+    RunParam,
+)
 
 if TYPE_CHECKING:
     from lionagi.service.imodel import iModel
     from lionagi.session.branch import Branch, ToolRef
 
     from .operative import Operative
-
-# middle protocol: (branch, instruction, chat_param, parse_param, clear_messages, *, skip_validation, request_fields) -> Any
-Middle = Callable[..., Awaitable[Any]]
 
 
 def prepare_operate_kw(
@@ -329,7 +332,6 @@ async def operate(
         _pctx,
         clear_messages,
         skip_validation=skip_validation,
-        request_fields=None,
     )
 
     if skip_validation:

@@ -229,15 +229,13 @@ async def run_and_collect(
     parse_param: ParseParam | None = None,
     clear_messages: bool = False,
     skip_validation: bool = False,
-    request_fields: dict | None = None,
 ) -> Any:
     """Stream via run(), accumulate assistant text, optionally parse.
 
-    Drop-in replacement for communicate() on CLI endpoints. Signature
-    matches communicate so both can be used interchangeably as the
-    `middle` of operate(). `clear_messages` and `request_fields` are
-    accepted for contract parity; run() manages its own message state
-    and parse is driven by parse_param.
+    Satisfies the ``Middle`` protocol for operate(). Stream the model,
+    collect assistant text across chunks, then parse via ``parse_param``
+    if a response_format is set. ``clear_messages`` clears branch
+    messages before the turn.
     """
     if clear_messages:
         branch.msgs.clear_messages()
