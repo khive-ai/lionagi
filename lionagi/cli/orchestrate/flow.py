@@ -25,11 +25,14 @@ from ._common import (
     _post_results_to_team,
 )
 from ._orchestration import (
+    EFFORT_GUIDANCE,
+    EFFORT_MAP,
     OrchestrationEnv,
     build_worker_branch,
     finalize_orchestration,
     resolve_worker_spec,
     setup_orchestration,
+    team_guidance,
 )
 
 # ── Flow models ───────────────────────────────────────────────────────────
@@ -412,21 +415,6 @@ async def _run_flow_inner(
         "dep is the SAME agent, the agent already remembers it — no re-read needed. "
     )
 
-    effort_guidance = (
-        "EFFORT TIERS: Use op.guidance or agent.guidance for behavioral framing. "
-        "low=skim structure quickly; medium=careful read; high=thorough analysis; "
-        "xhigh=deep multi-step reasoning. Match effort to task weight. "
-    )
-
-    team_guidance = ""
-    if team_name:
-        team_guidance = (
-            f"TEAM MODE active (team: {team_name}). In each op.instruction, "
-            "tell the executing agent to check its inbox before starting and "
-            "send coordination signals to relevant teammates if it discovers "
-            "something affecting them. "
-        )
-
     plan_root = builder.add_operation(
         "operate",
         branch=orc_branch,
@@ -437,8 +425,8 @@ async def _run_flow_inner(
                 f"{roles_guidance} "
                 f"{budget_note}"
                 f"{artifact_guidance}"
-                f"{effort_guidance}"
-                f"{team_guidance}"
+                f"{EFFORT_GUIDANCE}"
+                f"{team_guidance(team_name)}"
                 f"{FlowPlan.PLANNING_DISCIPLINE}"
             ),
         ),
@@ -632,13 +620,7 @@ async def _run_flow_inner(
         if not env.bare and profile and profile.effort:
             w_effort = profile.effort
         if w_effort:
-            emap = {
-                "low": "Skim quickly, structured output.",
-                "medium": "Read carefully, balance depth/speed.",
-                "high": "Thorough analysis, take your time.",
-                "xhigh": "Deep reasoning, maximum effort.",
-            }
-            ctx.append({"effort_guidance": emap.get(w_effort, "")})
+            ctx.append({"effort_guidance": EFFORT_MAP.get(w_effort, "")})
 
         add_kw = dict(
             branch=branch,

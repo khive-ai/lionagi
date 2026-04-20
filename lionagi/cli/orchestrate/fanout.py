@@ -16,6 +16,7 @@ from .._providers import parse_model_spec
 from ._common import (
     AGENT_REQUEST_FIELDS,
     TEAM_WORKER_SYSTEM,
+    AgentRequest,
     _create_fanout_team,
     _format_result_json,
     _format_result_text,
@@ -170,27 +171,13 @@ async def _run_fanout_inner(
         branch=env.orc_branch,
         instruct=Instruct(
             instruction=(
-                f"Generate {len(worker_model_list)} agent requests to address "
-                f"the following task. Each agent should tackle a distinct angle "
-                f"or perspective. Each agent is a WORKER that will DIRECTLY "
-                f"answer its assigned sub-task — NOT delegate further."
+                f"Generate {len(worker_model_list)} agent requests. "
+                f"{AgentRequest.DECOMPOSITION_INSTRUCTION}"
             ),
             context={"user_prompt": prompt},
             guidance=(
                 f"Available workers: {roster_guidance}. "
-                f"CRITICAL: You MUST produce your output ONLY via the structured "
-                f"output fields (the AgentRequest list). Do NOT use any provider-native "
-                f"subagent or tool-spawning features (no Agent tool, no subprocess "
-                f"spawning, no delegation tools). The ONLY correct way to dispatch "
-                f"workers is by filling in the structured AgentRequest output. "
-                f"Each AgentRequest instruction must be a DIRECT task the worker "
-                f"will answer itself — not a meta-instruction to generate more "
-                f"agents or decompose further. Workers are leaf executors, not "
-                f"orchestrators. "
-                f"Match each sub-task to the worker's role strengths. "
-                f"If multiple models are provided, set the model field to "
-                f"the exact model string for that worker. "
-                f"If all workers use the same model, model can be null."
+                f"{AgentRequest.DECOMPOSITION_DISCIPLINE}"
             ),
         ),
         field_models=[AGENT_REQUEST_FIELDS],

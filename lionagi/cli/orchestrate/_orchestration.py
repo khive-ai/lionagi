@@ -26,7 +26,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from lionagi import Branch, Session
 from lionagi.operations.builder import OperationGraphBuilder
@@ -37,16 +36,50 @@ from .._logging import hint, progress
 from .._providers import build_imodel_from_spec
 from .._runs import RunDir, allocate_run, save_last_branch_pointer
 
-if TYPE_CHECKING:
-    from ._common import persist_session_branches as _persist_fn
-
 __all__ = (
     "OrchestrationEnv",
     "resolve_worker_spec",
     "setup_orchestration",
     "build_worker_branch",
     "finalize_orchestration",
+    "EFFORT_GUIDANCE",
+    "EFFORT_MAP",
+    "team_guidance",
 )
+
+
+# ── Generic orchestrator-prompt building blocks ─────────────────────────
+# Reused across patterns. Kept as module-level constants/functions so
+# patterns compose them into their own planning prompts without each
+# pattern restating the text.
+
+EFFORT_GUIDANCE: str = (
+    "EFFORT TIERS: Use per-op guidance for behavioral framing. "
+    "low=skim structure quickly; medium=careful read; high=thorough "
+    "analysis; xhigh=deep multi-step reasoning. Match effort to task weight. "
+)
+
+# Short instructions injected into each worker's context when its agent
+# has an effort override. Keeps worker prompts tight.
+EFFORT_MAP: dict[str, str] = {
+    "low": "Skim quickly, structured output.",
+    "medium": "Read carefully, balance depth/speed.",
+    "high": "Thorough analysis, take your time.",
+    "xhigh": "Deep reasoning, maximum effort.",
+    "max": "Deep reasoning, maximum effort.",
+}
+
+
+def team_guidance(team_name: str | None) -> str:
+    """Return team-mode orchestrator guidance, or empty string if no team."""
+    if not team_name:
+        return ""
+    return (
+        f"TEAM MODE active (team: {team_name}). In each op instruction, "
+        "tell the executing agent to check its inbox before starting and "
+        "send coordination signals to relevant teammates if it discovers "
+        "something affecting them. "
+    )
 
 
 # ── Worker spec resolution ──────────────────────────────────────────────
