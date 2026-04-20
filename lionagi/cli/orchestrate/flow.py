@@ -510,11 +510,16 @@ async def _run_flow_inner(
                 lines.append(f"  {a.id}: {rm} ({src})")
 
         if show_graph:
-            from lionagi.operations._visualize_graph import visualize_graph
+            # Pre-execution preview — draw from plan directly, NOT from the
+            # builder (which has only the orchestrator's seed op at this point).
+            from lionagi.operations._visualize_graph import visualize_plan
 
-            visualize_graph(
-                builder,
-                title=f"Flow DAG — {len(plan.agents)} agents / {len(plan.operations)} ops",
+            visualize_plan(
+                plan,
+                title=(
+                    f"Flow DAG plan — {len(plan.agents)} agents / "
+                    f"{len(plan.operations)} ops"
+                ),
                 save_path=str(run.dag_image_path),
             )
 

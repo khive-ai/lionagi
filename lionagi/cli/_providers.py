@@ -33,6 +33,10 @@ EFFORT_LEVELS = frozenset(
     }
 )
 
+# Codex accepts none|minimal|low|medium|high|xhigh — NOT "max".
+# Profiles/orchestrators may emit "max"; clamp to "xhigh" for codex.
+_CODEX_EFFORT_CLAMP: dict[str, str] = {"max": "xhigh"}
+
 # provider name → kwarg name for effort
 PROVIDER_EFFORT_KWARG: dict[str, str] = {
     "claude_code": "effort",
@@ -207,6 +211,8 @@ def build_imodel_from_spec(
     if effort is not None:
         kwarg = PROVIDER_EFFORT_KWARG.get(provider_raw)
         if kwarg is not None:
+            if provider_raw == "codex":
+                effort = _CODEX_EFFORT_CLAMP.get(effort, effort)
             extra[kwarg] = effort
 
     return iModel(
@@ -236,6 +242,8 @@ def build_chat_model(
     if effort is not None:
         kwarg = PROVIDER_EFFORT_KWARG.get(provider)
         if kwarg is not None:
+            if provider == "codex":
+                effort = _CODEX_EFFORT_CLAMP.get(effort, effort)
             extra[kwarg] = effort
 
     if extra:

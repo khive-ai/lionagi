@@ -222,6 +222,21 @@ class CodexCodeRequest(BaseModel):
         description="Plan-mode reasoning effort (emitted as -c plan_mode_reasoning_effort=<val>)",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _clamp_effort(cls, values):
+        """Clamp 'max' → 'xhigh' for both effort fields.
+
+        Agent profiles (critic, orchestrator) use effort: max which is valid
+        for Claude Code but not for the Codex enum. This validator catches
+        any value that slips past the upstream _CODEX_EFFORT_CLAMP in
+        _providers.py (e.g. direct CodexCodeRequest construction).
+        """
+        for key in ("reasoning_effort", "plan_mode_reasoning_effort"):
+            if values.get(key) == "max":
+                values[key] = "xhigh"
+        return values
+
     # ── images & config (special-cased) ───────────────────────────
     images: list[str] = Field(
         default_factory=list,

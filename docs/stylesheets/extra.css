@@ -86,10 +86,10 @@
     margin: 3rem 0;
     border: 0;
     height: 2px;
-    background: linear-gradient(90deg, 
-        transparent, 
-        var(--md-default-fg-color--lightest) 20%, 
-        var(--md-default-fg-color--lightest) 80%, 
+    background: linear-gradient(90deg,
+        transparent,
+        var(--md-default-fg-color--lightest) 20%,
+        var(--md-default-fg-color--lightest) 80%,
         transparent);
 }
 

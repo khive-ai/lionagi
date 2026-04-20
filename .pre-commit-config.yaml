@@ -29,3 +29,10 @@ repos:
     hooks:
       - id: pyupgrade
         args: [--py310-plus]
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.17.2
+    hooks:
+      - id: markdownlint-cli2
+        args: ["--config", ".markdownlint.json"]
+        files: ^(docs/|README\.md|AGENT\.md|CLAUDE\.md|CHANGELOG\.md)

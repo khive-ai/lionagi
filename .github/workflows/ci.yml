@@ -14,6 +14,23 @@ permissions:
   contents: read
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Lint markdown (formatting)
+      uses: DavidAnson/markdownlint-cli2-action@v19
+      with:
+        globs: "docs/**/*.md,README.md,AGENT.md,CLAUDE.md,CHANGELOG.md"
+        config: ".markdownlint.json"
+
+    - name: Check internal links
+      uses: lycheeverse/lychee-action@v2
+      with:
+        args: "--no-progress --offline docs/ README.md AGENT.md CLAUDE.md"
+        fail: true
+
   test:
     runs-on: ubuntu-latest
     strategy:

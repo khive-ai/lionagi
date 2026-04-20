@@ -1,283 +1,123 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-Quick solutions to common LionAGI issues.
+## `ImportError` — lionagi lazy imports
 
-## Installation Issues
+lionagi uses `__getattr__`-based lazy loading. Use public exports, not sub-package paths:
 
-**Import Error: Module not found**
+```python
+# ✓ Works — public export surface
+from lionagi import Branch, iModel, Builder, HookRegistry
+
+# ✗ Fails — sub-package __init__.py is empty
+from lionagi.operations.communicate import communicate
+
+# ✓ Works — full module path to the .py file
+from lionagi.operations.communicate.communicate import communicate
+from lionagi.operations.run.run import run_and_collect
+```
+
+Always import top-level names via `import lionagi as li` or `from lionagi import <Name>`.
+
+## `RuntimeError` — event loop in Jupyter
+
+```python
+# ✗ Fails in Jupyter — already inside a running event loop
+asyncio.run(branch.operate(...))
+
+# ✓ Use await directly in Jupyter cells
+result = await branch.operate(instruction="...")
+```
+
+Or install `nest_asyncio` before running:
+
+```python
+import nest_asyncio
+nest_asyncio.apply()
+asyncio.run(branch.operate(...))
+```
+
+## CLI: run-id not found
+
+```text
+error: run not found: 20260420T103404-abc123
+```
+
+Run artifacts live under `~/.lionagi/runs/{run_id}/`. Check what exists:
 
 ```bash
-# Error: ModuleNotFoundError: No module named 'lionagi'
-uv add lionagi
-
-# For latest development version
-uv add git+https://github.com/khive-ai/lionagi.git
+ls ~/.lionagi/runs/
+li agent --resume <run-id>
 ```
 
-**Missing Optional Dependencies**
+## CLI: `--background` output not visible
+
+`--background` detaches the agent into a subprocess — output goes to the run directory,
+not to stdout. Read the artifacts directly:
 
 ```bash
-# Error: docling not available
-uv add "lionagi[pdf]"  # For PDF processing
-
-# Error: matplotlib not available
-uv add matplotlib
-
-# Error: networkx not available
-uv add networkx
+cat ~/.lionagi/runs/<run-id>/run.json
+cat ~/.lionagi/runs/<run-id>/stream/<branch-id>.buffer.jsonl
 ```
 
-**Python Version Issues**
+## `stream_persist` JSONL behavior
 
-```bash
-# LionAGI requires Python 3.10+
-python --version  # Check version
-uv add lionagi  # Only works on 3.10+
-```
+When `stream_persist=True`, chunks write to `{persist_dir}/{branch_id}.buffer.jsonl`.
+Each line is `{"content": "...chunk..."}`.
 
-## API Key Errors
+Default `persist_dir` is `~/.lionagi/logs/runs` when not set.
 
-**OpenAI Authentication**
+The return value of `operate()` / `run()` is the **complete accumulated text** (or parsed
+`BaseModel`), not the JSONL path.
+
+## Parse validation returns `None` or raw string
+
+`operate()` defaults to `handle_validation="return_value"` — parse failures silently return
+the raw string. To diagnose:
+
+1. Check `handle_validation` — set `"raise"` to surface the exact error.
+2. Confirm `response_format` is a Pydantic `BaseModel` subclass (not a dataclass).
+3. Enable fuzzy matching — `fuzzy_match=True` tolerates key name variations.
+4. Lower `similarity_threshold` — try `0.75` for noisy model output (default `0.85`).
 
 ```python
-import os
-from lionagi import Branch, iModel
-
-# Set API key
-os.environ["OPENAI_API_KEY"] = "your-key-here"
-
-branch = Branch(chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
+result = await branch.operate(
+    instruction="Extract entity",
+    response_format=EntityModel,
+    handle_validation="raise",   # surface the real error
+)
 ```
 
-**Multiple Providers**
+## Rate limit errors from provider
+
+```text
+RateLimitError: 429 Too Many Requests
+```
+
+lionagi's rate limiter is proactive — configure it to queue before hitting the limit:
 
 ```python
-# Different ways to set keys
-os.environ["ANTHROPIC_API_KEY"] = "your-anthropic-key"
-os.environ["OPENAI_API_KEY"] = "your-openai-key"
-
-# Or in iModel directly
-model = iModel(provider="openai", model="gpt-4.1-mini", api_key="your-key")
+model = li.iModel(
+    model="gpt-4o",
+    limit_requests=60,       # stay under provider RPM
+    limit_tokens=80_000,     # stay under provider TPM
+    capacity_refresh_time=60,
+)
 ```
 
-## Async/Await Problems
+## `AttributeError` — branch property access
 
-**Missing await**
+Branch properties like `messages`, `tools`, `logs` are read-only piles, not lists.
+Use pile access patterns:
 
 ```python
-# ❌ Wrong - missing await
-branch = Branch()
-result = branch.communicate("Hello")  # Returns coroutine
+# ✗ list operations don't apply
+branch.messages[0]          # index access on Pile uses UUID, not int position
 
-# ✅ Correct
-result = await branch.communicate("Hello")
+# ✓ iterate or convert
+for msg in branch.messages:
+    print(msg.content)
+
+df = branch.to_df()         # convert to DataFrame for tabular access
 ```
 
-**Running in Jupyter**
-
-```python
-# Jupyter handles async automatically
-branch = Branch()
-result = await branch.communicate("Hello")  # Works in Jupyter
-
-# For scripts, use asyncio.run()
-import asyncio
-
-async def main():
-    branch = Branch()
-    result = await branch.communicate("Hello")
-    return result
-
-# ❌ Wrong in script
-result = await main()
-
-# ✅ Correct in script  
-result = asyncio.run(main())
-```
-
-**Mixing sync/async**
-
-```python
-# ❌ Wrong - can't await in sync function
-def sync_function():
-    branch = Branch()
-    return await branch.communicate("Hello")  # SyntaxError
-
-# ✅ Correct - make function async
-async def async_function():
-    branch = Branch()
-    return await branch.communicate("Hello")
-```
-
-## Performance Issues
-
-**Slow Parallel Execution**
-
-```python
-# ❌ Slow - sequential execution
-results = []
-for topic in topics:
-    result = await branch.communicate(f"Research {topic}")
-    results.append(result)
-
-# ✅ Fast - parallel execution
-import asyncio
-
-tasks = [branch.communicate(f"Research {topic}") for topic in topics]
-results = await asyncio.gather(*tasks)
-```
-
-**Graph vs Direct Calls**
-
-```python
-# Use graphs for complex workflows
-from lionagi import Session, Builder
-
-session = Session()
-builder = Builder()
-
-# Parallel operations
-for topic in topics:
-    builder.add_operation("communicate", instruction=f"Research {topic}")
-
-results = await session.flow(builder.get_graph())
-```
-
-**Model Rate Limits**
-
-```python
-# Add delays between requests
-import asyncio
-
-async def rate_limited_call():
-    try:
-        result = await branch.communicate("Hello")
-        return result
-    except Exception as e:
-        if "rate limit" in str(e).lower():
-            await asyncio.sleep(1)  # Wait 1 second
-            return await branch.communicate("Hello")
-        raise e
-```
-
-## Memory Issues
-
-**Token Limit Exceeded**
-
-```python
-# ❌ Error: Context too long
-long_message = "very long text..." * 1000
-result = await branch.communicate(long_message)  # May fail
-
-# ✅ Solution: Chunk large inputs
-def chunk_text(text, chunk_size=4000):
-    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-
-chunks = chunk_text(long_message)
-results = []
-for chunk in chunks:
-    result = await branch.communicate(f"Process this: {chunk}")
-    results.append(result)
-```
-
-**Branch Memory Accumulation**
-
-```python
-# Branch remembers all messages
-branch = Branch()
-for i in range(1000):
-    await branch.communicate(f"Message {i}")  # Memory keeps growing
-
-# Solution: Create new branch when needed
-def get_fresh_branch():
-    return Branch(chat_model=iModel(provider="openai", model="gpt-4.1-mini"))
-
-# Or clear messages (if implemented)
-# branch.messages.clear()  # Check if available
-```
-
-## Graph Execution Issues
-
-**Circular Dependencies**
-
-```python
-# ❌ Error: Circular dependency
-node_a = builder.add_operation("communicate", depends_on=[node_b])
-node_b = builder.add_operation("communicate", depends_on=[node_a])  # Error
-
-# ✅ Solution: Linear dependencies
-node_a = builder.add_operation("communicate", instruction="Step 1")
-node_b = builder.add_operation("communicate", depends_on=[node_a], instruction="Step 2")
-```
-
-**Empty Graph Results**
-
-```python
-# Check graph execution
-try:
-    result = await session.flow(builder.get_graph())
-    print("Graph result:", result)
-    
-    # Access specific nodes
-    graph = builder.get_graph()
-    for node_id, node in graph.internal_nodes.items():
-        print(f"Node {node_id}: {node}")
-        
-except Exception as e:
-    import traceback
-    traceback.print_exc()
-```
-
-## Cost Tracking Issues
-
-**Missing Cost Data**
-
-```python
-def get_costs(node_id, builder, session):
-    try:
-        graph = builder.get_graph()
-        node = graph.internal_nodes[node_id]
-        branch = session.get_branch(node.branch_id, None)
-        
-        if branch and len(branch.messages) > 0:
-            msg = branch.messages[-1]
-            if hasattr(msg, 'model_response'):
-                return msg.model_response.get("total_cost_usd", 0)
-    except Exception as e:
-        print(f"Cost tracking error: {e}")
-    return 0
-```
-
-## Error Diagnosis
-
-**Enable Verbose Logging**
-
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
-
-# Or for specific operations
-result = await session.flow(builder.get_graph(), verbose=True)
-```
-
-**Debugging Graph State**
-
-```python
-# Check graph structure
-graph = builder.get_graph()
-print(f"Nodes: {len(graph.internal_nodes)}")
-for node_id, node in graph.internal_nodes.items():
-    print(f"  {node_id}: {node}")
-
-# Check session state
-print(f"Branches: {len(session.branches)}")
-```
-
-## Getting Help
-
-**GitHub Issues**: Report bugs at
-[khive-ai/lionagi/issues](https://github.com/khive-ai/lionagi/issues)
-
-**Check Version**: `uv pip show lionagi` for installed version
-
-**Minimal Reproduction**: Include minimal code that reproduces the issue
+Next: [Migration guide](../migration/0.22.5-to-0.22.6.md)

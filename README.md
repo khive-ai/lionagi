@@ -1,255 +1,158 @@
+
 ![PyPI - Version](https://img.shields.io/pypi/v/lionagi?labelColor=233476aa&color=231fc935)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/lionagi?color=blue)
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 [![codecov](https://codecov.io/github/khive-ai/lionagi/graph/badge.svg?token=FAE47FY26T)](https://codecov.io/github/khive-ai/lionagi)
 
-[Documentation](https://khive-ai.github.io/lionagi/) |
+# lionagi
+
+Orchestrate multi-agent AI workflows from the command line or Python.
+
+[Docs](https://khive-ai.github.io/lionagi/) |
 [Discord](https://discord.gg/JDj9ENhUE8) |
-[PyPI](https://pypi.org/project/lionagi/)
+[PyPI](https://pypi.org/project/lionagi/) |
+[Changelog](CHANGELOG.md)
 
-# LION - Language InterOperable Network
+## Install
 
-## An AGentic Intelligence SDK
-
-LionAGI is a robust framework for orchestrating multi-step AI operations with
-precise control. Bring together multiple models, advanced ReAct reasoning, tool
-integrations, and custom validations in a single coherent pipeline.
-
-## Why LionAGI?
-
-- **Structured**: Validate and type all LLM interactions with Pydantic.
-- **Expandable**: Integrate multiple providers (OpenAI, Anthropic, Perplexity,
-  custom) with minimal friction.
-- **Controlled**: Use built-in safety checks, concurrency strategies, and advanced
-  multi-step flows like ReAct.
-- **Transparent**: Debug easily with real-time logging, message introspection, and
-  tool usage tracking.
-
-## Installation
-
-```
-uv add lionagi  # recommended to use pyproject and uv for dependency management
-
-pip install lionagi # or install directly
+```bash
+pip install lionagi
 ```
 
-## Quick Start
+**CLI provider auth** — CLI aliases spawn subprocess tools, not REST API calls:
+
+- `claude`: install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) → `claude login` (subscription) or `export ANTHROPIC_API_KEY=sk-ant-...` (API key)
+- `codex`: requires ChatGPT Plus/Pro → `npm install -g @openai/codex` → `codex login`
+- Python API (`iModel`, `Branch`): `export OPENAI_API_KEY=sk-...` for gpt-4.1-mini default
+
+## First Flow
 
 ```python
-from lionagi import Branch, iModel
+import asyncio
+from lionagi import Branch
 
-# Pick a model
-gpt4o = iModel(provider="openai", model="gpt-4o-mini")
+async def main():
+    b = Branch()          # default: gpt-4.1-mini (requires OPENAI_API_KEY)
+    reply = await b.communicate("Name 3 features of async Python, one sentence each.")
+    print(reply)
 
-# Create a Branch (conversation context)
-hunter = Branch(
-  system="you are a hilarious dragon hunter who responds in 10 words rhymes.",
-  chat_model=gpt4o,
-)
-
-# Communicate asynchronously
-response = await hunter.communicate("I am a dragon")
-print(response)
+asyncio.run(main())
 ```
 
-```
-You claim to be a dragon, oh what a braggin'!
+```text
+# output:
+1. Coroutines let you write non-blocking I/O without threads.
+2. asyncio.gather runs multiple coroutines concurrently under one event loop.
+3. async generators stream results lazily, pausing between each yield.
 ```
 
-### Structured Responses
+For multi-agent orchestration without Python, see [CLI Quick Start](docs/getting-started/first-flow.md).
 
-Use Pydantic to keep outputs structured:
+## Concepts
+
+| Term | What it is |
+|------|------------|
+| **Branch** | Single conversation thread — message history, tools, model config. Primary API surface. |
+| **Session** | Coordinates multiple Branches; runs DAG workflows across them. |
+| **flow** | `li o flow` — orchestrator plans a DAG, workers execute with dependency edges resolved. |
+| **team** | Persistent inbox messaging between agents via `li team send/receive`. |
+| **operate** | `branch.operate(instruction=…)` — tool use + structured output + optional streaming. |
+| **persist** | Every run saved to `~/.lionagi/runs/{run_id}/`. Resume with `li agent -r <branch-id>`. |
+
+## CLI — `li`
+
+```bash
+# Single agent
+li agent claude/sonnet "Explain the observer pattern in 3 sentences"
+
+# Fan-out: N workers in parallel, optional synthesis
+li o fanout claude/sonnet "Identify code smells in this codebase" -n 3 --with-synthesis
+
+# DAG flow: orchestrator plans agents with dependency edges
+li o flow claude/sonnet "Audit the auth module for security issues" --cwd .
+
+# Team messaging: inbox coordination between agents
+li team create "review" && li team send "Start analysis" -t <id> --to analyst
+
+# Resume any run
+li agent -r <branch-id> "follow up on your findings"
+```
+
+Full reference → [docs/cli-reference.md](docs/cli-reference.md)
+
+## Python API
+
+**Chat**
+
+```python
+from lionagi import Branch
+
+b = Branch(chat_model="openai/gpt-5.4", system="You are a concise assistant.")
+reply = await b.communicate("What causes rainbows?")
+```
+
+**Structured output**
 
 ```python
 from pydantic import BaseModel
 
-class Joke(BaseModel):
-    joke: str
+class Summary(BaseModel):
+    points: list[str]
+    confidence: float
 
-res = await hunter.operate(
-    instruction="Tell me a short dragon joke",
-    response_format=Joke
-)
-print(type(res))
-print(res.joke)
+result = await b.operate(instruction="Summarize this text.", response_format=Summary)
 ```
 
-```
-<class '__main__.Joke'>
-With fiery claws, dragons hide their laughter flaws!
-```
-
-### ReAct and Tools
-
-LionAGI supports advanced multi-step reasoning with ReAct. Tools let the LLM
-invoke external actions:
-
-```
-pip install "lionagi[reader]"
-```
+**Tools + ReAct**
 
 ```python
 from lionagi.tools.types import ReaderTool
 
-# Define model first
-gpt4o = iModel(provider="openai", model="gpt-4o-mini")
-
-branch = Branch(chat_model=gpt4o, tools=[ReaderTool])
+branch = Branch(tools=[ReaderTool])
 result = await branch.ReAct(
-    instruct={
-      "instruction": "Summarize my PDF and compare with relevant papers.",
-      "context": {"paper_file_path": "/path/to/paper.pdf"},
-    },
-    extension_allowed=True,     # allow multi-round expansions
-    max_extensions=5,
-    verbose=True,      # see step-by-step chain-of-thought
-)
-print(result)
-```
-
-The LLM can now open the PDF, read in slices, fetch references, and produce a
-final structured summary.
-
-### MCP (Model Context Protocol) Integration
-
-LionAGI supports Anthropic's Model Context Protocol for seamless tool integration:
-
-```
-pip install "lionagi[mcp]"
-```
-
-```python
-from lionagi import load_mcp_tools
-
-# Load tools from any MCP server
-tools = await load_mcp_tools(".mcp.json", ["search", "memory"])
-
-# Use with ReAct reasoning
-branch = Branch(chat_model=gpt4o, tools=tools)
-result = await branch.ReAct(
-    instruct={"instruction": "Research recent AI developments"},
-    tools=["search_exa_search"],
-    max_extensions=3
+    instruct={"instruction": "Summarize /path/to/paper.pdf"},
 )
 ```
 
-- **Dynamic Discovery**: Auto-discover and register tools from MCP servers
-- **Type Safety**: Full Pydantic validation for tool interactions
-- **Connection Pooling**: Efficient resource management with automatic reuse
+Full reference → [docs/api/](docs/api/)
 
-### Observability & Debugging
+## Docs
 
-- Inspect messages:
+| | |
+|--|--|
+| [Getting Started](docs/getting-started/first-flow.md) | Install, first flow, API key setup |
+| [Concepts](docs/concepts.md) | Branch, Session, flow, team, operate, persist |
+| [CLI Reference](docs/cli-reference.md) | `li agent`, `li o fanout`, `li o flow`, `li team` — all flags |
+| [Cookbook](docs/cookbook/) | 5 runnable scenarios: codebase audit, research synthesis, multi-model pipeline, team coordination, resumable background run |
+| [API Reference](docs/api/) | `branch.operate`, `branch.ReAct`, `iModel`, `Session` |
+| [Migration 0.22.5 → 0.22.6](docs/migration/0.22.5-to-0.22.6.md) | Breaking changes: `branch.instruct` removed, run paths changed |
+| [Contributing](docs/contributing.md) | Dev setup, PR workflow |
 
-```python
-df = branch.to_df()
-print(df.tail())
-```
-
-- Action logs show each tool call, arguments, and outcomes.
-- Verbose ReAct provides chain-of-thought analysis (helpful for debugging
-  multi-step flows).
-
-### Example: Multi-Model Orchestration
-
-```python
-from lionagi import Branch, iModel
-
-# Define models for multi-model orchestration
-gpt4o = iModel(provider="openai", model="gpt-4o-mini")
-sonnet = iModel(
-  provider="anthropic",
-  model="claude-3-5-sonnet-20241022",
-  max_tokens=1000,                    # max_tokens is required for anthropic models
-)
-
-branch = Branch(chat_model=gpt4o)
-analysis = await branch.communicate("Analyze these stats", chat_model=sonnet) # Switch mid-flow
-```
-
-Seamlessly route to different models in the same workflow.
-
-### CLI Agent Integration
-
-LionAGI integrates with coding agent CLIs as providers, enabling multi-agent orchestration across models:
-
-| Provider | CLI | Models |
-|----------|-----|--------|
-| `claude_code` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code/sdk) | sonnet, opus, haiku |
-| `codex` | [OpenAI Codex](https://github.com/openai/codex) | gpt-5.3-codex-spark, gpt-5.4 |
-| `gemini_code` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | gemini-3.1-* (unstable) |
-
-```python
-from lionagi import iModel, Branch
-
-# Use any CLI agent as a model
-agent = Branch(chat_model=iModel(provider="claude_code", model="sonnet"))
-response = await agent.communicate("Explain the architecture of this codebase")
-
-# Switch providers mid-flow
-codex = iModel(provider="codex", model="gpt-5.3-codex-spark")
-response2 = await agent.communicate("Compare with your analysis", chat_model=codex)
-```
-
-See the [CLI Guide](docs/cli_guide.md) for the `li` command-line tool that wraps these providers with fan-out orchestration, session persistence, and effort control.
-
-### CLI — `li`
-
-LionAGI ships a command-line tool `li` for spawning agents, orchestrating multi-agent fan-out, and team messaging. See the full [CLI Guide](docs/cli_guide.md) for details.
+## Optional Extras
 
 ```bash
-# Single agent
-li agent claude/sonnet "Explain the observer pattern"
-li agent codex/gpt-5.3-codex-spark "Review this function for bugs" --yolo
-
-# Fan-out: orchestrator decomposes task, N workers run in parallel, optional synthesis
-li o fanout claude/sonnet "What are the key design patterns in this codebase?" -n 3 --with-synthesis
-
-# Fan-out with team tracking: workers get named identities, results posted as messages
-li o fanout claude/sonnet "Improve test coverage for this project" \
-    -n 5 --yolo --team-mode "coverage-boost" --with-synthesis
-
-# Team messaging: inbox-style coordination between agents
-li team create "research" -m "analyst,writer,reviewer"
-li team send "analyze auth middleware" -t <team-id> --to all
-li team receive -t <team-id> --as writer
-
-# Resume any conversation
-li agent -r <branch-id> "follow up on your analysis"
+uv add "lionagi[reader]"    # Document reading (PDF, HTML, DOCX)
+uv add "lionagi[mcp]"       # MCP server support
+uv add "lionagi[ollama]"    # Local models via Ollama
+uv add "lionagi[rich]"      # Rich terminal output
+uv add "lionagi[graph]"     # Flow visualization
+uv add "lionagi[postgres]"  # PostgreSQL persistence
+uv add "lionagi[all]"       # Everything
 ```
 
-### optional dependencies
+## Community
 
-```
-"lionagi[reader]" - Reader tool for any unstructured data and web pages
-"lionagi[ollama]" - Ollama model support for local inference
-"lionagi[rich]" - Rich output formatting for better console display
-"lionagi[schema]" - Convert pydantic schema to make the Model class persistent
-"lionagi[postgres]" - Postgres database support for storing and retrieving structured data
-"lionagi[graph]" - Graph display for visualizing complex workflows
-"lionagi[sqlite]" - SQLite database support for lightweight data storage (also need `postgres` option)
-```
+- [Discord](https://discord.gg/JDj9ENhUE8) — questions, ideas, help
+- [Issues](https://github.com/khive-ai/lionagi/issues) — bugs and feature requests
+- [Contributing](docs/contributing.md) — PR workflow
 
-## Community & Contributing
+**Citation**
 
-We welcome issues, ideas, and pull requests:
-
-- Discord: Join to chat or get help
-- Issues / PRs: GitHub
-
-### Citation
-
-```
+```bibtex
 @software{Li_LionAGI_2023,
   author = {Haiyang Li},
-  month = {12},
-  year = {2023},
-  title = {LionAGI: Towards Automated General Intelligence},
-  url = {https://github.com/lion-agi/lionagi},
+  year   = {2023},
+  title  = {LionAGI: Towards Automated General Intelligence},
+  url    = {https://github.com/khive-ai/lionagi},
 }
 ```
-
-**🦁 LionAGI**
-
-> Because real AI orchestration demands more than a single prompt. Try it out
-> and discover the next evolution in structured, multi-model, safe AI.
