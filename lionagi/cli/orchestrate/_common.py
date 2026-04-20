@@ -66,7 +66,13 @@ def _format_result_json(
 
 # ── Default worker system prompt (shared by flow + fanout) ────────────────
 
-BARE_WORKER_SYSTEM = """\
+
+def _bare_worker_system() -> str:
+    from lionagi.session.prompts import LION_SYSTEM_MESSAGE
+    return LION_SYSTEM_MESSAGE.strip() + "\n\n" + _BARE_WORKER_BODY
+
+
+_BARE_WORKER_BODY = """\
 You are a specialist worker agent in a DAG pipeline. \
 Complete your assigned task directly and precisely. \
 You may read files, use tools, and run commands as needed. \
@@ -90,6 +96,8 @@ later, your conversation history is retained.
 BASH QUOTING: Use variable assignment for multi-word CLI args: \
 Q="your query" && command "$Q" (NOT command "your query").\
 """
+
+BARE_WORKER_SYSTEM = _bare_worker_system()
 
 
 # ── Team-mode guidance ────────────────────────────────────────────────────
