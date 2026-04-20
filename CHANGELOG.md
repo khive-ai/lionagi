@@ -3,15 +3,96 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.22.6] - 2026-04-20
+
+### Added
+- **Two-level flow DAG**: `FlowAgent` (Branch identity with memory) separated
+  from `FlowOp` (DAG node). Multiple ops can share an `agent_id` — the
+  framework reuses the Branch so the agent remembers prior turns. Enables
+  `r1 → i1 → r1` patterns where r1's second turn has full context of its
+  first without re-injecting anything. Orchestrator planner is explicitly
+  guided to reuse agents for cheaper multi-op pipelines.
+- **Run-scoped persistence** (hybrid layout): state (branch snapshots, stream
+  buffers, manifest) always lives at `~/.lionagi/runs/{run_id}/`; artifacts
+  land at `--save <dir>` when provided, else under `state_root/artifacts/`.
+  `run.json` manifest records command, branches, agents, operations.
+  `find_branch` + `load_last_branch` scan runs first with legacy
+  `logs/agents/` fallback. `run_id` format: `YYYYMMDDTHHMMSS-{uuid6}`.
+- **`lionagi.operations.types.Middle`**: Protocol formalizing the middle-
+  stage contract for `operate()`. Both `communicate` and `run_and_collect`
+  structurally satisfy it.
+- **`lionagi/cli/_logging.py`**: four named channels (`progress`, `hint`,
+  `warn`, `log_error`) replacing the scattered `print(..., file=sys.stderr)`
+  calls. Verbose mode flips cleanly: CLI progress silenced, provider
+  library loggers unmuted.
+- **`lionagi/cli/_runs.py`**: `RunDir` + `allocate_run()` + `find_branch()`
+  + `list_runs()`. `LIONAGI_RUN_ID` env var supported for subprocess
+  handoff (`--background`).
+- **`lionagi/cli/_orchestration.py`**: shared A/C/G phases (setup, build
+  worker branch, finalize) consumed by both fanout and flow.
+  `OrchestrationEnv` dataclass bundles run + session + branch + builder
+  + worker defaults.
+- **Field descriptions + ClassVar prompts** on `FlowAgent`, `FlowOp`,
+  `FlowPlan`, `FlowControlVerdict`, `AgentRequest`: `Field(description=...)`
+  on every field so the LLM sees purpose-built docs in the structured-
+  output schema. Planning / re-plan / verdict-contract prompts moved
+  from inline walls to `FlowPlan.PLANNING_INSTRUCTION`,
+  `FlowPlan.REPLAN_INSTRUCTION`, `FlowControlVerdict.VERDICT_CONTRACT`,
+  `AgentRequest.DECOMPOSITION_INSTRUCTION`, etc.
+- **Team file locking** (POSIX `fcntl.flock`): `_locked_team` context
+  manager wraps read-modify-write in `li team send` / `li team receive`
+  so concurrent parallel-worker invocations serialize cleanly.
+- **`--from-op` on `li team send`**: ties a coordination signal to a
+  specific op invocation. When one agent runs multiple ops, message
+  consumers can distinguish which turn emitted the signal.
+- **Timestamped read receipts**: team messages `read_by` is now
+  `dict[name → ISO timestamp]` instead of `list[name]`. Old list format
+  is still read (auto-normalized).
+- **`lionagi/cli/__main__.py`**: makes `python -m lionagi.cli` work.
+  Required by `li o flow --background` which respawns the CLI.
 
 ### Changed
-- `branch.operate()` absorbs `branch.instruct()` — the only real difference was the middle function (`communicate` for API, `run`-and-collect for CLI). `operate` now accepts a `middle` callable and auto-selects based on `chat_model.is_cli`. Added `stream_persist` and `persist_dir` kwargs for CLI streaming.
-- `run_and_collect()` added to `lionagi.operations.run.run` — stream via `run()`, accumulate assistant text, optionally parse. Drop-in `communicate`-compatible middle for CLI endpoints.
-- Orchestrator DAG nodes (`li o flow`, `li o fanout`) now add `"operate"` operations; prior `"instruct"` name removed.
+- **`branch.operate()` absorbs `branch.instruct()`** — the only real
+  difference was the middle function (`communicate` for API, `run`-and-
+  collect for CLI). `operate` now accepts a `middle` callable and auto-
+  selects based on `chat_model.is_cli`. Added `stream_persist` and
+  `persist_dir` kwargs for CLI streaming.
+- **`run_and_collect()`** added to `lionagi.operations.run.run` — stream
+  via `run()`, accumulate assistant text, optionally parse.
+- **TEAM prompt composition**: `TEAM_WORKER_SYSTEM` used to REPLACE the
+  BARE worker prompt entirely, dropping the artifact protocol. Now
+  `TEAM_COORD_SECTION` is APPENDED to BARE (or profile.system_prompt)
+  so workers keep their tool guidance + artifact rules. The old
+  `TEAM_WORKER_SYSTEM` constant is preserved as a composed alias for
+  backward compat.
+- **Orchestrator DAG nodes** (`li o flow`, `li o fanout`) now add
+  `"operate"` operations; prior `"instruct"` name removed.
+- **Provider partitioning removed from persistence**: branches live under
+  `runs/{run_id}/branches/`, not `logs/agents/{provider}/`.
+- **Per-agent artifact dirs**: `{artifact_root}/{agent_id}/` — all ops
+  on the same agent write to one directory. Downstream ops read cross-
+  agent deps via `{artifact_root}/{dep_agent_id}/*`.
+- **`last_branch.json`** schema: `{provider, branch_id}` → `{run_id,
+  branch_id}`. Legacy format auto-detected on read.
 
 ### Removed
-- `branch.instruct()` method and `lionagi.operations.instruct` module. Callers migrate to `branch.operate(instruction=..., stream_persist=..., persist_dir=...)`.
+- **`branch.instruct()`** method and `lionagi.operations.instruct` module.
+  Migrate to `branch.operate(instruction=..., stream_persist=..., persist_dir=...)`.
+- Flat-dump artifacts at `{save_dir}/{id}_{name}.md` — redundant with
+  per-agent artifact directories.
+- Hardcoded `"codex/gpt-5.4"` fallback in profile resolution.
+
+### Fixed
+- **`operate()` crash on raw-text middle output**: CLI path with no
+  `response_format` returned a str, and the action-handling branch
+  called `.get()` on it. Now checks `isinstance(result, dict)` first.
+- **Flow DAG `agent.instruction/depends_on` on schema**: was previously
+  conflated — one `FlowAgentSpec` was simultaneously branch identity,
+  DAG node, and instruction carrier. Multi-op-per-branch was impossible
+  despite the framework supporting it.
+- **Team file concurrent-write race**: multiple parallel workers doing
+  `li team send` could clobber each other's messages; now serialized
+  under exclusive POSIX lock.
 
 ## [0.22.5] - 2026-04-19
 

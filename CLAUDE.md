@@ -41,10 +41,13 @@ RoledMessage (base)
 
 **Session** manages multiple Branches. **Branch** is the primary API surface — a facade over four managers. All LLM operations are Branch methods that delegate to managers:
 
-- `branch.chat()` → simple LLM call
+- `branch.chat()` → simple LLM call (API providers only)
+- `branch.run()` → async generator streaming chunks from CLI endpoints (claude_code, codex)
 - `branch.parse()` → structured extraction into Pydantic models
-- `branch.operate()` → tool calling with iteration
+- `branch.operate()` → **universal structured operation** — tool calling with iteration, structured output, optional streaming. Routes via the `Middle` protocol: `communicate` for API endpoints, `run_and_collect` for CLI endpoints. Accepts `stream_persist` / `persist_dir` for CLI chunk logging and `middle=<callable>` to override dispatch explicitly.
 - `branch.ReAct()` → think-act-observe reasoning loops
+
+**Middle protocol** (`operations/types.Middle`): a callable that advances the branch by one assistant turn — takes (branch, instruction, chat_param, parse_param, clear_messages, skip_validation), returns text/dict/BaseModel. Canonical implementations: `operations/communicate/communicate.py` (one-shot chat+parse) and `operations/run/run.run_and_collect` (stream accumulation + parse). Custom middles can be injected for caching, retry-wrapping, recorded-replay in tests.
 
 ### Service Layer (`service/`)
 
@@ -54,7 +57,9 @@ Rate limiting, circuit breaking, and retry logic are built into iModel automatic
 
 ### Operations (`operations/`)
 
-Operations (chat, parse, operate, ReAct, select, interpret, communicate, act) are standalone modules that Branch methods delegate to. `OperationGraphBuilder` composes them into DAGs executed by `Session.flow()`.
+Operations (chat, parse, operate, ReAct, select, interpret, communicate, run, act) are standalone modules that Branch methods delegate to. `OperationGraphBuilder` composes them into DAGs executed by `Session.flow()`.
+
+**Multi-op-per-branch**: `Session.flow()` pre-allocates branches once; operations with the same `branch=` reference reuse that Branch (no clone). This enables an agent to run several DAG nodes with accumulating message history — the core building block for the CLI's two-level flow pattern (one FlowAgent → one Branch → multiple FlowOp invocations).
 
 ### Tools (`protocols/action/`)
 
@@ -69,6 +74,41 @@ Tool schemas auto-generate from function signatures via `function_to_schema()`. 
 ### Config (`config.py`)
 
 `AppSettings` (pydantic-settings) loads API keys from env vars. Defaults: `LIONAGI_CHAT_PROVIDER=openai`, `LIONAGI_CHAT_MODEL=gpt-4.1-mini`.
+
+### CLI Layer (`lionagi/cli/`)
+
+The `li` command in `cli/main.py` is the user-facing entry point. Subcommands:
+
+- `cli/agent.py` — `li agent`: single-agent one-shot or resumed turn.
+- `cli/team.py` — `li team`: persistent inbox-style messaging (`~/.lionagi/teams/{id}.json`). Concurrent read-modify-write is serialized under `fcntl.flock` via `_locked_team`. Messages carry `from_op` (tie-to-op) and timestamped `read_by` dict.
+- `cli/orchestrate/` — `li o fanout` / `li o flow`:
+  - `_orchestration.py` — pattern-agnostic primitives (`OrchestrationEnv`, `setup_orchestration`, `build_worker_branch`, `finalize_orchestration`). Shared phases A/C/G (setup, worker construction, finalize).
+  - `flow.py` — two-level DAG: `FlowAgent` (Branch identity with memory) + `FlowOp` (DAG node). Same agent can run multiple ops; branch memory carries across.
+  - `fanout.py` — flat parallel workers from one decomposition.
+  - `_common.py` — shared schemas (`AgentRequest`), worker/team system-prompt templates.
+  - `__main__.py` — makes `python -m lionagi.cli` work for the `--background` subprocess path.
+
+**Schema-driven prompting**: `FlowAgent`, `FlowOp`, `FlowPlan`, `FlowControlVerdict`, `AgentRequest` all use `Field(description=...)` so the LLM sees purpose-built docs in the structured-output schema. Long orchestrator prompts (planning instruction, re-plan guidance, verdict contract) live as `ClassVar[str]` on the schemas — one source of truth next to the shape they describe.
+
+### Persistence layer (`lionagi/cli/_runs.py`)
+
+Every CLI invocation allocates a `RunDir` under `~/.lionagi/runs/{run_id}/`:
+- `run.json` — manifest (command, branches, agents, operations, artifact_root)
+- `branches/{branch_id}.json` — canonical branch snapshots
+- `stream/{branch_id}.buffer.jsonl` — live chunk buffer during stream
+- `artifacts/` — only when `--save` is not provided (else artifacts go to user dir)
+
+`run_id` format: `YYYYMMDDTHHMMSS-{uuid6}`. `find_branch(branch_id)` scans runs first, falls back to the legacy `logs/agents/{provider}/` layout. `LIONAGI_RUN_ID` env var lets subprocesses (e.g. `--background`) inherit their parent's run.
+
+### CLI Logging (`lionagi/cli/_logging.py`)
+
+Four named loggers, set up once in `main()` via `configure_cli_logging(verbose)`:
+- `lionagi.cli.progress` — `progress()` — INFO when normal, WARNING when verbose (silenced so provider stream takes over)
+- `lionagi.cli.hint` — `hint()` — post-run pointers (resume commands), always on
+- `lionagi.cli.warn` — `warn()` — prefixes `warning: `, always on
+- `lionagi.cli.error` — `log_error()` — prefixes `error: `, always on
+
+Never `print(..., file=sys.stderr)` in CLI code — use these helpers.
 
 ## Key Design Patterns
 

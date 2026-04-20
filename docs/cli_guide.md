@@ -129,79 +129,117 @@ li o fanout claude/sonnet "Review authentication flow" \
     -n 2 --with-synthesis --save ./review-output --output json
 ```
 
-### `li o flow` — DAG Flow
+### `li o flow` — Two-Level DAG Flow
 
-Orchestrator plans a directed acyclic graph of agents with dependency edges, then executes with automatic parallelism where dependencies allow.
+Orchestrator plans a two-level DAG — **agents** (Branches with memory) and
+**operations** (invocations on those agents) — then the engine executes ops
+in dependency order with automatic parallelism.
 
 ```bash
 li o flow MODEL PROMPT [OPTIONS]
 ```
 
-The orchestrator analyzes your prompt, generates a `FlowPlan` with agents linked by `depends_on` edges, and the engine executes them — parallel where possible, sequential where needed.
+**The two-level model**
+
+A `FlowPlan` contains:
+
+- **`agents`**: list of `FlowAgent` — each is a persistent Branch identity
+  (id, role, model, guidance). One agent = one Branch = memory across turns.
+- **`operations`**: list of `FlowOp` — each is one DAG node (id, agent_id,
+  instruction, depends_on, control). Multiple ops can share an `agent_id`
+  so the same agent can run several turns, each seeing the full history
+  of its prior turns.
+
+**Why two levels**: the `r1 → i1 → r1` pattern — researcher proposes,
+implementer writes, researcher reviews. When `r1` runs the review op, the
+Branch still has the researcher's own proposal in memory; no need to
+re-inject context. Reusing an agent is cheaper (fewer tokens, no re-context)
+than spawning a new one.
 
 **Options**:
 
 | Flag | Description |
 |------|-------------|
 | `--with-synthesis [MODEL]` | Enable final synthesis. Bare flag uses orchestrator model |
-| `--max-concurrent N` | Limit concurrent agents (default: all) |
+| `--max-concurrent N` | Limit concurrent ops (default: all) |
 | `--bare` | Ignore agent profiles — all workers use the CLI model |
-| `--max-agents N` | Cap total agents (0 = unlimited) |
-| `--dry-run` | Plan the DAG without executing. Shows agents, deps, models |
+| `--max-agents N` | Cap total ops (the work budget) |
+| `--dry-run` | Plan the DAG without executing. Shows agents, ops, models |
+| `--background` | Fork to subprocess; logs go to `{save}/flow.log` |
+| `--team-mode NAME` | Create a persistent team for inter-agent coordination |
 | `--output text\|json` | Output format |
-| `--save DIR` | Save outputs to directory |
+| `--save DIR` | Artifact root. Branch state always lives at `~/.lionagi/runs/{run_id}/` |
 
 Plus all shared flags: `-v`, `--yolo`, `--effort`, `--theme`, `--cwd`, `--timeout`
 
 **How it works**:
 
-1. Orchestrator generates a `FlowPlan`: a flat list of agents, each with an `id`, `role`, `instruction`, and optional `depends_on` (list of agent ids)
-2. Agents with no dependencies run immediately in parallel
-3. Agents with dependencies wait for their predecessors to complete
-4. **Control nodes** (`control=true`): critic agents that review prior work and produce a structured `FlowControlVerdict`. If `should_continue=true`, the orchestrator re-plans and adds more agents (up to 3 rounds)
+1. Orchestrator generates a `FlowPlan` (agents + operations).
+2. Pass 1: one Branch per agent is constructed.
+3. Pass 2: each op becomes a DAG node tied to its agent's Branch.
+4. Engine executes ops in dependency order; independent ops run in parallel.
+5. **Control ops** (`control=true`): critic invocations that review prior
+   op outputs and produce a `FlowControlVerdict`. If `should_continue=True`,
+   the orchestrator is re-invoked to plan additional ops (up to 3 rounds).
+   Re-plan may add new agents OR reuse existing ones.
+6. Optional synthesis op consolidates leaves.
 
 **Examples**:
 
 ```bash
-# Simple: let orchestrator plan everything
+# Let orchestrator plan everything
 li o flow claude/sonnet "Audit this codebase for security issues"
 
 # Dry-run: see the plan without executing
 li o flow claude/sonnet "Refactor the auth module" --dry-run
 
-# Bare mode: all workers use sonnet (ignore profile models)
+# Bare mode: all workers use sonnet
 li o flow claude/sonnet "Find dead code in lionagi/cli/" --bare --with-synthesis
 
-# Budget: limit agents + timeout
+# Budget + timeout
 li o flow claude/sonnet "Analyze error handling patterns" \
-    --max-agents 3 --timeout 300 --with-synthesis
+    --max-agents 5 --timeout 300 --with-synthesis
 
-# Full auto: yolo + bare + synthesis
-li o flow claude/sonnet "Review the test coverage gaps" \
-    --bare --yolo --with-synthesis --save ./review
+# Background: runs detached, logs to flow.log
+li o flow claude/sonnet "Long audit" --save ./audit --background
+
+# Team mode: workers exchange coordination signals via inbox
+li o flow claude/sonnet "Build a search feature" --team-mode search
 ```
 
-**Dry-run output** shows the DAG structure and model resolution:
+**Dry-run output** shows both layers:
 
 ```
-FlowPlan (3 agents, synthesis=True)
+FlowPlan (2 agents, 3 ops, synthesis=False)
 
-  a1: analyst
-    instruction: Read all files in lionagi/cli/...
-  s1: suggester
-    instruction: Using the findings from a1...
-  depends_on: a1
-  c1: critic [CONTROL]
-    instruction: Review a1's findings and s1's suggestions...
-  depends_on: a1, s1
+Agents:
+  r1: researcher
+    guidance: Focus on Python idioms and edge cases.
+  i1: implementer
+    guidance: Production-quality code, no stubs.
+
+Operations:
+  o1 → r1
+    instruction: Research string reversal approaches...
+  o2 → i1
+    instruction: Read ../r1/approaches.md, implement slice version...
+  depends_on: o1
+  o3 → r1 [CONTROL]
+    instruction: Review i1/reverse_string.py against your earlier research...
+  depends_on: o2
 
 Model resolution:
-  a1: claude/sonnet (bare)
-  s1: claude/sonnet (bare)
-  c1: claude/sonnet (bare)
+  r1: claude/sonnet (bare)
+  i1: claude/sonnet (bare)
 ```
 
-**Flow vs Fanout**: Fanout is flat parallel (N workers, same task, different angles). Flow is a DAG — agents can depend on each other's output, enabling multi-step pipelines with critic-driven iteration.
+Note `o3 → r1` — the same agent runs o1 and o3, and r1's branch
+retains the first turn's context when running o3.
+
+**Flow vs Fanout**: fanout is flat parallel (N workers, different angles,
+one turn each). Flow is a DAG where agents can span multiple turns on
+the same branch, with memory carrying over — enabling iterative
+refinement, critic-driven loops, and multi-round pipelines.
 
 ### `li team` — Team Messaging
 
@@ -218,8 +256,8 @@ li team COMMAND [OPTIONS]
 | `create NAME -m "A,B,C"` | Create a named team with members |
 | `list` | List all teams |
 | `show TEAM_ID` | Show team details and all messages |
-| `send CONTENT -t ID --to RECIPIENTS` | Send message (`all` or comma-separated names) |
-| `receive -t ID --as NAME` | Read inbox (marks messages as read) |
+| `send CONTENT -t ID --to RECIPIENTS [--from-op OP_ID]` | Send message (`all` or comma-separated names); `--from-op` ties the message to a specific flow op |
+| `receive -t ID --as NAME` | Read inbox (marks messages with read timestamp) |
 
 **Examples**:
 
@@ -230,14 +268,26 @@ li team create "research" -m "analyst,writer,reviewer"
 # Send to everyone
 li team send "analyze the auth module" -t abc123 --to all
 
-# Send to specific member
-li team send "focus on JWT handling" -t abc123 --to writer --from analyst
+# Send to specific member, tagged to your current op
+li team send "focus on JWT handling" -t abc123 --to writer \
+    --from analyst --from-op o2
 
 # Check inbox
 li team receive -t abc123 --as writer
 ```
 
-Teams persist at `~/.lionagi/teams/{id}.json`. Messages track read state per member.
+Teams persist at `~/.lionagi/teams/{id}.json`. Reads are serialized under
+a POSIX file lock (`fcntl.flock`) so concurrent parallel-worker invocations
+don't race. `read_by` is a `dict[member → ISO timestamp]` so you can see
+when each member saw each message.
+
+Each message carries:
+- `from`: sender name
+- `from_op`: op id (when sent from within a flow) — tells you which turn
+  on a multi-op agent emitted the signal
+- `to`: recipients (`["*"]` = all)
+- `content`, `timestamp`
+- `read_by`: `{member_name: timestamp}`
 
 ### `--team-mode` with Fan-Out
 
@@ -276,7 +326,13 @@ Resume continues the conversation with full context:
 li agent -r adf15442-8d0c-4499-a88b-16d8d1adaeeb "expand on point 2"
 ```
 
-Sessions are stored at `~/.lionagi/logs/agents/{provider}/{branch-id}`.
+Sessions are stored at `~/.lionagi/runs/{run_id}/branches/{branch-id}.json`. Every
+invocation of `li agent` / `li o flow` / `li o fanout` allocates a run with
+id `YYYYMMDDTHHMMSS-{uuid6}`. State (branches, stream buffers, manifest) lives
+under `~/.lionagi/runs/`; artifacts go to `--save <dir>` when provided,
+otherwise nested under the run's `artifacts/` subdir. `find_branch` scans
+the run tree first, falling back to the legacy `logs/agents/{provider}/`
+layout for pre-0.22.6 sessions.
 
 ## Agent Profiles (`.lionagi/agents/`)
 
