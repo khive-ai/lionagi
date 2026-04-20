@@ -32,7 +32,6 @@ from ._orchestration import (
     resolve_worker_spec,
     setup_orchestration,
     team_guidance,
-    team_worker_system,
 )
 
 # ── Flow models ───────────────────────────────────────────────────────────
@@ -548,16 +547,12 @@ async def _run_flow_inner(
     def _build_agent_branch(
         a: FlowAgent,
     ) -> tuple[Branch, str, AgentProfile | None]:
-        wname = agent_id_to_name[a.id]
         return build_worker_branch(
             env,
             agent_id=a.id,
             role=a.role,
             model_override=a.model,
-            explicit_name=wname,
-            system_prompt_override=team_worker_system(
-                team_data, wname, all_agent_names
-            ),
+            explicit_name=agent_id_to_name[a.id],
         )
 
     # ── Helper: build context + add a node for a single op ──────────

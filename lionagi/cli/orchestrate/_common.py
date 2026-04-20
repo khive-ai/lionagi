@@ -145,43 +145,57 @@ Q="your query" && command "$Q" (NOT command "your query").\
 BARE_WORKER_SYSTEM = _bare_worker_system()
 
 
-# ── Team-mode guidance ────────────────────────────────────────────────────
+# ── Team-mode coordination section ────────────────────────────────────────
+#
+# Appended onto the base worker system prompt (BARE_WORKER_SYSTEM or a
+# profile's system_prompt) when the worker runs in team mode. This is a
+# SECTION, not a replacement — workers still need the artifact protocol
+# and tool guidance from the base prompt.
 
-TEAM_WORKER_SYSTEM = """\
-You are **{worker_name}**, a specialist on team "{team_name}" (id: {team_id}).
+TEAM_COORD_SECTION = """\
+## Team Coordination
 
-## Your team
+You are **{worker_name}** on team "{team_name}" (id: {team_id}).
+
+### Your team
 {roster_text}
 
-## Team coordination protocol
+### Protocol
 
-**Before starting work**: Check your inbox for messages from teammates.
+**Before starting work**: Check your inbox.
 ```bash
 li team receive -t {team_id} --as {worker_name}
 ```
 
-**During work**: If you discover something relevant to a teammate, send them a message.
-Keep messages short and actionable — coordination signals, not full deliverables.
+**During work**: Send coordination signals to teammates when you discover \
+something affecting them. Keep them short and actionable — NOT full deliverables.
 ```bash
-li team send "Found 3 undocumented endpoints — hold off on gap analysis until I update inventory" -t {team_id} --to analyst
+li team send "Found 3 undocumented endpoints — hold off on gap analysis \
+until I update inventory" -t {team_id} --to analyst --from {worker_name} \
+--from-op <your_op_id>
 ```
+The `--from-op` tag ties the message to your specific invocation so \
+downstream ops can trace which turn emitted it.
 
-**After work**: Your artifacts (files you write) are the primary deliverable.
-Team messages are supplementary context. Results are also auto-posted to the team.
+**After work**: Your artifact files are the deliverable. Team messages \
+are supplementary — full results are auto-posted to the team at flow end.
 
-## What goes where
-- **Team messages**: coordination signals, warnings, discoveries that affect others
-- **Artifact files**: structured deliverables (inventories, analyses, specs, verdicts)
-- **stdout**: progress updates only — NOT your deliverable
+### What goes where
+- **Team messages**: coordination signals, warnings, discoveries affecting others
+- **Artifact files**: structured deliverables (still your primary output)
+- **stdout**: progress updates only
 
-## Resuming
+### Resuming
 After this round, teammates or the orchestrator can follow up:
 - `li team receive -t {team_id} --as {worker_name}` to read messages
 - `li team send "..." -t {team_id} --to {worker_name}` to reply
-- `li agent -r {{branch_id}} "follow-up"` to continue your session
-
-Focus on YOUR assignment. Be specific — your output is the deliverable.\
+- `li agent -r {{branch_id}} "follow-up"` to continue your session\
 """
+
+# Backward-compat alias: the old standalone template was
+# "You are a specialist..." + TEAM_COORD_SECTION. External callers that
+# imported TEAM_WORKER_SYSTEM still get the composed version.
+TEAM_WORKER_SYSTEM = BARE_WORKER_SYSTEM + "\n\n" + TEAM_COORD_SECTION
 
 
 def _create_fanout_team(
@@ -209,33 +223,43 @@ def _post_results_to_team(
     worker_names: list[str],
     synthesis_result: dict | None = None,
 ) -> None:
+    """Append one message per worker result + optional synthesis, under a
+    lock so post-flow commits don't race concurrent worker sends.
+
+    Each message carries ``from_op`` so downstream consumers can tell
+    which op produced the payload (important when one agent ran several
+    ops)."""
     from uuid import uuid4
 
-    for wr, name in zip(worker_results, worker_names):
-        team_data["messages"].append(
-            {
-                "id": uuid4().hex[:12],
-                "from": name,
-                "to": ["*"],
-                "content": wr.get("response", "(no response)"),
-                "timestamp": _now_iso(),
-                "read_by": [],
-            }
-        )
+    from ..team import _locked_team
 
-    if synthesis_result:
-        team_data["messages"].append(
-            {
-                "id": uuid4().hex[:12],
-                "from": "orchestrator",
-                "to": ["*"],
-                "content": f"[SYNTHESIS]\n{synthesis_result.get('response', '')}",
-                "timestamp": _now_iso(),
-                "read_by": [],
-            }
-        )
+    with _locked_team(team_data["id"]) as data:
+        messages = data.setdefault("messages", [])
+        for wr, name in zip(worker_results, worker_names):
+            messages.append(
+                {
+                    "id": uuid4().hex[:12],
+                    "from": name,
+                    "from_op": wr.get("id"),
+                    "to": ["*"],
+                    "content": wr.get("response", "(no response)"),
+                    "timestamp": _now_iso(),
+                    "read_by": {},
+                }
+            )
 
-    _save_team(team_data)
+        if synthesis_result:
+            messages.append(
+                {
+                    "id": uuid4().hex[:12],
+                    "from": "orchestrator",
+                    "from_op": "synthesis",
+                    "to": ["*"],
+                    "content": f"[SYNTHESIS]\n{synthesis_result.get('response', '')}",
+                    "timestamp": _now_iso(),
+                    "read_by": {},
+                }
+            )
 
 
 # ── Session persistence ──────────────────────────────────────────────────

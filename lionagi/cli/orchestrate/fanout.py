@@ -28,7 +28,6 @@ from ._orchestration import (
     finalize_orchestration,
     resolve_worker_spec,
     setup_orchestration,
-    team_worker_system,
 )
 
 
@@ -217,9 +216,6 @@ async def _run_fanout_inner(
             role=wprofile.name if wprofile else f"worker-{i+1}",
             model_override=desired_model,
             explicit_name=wname,
-            system_prompt_override=team_worker_system(
-                env.team_data, wname, worker_names
-            ),
         )
 
         worker_context = [

@@ -86,22 +86,32 @@ def team_guidance(team_name: str | None) -> str:
 def team_worker_system(
     team_data: dict | None,
     worker_name: str,
-    all_worker_names: list[str],
 ) -> str | None:
-    """Render the per-worker team system prompt, or None outside team mode.
+    """Render the TEAM coordination section (to be APPENDED to the base
+    system prompt), or None outside team mode.
 
-    Shared by fanout and flow — both patterns need the same team roster
-    formatting (orchestrator on top, teammates, then the worker itself).
+    Roster comes from ``team_data["members"]`` — which was populated at
+    team-creation time from the full pre-computed worker name list. This
+    avoids an ordering bug: workers are built one-by-one, so reading
+    from ``env.all_names`` would show a partial roster to early workers.
+
+    build_worker_branch composes this section onto BARE_WORKER_SYSTEM or
+    a profile's system_prompt so workers keep their artifact protocol
+    and tool guidance.
     """
     if not team_data:
         return None
-    from ._common import TEAM_WORKER_SYSTEM  # avoid import cycle
+    from ._common import TEAM_COORD_SECTION  # avoid import cycle
 
-    teammates = [n for n in all_worker_names if n != worker_name]
+    # team_data["members"] includes "orchestrator" + all worker names.
+    # Render orchestrator explicitly at the top, then teammates, then self.
+    all_members = team_data.get("members", [])
+    worker_names = [m for m in all_members if m != "orchestrator"]
+    teammates = [n for n in worker_names if n != worker_name]
     roster_lines = ["- orchestrator (coordinator)"]
     roster_lines += [f"- {t}" for t in teammates]
     roster_lines.append(f"- **{worker_name}** (you)")
-    return TEAM_WORKER_SYSTEM.format(
+    return TEAM_COORD_SECTION.format(
         worker_name=worker_name,
         team_name=team_data["name"],
         team_id=team_data["id"],
@@ -281,6 +291,12 @@ def build_worker_branch(
 ) -> tuple[Branch, str, AgentProfile | None]:
     """Phase C — resolve model/profile/effort/system and build a Branch.
 
+    System prompt composition: the base prompt is chosen once
+    (``system_prompt_override`` > profile > BARE), then if the run is in
+    team mode the team coordination section is APPENDED to it. Team mode
+    does not replace the base — workers still need the artifact protocol
+    and tool guidance that BARE (or the profile) provides.
+
     Parameters
     ----------
     agent_id
@@ -289,8 +305,8 @@ def build_worker_branch(
         pre-assigned worker name; in flow it is the plan-assigned
         ``FlowAgent.id``.
     role
-        The role name used for profile lookup and name dedup
-        (``explorer``, ``analyst``, ...). Ignored if ``env.bare``.
+        Role name used for profile lookup and name dedup (``explorer``,
+        ``analyst``, ...). Ignored if ``env.bare``.
     model_override
         If set, overrides the profile/default model. The orchestrator
         may emit a specific model per worker (``FlowAgent.model``).
@@ -299,9 +315,10 @@ def build_worker_branch(
         pass the name here; we still register it so ``env.all_names``
         stays in sync.
     system_prompt_override
-        For imported teams where the team system prompt replaces the
-        profile prompt. Pattern code passes the already-formatted
-        ``TEAM_WORKER_SYSTEM`` string here.
+        Hard override of the base system prompt (tests, special cases).
+        The team coordination section is still appended on top when team
+        mode is active — pass None to let the normal profile/BARE
+        selection happen.
 
     Returns
     -------
@@ -348,13 +365,19 @@ def build_worker_branch(
     else:
         wname = env.assign_name(role)
 
-    # System prompt: explicit override > team-formatted > profile > bare.
+    # Base system prompt: explicit override > profile > BARE.
     if system_prompt_override is not None:
-        w_system = system_prompt_override
+        base_system = system_prompt_override
     elif not env.bare and w_profile and w_profile.system_prompt:
-        w_system = w_profile.system_prompt
+        base_system = w_profile.system_prompt
     else:
-        w_system = BARE_WORKER_SYSTEM
+        base_system = BARE_WORKER_SYSTEM
+
+    # Team mode APPENDS the coord section — does not replace the base.
+    team_section = team_worker_system(env.team_data, wname)
+    w_system = (
+        f"{base_system}\n\n{team_section}" if team_section else base_system
+    )
 
     wb = Branch(
         chat_model=w_imodel,
