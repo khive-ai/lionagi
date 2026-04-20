@@ -15,7 +15,6 @@ from .._logging import hint, log_error, progress
 from .._providers import parse_model_spec
 from ._common import (
     AGENT_REQUEST_FIELDS,
-    TEAM_WORKER_SYSTEM,
     AgentRequest,
     _create_fanout_team,
     _format_result_json,
@@ -29,6 +28,7 @@ from ._orchestration import (
     finalize_orchestration,
     resolve_worker_spec,
     setup_orchestration,
+    team_worker_system,
 )
 
 
@@ -211,29 +211,15 @@ async def _run_fanout_inner(
         desired_model = a.model or (wprofile.model if wprofile else None) or default_ms.model
         wname = worker_names[i]
 
-        # Team workers get the formatted TEAM_WORKER_SYSTEM prompt; others
-        # fall through to profile or BARE. build_worker_branch respects
-        # `system_prompt_override` when we supply the team version.
-        team_system = None
-        if env.team_data:
-            teammates = [n for n in worker_names if n != wname]
-            roster_lines = ["- orchestrator (coordinator)"]
-            roster_lines += [f"- {t}" for t in teammates]
-            roster_lines.append(f"- **{wname}** (you)")
-            team_system = TEAM_WORKER_SYSTEM.format(
-                worker_name=wname,
-                team_name=env.team_data["name"],
-                team_id=env.team_data["id"],
-                roster_text="\n".join(roster_lines),
-            )
-
         w_branch, w_model, _ = build_worker_branch(
             env,
             agent_id=wname,
             role=wprofile.name if wprofile else f"worker-{i+1}",
             model_override=desired_model,
             explicit_name=wname,
-            system_prompt_override=team_system,
+            system_prompt_override=team_worker_system(
+                env.team_data, wname, worker_names
+            ),
         )
 
         worker_context = [

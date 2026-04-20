@@ -45,6 +45,7 @@ __all__ = (
     "EFFORT_GUIDANCE",
     "EFFORT_MAP",
     "team_guidance",
+    "team_worker_system",
 )
 
 
@@ -79,6 +80,32 @@ def team_guidance(team_name: str | None) -> str:
         "tell the executing agent to check its inbox before starting and "
         "send coordination signals to relevant teammates if it discovers "
         "something affecting them. "
+    )
+
+
+def team_worker_system(
+    team_data: dict | None,
+    worker_name: str,
+    all_worker_names: list[str],
+) -> str | None:
+    """Render the per-worker team system prompt, or None outside team mode.
+
+    Shared by fanout and flow — both patterns need the same team roster
+    formatting (orchestrator on top, teammates, then the worker itself).
+    """
+    if not team_data:
+        return None
+    from ._common import TEAM_WORKER_SYSTEM  # avoid import cycle
+
+    teammates = [n for n in all_worker_names if n != worker_name]
+    roster_lines = ["- orchestrator (coordinator)"]
+    roster_lines += [f"- {t}" for t in teammates]
+    roster_lines.append(f"- **{worker_name}** (you)")
+    return TEAM_WORKER_SYSTEM.format(
+        worker_name=worker_name,
+        team_name=team_data["name"],
+        team_id=team_data["id"],
+        roster_text="\n".join(roster_lines),
     )
 
 

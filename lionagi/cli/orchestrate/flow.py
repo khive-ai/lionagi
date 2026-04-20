@@ -19,7 +19,6 @@ from .._agents import AgentProfile, list_agents, load_agent_profile
 from .._logging import progress
 from .._providers import parse_model_spec
 from ._common import (
-    TEAM_WORKER_SYSTEM,
     _create_fanout_team,
     _format_result_json,
     _post_results_to_team,
@@ -33,6 +32,7 @@ from ._orchestration import (
     resolve_worker_spec,
     setup_orchestration,
     team_guidance,
+    team_worker_system,
 )
 
 # ── Flow models ───────────────────────────────────────────────────────────
@@ -549,25 +549,15 @@ async def _run_flow_inner(
         a: FlowAgent,
     ) -> tuple[Branch, str, AgentProfile | None]:
         wname = agent_id_to_name[a.id]
-        team_system = None
-        if team_data:
-            teammates = [n for n in all_agent_names if n != wname]
-            roster_lines = ["- orchestrator (coordinator)"]
-            roster_lines += [f"- {t}" for t in teammates]
-            roster_lines.append(f"- **{wname}** (you)")
-            team_system = TEAM_WORKER_SYSTEM.format(
-                worker_name=wname,
-                team_name=team_data["name"],
-                team_id=team_data["id"],
-                roster_text="\n".join(roster_lines),
-            )
         return build_worker_branch(
             env,
             agent_id=a.id,
             role=a.role,
             model_override=a.model,
             explicit_name=wname,
-            system_prompt_override=team_system,
+            system_prompt_override=team_worker_system(
+                team_data, wname, all_agent_names
+            ),
         )
 
     # ── Helper: build context + add a node for a single op ──────────
