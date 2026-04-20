@@ -122,6 +122,7 @@ async def _run_agent(
         instruction=prompt,
         stream_persist=True,
         persist_dir=str(run.stream_dir),
+        timeout=timeout,
         **({"repo": cwd} if cwd else {}),
     )
 

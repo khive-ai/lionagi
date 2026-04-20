@@ -5,27 +5,28 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
-from lionagi import Branch, FieldModel, Session, json_dumps
+from lionagi import Branch, FieldModel
 from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.ln.concurrency import move_on_after
 from lionagi.models import HashableModel
-from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.fields import Instruct
-from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import AgentProfile, list_agents, load_agent_profile
-from .._logging import hint, log_error, progress
-from .._providers import build_imodel_from_spec, parse_model_spec
-from .._runs import RunDir, allocate_run, save_last_branch_pointer
+from .._logging import progress
+from .._providers import parse_model_spec
 from ._common import (
-    BARE_WORKER_SYSTEM,
     TEAM_WORKER_SYSTEM,
     _create_fanout_team,
     _format_result_json,
     _post_results_to_team,
-    _resolve_worker_spec,
+)
+from ._orchestration import (
+    OrchestrationEnv,
+    build_worker_branch,
+    finalize_orchestration,
+    resolve_worker_spec,
+    setup_orchestration,
 )
 
 # ── Flow models ───────────────────────────────────────────────────────────
@@ -118,23 +119,26 @@ async def _run_flow(
     show_graph: bool = False,
 ) -> str:
     """Auto-DAG flow: orchestrator plans DAG → engine executes with deps."""
-    run = allocate_run(save_dir=save_dir)
-    run.ensure_artifact_root()
-
-    inner_kw = dict(
-        with_synthesis=with_synthesis,
-        synthesis_model=synthesis_model,
-        max_concurrent=max_concurrent,
+    env = setup_orchestration(
+        pattern_name="Flow",
+        model_spec=model_spec,
+        agent_name=agent_name,
+        save_dir=save_dir,
+        cwd=cwd,
         yolo=yolo,
         verbose=verbose,
         effort=effort,
         theme=theme,
-        output_format=output_format,
-        run=run,
-        team_name=team_name,
-        cwd=cwd,
-        agent_name=agent_name,
         bare=bare,
+    )
+
+    inner_kw = dict(
+        env=env,
+        with_synthesis=with_synthesis,
+        synthesis_model=synthesis_model,
+        max_concurrent=max_concurrent,
+        output_format=output_format,
+        team_name=team_name,
         max_agents=max_agents,
         dry_run=dry_run,
         show_graph=show_graph,
@@ -152,19 +156,12 @@ async def _run_flow_inner(
     model_spec: str,
     prompt: str,
     *,
-    run: RunDir,
+    env: OrchestrationEnv,
     with_synthesis: bool = False,
     synthesis_model: str | None = None,
     max_concurrent: int = 0,
-    yolo: bool = False,
-    verbose: bool = False,
-    effort: str | None = None,
-    theme: str | None = None,
     output_format: str = "text",
     team_name: str | None = None,
-    cwd: str | None = None,
-    agent_name: str | None = None,
-    bare: bool = False,
     max_agents: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
@@ -172,46 +169,18 @@ async def _run_flow_inner(
     """Inner flow logic (no timeout wrapper)."""
     t0 = time.monotonic()
 
-    # Load orchestrator profile
-    orc_profile = None
-    if agent_name:
-        orc_profile = load_agent_profile(agent_name)
-        if orc_profile.model and not model_spec:
-            model_spec = orc_profile.model
-        if orc_profile.effort and not effort:
-            effort = orc_profile.effort
-        if orc_profile.yolo and not yolo:
-            yolo = True
-
-    if not model_spec:
-        raise ValueError(
-            "Provide a model spec or use -a/--agent to load a profile with a model."
-        )
-
-    orc_imodel = build_imodel_from_spec(
-        model_spec,
-        yolo=yolo,
-        verbose=verbose,
-        effort_override=effort,
-        theme=theme,
-    )
-    if cwd:
-        orc_imodel.endpoint.config.kwargs.setdefault("repo", Path(cwd))
+    # Working objects: four subjects this function mutates across phases.
+    # All config (bare/verbose/effort/yolo/theme/cwd) is read from `env`
+    # directly — no aliases, one source of truth.
+    run = env.run
+    session = env.session
+    orc_branch = env.orc_branch
+    builder = env.builder
 
     # ── Phase 0: Orchestrator plans the DAG ──────────────────────────
-    builder = OperationGraphBuilder("Flow")
-    orc_system = orc_profile.system_prompt if orc_profile else None
-    orc_branch = Branch(
-        chat_model=orc_imodel,
-        system=orc_system,
-        log_config=DataLoggerConfig(auto_save_on_exit=False),
-        name="orchestrator",
-    )
-    session = Session(default_branch=orc_branch)
-
     # Build role roster for orchestrator guidance
     available_roles = list_agents()
-    if bare:
+    if env.bare:
         roles_guidance = (
             f"Available roles: {', '.join(available_roles)}. "
             f"All workers use model {model_spec}. "
@@ -349,11 +318,11 @@ async def _run_flow_inner(
         # Show resolved models
         lines.append("Model resolution:")
         for a in plan.agents:
-            if bare:
+            if env.bare:
                 rm = a.model or model_spec
                 lines.append(f"  {a.id}: {rm} (bare)")
             else:
-                rm, rp = _resolve_worker_spec(a.role)
+                rm, rp = resolve_worker_spec(a.role)
                 if a.model:
                     rm = a.model
                 src = "plan" if a.model else ("profile" if rp else "default")
@@ -371,77 +340,51 @@ async def _run_flow_inner(
         return "\n".join(lines)
 
     # ── Build agent name registry ───────────────────────────────────
-    default_ms = parse_model_spec(model_spec)
+    # Pre-compute names so env.team_data and worker-facing prompts can
+    # reference them before we actually build branches. Flow has its own
+    # dedup scheme (per-role counter across plan.agents), so we bypass
+    # env.assign_name and pass the computed names via explicit_name.
     all_agent_names: list[str] = []
     name_counts: dict[str, int] = {}
     for a in plan.agents:
         base = a.role
         name_counts[base] = name_counts.get(base, 0) + 1
-        if name_counts[base] > 1:
-            all_agent_names.append(f"{base}-{name_counts[base]}")
-        else:
-            all_agent_names.append(base)
+        all_agent_names.append(
+            f"{base}-{name_counts[base]}" if name_counts[base] > 1 else base
+        )
 
-    team_data = None
     if team_name:
-        team_data = _create_fanout_team(team_name, all_agent_names)
-        progress(f"Team '{team_name}' created ({team_data['id']})")
+        env.team_data = _create_fanout_team(team_name, all_agent_names)
+        progress(f"Team '{team_name}' created ({env.team_data['id']})")
+    team_data = env.team_data  # local alias for readability downstream
 
     # ── Helper: resolve model/system/branch for an agent spec ─────
+    # Thin wrapper over build_worker_branch that injects flow-specific
+    # naming + optional team system prompt.
     def _make_worker_branch(
         a: FlowAgentSpec, idx: int
-    ) -> tuple[Branch, str, "AgentProfile | None"]:
-        w_profile: AgentProfile | None = None
-        if bare:
-            w_model = a.model or default_ms.model
-        else:
-            w_model, w_profile = _resolve_worker_spec(a.role)
-            if a.model:
-                w_model = a.model
-            elif not w_profile:
-                w_model = default_ms.model
-        w_effort = effort
-        if not bare and w_profile and w_profile.effort and not effort:
-            w_effort = w_profile.effort
-        w_yolo = yolo
-        if not bare and w_profile and w_profile.yolo:
-            w_yolo = True
-        w_imodel = build_imodel_from_spec(
-            w_model,
-            yolo=w_yolo,
-            verbose=verbose,
-            effort_override=w_effort,
-            theme=theme,
-        )
-        # Per-agent artifact directory: {artifact_root}/{agent_id}/
-        agent_artifact_dir = run.agent_artifact_dir(a.id)
-        agent_artifact_dir.mkdir(parents=True, exist_ok=True)
-        w_imodel.endpoint.config.kwargs["repo"] = agent_artifact_dir
+    ) -> tuple[Branch, str, AgentProfile | None]:
         wname = all_agent_names[idx]
-        w_system = None
+        team_system = None
         if team_data:
             teammates = [n for n in all_agent_names if n != wname]
             roster_lines = ["- orchestrator (coordinator)"]
             roster_lines += [f"- {t}" for t in teammates]
             roster_lines.append(f"- **{wname}** (you)")
-            w_system = TEAM_WORKER_SYSTEM.format(
+            team_system = TEAM_WORKER_SYSTEM.format(
                 worker_name=wname,
                 team_name=team_data["name"],
                 team_id=team_data["id"],
                 roster_text="\n".join(roster_lines),
             )
-        elif not bare and w_profile and w_profile.system_prompt:
-            w_system = w_profile.system_prompt
-        else:
-            w_system = BARE_WORKER_SYSTEM
-        wb = Branch(
-            chat_model=w_imodel,
-            system=w_system,
-            log_config=DataLoggerConfig(auto_save_on_exit=False),
-            name=wname,
+        return build_worker_branch(
+            env,
+            agent_id=a.id,
+            role=a.role,
+            model_override=a.model,
+            explicit_name=wname,
+            system_prompt_override=team_system,
         )
-        session.include_branches(wb)
-        return wb, w_model, w_profile
 
     # ── Build DAG: split regular agents and control nodes ──────────
     spec_to_node: dict[str, str] = {}
@@ -479,8 +422,8 @@ async def _run_flow_inner(
         ctx.append({"artifact_instructions": artifact_note})
         if team_data:
             ctx.append({"team": {"id": team_data["id"], "name": team_data["name"], "your_name": all_agent_names[idx]}})
-        w_effort = effort
-        if not bare and w_profile and w_profile.effort:
+        w_effort = env.effort
+        if not env.bare and w_profile and w_profile.effort:
             w_effort = w_profile.effort
         if w_effort:
             emap = {"low": "Skim quickly, structured output.", "medium": "Read carefully, balance depth/speed.",
@@ -518,7 +461,7 @@ async def _run_flow_inner(
     dag_result = await session.flow(
         builder.get_graph(),
         max_concurrent=conc,
-        verbose=verbose,
+        verbose=env.verbose,
         on_progress=_progress,
     )
     t_exec_elapsed = time.monotonic() - t_exec
@@ -595,7 +538,7 @@ async def _run_flow_inner(
         spec_to_node[ca.id] = ctrl_node
 
         t_ctrl = time.monotonic()
-        ctrl_result = await session.flow(builder.get_graph(), verbose=verbose)
+        ctrl_result = await session.flow(builder.get_graph(), verbose=env.verbose)
         t_ctrl_elapsed = time.monotonic() - t_ctrl
 
         ctrl_res = ctrl_result.get("operation_results", {}).get(ctrl_node)
@@ -653,7 +596,7 @@ async def _run_flow_inner(
                 reason=True,
             )
 
-            replan_result = await session.flow(builder.get_graph(), verbose=verbose)
+            replan_result = await session.flow(builder.get_graph(), verbose=env.verbose)
             replan_res = replan_result.get("operation_results", {}).get(replan_node)
             next_plan: FlowPlan | None = getattr(replan_res, "plan", None)
 
@@ -712,7 +655,7 @@ async def _run_flow_inner(
                 new_result = await session.flow(
                     builder.get_graph(),
                     max_concurrent=conc,
-                    verbose=verbose,
+                    verbose=env.verbose,
                 )
                 t_new_elapsed = time.monotonic() - t_new
                 new_op = new_result.get("operation_results", {})
@@ -784,7 +727,7 @@ async def _run_flow_inner(
             context=artifacts,
         )
         t_synth = time.monotonic()
-        synth_result = await session.flow(builder.get_graph(), verbose=verbose)
+        synth_result = await session.flow(builder.get_graph(), verbose=env.verbose)
         t_synth_elapsed = time.monotonic() - t_synth
         synth_res = synth_result.get("operation_results", {}).get(synth_node)
         synthesis_result = {
@@ -810,17 +753,12 @@ async def _run_flow_inner(
             team_data, agent_results, all_agent_names, synthesis_result
         )
 
-    # ── Persist branches + run manifest ──────────────────────────────
-    from ._common import persist_session_branches
-
-    branch_ids = persist_session_branches(session, run)
-    orc_branch_id = str(orc_branch.id)
-    run.write_manifest(
-        {
-            "kind": "flow",
-            "prompt": prompt,
-            "model_spec": model_spec,
-            "orchestrator_branch_id": orc_branch_id,
+    # ── Persist branches + run manifest + hints ──────────────────────
+    finalize_orchestration(
+        env,
+        kind="flow",
+        prompt=prompt,
+        extras={
             "agents": [
                 {
                     "id": r["id"],
@@ -831,13 +769,8 @@ async def _run_flow_inner(
                 }
                 for r in agent_results
             ],
-            "branches": [
-                {"id": bid, "provider": prov, "name": bname}
-                for prov, bid, bname in branch_ids
-            ],
-        }
+        },
     )
-    save_last_branch_pointer(run.run_id, orc_branch_id)
 
     if show_graph:
         from lionagi.operations._visualize_graph import visualize_graph
@@ -849,10 +782,5 @@ async def _run_flow_inner(
 
     t_total = time.monotonic() - t0
     progress(f"\nTotal: {t_total:.1f}s")
-
-    hint(f'\n[orchestrator] li agent -r {orc_branch_id} "..."')
-    for provider, bid, bname in branch_ids:
-        if bid != orc_branch_id:
-            hint(f'[{bname}] li agent -r {bid} "..."')
 
     return output
