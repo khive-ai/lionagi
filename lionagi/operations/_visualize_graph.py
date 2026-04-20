@@ -430,9 +430,7 @@ def visualize_plan(
             for i, nid in enumerate(nodes):
                 row = i // nodes_per_row
                 col = i % nodes_per_row
-                nodes_in_row = min(
-                    nodes_per_row, num_nodes - row * nodes_per_row
-                )
+                nodes_in_row = min(nodes_per_row, num_nodes - row * nodes_per_row)
                 x_spacing = 2.5
                 x_offset = -(nodes_in_row - 1) * x_spacing / 2
                 y_offset = row * 0.8
@@ -483,8 +481,7 @@ def visualize_plan(
     )
 
     plan_title = title or (
-        f"Flow DAG plan — {len(plan.agents)} agents / "
-        f"{len(plan.operations)} ops"
+        f"Flow DAG plan — {len(plan.agents)} agents / " f"{len(plan.operations)} ops"
     )
     plt.title(plan_title, fontsize=18, fontweight="bold", pad=20)
     plt.axis("off")
@@ -518,9 +515,7 @@ def visualize_plan(
         0.02,
         stats_text,
         transform=plt.gca().transAxes,
-        bbox=dict(
-            boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8
-        ),
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8),
         verticalalignment="bottom",
         horizontalalignment="right",
         fontsize=10,
