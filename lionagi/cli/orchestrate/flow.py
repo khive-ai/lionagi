@@ -228,9 +228,9 @@ def _format_flow_result_text(
     for w in agent_results:
         deps = w.get("depends_on") or []
         dep_str = f"  deps: {', '.join(deps)}" if deps else ""
+        ctrl = f"  [{w['control_type']}]" if w.get("control_type") else ""
         lines.append(f"{'═' * 60}")
-        lines.append(f"  {w['id']} ({w['name']})  [{w['model']}]{dep_str}")
-        lines.append(f"  {w['time_ms']:.0f}ms")
+        lines.append(f"  {w['id']} ({w['name']})  [{w['model']}]{ctrl}{dep_str}")
         lines.append(f"{'═' * 60}")
         lines.append(w.get("response", "(no response)"))
         lines.append("")
