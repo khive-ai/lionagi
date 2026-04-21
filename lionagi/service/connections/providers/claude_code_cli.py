@@ -24,7 +24,7 @@ _get_config = lambda: EndpointConfig(
     endpoint="query_cli",
     api_key="dummy-key",
     request_options=ClaudeCodeRequest,
-    timeout=18000,  # 30 mins
+    timeout=36000,  # 60 mins
 )
 
 ENDPOINT_CONFIG = _get_config()  # backward compatibility
@@ -217,7 +217,6 @@ class ClaudeCodeCLIEndpoint(CLIEndpoint):
             texts.append(session.result)
 
         session.result = "\n".join(texts)
-        if request.cli_include_summary:
-            session.populate_summary()
+        session.populate_summary()
 
         return to_dict(session, recursive=True)
