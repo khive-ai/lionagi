@@ -277,6 +277,35 @@ def _format_flow_result_text(
     return "\n".join(lines)
 
 
+def _collect_artifacts(op_meta: dict, op_to_node: dict, all_op_results: dict) -> list[str]:
+    """Build artifact context strings from accumulated results."""
+    artifacts = []
+    for op_id, meta in op_meta.items():
+        nid = op_to_node.get(op_id)
+        res = all_op_results.get(nid) if nid else None
+        name = meta.get("agent_name", op_id)
+        artifacts.append(f"[op {op_id} via {name}]: {res if res is not None else '(no response)'}")
+    return artifacts
+
+
+def _build_agent_results(op_meta: dict, op_to_node: dict, all_op_results: dict) -> list[dict]:
+    """Build display-ready results list from op_meta + accumulated results."""
+    results = []
+    for op_id, meta in op_meta.items():
+        nid = op_to_node.get(op_id)
+        res = all_op_results.get(nid) if nid else None
+        results.append({
+            "id": op_id,
+            "agent_id": meta["agent_id"],
+            "name": meta["agent_name"],
+            "model": meta["model"],
+            "depends_on": meta.get("depends_on", []),
+            "control_type": meta.get("control_type"),
+            "response": str(res) if res is not None else "(no response)",
+        })
+    return results
+
+
 async def _run_flow(
     model_spec: str,
     prompt: str,
@@ -566,7 +595,7 @@ async def _run_flow_inner(
     op_to_node: dict[str, str] = {}
     op_meta: dict[str, dict] = {}
     op_id_to_agent: dict[str, str] = {op.id: op.agent_id for op in plan.operations}
-    agent_results: list[dict] = []
+    all_op_results: dict = {}  # node_id → response, accumulated across rounds
 
     regular_ops = [op for op in plan.operations if not op.control_type]
     control_ops = [op for op in plan.operations if op.control_type]
@@ -612,23 +641,7 @@ async def _run_flow_inner(
     )
     t_exec_elapsed = time.monotonic() - t_exec
 
-    op_results = dag_result.get("operation_results", {})
-    for op in regular_ops:
-        nid = op_to_node[op.id]
-        meta = op_meta[op.id]
-        res = op_results.get(nid)
-        agent_results.append(
-            {
-                "id": op.id,
-                "agent_id": op.agent_id,
-                "name": meta["agent_name"],
-                "model": meta["model"],
-                "depends_on": meta["depends_on"],
-                "control_type": None,
-                "response": str(res) if res is not None else "(no response)",
-                "time_ms": t_exec_elapsed * 1000,
-            }
-        )
+    all_op_results.update(dag_result.get("operation_results", {}))
 
     progress(f"DAG done ({t_exec_elapsed:.1f}s).")
 
@@ -642,7 +655,7 @@ async def _run_flow_inner(
         c_branch = agents_by_id[cop.agent_id]
         c_model = agent_model_by_id[cop.agent_id]
 
-        artifacts = [f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results]
+        artifacts = _collect_artifacts(op_meta, op_to_node, all_op_results)
         dep_nodes = [op_to_node[d] for d in (cop.depends_on or []) if d in op_to_node]
         if not dep_nodes:
             dep_nodes = list(op_to_node.values())[-1:] or [plan_root]
@@ -674,22 +687,18 @@ async def _run_flow_inner(
         ctrl_result = await session.flow(builder.get_graph(), verbose=env.verbose)
         t_ctrl_elapsed = time.monotonic() - t_ctrl
 
-        ctrl_res = ctrl_result.get("operation_results", {}).get(ctrl_node)
+        ctrl_op_results = ctrl_result.get("operation_results", {})
+        all_op_results.update(ctrl_op_results)
+        ctrl_res = ctrl_op_results.get(ctrl_node)
         verdict: FlowControlVerdict | None = getattr(ctrl_res, "verdict", None)
         verdict_text = str(ctrl_res) if ctrl_res is not None else "(no response)"
-
-        agent_results.append(
-            {
-                "id": cop.id,
-                "agent_id": cop.agent_id,
-                "name": agent_id_to_name[cop.agent_id],
-                "model": c_model,
-                "depends_on": cop.depends_on or [],
-                "control_type": cop.control_type,
-                "response": verdict_text,
-                "time_ms": t_ctrl_elapsed * 1000,
-            }
-        )
+        op_meta[cop.id] = {
+            "agent_id": cop.agent_id,
+            "agent_name": agent_id_to_name[cop.agent_id],
+            "model": c_model,
+            "depends_on": cop.depends_on or [],
+            "control_type": cop.control_type,
+        }
 
         cont = verdict.should_continue if verdict else False
         progress(f"Control [{cop.id}] done ({t_ctrl_elapsed:.1f}s): continue={cont}")
@@ -799,24 +808,11 @@ async def _run_flow_inner(
                 verbose=env.verbose,
             )
             t_new_elapsed = time.monotonic() - t_new
-            new_res_map = new_result.get("operation_results", {})
-            for nop in new_ops:
-                nid = op_to_node[nop.id]
-                meta = op_meta[nop.id]
-                res = new_res_map.get(nid)
-                agent_results.append(
-                    {
-                        "id": nop.id,
-                        "agent_id": nop.agent_id,
-                        "name": meta["agent_name"],
-                        "model": meta["model"],
-                        "depends_on": meta["depends_on"],
-                        "control_type": None,
-                        "response": str(res) if res is not None else "(no response)",
-                        "time_ms": t_new_elapsed * 1000,
-                    }
-                )
+            all_op_results.update(new_result.get("operation_results", {}))
             progress(f"Round {round_num + 1} done ({t_new_elapsed:.1f}s).")
+
+    # ── Build display results from op_meta + all_op_results ─────────
+    agent_results = _build_agent_results(op_meta, op_to_node, all_op_results)
 
     # ── Synthesis ────────────────────────────────────────────────────
     synthesis_result = None
@@ -835,7 +831,7 @@ async def _run_flow_inner(
         all_op_node_ids = set(op_to_node.values())
         leaf_nodes = list(all_op_node_ids - depended_on_nodes) or list(all_op_node_ids)
 
-        artifacts = [f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results]
+        artifacts = _collect_artifacts(op_meta, op_to_node, all_op_results)
 
         synth_instruction = (
             f"Synthesize all op outputs into a final cohesive deliverable.\n\n"
