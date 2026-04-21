@@ -239,9 +239,7 @@ def load_last_branch() -> tuple[str | None, str]:
 
 def save_last_branch_pointer(run_id: str, branch_id: str) -> None:
     LIONAGI_HOME.mkdir(parents=True, exist_ok=True)
-    _LAST_BRANCH_POINTER.write_text(
-        json.dumps({"run_id": run_id, "branch_id": branch_id})
-    )
+    _LAST_BRANCH_POINTER.write_text(json.dumps({"run_id": run_id, "branch_id": branch_id}))
 
 
 # ── Introspection ───────────────────────────────────────────────────────

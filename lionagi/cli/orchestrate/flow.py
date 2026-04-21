@@ -81,8 +81,7 @@ class FlowOp(HashableModel):
 
     id: str = Field(
         description=(
-            "Short unique op id, e.g. 'o1', 'review1'. Referenced by "
-            "other ops via depends_on."
+            "Short unique op id, e.g. 'o1', 'review1'. Referenced by other ops via depends_on."
         ),
     )
     agent_id: str = Field(
@@ -516,10 +515,7 @@ async def _run_flow_inner(
 
             visualize_plan(
                 plan,
-                title=(
-                    f"Flow DAG plan — {len(plan.agents)} agents / "
-                    f"{len(plan.operations)} ops"
-                ),
+                title=(f"Flow DAG plan — {len(plan.agents)} agents / {len(plan.operations)} ops"),
                 save_path=str(run.dag_image_path),
             )
 
@@ -581,9 +577,7 @@ async def _run_flow_inner(
                     # turn — no need to re-gather context or re-read files.
                     dep_notes.append(f"{d}: already in your memory (same agent)")
                 else:
-                    dep_notes.append(
-                        f"{d} ({dep_agent}): {run.agent_artifact_dir(dep_agent)}/"
-                    )
+                    dep_notes.append(f"{d} ({dep_agent}): {run.agent_artifact_dir(dep_agent)}/")
             if dep_notes:
                 artifact_note += f" Upstream: {'; '.join(dep_notes)}."
         ctx.append({"artifact_instructions": artifact_note})
@@ -640,10 +634,7 @@ async def _run_flow_inner(
     control_ops = [op for op in plan.operations if op.control]
 
     ctrl_note = f" ({len(control_ops)} control)" if control_ops else ""
-    progress(
-        f"Executing DAG: {len(plan.agents)} agents / "
-        f"{len(regular_ops)} ops{ctrl_note}..."
-    )
+    progress(f"Executing DAG: {len(plan.agents)} agents / {len(regular_ops)} ops{ctrl_note}...")
 
     for op in regular_ops:
         a = agent_spec_by_id[op.agent_id]
@@ -661,7 +652,9 @@ async def _run_flow_inner(
             "depends_on": op.depends_on or [],
         }
 
-    # Progress callback for real-time status
+    # Progress callback for real-time status + JSONL event emission.
+    # op_id here is the internal node UUID from the graph executor;
+    # we reverse-map it to the human-readable FlowOp id when available.
     def _progress(op_id, name, status, elapsed):
         if status == "started":
             progress(f"  ▶ {name} started")
@@ -711,9 +704,7 @@ async def _run_flow_inner(
         c_branch = agents_by_id[cop.agent_id]
         c_model = agent_model_by_id[cop.agent_id]
 
-        artifacts = [
-            f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results
-        ]
+        artifacts = [f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results]
         dep_nodes = [op_to_node[d] for d in (cop.depends_on or []) if d in op_to_node]
         if not dep_nodes:
             dep_nodes = list(op_to_node.values())[-1:] or [plan_root]
@@ -832,10 +823,7 @@ async def _run_flow_inner(
             new_ops: list[FlowOp] = []
             for nop in next_plan.operations:
                 if nop.agent_id not in agents_by_id:
-                    progress(
-                        f"Re-plan: skipping op {nop.id!r} — unknown agent "
-                        f"{nop.agent_id!r}"
-                    )
+                    progress(f"Re-plan: skipping op {nop.id!r} — unknown agent {nop.agent_id!r}")
                     continue
                 if nop.id in op_to_node:
                     progress(f"Re-plan: skipping duplicate op id {nop.id!r}")
@@ -848,9 +836,7 @@ async def _run_flow_inner(
                 continue
 
             ids = ", ".join(o.id for o in new_ops)
-            progress(
-                f"Re-plan: +{len(next_plan.agents)} agents, +{len(new_ops)} ops: {ids}"
-            )
+            progress(f"Re-plan: +{len(next_plan.agents)} agents, +{len(new_ops)} ops: {ids}")
 
             for nop in new_ops:
                 na = agent_spec_by_id[nop.agent_id]
@@ -904,16 +890,14 @@ async def _run_flow_inner(
         # Leaf ops = those not depended on by any other op. Walk op_meta
         # since it covers both initial plan and any re-planned ops.
         depended_on_nodes: set[str] = set()
-        for oid, meta in op_meta.items():
+        for _oid, meta in op_meta.items():
             for d in meta.get("depends_on", []):
                 if d in op_to_node:
                     depended_on_nodes.add(op_to_node[d])
         all_op_node_ids = set(op_to_node.values())
         leaf_nodes = list(all_op_node_ids - depended_on_nodes) or list(all_op_node_ids)
 
-        artifacts = [
-            f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results
-        ]
+        artifacts = [f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results]
         adirs = [str(run.agent_artifact_dir(a.id)) for a in plan.agents]
         artifact_chain_note = (
             f"\n\nARTIFACT CHAIN: Read ALL files in: {', '.join(adirs)}. "
@@ -968,9 +952,7 @@ async def _run_flow_inner(
     progress(f"Saved to {run.artifact_root}")
 
     if team_data:
-        _post_results_to_team(
-            team_data, agent_results, all_agent_names, synthesis_result
-        )
+        _post_results_to_team(team_data, agent_results, all_agent_names, synthesis_result)
 
     # ── Persist branches + run manifest + hints ──────────────────────
     finalize_orchestration(
