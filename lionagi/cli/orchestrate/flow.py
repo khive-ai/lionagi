@@ -14,6 +14,8 @@ from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.ln.concurrency import move_on_after
 from lionagi.models import HashableModel
 from lionagi.operations.fields import Instruct
+from lionagi.protocols.generic.pile import Pile
+from lionagi.protocols.messages.instruction import Instruction, InstructionContent
 
 from .._agents import AgentProfile, list_agents, load_agent_profile
 from .._logging import progress
@@ -500,41 +502,6 @@ async def _run_flow_inner(
             explicit_name=agent_id_to_name[a.id],
         )
 
-    # ── Helper: add a node for a single op ──────────────────────────
-    def _add_op_node(
-        op: FlowOp,
-        agent: FlowAgent,
-        profile: AgentProfile | None,
-        branch: Branch,
-        dep_nodes: list[str],
-        op_id_to_agent: dict[str, str],
-        field_models=None,
-    ) -> str:
-        ctx: list = [{"original_task": prompt}]
-
-        if team_data:
-            ctx.append(
-                {
-                    "team": {
-                        "id": team_data["id"],
-                        "name": team_data["name"],
-                        "your_name": agent_id_to_name[agent.id],
-                    }
-                }
-            )
-
-        add_kw = dict(
-            branch=branch,
-            depends_on=dep_nodes,
-            instruction=op.instruction,
-            guidance=op.guidance or agent.guidance,
-            context=ctx,
-        )
-        if field_models is not None:
-            add_kw["field_models"] = field_models
-            add_kw["reason"] = True
-        return builder.add_operation("operate", **add_kw)
-
     # ── Pass 1: build all agent branches ───────────────────────────
     agents_by_id: dict[str, Branch] = {}
     agent_model_by_id: dict[str, str] = {}
@@ -545,14 +512,14 @@ async def _run_flow_inner(
         agent_model_by_id[a.id] = m
         agent_profile_by_id[a.id] = p
 
-    # agent_spec lookup used by op construction + re-plan
     agent_spec_by_id: dict[str, FlowAgent] = {a.id: a for a in plan.agents}
 
-    # ── Pass 2: build regular op nodes ─────────────────────────────
+    # ── Pass 2: create Instruction nodes + build operation graph ──
+    all_instructions: Pile = Pile()
     op_to_node: dict[str, str] = {}
     op_meta: dict[str, dict] = {}
-    op_id_to_agent: dict[str, str] = {op.id: op.agent_id for op in plan.operations}
-    all_op_results: dict = {}  # node_id → response, accumulated across rounds
+    ins_to_op: dict[str, str] = {}  # instruction_id → op_id
+    all_op_results: dict = {}
 
     regular_ops = [op for op in plan.operations if not op.control_type]
     control_ops = [op for op in plan.operations if op.control_type]
@@ -561,19 +528,38 @@ async def _run_flow_inner(
     progress(f"Executing DAG: {len(plan.agents)} agents / {len(regular_ops)} ops{ctrl_note}...")
 
     for op in regular_ops:
-        a = agent_spec_by_id[op.agent_id]
-        b = agents_by_id[op.agent_id]
-        p = agent_profile_by_id[op.agent_id]
+        branch = agents_by_id[op.agent_id]
+        agent = agent_spec_by_id[op.agent_id]
+
+        ins = Instruction(
+            content=InstructionContent(
+                instruction=op.instruction,
+                guidance=op.guidance or agent.guidance,
+                prompt_context=[{"task": prompt}],
+            ),
+            sender=orc_branch.id,
+            recipient=branch.id,
+        )
+        all_instructions.include(ins)
+
         dep_nodes = [op_to_node[d] for d in (op.depends_on or []) if d in op_to_node]
         if not dep_nodes:
             dep_nodes = [plan_root]
-        node_id = _add_op_node(op, a, p, b, dep_nodes, op_id_to_agent)
+
+        node_id = builder.add_operation(
+            "operate", branch=branch, depends_on=dep_nodes,
+            instruction=ins.content.instruction,
+            guidance=ins.content.guidance,
+            context=ins.content.prompt_context,
+        )
         op_to_node[op.id] = node_id
+        ins_to_op[str(ins.id)] = op.id
         op_meta[op.id] = {
             "agent_id": op.agent_id,
             "agent_name": agent_id_to_name[op.agent_id],
             "model": agent_model_by_id[op.agent_id],
             "depends_on": op.depends_on or [],
+            "instruction_id": str(ins.id),
         }
 
     # Progress callback for real-time status + JSONL event emission.
@@ -612,31 +598,28 @@ async def _run_flow_inner(
         c_branch = agents_by_id[cop.agent_id]
         c_model = agent_model_by_id[cop.agent_id]
 
-        prior_results = [str(r) for r in all_op_results.values() if r is not None]
         dep_nodes = [op_to_node[d] for d in (cop.depends_on or []) if d in op_to_node]
         if not dep_nodes:
             dep_nodes = list(op_to_node.values())[-1:] or [plan_root]
 
         progress(f"Control [{cop.id} via {cop.agent_id}]: evaluating...")
 
-        # The orchestrator's `cop.instruction` provides domain context;
-        # we append the verdict contract from the schema's ClassVar.
-        instr = f"{cop.instruction}\n\n{CONTROL_VERDICT_CONTRACT}"
-        ctrl_op = FlowOp(
-            id=cop.id,
-            agent_id=cop.agent_id,
-            instruction=instr,
-            guidance=cop.guidance,
-            control_type=cop.control_type,
+        ctrl_ins = Instruction(
+            content=InstructionContent(
+                instruction=f"{cop.instruction}\n\n{CONTROL_VERDICT_CONTRACT}",
+                guidance=cop.guidance,
+            ),
+            sender=orc_branch.id,
+            recipient=c_branch.id,
         )
-        ctrl_node = _add_op_node(
-            ctrl_op,
-            agent_spec_by_id[cop.agent_id],
-            agent_profile_by_id[cop.agent_id],
-            c_branch,
-            dep_nodes,
-            op_id_to_agent,
+        all_instructions.include(ctrl_ins)
+
+        ctrl_node = builder.add_operation(
+            "operate", branch=c_branch, depends_on=dep_nodes,
+            instruction=ctrl_ins.content.instruction,
+            guidance=ctrl_ins.content.guidance,
             field_models=[FLOW_VERDICT_FIELDS],
+            reason=True,
         )
         op_to_node[cop.id] = ctrl_node
 
@@ -742,19 +725,37 @@ async def _run_flow_inner(
             progress(f"Re-plan: +{len(next_plan.agents)} agents, +{len(new_ops)} ops: {ids}")
 
             for nop in new_ops:
-                na = agent_spec_by_id[nop.agent_id]
                 nb = agents_by_id[nop.agent_id]
-                np = agent_profile_by_id[nop.agent_id]
+                na = agent_spec_by_id[nop.agent_id]
                 nd = [op_to_node[d] for d in (nop.depends_on or []) if d in op_to_node]
                 if not nd:
                     nd = [ctrl_node]
-                nid = _add_op_node(nop, na, np, nb, nd, op_id_to_agent)
+
+                ins = Instruction(
+                    content=InstructionContent(
+                        instruction=nop.instruction,
+                        guidance=nop.guidance or na.guidance,
+                        prompt_context=[{"task": prompt}],
+                    ),
+                    sender=orc_branch.id,
+                    recipient=nb.id,
+                )
+                all_instructions.include(ins)
+
+                nid = builder.add_operation(
+                    "operate", branch=nb, depends_on=nd,
+                    instruction=ins.content.instruction,
+                    guidance=ins.content.guidance,
+                    context=ins.content.prompt_context,
+                )
                 op_to_node[nop.id] = nid
+                ins_to_op[str(ins.id)] = nop.id
                 op_meta[nop.id] = {
                     "agent_id": nop.agent_id,
                     "agent_name": agent_id_to_name[nop.agent_id],
                     "model": agent_model_by_id[nop.agent_id],
                     "depends_on": nop.depends_on or [],
+                    "instruction_id": str(ins.id),
                 }
 
             t_new = time.monotonic()
