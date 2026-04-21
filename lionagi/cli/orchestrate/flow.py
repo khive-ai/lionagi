@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import time
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import Field
 
@@ -20,8 +20,6 @@ from .._logging import progress
 from .._providers import parse_model_spec
 from ._common import _create_fanout_team, _format_result_json, _post_results_to_team
 from ._orchestration import (
-    EFFORT_GUIDANCE,
-    EFFORT_MAP,
     OrchestrationEnv,
     build_worker_branch,
     finalize_orchestration,
@@ -115,12 +113,13 @@ class FlowOp(HashableModel):
             "downstream agent to read the upstream's artifact dir."
         ),
     )
-    control: bool = Field(
-        default=False,
+    control_type: Literal["iterate", "gate", "quorum", "halt"] | None = Field(
+        default=None,
         description=(
-            "Set True to make this a control/critic checkpoint. Control "
-            "ops produce a FlowControlVerdict and may trigger re-planning. "
-            "At most one control op per round."
+            "Control semantic: 'iterate' for critic checkpoints that may "
+            "trigger re-planning, 'gate' for artifact checks, 'quorum' "
+            "for completion thresholds, 'halt' for flow-wide pause. "
+            "None = regular work op."
         ),
     )
 
@@ -130,9 +129,9 @@ class FlowPlan(HashableModel):
 
     Agents are the branches (who); operations are the DAG nodes (what
     happens, in what order, to which branch). An operation with
-    ``control=True`` acts as a critic checkpoint — if its verdict says
-    should_continue, the orchestrator is re-invoked to plan more ops
-    (and may introduce new agents if needed).
+    ``control_type`` set acts as a control checkpoint — 'iterate' for
+    critic-driven re-planning, 'gate' for artifact checks, 'quorum'
+    for completion thresholds.
     """
 
     agents: list[FlowAgent] = Field(
@@ -180,22 +179,12 @@ class FlowPlan(HashableModel):
     )
 
     PLANNING_DISCIPLINE: ClassVar[str] = (
-        "CRITICAL: You MUST produce your output ONLY via the structured "
-        "output fields (the FlowPlan). Do NOT use any provider-native "
-        "subagent or tool-spawning features (no Agent tool, no subprocess "
-        "spawning, no delegation tools). The ONLY correct way to define "
-        "the pipeline is by filling in the FlowPlan structured output. "
-        "Use ONLY roles from the available list above — do not invent "
-        "custom role names. "
-        "AGENT VS OP COUNT: keep the agent count minimal — an agent is a "
-        "Branch with memory, so reusing an agent across ops is cheaper "
-        "than spawning a new one. Spawn a new agent only when you need a "
-        "fresh perspective or different role. Prefer 2-4 agents driving "
-        "several ops over 8 agents with one op each. "
-        "CONTROL OPS: Set op.control=true on an op to make it a flow "
-        "control checkpoint. Place at most one control op per round; it "
-        "should depend on the ops whose work it reviews. "
-        "Set synthesis=true if the task benefits from a final consolidated output."
+        "Output ONLY via FlowPlan structured fields. Do NOT use "
+        "provider-native subagent/tool-spawning features. "
+        "Use ONLY roles from the available list — do not invent names. "
+        "Reuse agents across ops (cheaper than spawning new). "
+        "Set op.control_type='iterate' for critic checkpoints. "
+        "Set synthesis=true for a final consolidated output."
     )
 
     REPLAN_INSTRUCTION: ClassVar[str] = (
@@ -309,6 +298,8 @@ async def _run_flow(
     max_agents: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
+    planning_guidance: str | None = None,
+    synthesis_guidance: str | None = None,
 ) -> str:
     """Auto-DAG flow: orchestrator plans DAG → engine executes with deps."""
     env = setup_orchestration(
@@ -334,6 +325,8 @@ async def _run_flow(
         max_agents=max_agents,
         dry_run=dry_run,
         show_graph=show_graph,
+        planning_guidance=planning_guidance,
+        synthesis_guidance=synthesis_guidance,
     )
     if timeout:
         with move_on_after(timeout) as cancel_scope:
@@ -357,6 +350,8 @@ async def _run_flow_inner(
     max_agents: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
+    planning_guidance: str | None = None,
+    synthesis_guidance: str | None = None,
 ) -> str:
     """Inner flow logic (no timeout wrapper)."""
     t0 = time.monotonic()
@@ -370,44 +365,21 @@ async def _run_flow_inner(
     builder = env.builder
 
     # ── Phase 0: Orchestrator plans the DAG ──────────────────────────
-    # Build role roster for orchestrator guidance
     available_roles = list_agents()
-    if env.bare:
-        roles_guidance = (
-            f"Available roles: {', '.join(available_roles)}. "
-            f"All workers use model {model_spec}. "
-            f"Roles define behavioral focus only — model is fixed."
-        )
-    else:
-        role_details = []
-        for role in available_roles:
-            try:
-                rp = load_agent_profile(role)
-                rm = rp.model or model_spec
-                detail = f"{role} (model: {rm}"
-                if rp.effort:
-                    detail += f", effort: {rp.effort}"
-                detail += ")"
-                role_details.append(detail)
-            except FileNotFoundError:
-                role_details.append(f"{role} (model: {model_spec})")
-        roles_guidance = f"Available agents: {'; '.join(role_details)}."
+    roles_guidance = f"Available roles: {', '.join(available_roles)}."
 
     budget_note = ""
     if max_agents > 0:
-        budget_note = f"BUDGET: You may define at most {max_agents} agents total. "
+        budget_note = f"BUDGET: at most {max_agents} agents total. "
 
-    # Build guidance blocks for plan root
-    artifact_guidance = (
-        "ARTIFACT PROTOCOL: Each agent gets ONE directory at "
-        f"{run.artifact_root}/{{agent_id}}/ — all invocations of the same "
-        "agent share that directory. In EVERY op.instruction you MUST specify: "
-        "(1) WHERE to write: 'Write output to your directory as <name>.md'. "
-        "(2) WHAT to name files: descriptive names (inventory.md, gap_analysis.md). "
-        "(3) WHERE to read upstream: 'Read ../{dep_agent_id}/{filename}.md' for "
-        "each upstream dep that belongs to a different agent. If an upstream "
-        "dep is the SAME agent, the agent already remembers it — no re-read needed. "
-    )
+    guidance_parts = [
+        roles_guidance,
+        budget_note,
+        team_guidance(team_name),
+        FlowPlan.PLANNING_DISCIPLINE,
+    ]
+    if planning_guidance:
+        guidance_parts.append(planning_guidance)
 
     plan_root = builder.add_operation(
         "operate",
@@ -415,14 +387,7 @@ async def _run_flow_inner(
         instruct=Instruct(
             instruction=FlowPlan.PLANNING_INSTRUCTION,
             context={"task": prompt},
-            guidance=(
-                f"{roles_guidance} "
-                f"{budget_note}"
-                f"{artifact_guidance}"
-                f"{EFFORT_GUIDANCE}"
-                f"{team_guidance(team_name)}"
-                f"{FlowPlan.PLANNING_DISCIPLINE}"
-            ),
+            guidance=" ".join(g for g in guidance_parts if g),
         ),
         field_models=[FLOW_PLAN_FIELDS],
         reason=True,
@@ -458,7 +423,7 @@ async def _run_flow_inner(
     dag_lines = []
     for op in plan.operations:
         deps = f" ← {','.join(op.depends_on)}" if op.depends_on else ""
-        ctrl = "!" if op.control else ""
+        ctrl = f"!{op.control_type}" if op.control_type else ""
         dag_lines.append(f"{op.id}{ctrl}:{op.agent_id}{deps}")
     progress(
         f"Plan done ({t_plan:.1f}s): {len(plan.agents)} agents, "
@@ -485,7 +450,7 @@ async def _run_flow_inner(
         lines.append("")
         lines.append("Operations:")
         for op in plan.operations:
-            ctrl = " [CONTROL]" if op.control else ""
+            ctrl = f" [{op.control_type.upper()}]" if op.control_type else ""
             deps = f"  depends_on: {', '.join(op.depends_on)}" if op.depends_on else ""
             lines.append(f"  {op.id} → {op.agent_id}{ctrl}")
             lines.append(f"    instruction: {op.instruction[:120]}...")
@@ -549,9 +514,7 @@ async def _run_flow_inner(
             explicit_name=agent_id_to_name[a.id],
         )
 
-    # ── Helper: build context + add a node for a single op ──────────
-    # Agent-scoped artifact dirs: every op of the same agent shares
-    # one dir. Upstream reads resolve by mapping dep op → dep agent.
+    # ── Helper: add a node for a single op ──────────────────────────
     def _add_op_node(
         op: FlowOp,
         agent: FlowAgent,
@@ -562,25 +525,6 @@ async def _run_flow_inner(
         field_models=None,
     ) -> str:
         ctx: list = [{"original_task": prompt}]
-        artifact_note = (
-            f"Your artifact directory (shared across all ops on {agent.id}): "
-            f"{run.agent_artifact_dir(agent.id)}/ — write output files here."
-        )
-        if op.depends_on:
-            dep_notes = []
-            for d in op.depends_on:
-                dep_agent = op_id_to_agent.get(d)
-                if dep_agent is None:
-                    continue
-                if dep_agent == agent.id:
-                    # Same-agent dep: the branch already remembers the upstream
-                    # turn — no need to re-gather context or re-read files.
-                    dep_notes.append(f"{d}: already in your memory (same agent)")
-                else:
-                    dep_notes.append(f"{d} ({dep_agent}): {run.agent_artifact_dir(dep_agent)}/")
-            if dep_notes:
-                artifact_note += f" Upstream: {'; '.join(dep_notes)}."
-        ctx.append({"artifact_instructions": artifact_note})
 
         if team_data:
             ctx.append(
@@ -592,12 +536,6 @@ async def _run_flow_inner(
                     }
                 }
             )
-
-        w_effort = env.effort
-        if not env.bare and profile and profile.effort:
-            w_effort = profile.effort
-        if w_effort:
-            ctx.append({"effort_guidance": EFFORT_MAP.get(w_effort, "")})
 
         add_kw = dict(
             branch=branch,
@@ -630,8 +568,8 @@ async def _run_flow_inner(
     op_id_to_agent: dict[str, str] = {op.id: op.agent_id for op in plan.operations}
     agent_results: list[dict] = []
 
-    regular_ops = [op for op in plan.operations if not op.control]
-    control_ops = [op for op in plan.operations if op.control]
+    regular_ops = [op for op in plan.operations if not op.control_type]
+    control_ops = [op for op in plan.operations if op.control_type]
 
     ctrl_note = f" ({len(control_ops)} control)" if control_ops else ""
     progress(f"Executing DAG: {len(plan.agents)} agents / {len(regular_ops)} ops{ctrl_note}...")
@@ -686,7 +624,7 @@ async def _run_flow_inner(
                 "name": meta["agent_name"],
                 "model": meta["model"],
                 "depends_on": meta["depends_on"],
-                "control": False,
+                "control_type": None,
                 "response": str(res) if res is not None else "(no response)",
                 "time_ms": t_exec_elapsed * 1000,
             }
@@ -719,7 +657,7 @@ async def _run_flow_inner(
             agent_id=cop.agent_id,
             instruction=instr,
             guidance=cop.guidance,
-            control=True,
+            control_type=cop.control_type,
         )
         ctrl_node = _add_op_node(
             ctrl_op,
@@ -747,7 +685,7 @@ async def _run_flow_inner(
                 "name": agent_id_to_name[cop.agent_id],
                 "model": c_model,
                 "depends_on": cop.depends_on or [],
-                "control": True,
+                "control_type": cop.control_type,
                 "response": verdict_text,
                 "time_ms": t_ctrl_elapsed * 1000,
             }
@@ -873,7 +811,7 @@ async def _run_flow_inner(
                         "name": meta["agent_name"],
                         "model": meta["model"],
                         "depends_on": meta["depends_on"],
-                        "control": False,
+                        "control_type": None,
                         "response": str(res) if res is not None else "(no response)",
                         "time_ms": t_new_elapsed * 1000,
                     }
@@ -898,35 +836,20 @@ async def _run_flow_inner(
         leaf_nodes = list(all_op_node_ids - depended_on_nodes) or list(all_op_node_ids)
 
         artifacts = [f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results]
-        adirs = [str(run.agent_artifact_dir(a.id)) for a in plan.agents]
-        artifact_chain_note = (
-            f"\n\nARTIFACT CHAIN: Read ALL files in: {', '.join(adirs)}. "
-            "Trace how work flowed through the DAG."
+
+        synth_instruction = (
+            f"Synthesize all op outputs into a final cohesive deliverable.\n\n"
+            f"Original task: {prompt}\n\n"
+            "Reconcile disagreements with evidence. Name gaps no op covered."
         )
-        team_synth_note = ""
-        if team_data:
-            team_synth_note = (
-                f"\n\nTEAM MESSAGES: Review inter-agent messages (team {team_data['id']}) "
-                "for coordination context not captured in artifacts."
-            )
+        if synthesis_guidance:
+            synth_instruction += f"\n\n{synthesis_guidance}"
 
         synth_node = builder.add_operation(
             "operate",
             branch=orc_branch,
             depends_on=leaf_nodes,
-            instruction=(
-                f"Synthesize all op outputs into a final cohesive deliverable.\n\n"
-                f"Original task: {prompt}\n\n"
-                "Your synthesis must:\n"
-                "1. RECONCILE: When ops disagree, present both views with evidence.\n"
-                "2. FILL GAPS: Name what no op covered.\n"
-                "3. TRACE: Show how work flowed through the DAG "
-                "(who did what, when, and what changed across op iterations).\n"
-                "4. HONOR CRITIC: If a control op was in the pipeline, its verdict is authoritative.\n"
-                "5. RESUME: End with branch IDs so the user can follow up with any agent."
-                f"{artifact_chain_note}"
-                f"{team_synth_note}"
-            ),
+            instruction=synth_instruction,
             context=artifacts,
         )
         t_synth = time.monotonic()
@@ -965,7 +888,6 @@ async def _run_flow_inner(
                     "id": agent_id,
                     "name": agent_id_to_name[agent_id],
                     "model": agent_model_by_id[agent_id],
-                    "artifact_dir": str(run.agent_artifact_dir(agent_id)),
                 }
                 for agent_id in agents_by_id
             ],
@@ -973,7 +895,7 @@ async def _run_flow_inner(
                 {
                     "id": r["id"],
                     "agent_id": r["agent_id"],
-                    "control": r.get("control", False),
+                    "control_type": r.get("control_type"),
                     "depends_on": r.get("depends_on") or [],
                 }
                 for r in agent_results

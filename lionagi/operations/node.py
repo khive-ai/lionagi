@@ -42,9 +42,9 @@ class Operation(Node, Event):
         description="Parameters for the operation",
         exclude=True,
     )
-    control_type: str | None = Field(
+    control_type: Literal["iterate", "gate", "quorum", "halt"] | None = Field(
         default=None,
-        description="Control semantic: gate, quorum, halt, iterate, or custom id",
+        description="Control semantic: iterate (critic re-plan), gate (artifact check), quorum (completion threshold), halt (flow pause)",
     )
     control_policy: dict[str, Any] | None = Field(
         default=None,
