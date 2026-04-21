@@ -77,7 +77,9 @@ class DependencyAwareExecutor:
         self._halted = False
         self._halt_reason: str | None = None
         self._control_decisions: dict[Any, ControlDecision] = {}
-        self._control_handlers: dict[str, Any] = {}  # custom control_type → async handler
+        self._control_handlers: dict[str, Any] = (
+            {}
+        )  # custom control_type → async handler
 
         # Initialize completion events for all operations
         # and check for already completed operations
@@ -236,7 +238,11 @@ class DependencyAwareExecutor:
                 operation.execution.status = EventStatus.SKIPPED
                 self.skipped_operations.add(operation.id)
                 if self.verbose:
-                    logger.debug("Skipping %s: flow halted (%s)", str(operation.id)[:8], self._halt_reason)
+                    logger.debug(
+                        "Skipping %s: flow halted (%s)",
+                        str(operation.id)[:8],
+                        self._halt_reason,
+                    )
                 self.completion_events[operation.id].set()
                 return
 
@@ -270,8 +276,10 @@ class DependencyAwareExecutor:
                 if self.verbose:
                     logger.debug(
                         "Control [%s] %s: %s (%s)",
-                        operation.control_type, str(operation.id)[:8],
-                        decision.action, decision.reason,
+                        operation.control_type,
+                        str(operation.id)[:8],
+                        decision.action,
+                        decision.reason,
                     )
                 self.completion_events[operation.id].set()
                 return
@@ -585,7 +593,6 @@ class DependencyAwareExecutor:
                             node.execution.status,
                         )
 
-
     # ── Control node evaluation ─────────────────────────────────
 
     async def _evaluate_control(self, op: Operation) -> ControlDecision:
@@ -598,14 +605,19 @@ class DependencyAwareExecutor:
         elif ct == "quorum":
             return self._eval_quorum(op, policy)
         elif ct == "halt":
-            return ControlDecision(action="halt", reason=policy.get("reason", "halt signal"))
+            return ControlDecision(
+                action="halt", reason=policy.get("reason", "halt signal")
+            )
         elif ct == "iterate":
             return await self._eval_iterate(op)
         else:
             handler = self._control_handlers.get(ct)
             if handler:
                 return await handler(op, self)
-            return ControlDecision(action="proceed", reason=f"unknown control_type: {ct}, defaulting to proceed")
+            return ControlDecision(
+                action="proceed",
+                reason=f"unknown control_type: {ct}, defaulting to proceed",
+            )
 
     def _eval_gate(self, op: Operation, policy: dict) -> ControlDecision:
         """Check artifact existence / predicate gates."""
@@ -639,11 +651,14 @@ class DependencyAwareExecutor:
         """Check if enough dependencies completed successfully."""
         predecessors = self.graph.get_predecessors(op)
         if not predecessors:
-            return ControlDecision(action="proceed", reason="No deps, quorum trivially met")
+            return ControlDecision(
+                action="proceed", reason="No deps, quorum trivially met"
+            )
 
         total = len(predecessors)
         completed = sum(
-            1 for p in predecessors
+            1
+            for p in predecessors
             if p.id in self.results and p.id not in self.skipped_operations
         )
         ratio = completed / total if total > 0 else 1.0
@@ -679,7 +694,13 @@ class DependencyAwareExecutor:
             return ControlDecision(
                 action="iterate",
                 reason=reason,
-                metadata={"next_steps": response.get("next_steps") if isinstance(response, dict) else None},
+                metadata={
+                    "next_steps": (
+                        response.get("next_steps")
+                        if isinstance(response, dict)
+                        else None
+                    )
+                },
             )
         return ControlDecision(action="proceed", reason=reason)
 

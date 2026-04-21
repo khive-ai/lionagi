@@ -242,22 +242,25 @@ def _format_flow_result_text(
     return "\n".join(lines)
 
 
-
-def _build_agent_results(op_meta: dict, op_to_node: dict, all_op_results: dict) -> list[dict]:
+def _build_agent_results(
+    op_meta: dict, op_to_node: dict, all_op_results: dict
+) -> list[dict]:
     """Build display-ready results list from op_meta + accumulated results."""
     results = []
     for op_id, meta in op_meta.items():
         nid = op_to_node.get(op_id)
         res = all_op_results.get(nid) if nid else None
-        results.append({
-            "id": op_id,
-            "agent_id": meta["agent_id"],
-            "name": meta["agent_name"],
-            "model": meta["model"],
-            "depends_on": meta.get("depends_on", []),
-            "control_type": meta.get("control_type"),
-            "response": str(res) if res is not None else "(no response)",
-        })
+        results.append(
+            {
+                "id": op_id,
+                "agent_id": meta["agent_id"],
+                "name": meta["agent_name"],
+                "model": meta["model"],
+                "depends_on": meta.get("depends_on", []),
+                "control_type": meta.get("control_type"),
+                "response": str(res) if res is not None else "(no response)",
+            }
+        )
     return results
 
 
@@ -464,7 +467,9 @@ async def _run_flow_inner(
 
             visualize_plan(
                 plan,
-                title=(f"Flow DAG plan — {len(plan.agents)} agents / {len(plan.operations)} ops"),
+                title=(
+                    f"Flow DAG plan — {len(plan.agents)} agents / {len(plan.operations)} ops"
+                ),
                 save_path=str(run.dag_image_path),
             )
 
@@ -518,7 +523,9 @@ async def _run_flow_inner(
     all_op_results: dict = {}
 
     n_control = sum(1 for op in plan.operations if op.control_type)
-    progress(f"Building DAG: {len(plan.agents)} agents / {len(plan.operations)} ops ({n_control} control)...")
+    progress(
+        f"Building DAG: {len(plan.agents)} agents / {len(plan.operations)} ops ({n_control} control)..."
+    )
 
     # Build ALL ops in one graph — regular + control together
     for op in plan.operations:
@@ -545,7 +552,8 @@ async def _run_flow_inner(
             dep_nodes = [plan_root]
 
         add_kw = dict(
-            branch=branch, depends_on=dep_nodes,
+            branch=branch,
+            depends_on=dep_nodes,
             instruction=ins.content.instruction,
             guidance=ins.content.guidance,
             context=ins.content.prompt_context,
@@ -593,7 +601,8 @@ async def _run_flow_inner(
     max_rounds = 3
     round_num = 0
     iterate_ops = [
-        op for op in plan.operations
+        op
+        for op in plan.operations
         if op.control_type == "iterate" and op.id in op_to_node
     ]
     should_iterate = False
@@ -630,7 +639,9 @@ async def _run_flow_inner(
                     "original_task": prompt,
                     "prior_results": prior_results,
                     "control_verdict": verdict.reason if verdict else "",
-                    "next_steps_guidance": verdict.metadata.get("next_steps", "") if verdict else "",
+                    "next_steps_guidance": (
+                        verdict.metadata.get("next_steps", "") if verdict else ""
+                    ),
                 },
                 guidance=(
                     f"{roles_guidance} "
@@ -699,7 +710,8 @@ async def _run_flow_inner(
             all_instructions.include(ins)
 
             add_kw = dict(
-                branch=nb, depends_on=nd,
+                branch=nb,
+                depends_on=nd,
                 instruction=ins.content.instruction,
                 guidance=ins.content.guidance,
                 context=ins.content.prompt_context,
@@ -724,7 +736,9 @@ async def _run_flow_inner(
 
         t_new = time.monotonic()
         new_result = await session.flow(
-            builder.get_graph(), max_concurrent=conc, verbose=env.verbose,
+            builder.get_graph(),
+            max_concurrent=conc,
+            verbose=env.verbose,
         )
         t_new_elapsed = time.monotonic() - t_new
         all_op_results.update(new_result.get("operation_results", {}))
@@ -801,7 +815,9 @@ async def _run_flow_inner(
     progress(f"Saved to {run.artifact_root}")
 
     if team_data:
-        _post_results_to_team(team_data, agent_results, all_agent_names, synthesis_result)
+        _post_results_to_team(
+            team_data, agent_results, all_agent_names, synthesis_result
+        )
 
     # ── Persist branches + run manifest + hints ──────────────────────
     finalize_orchestration(

@@ -312,7 +312,7 @@ async def operate(
         if response_fmt:
             _cctx = _cctx.with_updates(response_format=response_fmt)
             _pctx = _pctx.with_updates(response_format=response_fmt)
-    
+
     if is_sentinel(middle, none_as_sentinel=True, empty_as_sentinel=True):
         if _cctx.imodel:
             branch.chat_model = _cctx.imodel
