@@ -93,11 +93,7 @@ class FlowOp(HashableModel):
         ),
     )
     instruction: str = Field(
-        description=(
-            "Concrete task instruction for this invocation. Must specify "
-            "what to write and where (e.g. 'Write an inventory.md in your "
-            "artifact dir listing all API endpoints')."
-        ),
+        description="Concrete task instruction for this invocation.",
     )
     guidance: str | None = Field(
         default=None,
