@@ -24,7 +24,7 @@ _get_config = lambda: EndpointConfig(
     endpoint="query_cli",
     api_key="dummy-key",
     request_options=GeminiCodeRequest,
-    timeout=18000,  # 30 mins
+    timeout=36000,  # 60 mins
 )
 
 ENDPOINT_CONFIG = _get_config()

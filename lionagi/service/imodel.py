@@ -285,6 +285,12 @@ class iModel:
             chunk:
                 A portion of the streamed data returned by the API.
         """
+        if self.hook_registry._can_handle(ct_=type(chunk).__name__):
+            return await self.hook_registry.handle_streaming_chunk(
+                chunk_type=type(chunk).__name__,
+                chunk=chunk,
+                exit=self.exit_hook,
+            )
         if self.streaming_process_func and not isinstance(chunk, APICalling):
             if is_coro_func(self.streaming_process_func):
                 return await self.streaming_process_func(chunk)

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal, Union
 
 from pydantic import BaseModel, JsonValue
 
-from lionagi.ln import AlcallParams
+from lionagi.ln import AlcallParams, is_sentinel
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.types import Spec
 from lionagi.models import FieldModel
@@ -312,9 +312,11 @@ async def operate(
         if response_fmt:
             _cctx = _cctx.with_updates(response_format=response_fmt)
             _pctx = _pctx.with_updates(response_format=response_fmt)
-
-    if middle is None:
-        if isinstance(_cctx, RunParam) or getattr(branch.chat_model, "is_cli", False):
+    
+    if is_sentinel(middle, none_as_sentinel=True, empty_as_sentinel=True):
+        if _cctx.imodel:
+            branch.chat_model = _cctx.imodel
+        if isinstance(_cctx, RunParam) or branch.chat_model.is_cli:
             from ..run.run import run_and_collect
 
             middle = run_and_collect
