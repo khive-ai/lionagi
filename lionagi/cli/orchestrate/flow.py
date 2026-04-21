@@ -94,11 +94,7 @@ class FlowOp(HashableModel):
         ),
     )
     instruction: str = Field(
-        description=(
-            "Concrete task instruction for this invocation. Must specify "
-            "what to write and where (e.g. 'Write an inventory.md in your "
-            "artifact dir listing all API endpoints')."
-        ),
+        description="Concrete task instruction for this invocation.",
     )
     guidance: str | None = Field(
         default=None,
@@ -403,8 +399,8 @@ async def _run_flow_inner(
         "ARTIFACT PROTOCOL: Each agent gets ONE directory at "
         f"{run.artifact_root}/{{agent_id}}/ — all invocations of the same "
         "agent share that directory. In EVERY op.instruction you MUST specify: "
-        "(1) WHERE to write: 'Write output to your directory as <name>.md'. "
-        "(2) WHAT to name files: descriptive names (inventory.md, gap_analysis.md). "
+        "(1) whether the agent should write files or return text inline. "
+        "(2) if files are needed, the names required by the task. "
         "(3) WHERE to read upstream: 'Read ../{dep_agent_id}/{filename}.md' for "
         "each upstream dep that belongs to a different agent. If an upstream "
         "dep is the SAME agent, the agent already remembers it — no re-read needed. "
