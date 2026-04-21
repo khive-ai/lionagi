@@ -94,8 +94,16 @@ class OperationGraphBuilder:
         Returns:
             ID of the created node
         """
-        # Create operation node
+        # Extract control fields before creating the operation node
+        control_type = parameters.pop("control_type", None)
+        control_policy = parameters.pop("control_policy", None)
+
         node = create_operation(operation=operation, parameters=parameters)
+
+        if control_type is not None:
+            node.control_type = control_type
+        if control_policy is not None:
+            node.control_policy = control_policy
 
         # Store context inheritance strategy
         if inherit_context and depends_on:

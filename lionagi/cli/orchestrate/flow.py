@@ -518,22 +518,24 @@ async def _run_flow_inner(
     all_instructions: Pile = Pile()
     op_to_node: dict[str, str] = {}
     op_meta: dict[str, dict] = {}
-    ins_to_op: dict[str, str] = {}  # instruction_id → op_id
+    ins_to_op: dict[str, str] = {}
     all_op_results: dict = {}
 
-    regular_ops = [op for op in plan.operations if not op.control_type]
-    control_ops = [op for op in plan.operations if op.control_type]
+    n_control = sum(1 for op in plan.operations if op.control_type)
+    progress(f"Building DAG: {len(plan.agents)} agents / {len(plan.operations)} ops ({n_control} control)...")
 
-    ctrl_note = f" ({len(control_ops)} control)" if control_ops else ""
-    progress(f"Executing DAG: {len(plan.agents)} agents / {len(regular_ops)} ops{ctrl_note}...")
-
-    for op in regular_ops:
+    # Build ALL ops in one graph — regular + control together
+    for op in plan.operations:
         branch = agents_by_id[op.agent_id]
         agent = agent_spec_by_id[op.agent_id]
 
+        instr_text = op.instruction
+        if op.control_type == "iterate":
+            instr_text = f"{op.instruction}\n\n{CONTROL_VERDICT_CONTRACT}"
+
         ins = Instruction(
             content=InstructionContent(
-                instruction=op.instruction,
+                instruction=instr_text,
                 guidance=op.guidance or agent.guidance,
                 prompt_context=[{"task": prompt}],
             ),
@@ -546,12 +548,19 @@ async def _run_flow_inner(
         if not dep_nodes:
             dep_nodes = [plan_root]
 
-        node_id = builder.add_operation(
-            "operate", branch=branch, depends_on=dep_nodes,
+        add_kw = dict(
+            branch=branch, depends_on=dep_nodes,
             instruction=ins.content.instruction,
             guidance=ins.content.guidance,
             context=ins.content.prompt_context,
         )
+        if op.control_type:
+            add_kw["control_type"] = op.control_type
+        if op.control_type == "iterate":
+            add_kw["field_models"] = [FLOW_VERDICT_FIELDS]
+            add_kw["reason"] = True
+
+        node_id = builder.add_operation("operate", **add_kw)
         op_to_node[op.id] = node_id
         ins_to_op[str(ins.id)] = op.id
         op_meta[op.id] = {
@@ -559,12 +568,10 @@ async def _run_flow_inner(
             "agent_name": agent_id_to_name[op.agent_id],
             "model": agent_model_by_id[op.agent_id],
             "depends_on": op.depends_on or [],
+            "control_type": op.control_type,
             "instruction_id": str(ins.id),
         }
 
-    # Progress callback for real-time status + JSONL event emission.
-    # op_id here is the internal node UUID from the graph executor;
-    # we reverse-map it to the human-readable FlowOp id when available.
     def _progress(op_id, name, status, elapsed):
         if status == "started":
             progress(f"  ▶ {name} started")
@@ -573,9 +580,9 @@ async def _run_flow_inner(
         elif status == "failed":
             progress(f"  ✗ {name} FAILED ({elapsed:.1f}s)")
 
-    # Execute regular ops
+    # ── Execute entire DAG in one pass ───────────────────────────
     t_exec = time.monotonic()
-    conc = max_concurrent if max_concurrent > 0 else max(len(regular_ops), 1)
+    conc = max_concurrent if max_concurrent > 0 else max(len(plan.operations), 1)
     dag_result = await session.flow(
         builder.get_graph(),
         max_concurrent=conc,
@@ -583,190 +590,160 @@ async def _run_flow_inner(
         on_progress=_progress,
     )
     t_exec_elapsed = time.monotonic() - t_exec
-
     all_op_results.update(dag_result.get("operation_results", {}))
-
     progress(f"DAG done ({t_exec_elapsed:.1f}s).")
 
-    # ── Execute control ops sequentially: each may trigger a re-plan ─
+    # ── Check for iterate decisions from control ops ───────���─────
     max_rounds = 3
     round_num = 0
-    for cop in control_ops:
-        if cop.agent_id not in agents_by_id:
-            progress(f"Control op {cop.id!r} references unknown agent, skipping.")
-            continue
-        c_branch = agents_by_id[cop.agent_id]
-        c_model = agent_model_by_id[cop.agent_id]
+    iterate_ops = [
+        op for op in plan.operations
+        if op.control_type == "iterate" and op.id in op_to_node
+    ]
+    should_iterate = False
+    for iop in iterate_ops:
+        nid = op_to_node[iop.id]
+        ctrl_res = all_op_results.get(nid)
+        verdict: ControlDecision | None = getattr(ctrl_res, "verdict", None)
+        if verdict and verdict.action == "iterate":
+            should_iterate = True
+            progress(f"Control [{iop.id}]: iterate requested — {verdict.reason}")
 
-        dep_nodes = [op_to_node[d] for d in (cop.depends_on or []) if d in op_to_node]
-        if not dep_nodes:
-            dep_nodes = list(op_to_node.values())[-1:] or [plan_root]
+    # ── Re-plan loop if any control op requested iterate ─────────
+    while should_iterate:
+        round_num += 1
+        if round_num >= max_rounds:
+            progress(f"Max rounds ({max_rounds}) reached, stopping.")
+            break
 
-        progress(f"Control [{cop.id} via {cop.agent_id}]: evaluating...")
+        progress(f"Round {round_num + 1}: orchestrator re-planning...")
 
-        ctrl_ins = Instruction(
-            content=InstructionContent(
-                instruction=f"{cop.instruction}\n\n{CONTROL_VERDICT_CONTRACT}",
-                guidance=cop.guidance,
+        prior_results = [str(r) for r in all_op_results.values() if r is not None]
+        last_node = list(op_to_node.values())[-1] if op_to_node else plan_root
+        existing_roster = ", ".join(f"{a.id} ({a.role})" for a in plan.agents)
+        replan_node = builder.add_operation(
+            "operate",
+            branch=orc_branch,
+            depends_on=[last_node],
+            instruct=Instruct(
+                instruction=(
+                    f"{FlowPlan.REPLAN_INSTRUCTION}\n\n"
+                    f"Existing agents you can reuse: {existing_roster}."
+                ),
+                context={
+                    "original_task": prompt,
+                    "prior_results": prior_results,
+                    "control_verdict": verdict.reason if verdict else "",
+                    "next_steps_guidance": verdict.metadata.get("next_steps", "") if verdict else "",
+                },
+                guidance=(
+                    f"{roles_guidance} "
+                    f"This is round {round_num + 1}. "
+                    f"{FlowPlan.REPLAN_GUIDANCE}"
+                ),
             ),
-            sender=orc_branch.id,
-            recipient=c_branch.id,
-        )
-        all_instructions.include(ctrl_ins)
-
-        ctrl_node = builder.add_operation(
-            "operate", branch=c_branch, depends_on=dep_nodes,
-            instruction=ctrl_ins.content.instruction,
-            guidance=ctrl_ins.content.guidance,
-            field_models=[FLOW_VERDICT_FIELDS],
+            field_models=[FLOW_PLAN_FIELDS],
             reason=True,
         )
-        op_to_node[cop.id] = ctrl_node
 
-        t_ctrl = time.monotonic()
-        ctrl_result = await session.flow(builder.get_graph(), verbose=env.verbose)
-        t_ctrl_elapsed = time.monotonic() - t_ctrl
+        replan_result = await session.flow(builder.get_graph(), verbose=env.verbose)
+        replan_res = replan_result.get("operation_results", {}).get(replan_node)
+        next_plan: FlowPlan | None = getattr(replan_res, "plan", None)
 
-        ctrl_op_results = ctrl_result.get("operation_results", {})
-        all_op_results.update(ctrl_op_results)
-        ctrl_res = ctrl_op_results.get(ctrl_node)
-        verdict: ControlDecision | None = getattr(ctrl_res, "verdict", None)
-        op_meta[cop.id] = {
-            "agent_id": cop.agent_id,
-            "agent_name": agent_id_to_name[cop.agent_id],
-            "model": c_model,
-            "depends_on": cop.depends_on or [],
-            "control_type": cop.control_type,
-        }
+        if not next_plan or not next_plan.operations:
+            progress("Re-plan produced no new operations; ending.")
+            break
 
-        should_iterate = verdict and verdict.action == "iterate"
-        progress(f"Control [{cop.id}] done ({t_ctrl_elapsed:.1f}s): {verdict.action if verdict else 'no verdict'}")
+        combined_agent_ids = set(agents_by_id)
+        for na in next_plan.agents:
+            if na.id in combined_agent_ids:
+                continue
+            combined_agent_ids.add(na.id)
+            base = na.role
+            name_counts[base] = name_counts.get(base, 0) + 1
+            wname = f"{base}-{name_counts[base]}" if name_counts[base] > 1 else base
+            agent_id_to_name[na.id] = wname
+            all_agent_names.append(wname)
+            nb, nm, np_ = _build_agent_branch(na)
+            agents_by_id[na.id] = nb
+            agent_model_by_id[na.id] = nm
+            agent_profile_by_id[na.id] = np_
+            agent_spec_by_id[na.id] = na
 
-        # ── If verdict says iterate: orchestrator re-plans ────────
-        if should_iterate:
-            round_num += 1
-            if round_num >= max_rounds:
-                progress(f"Max rounds ({max_rounds}) reached, stopping.")
-                break
+        new_ops: list[FlowOp] = []
+        for nop in next_plan.operations:
+            if nop.agent_id not in agents_by_id:
+                continue
+            if nop.id in op_to_node:
+                continue
+            new_ops.append(nop)
 
-            progress(f"Round {round_num + 1}: orchestrator re-planning...")
+        if not new_ops:
+            progress("Re-plan: no executable new ops; ending.")
+            break
 
-            existing_roster = ", ".join(f"{a.id} ({a.role})" for a in plan.agents)
-            replan_node = builder.add_operation(
-                "operate",
-                branch=orc_branch,
-                depends_on=[ctrl_node],
-                instruct=Instruct(
-                    instruction=(
-                        f"{FlowPlan.REPLAN_INSTRUCTION}\n\n"
-                        f"Existing agents you can reuse: {existing_roster}."
-                    ),
-                    context={
-                        "original_task": prompt,
-                        "prior_results": prior_results,
-                        "control_verdict": verdict.reason if verdict else "",
-                        "next_steps_guidance": verdict.metadata.get("next_steps", "") if verdict else "",
-                    },
-                    guidance=(
-                        f"{roles_guidance} "
-                        f"This is round {round_num + 1}. "
-                        f"{FlowPlan.REPLAN_GUIDANCE}"
-                    ),
+        progress(f"Re-plan: +{len(next_plan.agents)} agents, +{len(new_ops)} ops")
+
+        for nop in new_ops:
+            nb = agents_by_id[nop.agent_id]
+            na = agent_spec_by_id[nop.agent_id]
+            nd = [op_to_node[d] for d in (nop.depends_on or []) if d in op_to_node]
+            if not nd:
+                nd = [last_node]
+
+            ins = Instruction(
+                content=InstructionContent(
+                    instruction=nop.instruction,
+                    guidance=nop.guidance or na.guidance,
+                    prompt_context=[{"task": prompt}],
                 ),
-                field_models=[FLOW_PLAN_FIELDS],
-                reason=True,
+                sender=orc_branch.id,
+                recipient=nb.id,
             )
+            all_instructions.include(ins)
 
-            replan_result = await session.flow(builder.get_graph(), verbose=env.verbose)
-            replan_res = replan_result.get("operation_results", {}).get(replan_node)
-            next_plan: FlowPlan | None = getattr(replan_res, "plan", None)
-
-            if not next_plan or not next_plan.operations:
-                progress("Re-plan produced no new operations; ending.")
-                continue
-
-            # Validate new agents have unique ids, new ops reference some agent
-            combined_agent_ids = set(agents_by_id)
-            for na in next_plan.agents:
-                if na.id in combined_agent_ids:
-                    progress(f"Re-plan: skipping duplicate agent id {na.id!r}")
-                    continue
-                combined_agent_ids.add(na.id)
-
-                base = na.role
-                name_counts[base] = name_counts.get(base, 0) + 1
-                wname = f"{base}-{name_counts[base]}" if name_counts[base] > 1 else base
-                agent_id_to_name[na.id] = wname
-                all_agent_names.append(wname)
-                nb, nm, np = _build_agent_branch(na)
-                agents_by_id[na.id] = nb
-                agent_model_by_id[na.id] = nm
-                agent_profile_by_id[na.id] = np
-                agent_spec_by_id[na.id] = na
-
-            # Register new ops (and update op_id_to_agent for downstream
-            # artifact-path resolution).
-            new_ops: list[FlowOp] = []
-            for nop in next_plan.operations:
-                if nop.agent_id not in agents_by_id:
-                    progress(f"Re-plan: skipping op {nop.id!r} — unknown agent {nop.agent_id!r}")
-                    continue
-                if nop.id in op_to_node:
-                    progress(f"Re-plan: skipping duplicate op id {nop.id!r}")
-                    continue
-                op_id_to_agent[nop.id] = nop.agent_id
-                new_ops.append(nop)
-
-            if not new_ops:
-                progress("Re-plan: no executable new ops; ending.")
-                continue
-
-            ids = ", ".join(o.id for o in new_ops)
-            progress(f"Re-plan: +{len(next_plan.agents)} agents, +{len(new_ops)} ops: {ids}")
-
-            for nop in new_ops:
-                nb = agents_by_id[nop.agent_id]
-                na = agent_spec_by_id[nop.agent_id]
-                nd = [op_to_node[d] for d in (nop.depends_on or []) if d in op_to_node]
-                if not nd:
-                    nd = [ctrl_node]
-
-                ins = Instruction(
-                    content=InstructionContent(
-                        instruction=nop.instruction,
-                        guidance=nop.guidance or na.guidance,
-                        prompt_context=[{"task": prompt}],
-                    ),
-                    sender=orc_branch.id,
-                    recipient=nb.id,
-                )
-                all_instructions.include(ins)
-
-                nid = builder.add_operation(
-                    "operate", branch=nb, depends_on=nd,
-                    instruction=ins.content.instruction,
-                    guidance=ins.content.guidance,
-                    context=ins.content.prompt_context,
-                )
-                op_to_node[nop.id] = nid
-                ins_to_op[str(ins.id)] = nop.id
-                op_meta[nop.id] = {
-                    "agent_id": nop.agent_id,
-                    "agent_name": agent_id_to_name[nop.agent_id],
-                    "model": agent_model_by_id[nop.agent_id],
-                    "depends_on": nop.depends_on or [],
-                    "instruction_id": str(ins.id),
-                }
-
-            t_new = time.monotonic()
-            new_result = await session.flow(
-                builder.get_graph(),
-                max_concurrent=conc,
-                verbose=env.verbose,
+            add_kw = dict(
+                branch=nb, depends_on=nd,
+                instruction=ins.content.instruction,
+                guidance=ins.content.guidance,
+                context=ins.content.prompt_context,
             )
-            t_new_elapsed = time.monotonic() - t_new
-            all_op_results.update(new_result.get("operation_results", {}))
-            progress(f"Round {round_num + 1} done ({t_new_elapsed:.1f}s).")
+            if nop.control_type:
+                add_kw["control_type"] = nop.control_type
+            if nop.control_type == "iterate":
+                add_kw["field_models"] = [FLOW_VERDICT_FIELDS]
+                add_kw["reason"] = True
+
+            nid = builder.add_operation("operate", **add_kw)
+            op_to_node[nop.id] = nid
+            ins_to_op[str(ins.id)] = nop.id
+            op_meta[nop.id] = {
+                "agent_id": nop.agent_id,
+                "agent_name": agent_id_to_name[nop.agent_id],
+                "model": agent_model_by_id[nop.agent_id],
+                "depends_on": nop.depends_on or [],
+                "control_type": nop.control_type,
+                "instruction_id": str(ins.id),
+            }
+
+        t_new = time.monotonic()
+        new_result = await session.flow(
+            builder.get_graph(), max_concurrent=conc, verbose=env.verbose,
+        )
+        t_new_elapsed = time.monotonic() - t_new
+        all_op_results.update(new_result.get("operation_results", {}))
+        progress(f"Round {round_num + 1} done ({t_new_elapsed:.1f}s).")
+
+        # Check if new control ops request another iterate
+        should_iterate = False
+        for nop in new_ops:
+            if nop.control_type == "iterate":
+                nid = op_to_node[nop.id]
+                res = all_op_results.get(nid)
+                v = getattr(res, "verdict", None)
+                if v and v.action == "iterate":
+                    should_iterate = True
+                    verdict = v
 
     # ── Build display results from op_meta + all_op_results ─────────
     agent_results = _build_agent_results(op_meta, op_to_node, all_op_results)
