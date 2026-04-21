@@ -72,6 +72,7 @@ class DependencyAwareExecutor:
         self.operation_branches = {}  # operation_id -> Branch
         self.skipped_operations = set()  # Track skipped operations
         self._op_start_times = {}  # operation_id -> monotonic start time
+        self._limiter: CapacityLimiter | None = None
 
         # Control flow state
         self._halted = False
@@ -80,6 +81,7 @@ class DependencyAwareExecutor:
         self._control_handlers: dict[str, Any] = (
             {}
         )  # custom control_type → async handler
+        self._retry_counts: dict[Any, int] = {}  # operation_id -> retry count
 
         # Initialize completion events for all operations
         # and check for already completed operations
@@ -112,6 +114,7 @@ class DependencyAwareExecutor:
             else UNLIMITED_CONCURRENCY
         )
         limiter = CapacityLimiter(capacity)
+        self._limiter = limiter
 
         nodes = [
             n for n in self.graph.internal_nodes.values() if isinstance(n, Operation)
@@ -271,7 +274,7 @@ class DependencyAwareExecutor:
             if operation.is_control:
                 decision = await self._evaluate_control(operation)
                 self._control_decisions[operation.id] = decision
-                self._apply_control_decision(operation, decision)
+                await self._apply_control_decision(operation, decision)
                 self.results[operation.id] = decision.model_dump()
                 if self.verbose:
                     logger.debug(
@@ -553,13 +556,12 @@ class DependencyAwareExecutor:
         """Validate that all edge conditions are properly configured."""
         for edge in self.graph.internal_edges.values():
             if edge.condition is not None:
-                # Ensure condition is an EdgeCondition instance
-                from lionagi.protocols.graph.edge import EdgeCondition
+                from lionagi.protocols._concepts import Condition
 
-                if not isinstance(edge.condition, EdgeCondition):
+                if not isinstance(edge.condition, Condition):
                     raise TypeError(
                         f"Edge {edge.id} has invalid condition type: {type(edge.condition)}. "
-                        "Must be EdgeCondition or None."
+                        "Must be a Condition subclass or None."
                     )
 
                 # Ensure condition has apply method
@@ -600,9 +602,11 @@ class DependencyAwareExecutor:
         ct = op.control_type
         policy = op.control_policy or {}
 
-        if ct == "gate":
-            return self._eval_gate(op, policy)
-        elif ct == "quorum":
+        handler = self._control_handlers.get(ct)
+        if handler:
+            return await handler(op, self)
+
+        if ct == "quorum":
             return self._eval_quorum(op, policy)
         elif ct == "halt":
             return ControlDecision(
@@ -611,41 +615,10 @@ class DependencyAwareExecutor:
         elif ct == "iterate":
             return await self._eval_iterate(op)
         else:
-            handler = self._control_handlers.get(ct)
-            if handler:
-                return await handler(op, self)
             return ControlDecision(
                 action="proceed",
                 reason=f"unknown control_type: {ct}, defaulting to proceed",
             )
-
-    def _eval_gate(self, op: Operation, policy: dict) -> ControlDecision:
-        """Check artifact existence / predicate gates."""
-        import os
-
-        requirements = policy.get("require", [])
-        failures = []
-        for req in requirements:
-            path = req.get("path", "")
-            if not os.path.exists(path):
-                failures.append(f"{path}: not found")
-                continue
-            min_chars = req.get("min_chars", 0)
-            if min_chars > 0:
-                try:
-                    size = os.path.getsize(path)
-                    if size < min_chars:
-                        failures.append(f"{path}: {size} chars < {min_chars} required")
-                except OSError as e:
-                    failures.append(f"{path}: {e}")
-
-        if failures:
-            return ControlDecision(
-                action="halt",
-                reason=f"Gate failed: {'; '.join(failures)}",
-                metadata={"failures": failures},
-            )
-        return ControlDecision(action="proceed", reason="All gates passed")
 
     def _eval_quorum(self, op: Operation, policy: dict) -> ControlDecision:
         """Check if enough dependencies completed successfully."""
@@ -704,7 +677,7 @@ class DependencyAwareExecutor:
             )
         return ControlDecision(action="proceed", reason=reason)
 
-    def _apply_control_decision(self, op: Operation, decision: ControlDecision):
+    async def _apply_control_decision(self, op: Operation, decision: ControlDecision):
         """Apply a control decision to the flow state."""
         if decision.action == "halt":
             self._halted = True
@@ -719,9 +692,73 @@ class DependencyAwareExecutor:
                     successors = self.graph.get_successors(op)
                     if node in successors and node.id not in self.results:
                         self.skipped_operations.add(node.id)
-        # "proceed" and "iterate" need no state change here.
-        # "iterate" is handled by the CLI orchestration layer which reads the decision.
-        # "retry" is a future extension — needs re-enqueue logic.
+        elif decision.action == "retry":
+            await self.retry_operations(
+                decision.targets,
+                max_retries=decision.metadata.get("max_retries", 3),
+            )
+
+    async def retry_operations(
+        self,
+        target_ids: list[str],
+        *,
+        max_retries: int = 3,
+    ) -> list[str]:
+        """Re-execute target operations via graph.replace_node().
+
+        For each target: creates a fresh event via as_fresh_event(),
+        replaces the old node in the graph (inheriting all edges),
+        and executes the fresh node. Downstream nodes that depend
+        on the target will see the retried output.
+
+        Returns list of new operation IDs that were dispatched.
+        """
+        retried = []
+        target_set = set(target_ids)
+
+        for node in list(self.graph.internal_nodes.values()):
+            if not isinstance(node, Operation):
+                continue
+            if str(node.id) not in target_set:
+                continue
+
+            count = self._retry_counts.get(node.id, 0)
+            if count >= max_retries:
+                if self.verbose:
+                    logger.debug(
+                        "Retry limit reached for %s (%d/%d)",
+                        str(node.id)[:8], count, max_retries,
+                    )
+                continue
+
+            fresh = node.as_fresh_event(copy_meta=True)
+
+            if node.id in self.operation_branches:
+                fresh._branch = self.operation_branches[node.id]
+                self.operation_branches[fresh.id] = fresh._branch
+
+            self.graph.replace_node(node.id, fresh)
+
+            self.completion_events[fresh.id] = ConcurrencyEvent()
+            self._retry_counts[fresh.id] = count + 1
+
+            if self.verbose:
+                logger.debug(
+                    "Retry %s → %s (attempt %d/%d)",
+                    str(node.id)[:8],
+                    str(fresh.id)[:8],
+                    count + 1,
+                    max_retries,
+                )
+
+            retried.append(fresh)
+
+        if retried and self._limiter:
+            await self._alcall(
+                retried, self._execute_operation, limiter=self._limiter
+            )
+
+        return [str(n.id) for n in retried]
 
     def register_control_handler(self, control_type: str, handler):
         """Register a custom control handler: async (op, executor) -> ControlDecision."""

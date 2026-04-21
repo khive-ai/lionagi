@@ -42,9 +42,9 @@ class Operation(Node, Event):
         description="Parameters for the operation",
         exclude=True,
     )
-    control_type: Literal["iterate", "gate", "quorum", "halt"] | None = Field(
+    control_type: Literal["iterate", "quorum", "halt"] | str | None = Field(
         default=None,
-        description="Control semantic: iterate (critic re-plan), gate (artifact check), quorum (completion threshold), halt (flow pause)",
+        description="Control semantic: iterate (LLM-backed re-plan), quorum (completion threshold), halt (flow pause). Custom types resolved via executor.register_control_handler().",
     )
     control_policy: dict[str, Any] | None = Field(
         default=None,

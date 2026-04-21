@@ -447,9 +447,7 @@ class Event(Element):
 
     def as_fresh_event(self, copy_meta: bool = False) -> Event:
         """Creates a clone of this event with the same execution state."""
-        d_ = self.to_dict()
-        for i in ["execution", "created_at", "id", "metadata"]:
-            d_.pop(i, None)
+        d_ = self.to_dict(exclude={"execution", "created_at", "id", "metadata"})
         fresh = self.__class__(**d_)
         if copy_meta:
             meta = self.metadata.copy()

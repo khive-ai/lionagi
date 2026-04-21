@@ -111,13 +111,13 @@ class FlowOp(HashableModel):
             "downstream agent to read the upstream's artifact dir."
         ),
     )
-    control_type: Literal["iterate", "gate", "quorum", "halt"] | None = Field(
+    control_type: Literal["iterate", "quorum", "halt"] | str | None = Field(
         default=None,
         description=(
             "Control semantic: 'iterate' for critic checkpoints that may "
-            "trigger re-planning, 'gate' for artifact checks, 'quorum' "
-            "for completion thresholds, 'halt' for flow-wide pause. "
-            "None = regular work op."
+            "trigger re-planning, 'quorum' for completion thresholds, "
+            "'halt' for flow-wide pause. Custom types resolved via "
+            "executor.register_control_handler(). None = regular work op."
         ),
     )
 

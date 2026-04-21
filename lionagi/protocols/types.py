@@ -11,7 +11,6 @@ from .generic.log import DataLogger, DataLoggerConfig, Log, LogManager, LogManag
 from .generic.pile import Pile, to_list_type
 from .generic.processor import Executor, Processor
 from .generic.progression import Progression, prog
-from .graph.edge import EdgeCondition
 from .graph.graph import Edge, Graph, Node
 from .ids import canonical_id, to_uuid
 from .messages.base import (
@@ -60,7 +59,6 @@ __all__ = (
     "Processor",
     "Progression",
     "prog",
-    "EdgeCondition",
     "Edge",
     "Graph",
     "Node",
