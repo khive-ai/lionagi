@@ -207,48 +207,15 @@ class FlowPlan(HashableModel):
 FLOW_PLAN_FIELDS = FieldModel(FlowPlan, name="plan")
 
 
-class FlowControlVerdict(HashableModel):
-    """Structured output from a flow control op.
+from lionagi.operations.control import ControlDecision
 
-    Control ops review prior work and decide whether the flow should
-    continue with additional rounds of planning/execution.
-    """
+CONTROL_VERDICT_CONTRACT: str = (
+    "Produce a ControlDecision: action ('proceed' to end flow, "
+    "'iterate' to request additional ops), reason (str), and "
+    "metadata.next_steps (str) if iterating. Be specific."
+)
 
-    should_continue: bool = Field(
-        description=(
-            "If False, the flow ends here. If True, the orchestrator is "
-            "invoked to plan additional ops targeting the gaps named in "
-            "next_steps."
-        ),
-    )
-    reason: str = Field(
-        description=(
-            "Concise justification for the verdict — what criteria were "
-            "or were not met. Grounded in the specific op outputs, not vague."
-        ),
-    )
-    next_steps: str | None = Field(
-        default=None,
-        description=(
-            "If should_continue, specific gaps that need addressing "
-            "(name EXACT issues, not 'improve quality'). Read by the "
-            "orchestrator during re-planning."
-        ),
-    )
-
-    # Appended to each control op's instruction at execution time.
-    VERDICT_CONTRACT: ClassVar[str] = (
-        "Review all prior op outputs and produce a verdict: "
-        "should_continue (bool), reason (str), and optional next_steps "
-        "(str) guidance if continuing.\n\n"
-        "VERDICT CONSEQUENCES: If should_continue=False, the flow ends. "
-        "If should_continue=True, the orchestrator plans ADDITIONAL ops "
-        "(possibly reusing existing agents) to address your next_steps. "
-        "Be specific: name EXACT gaps, not 'improve quality'."
-    )
-
-
-FLOW_VERDICT_FIELDS = FieldModel(FlowControlVerdict, name="verdict")
+FLOW_VERDICT_FIELDS = FieldModel(ControlDecision, name="verdict")
 
 
 def _format_flow_result_text(
@@ -276,16 +243,6 @@ def _format_flow_result_text(
 
     return "\n".join(lines)
 
-
-def _collect_artifacts(op_meta: dict, op_to_node: dict, all_op_results: dict) -> list[str]:
-    """Build artifact context strings from accumulated results."""
-    artifacts = []
-    for op_id, meta in op_meta.items():
-        nid = op_to_node.get(op_id)
-        res = all_op_results.get(nid) if nid else None
-        name = meta.get("agent_name", op_id)
-        artifacts.append(f"[op {op_id} via {name}]: {res if res is not None else '(no response)'}")
-    return artifacts
 
 
 def _build_agent_results(op_meta: dict, op_to_node: dict, all_op_results: dict) -> list[dict]:
@@ -655,7 +612,7 @@ async def _run_flow_inner(
         c_branch = agents_by_id[cop.agent_id]
         c_model = agent_model_by_id[cop.agent_id]
 
-        artifacts = _collect_artifacts(op_meta, op_to_node, all_op_results)
+        prior_results = [str(r) for r in all_op_results.values() if r is not None]
         dep_nodes = [op_to_node[d] for d in (cop.depends_on or []) if d in op_to_node]
         if not dep_nodes:
             dep_nodes = list(op_to_node.values())[-1:] or [plan_root]
@@ -664,7 +621,7 @@ async def _run_flow_inner(
 
         # The orchestrator's `cop.instruction` provides domain context;
         # we append the verdict contract from the schema's ClassVar.
-        instr = f"{cop.instruction}\n\n{FlowControlVerdict.VERDICT_CONTRACT}"
+        instr = f"{cop.instruction}\n\n{CONTROL_VERDICT_CONTRACT}"
         ctrl_op = FlowOp(
             id=cop.id,
             agent_id=cop.agent_id,
@@ -690,8 +647,7 @@ async def _run_flow_inner(
         ctrl_op_results = ctrl_result.get("operation_results", {})
         all_op_results.update(ctrl_op_results)
         ctrl_res = ctrl_op_results.get(ctrl_node)
-        verdict: FlowControlVerdict | None = getattr(ctrl_res, "verdict", None)
-        verdict_text = str(ctrl_res) if ctrl_res is not None else "(no response)"
+        verdict: ControlDecision | None = getattr(ctrl_res, "verdict", None)
         op_meta[cop.id] = {
             "agent_id": cop.agent_id,
             "agent_name": agent_id_to_name[cop.agent_id],
@@ -700,11 +656,11 @@ async def _run_flow_inner(
             "control_type": cop.control_type,
         }
 
-        cont = verdict.should_continue if verdict else False
-        progress(f"Control [{cop.id}] done ({t_ctrl_elapsed:.1f}s): continue={cont}")
+        should_iterate = verdict and verdict.action == "iterate"
+        progress(f"Control [{cop.id}] done ({t_ctrl_elapsed:.1f}s): {verdict.action if verdict else 'no verdict'}")
 
-        # ── If verdict says continue: orchestrator re-plans ────────
-        if verdict and verdict.should_continue:
+        # ── If verdict says iterate: orchestrator re-plans ────────
+        if should_iterate:
             round_num += 1
             if round_num >= max_rounds:
                 progress(f"Max rounds ({max_rounds}) reached, stopping.")
@@ -724,9 +680,9 @@ async def _run_flow_inner(
                     ),
                     context={
                         "original_task": prompt,
-                        "prior_results": artifacts,
-                        "control_verdict": verdict_text,
-                        "next_steps_guidance": verdict.next_steps or "",
+                        "prior_results": prior_results,
+                        "control_verdict": verdict.reason if verdict else "",
+                        "next_steps_guidance": verdict.metadata.get("next_steps", "") if verdict else "",
                     },
                     guidance=(
                         f"{roles_guidance} "
@@ -831,7 +787,7 @@ async def _run_flow_inner(
         all_op_node_ids = set(op_to_node.values())
         leaf_nodes = list(all_op_node_ids - depended_on_nodes) or list(all_op_node_ids)
 
-        artifacts = _collect_artifacts(op_meta, op_to_node, all_op_results)
+        prior_results = [str(r) for r in all_op_results.values() if r is not None]
 
         synth_instruction = (
             f"Synthesize all op outputs into a final cohesive deliverable.\n\n"
@@ -846,7 +802,7 @@ async def _run_flow_inner(
             branch=orc_branch,
             depends_on=leaf_nodes,
             instruction=synth_instruction,
-            context=artifacts,
+            context=prior_results,
         )
         t_synth = time.monotonic()
         synth_result = await session.flow(builder.get_graph(), verbose=env.verbose)
