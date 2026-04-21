@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .builder import ExpansionStrategy, OperationGraphBuilder
+from .control import ControlDecision
 from .flow import flow
 from .node import BranchOperations, Operation
 
@@ -10,6 +11,7 @@ Builder = OperationGraphBuilder
 __all__ = (
     "ExpansionStrategy",
     "OperationGraphBuilder",
+    "ControlDecision",
     "flow",
     "BranchOperations",
     "Operation",

@@ -29,6 +29,11 @@ class Operation(Node, Event):
     only implement _invoke().
 
     Set ``_branch`` before calling ``invoke()``.
+
+    Control operations (``control_type`` is set) condition flow
+    progression rather than executing LLM work. The executor evaluates
+    them based on ``control_type`` and ``control_policy`` and applies
+    the resulting ``ControlDecision`` to the DAG.
     """
 
     operation: BranchOperations | str
@@ -37,7 +42,19 @@ class Operation(Node, Event):
         description="Parameters for the operation",
         exclude=True,
     )
+    control_type: str | None = Field(
+        default=None,
+        description="Control semantic: gate, quorum, halt, iterate, or custom id",
+    )
+    control_policy: dict[str, Any] | None = Field(
+        default=None,
+        description="Type-specific config (e.g. gate artifacts, quorum threshold)",
+    )
     _branch: Any = PrivateAttr(default=None)
+
+    @property
+    def is_control(self) -> bool:
+        return self.control_type is not None
 
     @property
     def branch_id(self) -> UUID | None:

@@ -17,6 +17,7 @@ from anyio import get_cancelled_exc_class
 
 from lionagi.ln import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
+from lionagi.operations.control import ControlDecision
 from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import Event
 from lionagi.protocols.types import EventStatus
@@ -71,6 +72,12 @@ class DependencyAwareExecutor:
         self.operation_branches = {}  # operation_id -> Branch
         self.skipped_operations = set()  # Track skipped operations
         self._op_start_times = {}  # operation_id -> monotonic start time
+
+        # Control flow state
+        self._halted = False
+        self._halt_reason: str | None = None
+        self._control_decisions: dict[Any, ControlDecision] = {}
+        self._control_handlers: dict[str, Any] = {}  # custom control_type → async handler
 
         # Initialize completion events for all operations
         # and check for already completed operations
@@ -224,6 +231,15 @@ class DependencyAwareExecutor:
             return
 
         try:
+            # Check halt flag — skip non-control ops if flow is halted
+            if self._halted and not operation.is_control:
+                operation.execution.status = EventStatus.SKIPPED
+                self.skipped_operations.add(operation.id)
+                if self.verbose:
+                    logger.debug("Skipping %s: flow halted (%s)", str(operation.id)[:8], self._halt_reason)
+                self.completion_events[operation.id].set()
+                return
+
             # Check if this operation should be skipped due to edge conditions
             should_execute = await self._check_edge_conditions(operation)
 
@@ -244,6 +260,21 @@ class DependencyAwareExecutor:
 
             # Wait for dependencies
             await self._wait_for_dependencies(operation)
+
+            # Control operations: evaluate and apply decision instead of LLM invoke
+            if operation.is_control:
+                decision = await self._evaluate_control(operation)
+                self._control_decisions[operation.id] = decision
+                self._apply_control_decision(operation, decision)
+                self.results[operation.id] = decision.model_dump()
+                if self.verbose:
+                    logger.debug(
+                        "Control [%s] %s: %s (%s)",
+                        operation.control_type, str(operation.id)[:8],
+                        decision.action, decision.reason,
+                    )
+                self.completion_events[operation.id].set()
+                return
 
             # Acquire capacity to limit concurrency
             async with limiter:
@@ -553,6 +584,127 @@ class DependencyAwareExecutor:
                             node.id,
                             node.execution.status,
                         )
+
+
+    # ── Control node evaluation ─────────────────────────────────
+
+    async def _evaluate_control(self, op: Operation) -> ControlDecision:
+        """Evaluate a control operation and return a decision."""
+        ct = op.control_type
+        policy = op.control_policy or {}
+
+        if ct == "gate":
+            return self._eval_gate(op, policy)
+        elif ct == "quorum":
+            return self._eval_quorum(op, policy)
+        elif ct == "halt":
+            return ControlDecision(action="halt", reason=policy.get("reason", "halt signal"))
+        elif ct == "iterate":
+            return await self._eval_iterate(op)
+        else:
+            handler = self._control_handlers.get(ct)
+            if handler:
+                return await handler(op, self)
+            return ControlDecision(action="proceed", reason=f"unknown control_type: {ct}, defaulting to proceed")
+
+    def _eval_gate(self, op: Operation, policy: dict) -> ControlDecision:
+        """Check artifact existence / predicate gates."""
+        import os
+
+        requirements = policy.get("require", [])
+        failures = []
+        for req in requirements:
+            path = req.get("path", "")
+            if not os.path.exists(path):
+                failures.append(f"{path}: not found")
+                continue
+            min_chars = req.get("min_chars", 0)
+            if min_chars > 0:
+                try:
+                    size = os.path.getsize(path)
+                    if size < min_chars:
+                        failures.append(f"{path}: {size} chars < {min_chars} required")
+                except OSError as e:
+                    failures.append(f"{path}: {e}")
+
+        if failures:
+            return ControlDecision(
+                action="halt",
+                reason=f"Gate failed: {'; '.join(failures)}",
+                metadata={"failures": failures},
+            )
+        return ControlDecision(action="proceed", reason="All gates passed")
+
+    def _eval_quorum(self, op: Operation, policy: dict) -> ControlDecision:
+        """Check if enough dependencies completed successfully."""
+        predecessors = self.graph.get_predecessors(op)
+        if not predecessors:
+            return ControlDecision(action="proceed", reason="No deps, quorum trivially met")
+
+        total = len(predecessors)
+        completed = sum(
+            1 for p in predecessors
+            if p.id in self.results and p.id not in self.skipped_operations
+        )
+        ratio = completed / total if total > 0 else 1.0
+        min_fraction = policy.get("min_fraction", 0.75)
+
+        if ratio >= min_fraction:
+            return ControlDecision(
+                action="proceed",
+                reason=f"Quorum met: {completed}/{total} = {ratio:.0%} >= {min_fraction:.0%}",
+                metadata={"completed": completed, "total": total, "ratio": ratio},
+            )
+        return ControlDecision(
+            action="halt",
+            reason=f"Quorum not met: {completed}/{total} = {ratio:.0%} < {min_fraction:.0%}",
+            metadata={"completed": completed, "total": total, "ratio": ratio},
+        )
+
+    async def _eval_iterate(self, op: Operation) -> ControlDecision:
+        """LLM-backed control — invoke the op, interpret result as iterate/proceed."""
+        branch = self.operation_branches.get(op.id, self.session.default_branch)
+        op._branch = branch
+        await op.invoke()
+
+        response = op.response
+        should_continue = False
+        reason = str(response) if response else "no response"
+
+        if isinstance(response, dict):
+            should_continue = response.get("should_continue", False)
+            reason = response.get("reason", reason)
+
+        if should_continue:
+            return ControlDecision(
+                action="iterate",
+                reason=reason,
+                metadata={"next_steps": response.get("next_steps") if isinstance(response, dict) else None},
+            )
+        return ControlDecision(action="proceed", reason=reason)
+
+    def _apply_control_decision(self, op: Operation, decision: ControlDecision):
+        """Apply a control decision to the flow state."""
+        if decision.action == "halt":
+            self._halted = True
+            self._halt_reason = decision.reason
+        elif decision.action == "abort":
+            self._halted = True
+            self._halt_reason = f"ABORT: {decision.reason}"
+        elif decision.action == "route":
+            target_set = set(decision.targets)
+            for node in self.graph.internal_nodes.values():
+                if isinstance(node, Operation) and node.id not in target_set:
+                    successors = self.graph.get_successors(op)
+                    if node in successors and node.id not in self.results:
+                        self.skipped_operations.add(node.id)
+        # "proceed" and "iterate" need no state change here.
+        # "iterate" is handled by the CLI orchestration layer which reads the decision.
+        # "retry" is a future extension — needs re-enqueue logic.
+
+    def register_control_handler(self, control_type: str, handler):
+        """Register a custom control handler: async (op, executor) -> ControlDecision."""
+        self._control_handlers[control_type] = handler
 
 
 async def flow(
