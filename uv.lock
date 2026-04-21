@@ -2565,7 +2565,7 @@ requires-dist = [
     { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
     { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.2.0" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.3.0" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
@@ -4563,7 +4563,7 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "1.2.0"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
@@ -4572,9 +4572,9 @@ dependencies = [
     { name = "toml" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/a4/dce36a3bc6b1c28434254e67eeefcaa762f6a3e30d311808ec2f364eafe5/pydapter-1.2.0.tar.gz", hash = "sha256:657d8d0373d308235bad766e6895f18f6e0a8aef047649f54e225bf1afefc498", size = 386400, upload-time = "2025-10-15T00:17:27.337Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/52/d05ddcb18235c32f52c7edf995d4a1d662464e4b2b44644f7305983eae75/pydapter-1.3.0.tar.gz", hash = "sha256:d63ae33c8b65135af23dee8383e8488c912185cf004d8e0295872062adab753a", size = 388627, upload-time = "2026-04-16T12:32:33.561Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/f8/8e249869470df09a02cd63f1dc4da6bb302bd36af8da15bab1fa8575bb9b/pydapter-1.2.0-py3-none-any.whl", hash = "sha256:4269eb1acfbf485cf640d8525c23b67a3e1cc3f49c15dac0fa3d7e6411b0dba2", size = 104578, upload-time = "2025-10-15T00:17:25.895Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/f5/1e7031e794493c86469fdc846c9870594b006515d805b521109284f70cd2/pydapter-1.3.0-py3-none-any.whl", hash = "sha256:a1f2910dbb68a8334c1e31d63721a5d6e684672b77ecc7b2bcc833af571c8185", size = 107310, upload-time = "2026-04-16T12:32:31.89Z" },
 ]
 
 [package.optional-dependencies]
