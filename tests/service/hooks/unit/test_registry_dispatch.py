@@ -235,3 +235,40 @@ class TestMetadataContract:
         assert meta["event_id"] == "TEST"
         assert meta["event_created_at"] == 123.456
         assert len(meta) == 3
+
+
+class TestDictConstructorStringKeys:
+    """HookDict is typed with string keys; the constructor must accept them."""
+
+    def test_constructor_accepts_documented_string_aliases(self):
+        def dummy(*args, **kwargs):
+            return None
+
+        registry = HookRegistry(
+            {
+                "pre_invoke": dummy,
+                "post_invoke": dummy,
+                "pre_event_create_hook": dummy,
+            }
+        )
+        assert registry._hooks[HookEventTypes.PreInvocation] is dummy
+        assert registry._hooks[HookEventTypes.PostInvocation] is dummy
+        assert registry._hooks[HookEventTypes.PreEventCreate] is dummy
+
+    def test_constructor_accepts_raw_enum_values(self):
+        def dummy(*args, **kwargs):
+            return None
+
+        registry = HookRegistry(
+            {
+                HookEventTypes.PreInvocation.value: dummy,
+            }
+        )
+        assert registry._hooks[HookEventTypes.PreInvocation] is dummy
+
+    def test_constructor_still_accepts_enum_keys(self):
+        def dummy(*args, **kwargs):
+            return None
+
+        registry = HookRegistry({HookEventTypes.PreInvocation: dummy})
+        assert registry._hooks[HookEventTypes.PreInvocation] is dummy
