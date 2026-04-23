@@ -21,6 +21,11 @@ from .hooks import (
 )
 from .rate_limited_processor import RateLimitedAPIExecutor
 
+# Sentinel returned by process_chunk() when a streaming hook signalled
+# exit — stream() treats this as "stop streaming" rather than "use raw
+# chunk" (the meaning of a plain None return).
+_STREAM_EXIT = object()
+
 
 class iModel:
     """Manages API calls for a specific provider with optional rate-limiting.
@@ -294,7 +299,7 @@ class iModel:
                 )
             )
             if should_exit:
-                return None
+                return _STREAM_EXIT
             return result if result is not None else chunk
         if self.streaming_process_func and not isinstance(chunk, APICalling):
             if is_coro_func(self.streaming_process_func):
@@ -327,6 +332,8 @@ class iModel:
                 try:
                     async for i in api_call.stream():
                         result = await self.process_chunk(i)
+                        if result is _STREAM_EXIT:
+                            break
                         # Yield processed result if available, otherwise yield raw chunk
                         yield result if result is not None else i
                 except Exception as e:
@@ -337,6 +344,8 @@ class iModel:
             try:
                 async for i in api_call.stream():
                     result = await self.process_chunk(i)
+                    if result is _STREAM_EXIT:
+                        break
                     # Yield processed result if available, otherwise yield raw chunk
                     yield result if result is not None else i
             except Exception as e:

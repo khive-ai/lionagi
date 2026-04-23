@@ -139,6 +139,8 @@ async def test_as_fresh_event_preserves_parameters():
 
 def test_topo_sort_ops():
     """_topo_sort_ops must order child after parent even if listed first."""
+    import pytest as _pt
+
     from lionagi.cli.orchestrate.flow import FlowOp, _topo_sort_ops
 
     ops = [
@@ -149,6 +151,47 @@ def test_topo_sort_ops():
     result = _topo_sort_ops(ops)
     ids = [o.id for o in result]
     assert ids.index("a") < ids.index("b") < ids.index("c")
+
+    # Unknown dep → fail closed, not silently dropped
+    with _pt.raises(ValueError, match="unknown dependency"):
+        _topo_sort_ops(
+            [FlowOp(id="x", agent_id="a", instruction="X", depends_on=["missing"])]
+        )
+
+    # Cycle → detected
+    with _pt.raises(ValueError, match="cycle"):
+        _topo_sort_ops(
+            [
+                FlowOp(id="p", agent_id="a", instruction="P", depends_on=["q"]),
+                FlowOp(id="q", agent_id="a", instruction="Q", depends_on=["p"]),
+            ]
+        )
+
+
+def test_unknown_control_type_raises():
+    """Executor must fail closed on unknown control_type, not silently proceed."""
+    import pytest as _pt
+
+    from lionagi.operations.flow import DependencyAwareExecutor
+    from lionagi.protocols.graph.graph import Graph
+
+    branch = _make_mock_branch()
+    session = Session(default_branch=branch)
+
+    op = Operation(operation="chat", parameters={"instruction": "x"})
+    op.control_type = "typo_not_registered"
+
+    graph = Graph()
+    graph.add_node(op)
+
+    executor = DependencyAwareExecutor(session=session, graph=graph)
+
+    import asyncio
+
+    with _pt.raises(ValueError, match="Unknown control_type"):
+        asyncio.get_event_loop().run_until_complete(
+            executor._evaluate_control(op)
+        )
 
 
 @pytest.mark.asyncio

@@ -311,21 +311,39 @@ FLOW_VERDICT_FIELDS = FieldModel(FlowControlVerdict, name="verdict")
 
 
 def _topo_sort_ops(ops: list[FlowOp]) -> list[FlowOp]:
-    """Topological sort of FlowOps so parents appear before children."""
+    """Topological sort of FlowOps so parents appear before children.
+
+    Raises
+    ------
+    ValueError
+        If any ``depends_on`` references an id that is not in ``ops``
+        (fail-closed on typos / hallucinated deps) or if the dependency
+        graph has a cycle.
+    """
     by_id = {op.id: op for op in ops}
+
+    for op in ops:
+        for dep in op.depends_on or []:
+            if dep not in by_id:
+                raise ValueError(
+                    f"Op {op.id!r} declares unknown dependency {dep!r}"
+                )
+
     visited: set[str] = set()
+    in_progress: set[str] = set()
     order: list[FlowOp] = []
 
     def _visit(op_id: str) -> None:
         if op_id in visited:
             return
-        visited.add(op_id)
-        op = by_id.get(op_id)
-        if op is None:
-            return
+        if op_id in in_progress:
+            raise ValueError(f"Dependency cycle detected involving {op_id!r}")
+        in_progress.add(op_id)
+        op = by_id[op_id]
         for dep in op.depends_on or []:
-            if dep in by_id:
-                _visit(dep)
+            _visit(dep)
+        in_progress.discard(op_id)
+        visited.add(op_id)
         order.append(op)
 
     for op in ops:
@@ -518,6 +536,12 @@ async def _run_flow_inner(
                 f"Invalid plan: op {op.id!r} references unknown agent "
                 f"{op.agent_id!r} (known: {sorted(agent_ids)})"
             )
+
+    # Validate topology and depends_on targets up front.
+    try:
+        _topo_sort_ops(plan.operations)
+    except ValueError as e:
+        return f"Invalid plan: {e}"
 
     # max_agents caps the total operation count — that is the real work
     # budget. Agent count is bounded implicitly by the op count since
@@ -739,10 +763,12 @@ async def _run_flow_inner(
                 control=True,
                 control_mode=op.control_mode,
             )
+            # Do NOT set control_type here: the executor would replace
+            # the structured verdict with decision.model_dump(), losing
+            # the FlowControlVerdict that the CLI re-plan loop needs.
             node_id = _add_op_node(
                 ctrl_op, a, p, b, dep_nodes, op_id_to_agent,
                 field_models=[FLOW_VERDICT_FIELDS],
-                control_type="iterate",
             )
         else:
             node_id = _add_op_node(op, a, p, b, dep_nodes, op_id_to_agent)
@@ -908,7 +934,11 @@ async def _run_flow_inner(
             progress("Re-plan: no executable new ops; ending.")
             continue
 
-        new_ops = _topo_sort_ops(new_ops)
+        try:
+            new_ops = _topo_sort_ops(new_ops)
+        except ValueError as e:
+            progress(f"Re-plan rejected: {e}")
+            continue
         ids = ", ".join(o.id for o in new_ops)
         progress(
             f"Re-plan: +{len(next_plan.agents)} agents, +{len(new_ops)} ops: {ids}"
@@ -966,7 +996,7 @@ async def _run_flow_inner(
         # Leaf ops = those not depended on by any other op. Walk op_meta
         # since it covers both initial plan and any re-planned ops.
         depended_on_nodes: set[str] = set()
-        for oid, meta in op_meta.items():
+        for meta in op_meta.values():
             for d in meta.get("depends_on", []):
                 if d in op_to_node:
                     depended_on_nodes.add(op_to_node[d])

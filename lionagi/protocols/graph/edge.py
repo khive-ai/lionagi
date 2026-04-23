@@ -4,7 +4,7 @@
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from lionagi.utils import is_same_dtype
 
@@ -13,7 +13,17 @@ from ..generic.element import ID, Element
 
 
 class EdgeCondition(BaseModel, Condition):
-    """Concrete Condition with Pydantic model support for edge traversal."""
+    """Concrete Condition with Pydantic model support for edge traversal.
+
+    ``source`` is a general-purpose slot for conditions that need to
+    carry state alongside their ``apply()`` logic.  ``extra='allow'``
+    lets subclasses assign attributes in ``__init__`` without declaring
+    them as model fields.
+    """
+
+    source: Any = Field(default=None)
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
     async def apply(self, *args, **kwargs) -> bool:
         return True
@@ -53,7 +63,9 @@ class Edge(Element):
         tail = ID.get_id(tail)
         if condition is not None:
             if not isinstance(condition, Condition):
-                raise ValueError("Condition must be an instance of Condition.")
+                raise ValueError(
+                    "Condition must be an instance of EdgeCondition."
+                )
             kwargs["condition"] = condition
         if label:
             if isinstance(label, str):
@@ -84,7 +96,7 @@ class Edge(Element):
     @condition.setter
     def condition(self, value: Condition | None) -> None:
         if value is not None and not isinstance(value, Condition):
-            raise ValueError("Condition must be an instance of Condition.")
+            raise ValueError("Condition must be an instance of EdgeCondition.")
         self.properties["condition"] = value
 
     @label.setter

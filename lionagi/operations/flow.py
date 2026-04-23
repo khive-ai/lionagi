@@ -648,9 +648,12 @@ class DependencyAwareExecutor:
         elif ct == "iterate":
             return await self._eval_iterate(op)
         else:
-            return ControlDecision(
-                action="proceed",
-                reason=f"unknown control_type: {ct}, defaulting to proceed",
+            # Fail closed: a typo in control_type should not silently
+            # disable safety logic. Register a handler explicitly via
+            # executor.register_control_handler() to support custom types.
+            raise ValueError(
+                f"Unknown control_type {ct!r}; register a handler via "
+                f"executor.register_control_handler() first"
             )
 
     def _eval_quorum(self, op: Operation, policy: dict) -> ControlDecision:
