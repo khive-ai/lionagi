@@ -169,6 +169,7 @@ cython_debug/
 *.DS_Store
 .roomodes
 .khive/
+.claude/
 .roo/
 *logs/
 
