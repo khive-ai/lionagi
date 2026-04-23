@@ -446,8 +446,22 @@ class Event(Element):
             raise RuntimeError(f"Event did not complete successfully: {exec_dict}")
 
     def as_fresh_event(self, copy_meta: bool = False) -> Event:
-        """Creates a clone of this event with a fresh execution state."""
-        d_ = self.model_dump(exclude={"execution", "created_at", "id", "metadata"})
+        """Creates a clone of this event with a fresh execution state.
+
+        Fields declared with ``exclude=True`` (e.g. ``Operation.parameters``)
+        are invisible to ``model_dump`` so we re-attach them from the
+        original model's ``__dict__`` after construction.
+        """
+        skip = {"execution", "created_at", "id", "metadata"}
+        d_ = self.model_dump(exclude=skip)
+        # model_dump omits fields with exclude=True — carry them over.
+        for name, field_info in self.__class__.model_fields.items():
+            if name in skip:
+                continue
+            if field_info.exclude and name not in d_:
+                val = getattr(self, name, None)
+                if val is not None:
+                    d_[name] = val
         fresh = self.__class__(**d_)
         if copy_meta:
             fresh.metadata = self.metadata.copy()

@@ -665,7 +665,9 @@ class DependencyAwareExecutor:
         completed = sum(
             1
             for p in predecessors
-            if p.id in self.results and p.id not in self.skipped_operations
+            if p.id in self.results
+            and p.id not in self.skipped_operations
+            and not (isinstance(self.results[p.id], dict) and "error" in self.results[p.id])
         )
         ratio = completed / total if total > 0 else 1.0
         min_fraction = policy.get("min_fraction", 0.75)
@@ -719,11 +721,11 @@ class DependencyAwareExecutor:
             self._halted = True
             self._halt_reason = f"ABORT: {decision.reason}"
         elif decision.action == "route":
-            target_set = set(decision.targets)
-            for node in self.graph.internal_nodes.values():
-                if isinstance(node, Operation) and node.id not in target_set:
-                    successors = self.graph.get_successors(op)
-                    if node in successors and node.id not in self.results:
+            target_set = {str(t) for t in decision.targets}
+            successors = self.graph.get_successors(op)
+            for node in successors:
+                if isinstance(node, Operation) and str(node.id) not in target_set:
+                    if node.id not in self.results:
                         self.skipped_operations.add(node.id)
         elif decision.action == "retry":
             await self.retry_operations(

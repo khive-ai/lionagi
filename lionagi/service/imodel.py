@@ -288,8 +288,8 @@ class iModel:
         if self.hook_registry._can_handle(ct_=type(chunk).__name__):
             result, should_exit, _status = (
                 await self.hook_registry.handle_streaming_chunk(
-                    chunk_type=type(chunk).__name__,
-                    chunk=chunk,
+                    type(chunk).__name__,
+                    chunk,
                     exit=self.exit_hook,
                 )
             )

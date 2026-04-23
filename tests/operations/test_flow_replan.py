@@ -10,7 +10,7 @@ import pytest
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.flow import DependencyAwareExecutor, flow
 from lionagi.operations.node import Operation
-from lionagi.protocols.generic.event import Event, EventStatus
+from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
 from lionagi.service.connections.api_calling import APICalling
@@ -118,6 +118,37 @@ async def test_reexecute_via_builder():
     assert new2 in r4["operation_results"]
     assert r4["operation_results"][new1] is not None
     assert r4["operation_results"][new2] is not None
+
+
+@pytest.mark.asyncio
+async def test_as_fresh_event_preserves_parameters():
+    """as_fresh_event must carry over Operation.parameters (exclude=True field)."""
+    op = Operation(
+        operation="chat",
+        parameters={"instruction": "hello", "guidance": "be nice"},
+    )
+    op.execution.status = EventStatus.COMPLETED
+    op.execution.response = "done"
+
+    fresh = op.as_fresh_event(copy_meta=True)
+    assert fresh.parameters == {"instruction": "hello", "guidance": "be nice"}
+    assert fresh.execution.status == EventStatus.PENDING
+    assert fresh.id != op.id
+    assert fresh.metadata.get("original", {}).get("id") == str(op.id)
+
+
+def test_topo_sort_ops():
+    """_topo_sort_ops must order child after parent even if listed first."""
+    from lionagi.cli.orchestrate.flow import FlowOp, _topo_sort_ops
+
+    ops = [
+        FlowOp(id="c", agent_id="a", instruction="C", depends_on=["b"]),
+        FlowOp(id="a", agent_id="a", instruction="A"),
+        FlowOp(id="b", agent_id="a", instruction="B", depends_on=["a"]),
+    ]
+    result = _topo_sort_ops(ops)
+    ids = [o.id for o in result]
+    assert ids.index("a") < ids.index("b") < ids.index("c")
 
 
 @pytest.mark.asyncio

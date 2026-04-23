@@ -310,6 +310,29 @@ class FlowControlVerdict(HashableModel):
 FLOW_VERDICT_FIELDS = FieldModel(FlowControlVerdict, name="verdict")
 
 
+def _topo_sort_ops(ops: list[FlowOp]) -> list[FlowOp]:
+    """Topological sort of FlowOps so parents appear before children."""
+    by_id = {op.id: op for op in ops}
+    visited: set[str] = set()
+    order: list[FlowOp] = []
+
+    def _visit(op_id: str) -> None:
+        if op_id in visited:
+            return
+        visited.add(op_id)
+        op = by_id.get(op_id)
+        if op is None:
+            return
+        for dep in op.depends_on or []:
+            if dep in by_id:
+                _visit(dep)
+        order.append(op)
+
+    for op in ops:
+        _visit(op.id)
+    return order
+
+
 def _format_flow_result_text(
     agent_results: list[dict],
     synthesis_result: dict | None = None,
@@ -611,6 +634,7 @@ async def _run_flow_inner(
         dep_nodes: list[str],
         op_id_to_agent: dict[str, str],
         field_models=None,
+        control_type: str | None = None,
     ) -> str:
         ctx: list = [{"original_task": prompt}]
         artifact_note = (
@@ -662,6 +686,8 @@ async def _run_flow_inner(
         if field_models is not None:
             add_kw["field_models"] = field_models
             add_kw["reason"] = True
+        if control_type is not None:
+            add_kw["control_type"] = control_type
         return builder.add_operation("operate", **add_kw)
 
     # ── Pass 1: build all agent branches ───────────────────────────
@@ -683,11 +709,12 @@ async def _run_flow_inner(
     # mechanism.  They are NOT separated into a second execution pass.
     op_to_node: dict[str, str] = {}
     op_meta: dict[str, dict] = {}
-    op_id_to_agent: dict[str, str] = {op.id: op.agent_id for op in plan.operations}
+    sorted_ops = _topo_sort_ops(plan.operations)
+    op_id_to_agent: dict[str, str] = {op.id: op.agent_id for op in sorted_ops}
     agent_results: list[dict] = []
 
-    regular_ops = [op for op in plan.operations if not op.control]
-    control_ops = [op for op in plan.operations if op.control]
+    regular_ops = [op for op in sorted_ops if not op.control]
+    control_ops = [op for op in sorted_ops if op.control]
 
     ctrl_note = f" ({len(control_ops)} control)" if control_ops else ""
     progress(
@@ -695,7 +722,7 @@ async def _run_flow_inner(
         f"{len(regular_ops)} ops{ctrl_note}..."
     )
 
-    for op in plan.operations:
+    for op in sorted_ops:
         a = agent_spec_by_id[op.agent_id]
         b = agents_by_id[op.agent_id]
         p = agent_profile_by_id[op.agent_id]
@@ -715,6 +742,7 @@ async def _run_flow_inner(
             node_id = _add_op_node(
                 ctrl_op, a, p, b, dep_nodes, op_id_to_agent,
                 field_models=[FLOW_VERDICT_FIELDS],
+                control_type="iterate",
             )
         else:
             node_id = _add_op_node(op, a, p, b, dep_nodes, op_id_to_agent)
@@ -737,7 +765,7 @@ async def _run_flow_inner(
 
     # Execute entire DAG (regular + control ops together)
     t_exec = time.monotonic()
-    conc = max_concurrent if max_concurrent > 0 else max(len(plan.operations), 1)
+    conc = max_concurrent if max_concurrent > 0 else max(len(sorted_ops), 1)
     dag_result = await session.flow(
         builder.get_graph(),
         max_concurrent=conc,
@@ -748,7 +776,7 @@ async def _run_flow_inner(
 
     op_results = dag_result.get("operation_results", {})
     all_op_results = op_results
-    for op in plan.operations:
+    for op in sorted_ops:
         nid = op_to_node[op.id]
         meta = op_meta[op.id]
         res = op_results.get(nid)
@@ -880,6 +908,7 @@ async def _run_flow_inner(
             progress("Re-plan: no executable new ops; ending.")
             continue
 
+        new_ops = _topo_sort_ops(new_ops)
         ids = ", ".join(o.id for o in new_ops)
         progress(
             f"Re-plan: +{len(next_plan.agents)} agents, +{len(new_ops)} ops: {ids}"
