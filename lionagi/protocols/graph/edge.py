@@ -4,15 +4,24 @@
 from typing import Any
 from uuid import UUID
 
-from pydantic import Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from lionagi.utils import is_same_dtype
 
 from .._concepts import Condition, Relational
 from ..generic.element import ID, Element
 
+
+class EdgeCondition(BaseModel, Condition):
+    """Concrete Condition with Pydantic model support for edge traversal."""
+
+    async def apply(self, *args, **kwargs) -> bool:
+        return True
+
+
 __all__ = (
     "Edge",
+    "EdgeCondition",
 )
 
 

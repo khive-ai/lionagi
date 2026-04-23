@@ -277,6 +277,32 @@ class DependencyAwareExecutor:
             # Wait for dependencies
             await self._wait_for_dependencies(operation)
 
+            # Re-check halt after awaiting — a control node may have set it
+            # while this op was blocked on dependencies.
+            if self._halted and not operation.is_control:
+                operation.execution.status = EventStatus.SKIPPED
+                self.skipped_operations.add(operation.id)
+                if self.verbose:
+                    logger.debug(
+                        "Skipping %s: flow halted after dep wait (%s)",
+                        str(operation.id)[:8],
+                        self._halt_reason,
+                    )
+                self.completion_events[operation.id].set()
+                return
+
+            # Re-check route skips — route decisions may have added this op
+            # to skipped_operations while it was waiting.
+            if operation.id in self.skipped_operations:
+                operation.execution.status = EventStatus.SKIPPED
+                if self.verbose:
+                    logger.debug(
+                        "Skipping %s: routed away after dep wait",
+                        str(operation.id)[:8],
+                    )
+                self.completion_events[operation.id].set()
+                return
+
             # Control operations: evaluate and apply decision instead of LLM invoke
             if operation.is_control:
                 decision = await self._evaluate_control(operation)

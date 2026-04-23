@@ -333,6 +333,13 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             if spec.get("critic_model"):
                 pass  # reserved for future use
 
+        # Argparse assigns a lone positional to `model`, leaving prompt
+        # None.  When --agent supplies the model, the lone positional is
+        # actually the prompt.  Detect and swap.
+        if args.model and not args.prompt and args.agent:
+            args.prompt = args.model
+            args.model = None
+
         has_model = args.model is not None or args.agent is not None
         if not has_model:
             log_error("model or --agent is required")

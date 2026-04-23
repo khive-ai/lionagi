@@ -286,11 +286,16 @@ class iModel:
                 A portion of the streamed data returned by the API.
         """
         if self.hook_registry._can_handle(ct_=type(chunk).__name__):
-            return await self.hook_registry.handle_streaming_chunk(
-                chunk_type=type(chunk).__name__,
-                chunk=chunk,
-                exit=self.exit_hook,
+            result, should_exit, _status = (
+                await self.hook_registry.handle_streaming_chunk(
+                    chunk_type=type(chunk).__name__,
+                    chunk=chunk,
+                    exit=self.exit_hook,
+                )
             )
+            if should_exit:
+                return None
+            return result if result is not None else chunk
         if self.streaming_process_func and not isinstance(chunk, APICalling):
             if is_coro_func(self.streaming_process_func):
                 return await self.streaming_process_func(chunk)

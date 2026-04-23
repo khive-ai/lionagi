@@ -149,7 +149,7 @@ class TestEdgeConditions:
         assert await edge.check_condition()
 
         # Update source to fail condition
-        edge.update_condition_source({"weight": 5})
+        condition.source = {"weight": 5}
         assert not await edge.check_condition()
 
 

@@ -446,12 +446,11 @@ class Event(Element):
             raise RuntimeError(f"Event did not complete successfully: {exec_dict}")
 
     def as_fresh_event(self, copy_meta: bool = False) -> Event:
-        """Creates a clone of this event with the same execution state."""
-        d_ = self.to_dict(exclude={"execution", "created_at", "id", "metadata"})
+        """Creates a clone of this event with a fresh execution state."""
+        d_ = self.model_dump(exclude={"execution", "created_at", "id", "metadata"})
         fresh = self.__class__(**d_)
         if copy_meta:
-            meta = self.metadata.copy()
-            fresh.metadata = meta
+            fresh.metadata = self.metadata.copy()
         fresh.metadata["original"] = {
             "id": str(self.id),
             "created_at": self.created_at,
