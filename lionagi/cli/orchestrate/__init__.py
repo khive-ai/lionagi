@@ -134,7 +134,23 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         help="Orchestrator model spec. Optional when -a/--agent provides one.",
     )
-    fl.add_argument("prompt", help="Task for the orchestrator to plan and execute.")
+    fl.add_argument(
+        "prompt",
+        nargs="?",
+        default=None,
+        help="Task for the orchestrator to plan and execute.",
+    )
+    fl.add_argument(
+        "-f",
+        "--file",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Load flow spec from YAML or JSON file. File values serve as "
+            "defaults; CLI flags override them. Prompt can come from the "
+            "file (prompt: key) or as a positional argument."
+        ),
+    )
     fl.add_argument(
         "-a",
         "--agent",
@@ -209,6 +225,39 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
     add_common_cli_args(fl)
 
 
+def _load_flow_spec(path: str) -> dict | int:
+    """Load a YAML or JSON flow spec file. Returns dict on success, int error code on failure."""
+    from pathlib import Path
+
+    p = Path(path).expanduser()
+    if not p.is_file():
+        log_error(f"spec file not found: {p}")
+        return 1
+    text = p.read_text()
+    suffix = p.suffix.lower()
+    try:
+        if suffix in (".yaml", ".yml"):
+            import yaml
+
+            return yaml.safe_load(text) or {}
+        elif suffix == ".json":
+            import json
+
+            return json.loads(text)
+        else:
+            import yaml
+
+            try:
+                return yaml.safe_load(text) or {}
+            except Exception:
+                import json
+
+                return json.loads(text)
+    except Exception as e:
+        log_error(f"failed to parse spec file {p}: {e}")
+        return 1
+
+
 def run_orchestrate(args: argparse.Namespace) -> int:
     """Dispatch orchestrate sub-commands."""
     if args.orch_command == "fanout":
@@ -252,9 +301,57 @@ def run_orchestrate(args: argparse.Namespace) -> int:
         return 0
 
     if args.orch_command == "flow":
+        # ── Load spec file if -f/--file was given ────────────────
+        file_spec = getattr(args, "file", None)
+        if file_spec:
+            spec = _load_flow_spec(file_spec)
+            if isinstance(spec, int):
+                return spec  # error code
+            if not isinstance(spec, dict):
+                log_error("spec file must contain a YAML/JSON object")
+                return 1
+            # If the file supplies the model/agent, argparse's lone positional
+            # is a prompt override, not a model override.
+            if (
+                args.model
+                and args.prompt is None
+                and (spec.get("model") or spec.get("agent"))
+            ):
+                args.prompt = args.model
+                args.model = None
+            # File values are defaults; CLI flags override.
+            if args.model is None and "model" in spec:
+                args.model = spec["model"]
+            if args.agent is None and spec.get("agent"):
+                args.agent = spec["agent"]
+            if args.prompt is None and spec.get("prompt"):
+                args.prompt = spec["prompt"]
+            if args.max_concurrent == 0 and spec.get("workers"):
+                args.max_concurrent = spec["workers"]
+            if args.effort is None and spec.get("effort"):
+                args.effort = spec["effort"]
+            if args.with_synthesis is False and spec.get("with_synthesis"):
+                args.with_synthesis = spec["with_synthesis"]
+            if args.team_mode is None and spec.get("team_mode"):
+                args.team_mode = spec["team_mode"]
+            if args.max_agents == 0 and spec.get("max_agents"):
+                args.max_agents = spec["max_agents"]
+            if not args.bare and spec.get("bare"):
+                args.bare = True
+            if not args.dry_run and spec.get("dry_run"):
+                args.dry_run = True
+            if args.save is None and spec.get("save"):
+                args.save = spec["save"]
+            if spec.get("critic_model"):
+                pass  # reserved for future use
+
         has_model = args.model is not None or args.agent is not None
         if not has_model:
             log_error("model or --agent is required")
+            return 1
+
+        if not args.prompt:
+            log_error("prompt is required (positional or via -f spec file)")
             return 1
 
         background = getattr(args, "background", False)
