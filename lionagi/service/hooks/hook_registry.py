@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, TypeVar
 
 from lionagi.ln.concurrency import get_cancelled_exc_class
@@ -13,6 +14,7 @@ from ._types import HookDict, HookEventTypes, StreamHandlers
 from ._utils import get_handler, validate_hooks, validate_stream_handlers
 
 E = TypeVar("E", bound=Event)
+F = TypeVar("F", bound=Callable)
 
 
 class HookRegistry:
@@ -34,6 +36,21 @@ class HookRegistry:
 
         self._hooks = _hooks
         self._stream_handlers = _stream_handlers
+
+    def pre_event_create_hook(self, fn: F) -> F:
+        """Decorator that registers *fn* as the pre_event_create hook."""
+        self._hooks[HookEventTypes.PreEventCreate] = fn
+        return fn
+
+    def pre_invoke(self, fn: F) -> F:
+        """Decorator that registers *fn* as the pre_invocation hook."""
+        self._hooks[HookEventTypes.PreInvocation] = fn
+        return fn
+
+    def post_invoke(self, fn: F) -> F:
+        """Decorator that registers *fn* as the post_invocation hook."""
+        self._hooks[HookEventTypes.PostInvocation] = fn
+        return fn
 
     async def _call(
         self,
