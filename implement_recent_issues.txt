@@ -1,0 +1,74 @@
+You are implementing 4 recent GitHub issues for the lionagi project. The repo is at /Users/lion/projects/libs/opensrc/lionagi/. Current branch: feat/control-nodes. Current version: 0.23.0.
+
+Read ALL referenced source files before writing ANY code. No stubs. No guessing APIs — read the actual source.
+
+## Issues to implement (in dependency order)
+
+### 1. #913 — bug: control-node re-plan silently hangs after Round 1 (P1)
+
+The flow executor emits a Round 2 re-plan after a critic returns should_continue=true, but never executes the planned fix ops. Silent termination, no error.
+
+Where to look:
+- lionagi/cli/orchestrate/flow.py — main execute loop after control node completion
+- lionagi/operations/flow.py — builder / Session.flow() handling of newly-appended ops
+- Check the transition from "re-plan emitted" to "executor dispatches round 2 ops"
+
+The re-plan planning works (op list is printed). The handoff to execution is broken. Likely the DAG-done terminator state isn't being cleared, or the new ops aren't merged into the builder.
+
+Fix: ensure Round 2 ops are scheduled and executed. Verify with a test that a flow with a critic returning should_continue=true actually runs Round 2 ops.
+
+### 2. #914 — feat: control node variants — early-exit, complexity gate, mandatory critic (P2)
+
+Add control_mode field to FlowOp: Literal["replan", "early_exit", "complexity_gate"] (default: "replan").
+
+- early_exit: if critic determines task is done, terminate flow early without running remaining waves
+- complexity_gate: strategist/critic can resize the remaining plan (reduce_to / expand_to)
+- critic_mandatory: FlowPlan-level bool (default True) — plan validation rejects plans without a terminal control node
+
+Extend FlowControlVerdict with: early_exit: bool, resize: ResizeSpec | None.
+
+Read the existing FlowOp, FlowControlVerdict, and FlowPlan models first. Build on them.
+
+### 3. #915 — feat: decorator-style HookRegistry API (P2)
+
+Add @hooks.pre_invoke / @hooks.post_invoke decorator methods to HookRegistry.
+
+Current implementation: lionagi/service/hooks/hook_registry.py
+
+The dict constructor must still work (backward compatible). Decorators are additive sugar. Simple implementation — add methods that register the decorated function and return it.
+
+### 4. #919 — feat: li o flow -f spec.yaml — file-based flow specification (P2)
+
+Add -f / --file flag to `li o flow` that accepts a YAML or JSON spec file.
+
+Current CLI entry: lionagi/cli/orchestrate/flow.py — read the argparse setup there.
+
+Spec file schema:
+```yaml
+agent: orchestrator
+team_mode: ws-terminal
+workers: 8
+critic_model: claude-code/opus-4-7
+effort: xhigh
+prompt: |
+  Implement the terminal component...
+```
+
+- CLI flags override file values (file = defaults, flags = overrides)
+- Prompt can be in file (prompt: key) or positional after -f
+- Use PyYAML (already a dependency) or built-in json
+
+## Implementation rules
+
+1. Read before write. Read every file you plan to modify FIRST.
+2. No stubs, no placeholders, no "TODO" comments.
+3. Write tests for #913 (the bug fix) and #919 (the new CLI flag). Tests for #914 and #915 are nice-to-have.
+4. Keep changes minimal — modify existing files, don't create new modules unless truly necessary.
+5. Run `uv run pytest` on any test files you create/modify to verify they pass.
+6. Run `uv run ruff check lionagi/` before finishing to catch lint issues.
+7. Do NOT run `python` or `pip` directly — always use `uv run`.
+8. Commit each issue as a separate commit with conventional commit format:
+   - fix(flow): #913 re-plan round 2 execution handoff
+   - feat(flow): #914 control node variants — early-exit, complexity gate, mandatory critic
+   - feat(hooks): #915 decorator-style HookRegistry API
+   - feat(cli): #919 li o flow -f spec.yaml file-based flow specification

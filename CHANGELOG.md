@@ -4,6 +4,31 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.23.0] - 2026-04-23
+
+### Added
+
+- Generalized operation control primitives: `ControlDecision`, `Operation.control_type`, `Operation.control_policy`, and executor control handlers.
+- Graph mutation helpers: `Graph.replace_node()` and `Graph.splice_after()`.
+- `li o flow -f/--file` support for YAML/JSON flow defaults.
+- Decorator-style hook registration via `@hooks.pre_invoke`, `@hooks.post_invoke`, and `@hooks.pre_event_create_hook`.
+
+### Changed
+
+- `li o flow` planning/execution path now builds regular and control review ops in the same graph execution pass.
+- Base SDK system prompt no longer carries flow-specific artifact protocol rules.
+- Minimum `pydapter[pandas]` dependency is now `>=1.3.0`.
+
+### Fixed
+
+- Spec-file positional prompt handling when the file supplies the model or agent.
+- Non-object spec files now fail with a CLI error instead of an AttributeError.
+- Hook registry dict construction accepts documented string hook keys as well as `HookEventTypes`.
+- Quorum control honors `threshold` count/fraction policies.
+- Retry cloning preserves excluded fields without sharing nested mutable state when possible.
+- `Graph.splice_after()` preserves custom edge properties.
+- Edge condition validation now rejects synchronous `Condition.apply()` implementations before execution.
+
 ## [0.22.6] - 2026-04-20
 
 ### Added

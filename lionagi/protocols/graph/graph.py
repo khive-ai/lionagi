@@ -489,7 +489,7 @@ class Graph(Element, Relational, Generic[T]):
 
         Original edges from anchor to successors are removed.
         New edges are created: anchor -> new_node, and
-        new_node -> each original successor (preserving conditions/labels).
+        new_node -> each original successor (preserving edge properties).
 
         Args:
             anchor: The node or node ID to splice after.
@@ -514,12 +514,18 @@ class Graph(Element, Relational, Generic[T]):
         new_edges = []
         for edge_id, tail_id in out_edges:
             old_edge = self.internal_edges[edge_id]
+            extra_properties = {
+                k: v
+                for k, v in old_edge.properties.items()
+                if k not in {"condition", "label"}
+            }
 
             replacement = Edge(
                 head=new_id,
                 tail=tail_id,
                 condition=old_edge.condition,
                 label=old_edge.label,
+                **extra_properties,
             )
             self.internal_edges.insert(len(self.internal_edges), replacement)
             self.node_edge_mapping[new_id]["out"][replacement.id] = tail_id

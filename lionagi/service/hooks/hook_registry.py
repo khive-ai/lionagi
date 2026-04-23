@@ -17,6 +17,24 @@ E = TypeVar("E", bound=Event)
 F = TypeVar("F", bound=Callable)
 
 
+def _normalize_hook_key(key: HookEventTypes | str) -> HookEventTypes | str:
+    if isinstance(key, HookEventTypes):
+        return key
+    if isinstance(key, str):
+        aliases = {
+            "pre_invoke": HookEventTypes.PreInvocation,
+            "post_invoke": HookEventTypes.PostInvocation,
+            "pre_event_create_hook": HookEventTypes.PreEventCreate,
+        }
+        if key in aliases:
+            return aliases[key]
+        try:
+            return HookEventTypes(key)
+        except ValueError:
+            return key
+    return key
+
+
 class HookRegistry:
     def __init__(
         self,
@@ -27,6 +45,7 @@ class HookRegistry:
         _stream_handlers = {}
 
         if hooks is not None:
+            hooks = {_normalize_hook_key(k): v for k, v in hooks.items()}
             validate_hooks(hooks)
             _hooks.update(hooks)
 

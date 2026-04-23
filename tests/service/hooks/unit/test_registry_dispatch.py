@@ -44,6 +44,21 @@ class TestRegistrySelection:
         ):
             await registry._call(HookEventTypes.PreInvocation, None, None, FakeEvent())
 
+    @pytest.mark.anyio
+    async def test_constructor_accepts_string_hook_keys(self):
+        """Documented HookDict string keys must work, not only HookEventTypes."""
+
+        async def pre_hook(ev, **kw):
+            return "pre"
+
+        registry = HookRegistry({"pre_invocation": pre_hook})
+
+        res, se, st = await registry.pre_invocation(FakeEvent())
+
+        assert res == "pre"
+        assert se is False
+        assert st.name == "COMPLETED"
+
 
 class TestArgumentForwardingRegression:
     """Critical regression tests for argument forwarding bugs."""

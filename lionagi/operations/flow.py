@@ -8,6 +8,7 @@ Provides clean dependency management and context inheritance for operation graph
 using Events for synchronization and CapacityLimiter for concurrency control.
 """
 
+import inspect
 import logging
 import os
 from typing import TYPE_CHECKING, Any
@@ -602,6 +603,10 @@ class DependencyAwareExecutor:
                     raise AttributeError(
                         f"Edge {edge.id} condition missing 'apply' method."
                     )
+                if not inspect.iscoroutinefunction(edge.condition.apply):
+                    raise TypeError(
+                        f"Edge {edge.id} condition apply() must be async."
+                    )
 
     def _validate_execution_results(self, results: dict[str, Any]):
         """Validate execution results for consistency."""
@@ -659,11 +664,6 @@ class DependencyAwareExecutor:
     def _eval_quorum(self, op: Operation, policy: dict) -> ControlDecision:
         """Check if enough dependencies completed successfully."""
         predecessors = self.graph.get_predecessors(op)
-        if not predecessors:
-            return ControlDecision(
-                action="proceed", reason="No deps, quorum trivially met"
-            )
-
         total = len(predecessors)
         completed = sum(
             1
@@ -673,17 +673,52 @@ class DependencyAwareExecutor:
             and not (isinstance(self.results[p.id], dict) and "error" in self.results[p.id])
         )
         ratio = completed / total if total > 0 else 1.0
+        if total == 0:
+            if policy.get("allow_empty") is True:
+                return ControlDecision(
+                    action="proceed",
+                    reason="No deps, quorum explicitly allowed",
+                    metadata={"completed": completed, "total": total, "ratio": ratio},
+                )
+            return ControlDecision(
+                action="halt",
+                reason="No deps, quorum not met",
+                metadata={"completed": completed, "total": total, "ratio": ratio},
+            )
+
+        threshold = policy.get("threshold", None)
         min_fraction = policy.get("min_fraction", 0.75)
 
-        if ratio >= min_fraction:
+        if threshold is not None:
+            if isinstance(threshold, bool):
+                raise ValueError("quorum threshold must be an int count or float fraction")
+            if isinstance(threshold, int):
+                required = threshold
+                met = completed >= required
+                comparator = f"{completed}/{total} >= {required}"
+                inverse = f"{completed}/{total} < {required}"
+            else:
+                min_fraction = float(threshold)
+                met = ratio >= min_fraction
+                comparator = (
+                    f"{completed}/{total} = {ratio:.0%} >= {min_fraction:.0%}"
+                )
+                inverse = f"{completed}/{total} = {ratio:.0%} < {min_fraction:.0%}"
+        else:
+            min_fraction = float(min_fraction)
+            met = ratio >= min_fraction
+            comparator = f"{completed}/{total} = {ratio:.0%} >= {min_fraction:.0%}"
+            inverse = f"{completed}/{total} = {ratio:.0%} < {min_fraction:.0%}"
+
+        if met:
             return ControlDecision(
                 action="proceed",
-                reason=f"Quorum met: {completed}/{total} = {ratio:.0%} >= {min_fraction:.0%}",
+                reason=f"Quorum met: {comparator}",
                 metadata={"completed": completed, "total": total, "ratio": ratio},
             )
         return ControlDecision(
             action="halt",
-            reason=f"Quorum not met: {completed}/{total} = {ratio:.0%} < {min_fraction:.0%}",
+            reason=f"Quorum not met: {inverse}",
             metadata={"completed": completed, "total": total, "ratio": ratio},
         )
 

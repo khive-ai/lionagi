@@ -307,6 +307,16 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             spec = _load_flow_spec(file_spec)
             if isinstance(spec, int):
                 return spec  # error code
+            if not isinstance(spec, dict):
+                log_error("spec file must contain a YAML/JSON object")
+                return 1
+            # If the file supplies the model/agent, argparse's lone positional
+            # is a prompt override, not a model override.
+            if args.model and args.prompt is None and (
+                spec.get("model") or spec.get("agent")
+            ):
+                args.prompt = args.model
+                args.model = None
             # File values are defaults; CLI flags override.
             if args.model is None and "model" in spec:
                 args.model = spec["model"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy as _copy
 from enum import Enum as _Enum
 from typing import Any, ClassVar
 
@@ -461,10 +462,16 @@ class Event(Element):
             if field_info.exclude and name not in d_:
                 val = getattr(self, name, None)
                 if val is not None:
-                    d_[name] = val
+                    try:
+                        d_[name] = _copy.deepcopy(val)
+                    except Exception:
+                        d_[name] = val
         fresh = self.__class__(**d_)
         if copy_meta:
-            fresh.metadata = self.metadata.copy()
+            try:
+                fresh.metadata = _copy.deepcopy(self.metadata)
+            except Exception:
+                fresh.metadata = self.metadata.copy()
         fresh.metadata["original"] = {
             "id": str(self.id),
             "created_at": self.created_at,

@@ -10,6 +10,7 @@ import pytest
 from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.flow import DependencyAwareExecutor, flow
 from lionagi.operations.node import Operation
+from lionagi.protocols._concepts import Condition
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
@@ -125,16 +126,30 @@ async def test_as_fresh_event_preserves_parameters():
     """as_fresh_event must carry over Operation.parameters (exclude=True field)."""
     op = Operation(
         operation="chat",
-        parameters={"instruction": "hello", "guidance": "be nice"},
+        parameters={
+            "instruction": "hello",
+            "guidance": "be nice",
+            "context": {"items": [1]},
+        },
+        metadata={"tags": ["old"]},
     )
     op.execution.status = EventStatus.COMPLETED
     op.execution.response = "done"
 
     fresh = op.as_fresh_event(copy_meta=True)
-    assert fresh.parameters == {"instruction": "hello", "guidance": "be nice"}
+    assert fresh.parameters == {
+        "instruction": "hello",
+        "guidance": "be nice",
+        "context": {"items": [1]},
+    }
     assert fresh.execution.status == EventStatus.PENDING
     assert fresh.id != op.id
     assert fresh.metadata.get("original", {}).get("id") == str(op.id)
+
+    fresh.parameters["context"]["items"].append(2)
+    fresh.metadata["tags"].append("new")
+    assert op.parameters["context"]["items"] == [1]
+    assert op.metadata["tags"] == ["old"]
 
 
 def test_topo_sort_ops():
@@ -192,6 +207,66 @@ def test_unknown_control_type_raises():
         asyncio.get_event_loop().run_until_complete(
             executor._evaluate_control(op)
         )
+
+
+def test_quorum_threshold_policy_accepts_count_and_fraction():
+    branch = _make_mock_branch()
+    session = Session(default_branch=branch)
+
+    op_ok = Operation(operation="chat", parameters={"instruction": "ok"})
+    op_fail = Operation(operation="chat", parameters={"instruction": "fail"})
+    quorum = Operation(operation="chat", parameters={}, control_type="quorum")
+
+    graph = Graph()
+    graph.add_node(op_ok)
+    graph.add_node(op_fail)
+    graph.add_node(quorum)
+    graph.add_edge(Edge(head=op_ok.id, tail=quorum.id))
+    graph.add_edge(Edge(head=op_fail.id, tail=quorum.id))
+
+    executor = DependencyAwareExecutor(session=session, graph=graph)
+    executor.results[op_ok.id] = "done"
+    executor.results[op_fail.id] = {"error": "boom"}
+
+    count_decision = executor._eval_quorum(quorum, {"threshold": 1})
+    assert count_decision.action == "proceed"
+
+    fraction_decision = executor._eval_quorum(quorum, {"threshold": 0.5})
+    assert fraction_decision.action == "proceed"
+
+    strict_decision = executor._eval_quorum(quorum, {"threshold": 2})
+    assert strict_decision.action == "halt"
+
+    empty_quorum = Operation(operation="chat", parameters={}, control_type="quorum")
+    empty_graph = Graph()
+    empty_graph.add_node(empty_quorum)
+    empty_executor = DependencyAwareExecutor(session=session, graph=empty_graph)
+
+    assert empty_executor._eval_quorum(empty_quorum, {}).action == "halt"
+    assert (
+        empty_executor._eval_quorum(empty_quorum, {"allow_empty": True}).action
+        == "proceed"
+    )
+
+
+def test_validate_edge_conditions_rejects_sync_apply():
+    class SyncCondition(Condition):
+        def apply(self, *args, **kwargs) -> bool:
+            return True
+
+    branch = _make_mock_branch()
+    session = Session(default_branch=branch)
+    op_a = Operation(operation="chat", parameters={"instruction": "a"})
+    op_b = Operation(operation="chat", parameters={"instruction": "b"})
+    graph = Graph()
+    graph.add_node(op_a)
+    graph.add_node(op_b)
+    graph.add_edge(Edge(head=op_a.id, tail=op_b.id, condition=SyncCondition()))
+
+    executor = DependencyAwareExecutor(session=session, graph=graph)
+
+    with pytest.raises(TypeError, match="apply\\(\\) must be async"):
+        executor._validate_edge_conditions()
 
 
 @pytest.mark.asyncio

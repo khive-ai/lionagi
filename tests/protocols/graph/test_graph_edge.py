@@ -245,6 +245,23 @@ class TestEdgeOperations:
         assert edge.id in graph.node_edge_mapping[node1.id]["in"]
         assert edge.id in graph.node_edge_mapping[node1.id]["out"]
 
+    def test_splice_after_preserves_edge_properties(self, edge_test_graph):
+        """Splicing must not drop custom edge metadata."""
+        graph, node1, node2, _ = edge_test_graph
+        inserted = create_test_node("Inserted")
+
+        edge = Edge(head=node1, tail=node2, label=["route"], weight=7, custom="keep")
+        graph.add_edge(edge)
+
+        new_edges = graph.splice_after(node1, inserted)
+        successor_edge = new_edges[1]
+
+        assert successor_edge.head == inserted.id
+        assert successor_edge.tail == node2.id
+        assert successor_edge.label == ["route"]
+        assert successor_edge.properties["weight"] == 7
+        assert successor_edge.properties["custom"] == "keep"
+
     def test_edge_removal_cleanup(self, edge_test_graph):
         """Test proper cleanup after edge removal"""
         graph, node1, node2, _ = edge_test_graph
