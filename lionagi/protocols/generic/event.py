@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy as _copy
 from enum import Enum as _Enum
 from typing import Any, ClassVar
 
@@ -446,14 +447,36 @@ class Event(Element):
             raise RuntimeError(f"Event did not complete successfully: {exec_dict}")
 
     def as_fresh_event(self, copy_meta: bool = False) -> Event:
-        """Creates a clone of this event with the same execution state."""
-        d_ = self.to_dict()
-        for i in ["execution", "created_at", "id", "metadata"]:
-            d_.pop(i, None)
+        """Creates a clone of this event with a fresh execution state.
+
+        - Uses ``model_dump`` rather than ``to_dict`` to avoid
+          unconditional key accesses on fields excluded from the dump.
+        - Re-attaches fields declared with ``exclude=True`` (e.g.
+          ``Operation.parameters``) so a retry clone keeps non-default
+          state that is invisible to ``model_dump``.
+        - Deep-copies excluded fields and metadata so the retry does not
+          share nested mutable state with the original. Falls back to a
+          reference copy when the value is not deep-copyable (closures,
+          file handles, etc.).
+        """
+        skip = {"execution", "created_at", "id", "metadata"}
+        d_ = self.model_dump(exclude=skip)
+        for name, field_info in self.__class__.model_fields.items():
+            if name in skip:
+                continue
+            if field_info.exclude and name not in d_:
+                val = getattr(self, name, None)
+                if val is not None:
+                    try:
+                        d_[name] = _copy.deepcopy(val)
+                    except Exception:
+                        d_[name] = val
         fresh = self.__class__(**d_)
         if copy_meta:
-            meta = self.metadata.copy()
-            fresh.metadata = meta
+            try:
+                fresh.metadata = _copy.deepcopy(self.metadata)
+            except Exception:
+                fresh.metadata = self.metadata.copy()
         fresh.metadata["original"] = {
             "id": str(self.id),
             "created_at": self.created_at,
