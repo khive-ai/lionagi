@@ -79,6 +79,12 @@ class TestSpecValidationRejectsBadTypes:
         assert err is not None
         assert "effort" in err
 
+    def test_effort_accepts_all_provider_levels(self):
+        # Spec validation must match cli/_providers.py EFFORT_LEVELS so
+        # playbooks can't be rejected for values the CLI itself accepts.
+        for level in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
+            assert _validate_spec_fields({"effort": level}) is None, level
+
     def test_effort_as_int(self):
         err = _validate_spec_fields({"effort": 3})
         assert err is not None
@@ -92,8 +98,18 @@ class TestSpecValidationRejectsBadTypes:
         err = _validate_spec_fields({"dry_run": 1})
         assert err is not None
 
-    def test_with_synthesis_as_string(self):
-        err = _validate_spec_fields({"with_synthesis": "yes"})
+    def test_with_synthesis_accepts_string_model_spec(self):
+        # `--with-synthesis [MODEL]` takes an optional model spec; spec
+        # validation must accept both bool and str for parity.
+        assert _validate_spec_fields({"with_synthesis": True}) is None
+        assert _validate_spec_fields({"with_synthesis": False}) is None
+        assert _validate_spec_fields({"with_synthesis": "claude-code/opus-4-7"}) is None
+
+    def test_with_synthesis_rejects_non_bool_non_str(self):
+        err = _validate_spec_fields({"with_synthesis": [1, 2]})
+        assert err is not None
+        assert "with_synthesis" in err
+        err = _validate_spec_fields({"with_synthesis": 42})
         assert err is not None
 
     def test_prompt_too_long(self):

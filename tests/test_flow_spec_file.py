@@ -471,6 +471,134 @@ class TestPlaybookEndToEnd:
         assert code == 1
         assert "Usage" in capsys.readouterr().out
 
+    def test_playbook_arg_collision_does_not_leak_into_template(
+        self, monkeypatch, tmp_path
+    ):
+        """A playbook arg that collides with a built-in flag must NOT have
+        its value read from the base argparse default during interpolation.
+        The filtered schema (from parser injection) is authoritative.
+        """
+        playbooks_dir = tmp_path / ".lionagi" / "playbooks"
+        playbooks_dir.mkdir(parents=True)
+        # `save` collides with the built-in --save flag.
+        (playbooks_dir / "collider.playbook.yaml").write_text(
+            yaml.dump(
+                {
+                    "model": "claude-code/opus-4-7",
+                    "args": {
+                        "save": {
+                            "type": "str",
+                            "default": "PLAYBOOK_DEFAULT",
+                            "help": "collides with built-in --save",
+                        },
+                    },
+                    "prompt": "save={save} input={input}",
+                }
+            )
+        )
+        monkeypatch.setenv("HOME", str(tmp_path))
+        # User passes --save /some/dir (built-in), NOT the playbook arg.
+        save_dir = tmp_path / "artifacts"
+        args = _parse_flow_args(
+            ["-p", "collider", "--save", str(save_dir), "do the thing"]
+        )
+
+        with patch(
+            "lionagi.cli.orchestrate._run_flow",
+            AsyncMock(return_value="ok"),
+        ) as run_flow:
+            code = run_orchestrate(args)
+
+        assert code == 0
+        prompt = run_flow.call_args.kwargs["prompt"]
+        # Before fix: prompt interpolated `{save}` to built-in args.save →
+        # absolute path. After fix: `save` is filtered out of schema; the
+        # placeholder stays literal OR is substituted from the playbook
+        # default if run_orchestrate falls through. Assert the built-in
+        # --save value did NOT leak into the template.
+        assert str(save_dir) not in prompt, (
+            "Built-in --save value leaked into template via "
+            "collision-shadowed playbook arg"
+        )
+
+    def test_max_ops_flag_passes_through(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        args = _parse_flow_args(["claude-code/opus-4-7", "a task", "--max-ops", "12"])
+
+        with patch(
+            "lionagi.cli.orchestrate._run_flow",
+            AsyncMock(return_value="ok"),
+        ) as run_flow:
+            code = run_orchestrate(args)
+
+        assert code == 0
+        assert run_flow.call_args.kwargs["max_ops"] == 12
+
+    def test_max_agents_deprecated_alias_still_works(self, monkeypatch, tmp_path):
+        """`--max-agents` must still set max_ops for backward compat."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        args = _parse_flow_args(["claude-code/opus-4-7", "a task", "--max-agents", "7"])
+
+        with patch(
+            "lionagi.cli.orchestrate._run_flow",
+            AsyncMock(return_value="ok"),
+        ) as run_flow:
+            code = run_orchestrate(args)
+
+        assert code == 0
+        assert run_flow.call_args.kwargs["max_ops"] == 7
+
+    def test_playbook_max_ops_spec_field(self, monkeypatch, tmp_path):
+        playbooks_dir = tmp_path / ".lionagi" / "playbooks"
+        playbooks_dir.mkdir(parents=True)
+        (playbooks_dir / "capped.playbook.yaml").write_text(
+            yaml.dump(
+                {
+                    "model": "claude-code/opus-4-7",
+                    "max_ops": 8,
+                    "prompt": "Work on: {input}",
+                }
+            )
+        )
+        monkeypatch.setenv("HOME", str(tmp_path))
+        args = _parse_flow_args(["-p", "capped", "a task"])
+
+        with patch(
+            "lionagi.cli.orchestrate._run_flow",
+            AsyncMock(return_value="ok"),
+        ) as run_flow:
+            code = run_orchestrate(args)
+
+        assert code == 0
+        assert run_flow.call_args.kwargs["max_ops"] == 8
+
+    def test_playbook_max_agents_deprecated_spec_still_works(
+        self, monkeypatch, tmp_path
+    ):
+        """Playbooks with legacy `max_agents:` field must still cap ops."""
+        playbooks_dir = tmp_path / ".lionagi" / "playbooks"
+        playbooks_dir.mkdir(parents=True)
+        (playbooks_dir / "legacy.playbook.yaml").write_text(
+            yaml.dump(
+                {
+                    "model": "claude-code/opus-4-7",
+                    "max_agents": 5,
+                    "prompt": "Do: {input}",
+                }
+            )
+        )
+        monkeypatch.setenv("HOME", str(tmp_path))
+        args = _parse_flow_args(["-p", "legacy", "task"])
+
+        with patch(
+            "lionagi.cli.orchestrate._run_flow",
+            AsyncMock(return_value="ok"),
+        ) as run_flow:
+            code = run_orchestrate(args)
+
+        assert code == 0
+        assert run_flow.call_args.kwargs["max_ops"] == 5
+
     def test_team_attach_flag_passes_through(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
         args = _parse_flow_args(

@@ -14,12 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from lionagi.cli._agents import (
-    _resolve_profile_path,
-    list_agents,
-    load_agent_profile,
-)
-
+from lionagi.cli._agents import _resolve_profile_path, list_agents, load_agent_profile
 
 # ── _resolve_profile_path ────────────────────────────────────────────
 
@@ -93,14 +88,10 @@ def test_load_agent_profile_flat_layout_still_works(
 def test_load_agent_profile_dir_beats_flat(isolated_home: Path) -> None:
     agents_dir = isolated_home / ".lionagi" / "agents"
     agents_dir.mkdir(parents=True)
-    (agents_dir / "both.md").write_text(
-        "---\nmodel: flat\n---\n\nflat body.\n"
-    )
+    (agents_dir / "both.md").write_text("---\nmodel: flat\n---\n\nflat body.\n")
     dir_path = agents_dir / "both"
     dir_path.mkdir()
-    (dir_path / "both.md").write_text(
-        "---\nmodel: dir\n---\n\ndir body.\n"
-    )
+    (dir_path / "both.md").write_text("---\nmodel: dir\n---\n\ndir body.\n")
 
     profile = load_agent_profile("both")
     assert profile.model == "dir"
@@ -140,13 +131,9 @@ def test_load_missing_profile_lists_available(isolated_home: Path) -> None:
 
 def test_supplementary_files_coexist_with_main(isolated_home: Path) -> None:
     """Agent directory can hold additional reference files alongside the main."""
-    profile_dir = (
-        isolated_home / ".lionagi" / "agents" / "orchestrator"
-    )
+    profile_dir = isolated_home / ".lionagi" / "agents" / "orchestrator"
     profile_dir.mkdir(parents=True)
-    (profile_dir / "orchestrator.md").write_text(
-        "---\nmodel: x\n---\n\nmain body\n"
-    )
+    (profile_dir / "orchestrator.md").write_text("---\nmodel: x\n---\n\nmain body\n")
     (profile_dir / "patterns").mkdir()
     (profile_dir / "patterns" / "empaco.md").write_text("# empaco\n")
     (profile_dir / "refs").mkdir()
