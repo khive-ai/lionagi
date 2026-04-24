@@ -204,6 +204,12 @@ class TestSpecValidationAcceptsValidFields:
         assert _validate_spec_fields({"max_agents": 1}) is None
         assert _validate_spec_fields({"max_agents": 50}) is None
 
+    def test_max_ops_zero_means_unlimited(self):
+        # CLI help documents `--max-ops 0` (and `--max-agents 0`) as
+        # "unlimited" — spec validation must accept 0 to honor that contract.
+        assert _validate_spec_fields({"max_ops": 0}) is None
+        assert _validate_spec_fields({"max_agents": 0}) is None
+
     def test_valid_effort_values(self):
         for effort in ("low", "medium", "high", "xhigh"):
             assert _validate_spec_fields({"effort": effort}) is None

@@ -27,6 +27,12 @@ def resolve_skill_path(name: str) -> tuple[Path | None, str | None]:
     """Resolve a skill NAME to its SKILL.md path.
 
     Returns (Path, None) on success, or (None, error_message) on failure.
+
+    Defense-in-depth: the candidate path MUST resolve under the skills
+    root even after symlink traversal. The root itself may be a symlink
+    (users can point `~/.lionagi/skills/` at any directory they manage);
+    comparing resolved paths accepts that while rejecting a hostile
+    per-skill `SKILL.md` symlink pointing at arbitrary files on disk.
     """
     if not name or not isinstance(name, str):
         return None, "skill name must be a non-empty string"
@@ -44,6 +50,18 @@ def resolve_skill_path(name: str) -> tuple[Path | None, str | None]:
             else " No skills installed at ~/.lionagi/skills/"
         )
         return None, f"skill not found: {candidate}.{hint}"
+    # Symlink containment — reject any path whose resolved target escapes
+    # the resolved skills root. Blocks the disclosure vector where a
+    # `SKILL.md` is itself a symlink to an arbitrary file on disk.
+    try:
+        resolved_root = _skills_root().resolve(strict=True)
+        resolved_candidate = candidate.resolve(strict=True)
+        resolved_candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return (
+            None,
+            f"skill {name!r} resolves outside skills root " "(symlink escape blocked)",
+        )
     return candidate, None
 
 

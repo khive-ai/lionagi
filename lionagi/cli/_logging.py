@@ -69,6 +69,25 @@ class _WarnFormatter(logging.Formatter):
         return f"warning: {record.getMessage()}"
 
 
+class _LazyStderrHandler(logging.StreamHandler):
+    """StreamHandler that resolves ``sys.stderr`` lazily at emit time.
+
+    ``logging.StreamHandler(sys.stderr)`` binds to the process's ``sys.stderr``
+    at construction. When pytest captures stderr and later closes the capture
+    stream between tests, the handler's cached reference becomes a closed
+    file, and subsequent emits raise ``ValueError: I/O operation on closed
+    file``. This subclass re-binds to the current ``sys.stderr`` on every
+    emit so pytest's capture swapping is honored.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(stream=sys.stderr)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.stream = sys.stderr
+        super().emit(record)
+
+
 def _setup_channel(
     name: str, level: int, formatter: logging.Formatter
 ) -> logging.Logger:
@@ -77,7 +96,7 @@ def _setup_channel(
     logger.propagate = False
     # Guard against re-configuration (e.g. nested main() in tests).
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stderr)
+        handler = _LazyStderrHandler()
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     return logger

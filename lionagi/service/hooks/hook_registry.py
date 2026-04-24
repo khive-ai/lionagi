@@ -35,6 +35,10 @@ def _normalize_hook_key(key: HookEventTypes | str) -> HookEventTypes | str:
             "pre_invoke": HookEventTypes.PreInvocation,
             "post_invoke": HookEventTypes.PostInvocation,
             "pre_event_create": HookEventTypes.PreEventCreate,
+            # Legacy alias — decorator name on HookRegistry is
+            # `pre_event_create_hook`, so callers constructing via dict often
+            # use this string. Preserve both spellings for backward compat.
+            "pre_event_create_hook": HookEventTypes.PreEventCreate,
         }
         if key in aliases:
             return aliases[key]

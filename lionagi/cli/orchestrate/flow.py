@@ -10,6 +10,27 @@ from typing import ClassVar
 
 from pydantic import Field, field_validator
 
+from lionagi import Branch, FieldModel
+from lionagi._errors import TimeoutError as LionTimeoutError
+from lionagi.ln.concurrency import move_on_after
+from lionagi.models import HashableModel
+from lionagi.operations.fields import Instruct
+
+from .._agents import AgentProfile, list_agents, load_agent_profile
+from .._logging import progress
+from .._providers import parse_model_spec
+from ._common import _create_fanout_team, _format_result_json, _post_results_to_team
+from ._orchestration import (
+    EFFORT_GUIDANCE,
+    EFFORT_MAP,
+    OrchestrationEnv,
+    build_worker_branch,
+    finalize_orchestration,
+    resolve_worker_spec,
+    setup_orchestration,
+    team_guidance,
+)
+
 # ── Security: restrict model-produced identifiers used as filesystem paths ──
 #
 # FlowAgent.id and FlowOp.id end up as directory names under `artifact_root/`
@@ -33,27 +54,6 @@ def _validate_flow_id(v: str, *, kind: str) -> str:
         )
     return v
 
-
-from lionagi import Branch, FieldModel
-from lionagi._errors import TimeoutError as LionTimeoutError
-from lionagi.ln.concurrency import move_on_after
-from lionagi.models import HashableModel
-from lionagi.operations.fields import Instruct
-
-from .._agents import AgentProfile, list_agents, load_agent_profile
-from .._logging import progress
-from .._providers import parse_model_spec
-from ._common import _create_fanout_team, _format_result_json, _post_results_to_team
-from ._orchestration import (
-    EFFORT_GUIDANCE,
-    EFFORT_MAP,
-    OrchestrationEnv,
-    build_worker_branch,
-    finalize_orchestration,
-    resolve_worker_spec,
-    setup_orchestration,
-    team_guidance,
-)
 
 # ── Flow models ───────────────────────────────────────────────────────────
 
@@ -565,8 +565,30 @@ async def _run_flow_inner(
     if not plan or not plan.agents or not plan.operations:
         return "Orchestrator produced no flow plan."
 
+    # Reject duplicate FlowAgent.id — agents_by_id would silently
+    # overwrite, losing whichever agent came first.
+    seen_agent_ids: set[str] = set()
+    for a in plan.agents:
+        if a.id in seen_agent_ids:
+            return (
+                f"Invalid plan: duplicate FlowAgent.id {a.id!r}. "
+                "Each agent must have a unique id."
+            )
+        seen_agent_ids.add(a.id)
+
+    # Reject duplicate FlowOp.id as well — depends_on references would
+    # become ambiguous.
+    seen_op_ids: set[str] = set()
+    for op in plan.operations:
+        if op.id in seen_op_ids:
+            return (
+                f"Invalid plan: duplicate FlowOp.id {op.id!r}. "
+                "Each op must have a unique id."
+            )
+        seen_op_ids.add(op.id)
+
     # Validate op.agent_id references resolve to a defined agent
-    agent_ids = {a.id for a in plan.agents}
+    agent_ids = seen_agent_ids
     for op in plan.operations:
         if op.agent_id not in agent_ids:
             return (
@@ -1005,6 +1027,34 @@ async def _run_flow_inner(
             if not new_ops:
                 progress("Re-plan: no executable new ops; ending.")
                 continue
+
+            # Enforce --max-ops cumulatively. Initial plan and every
+            # re-plan round share one op budget; without this check a
+            # control op that repeatedly returns should_continue could
+            # bypass the cap by stretching over multiple rounds.
+            if max_ops > 0:
+                current_total = len(op_to_node)
+                budget_left = max_ops - current_total
+                if budget_left <= 0:
+                    from .._logging import warn as _warn
+
+                    _warn(
+                        f"Re-plan rejected: --max-ops={max_ops} already "
+                        f"reached (current total {current_total}). "
+                        f"Dropping {len(new_ops)} proposed op(s)."
+                    )
+                    continue
+                if len(new_ops) > budget_left:
+                    from .._logging import warn as _warn
+
+                    dropped = len(new_ops) - budget_left
+                    _warn(
+                        f"Re-plan truncated: {dropped} of {len(new_ops)} "
+                        f"proposed op(s) dropped to fit --max-ops={max_ops} "
+                        f"(current total {current_total}, budget left "
+                        f"{budget_left})."
+                    )
+                    new_ops = new_ops[:budget_left]
 
             try:
                 new_ops = _topo_sort_ops(new_ops, existing_op_ids=set(op_to_node))

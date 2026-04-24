@@ -407,6 +407,20 @@ def _resolve_playbook_path(name: str) -> tuple[object, str | None]:
             else " No playbooks found in ~/.lionagi/playbooks/"
         )
         return None, f"playbook not found: {candidate}.{hint_text}"
+    # Symlink containment — the playbooks root may itself be a symlink
+    # (users can point `~/.lionagi/playbooks/` at any directory they
+    # manage); comparing resolved paths accepts that while rejecting a
+    # malicious per-playbook symlink pointing at an arbitrary file on disk.
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_candidate = candidate.resolve(strict=True)
+        resolved_candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return (
+            None,
+            f"playbook {name!r} resolves outside playbooks root "
+            "(symlink escape blocked)",
+        )
     return candidate, None
 
 
@@ -558,8 +572,10 @@ def _validate_spec_fields(spec: dict) -> str | None:
         value = spec[key]
         if not isinstance(value, int) or isinstance(value, bool):
             return f"spec field {key!r} must be an integer, got {type(value).__name__}"
-        if not (1 <= value <= 50):
-            return f"spec field {key!r} must be in [1, 50], got {value}"
+        # CLI docs `--max-ops`/`--max-agents` as "0 = unlimited" (default).
+        # Mirror that in spec: accept 0 (means unlimited) and 1-50 as a cap.
+        if not (0 <= value <= 50):
+            return f"spec field {key!r} must be in [0, 50] (0 = unlimited), got {value}"
 
     # effort: None is explicitly allowed (means "use profile default").
     # Allowed values mirror provider EFFORT_LEVELS in cli/_providers.py so
