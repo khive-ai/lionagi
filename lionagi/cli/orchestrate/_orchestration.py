@@ -172,6 +172,7 @@ class OrchestrationEnv:
     effort: str | None
     theme: str | None
     yolo: bool
+    bypass: bool
     verbose: bool
     cwd: str | None  # user --cwd (falls through to orchestrator); per-worker
     # artifact dirs override this when writing via build_worker_branch
@@ -211,6 +212,7 @@ def setup_orchestration(
     save_dir: str | None,
     cwd: str | None,
     yolo: bool,
+    bypass: bool = False,
     verbose: bool,
     effort: str | None,
     theme: str | None,
@@ -272,6 +274,7 @@ def setup_orchestration(
         effort=effort,
         theme=theme,
         yolo=yolo,
+        bypass=bypass,
         verbose=verbose,
         cwd=cwd,
     )
@@ -348,6 +351,7 @@ def build_worker_branch(
     w_imodel = build_imodel_from_spec(
         w_model,
         yolo=w_yolo,
+        bypass=env.bypass,
         verbose=env.verbose,
         effort_override=w_effort,
         theme=env.theme,

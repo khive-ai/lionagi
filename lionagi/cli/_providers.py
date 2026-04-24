@@ -79,6 +79,14 @@ PROVIDER_YOLO_KWARGS: dict[str, dict] = {
     "gemini-code": {"yolo": True},
 }
 
+PROVIDER_BYPASS_KWARGS: dict[str, dict] = {
+    "claude_code": {"permission_mode": "bypassPermissions"},
+    "claude": {"permission_mode": "bypassPermissions"},
+    "codex": {"bypass_approvals": True, "skip_git_repo_check": True},
+    "gemini_code": {"yolo": True},
+    "gemini-code": {"yolo": True},
+}
+
 PROVIDER_TO_ALIAS: dict[str, str] = {
     "claude_code": "claude",
     "codex": "codex",
@@ -203,6 +211,7 @@ def build_imodel_from_spec(
     spec: str,
     *,
     yolo: bool = False,
+    bypass: bool = False,
     verbose: bool = False,
     effort_override: str | None = None,
     theme: str | None = None,
@@ -216,7 +225,9 @@ def build_imodel_from_spec(
     # Resolve provider for yolo/effort kwarg lookup
     provider_raw = ms.model.split("/")[0] if "/" in ms.model else ms.model
 
-    if yolo:
+    if bypass:
+        extra.update(PROVIDER_BYPASS_KWARGS.get(provider_raw, {}))
+    elif yolo:
         extra.update(PROVIDER_YOLO_KWARGS.get(provider_raw, {}))
     if verbose:
         extra["verbose_output"] = True
@@ -289,6 +300,10 @@ def resolve_model_spec(spec: str) -> tuple[str, str]:
 def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
     """Add shared CLI flags to any subparser."""
     parser.add_argument("--yolo", action="store_true", help="Auto-approve tool calls.")
+    parser.add_argument(
+        "--bypass", action="store_true",
+        help="Bypass all codex approvals and sandbox (for cloud/codespace environments).",
+    )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Stream real-time output."
     )
