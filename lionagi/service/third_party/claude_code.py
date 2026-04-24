@@ -46,7 +46,7 @@ ClaudePermissionMode = Literal[
 # Backward-compat alias
 ClaudePermission = ClaudePermissionMode
 
-ClaudeEffort = Literal["low", "medium", "high", "max"]
+ClaudeEffort = Literal["low", "medium", "high", "xhigh", "max"]
 ClaudeOutputFormat = Literal["text", "json", "stream-json"]
 ClaudeInputFormat = Literal["text", "stream-json"]
 

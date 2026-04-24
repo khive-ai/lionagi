@@ -37,6 +37,19 @@ EFFORT_LEVELS = frozenset(
 # Profiles/orchestrators may emit "max"; clamp to "xhigh" for codex.
 _CODEX_EFFORT_CLAMP: dict[str, str] = {"max": "xhigh"}
 
+# Claude: only opus-4-7 accepts xhigh. All other models clamp to high.
+_CLAUDE_XHIGH_MODELS = frozenset({"opus", "opus-4-7", "claude-opus-4-7"})
+
+
+def _clamp_claude_effort(effort: str, model: str) -> str:
+    """Clamp xhigh to high for non-opus-4-7 Claude models."""
+    if effort != "xhigh":
+        return effort
+    model_part = model.split("/", 1)[-1] if "/" in model else model
+    if model_part in _CLAUDE_XHIGH_MODELS:
+        return effort
+    return "high"
+
 # provider name → kwarg name for effort
 PROVIDER_EFFORT_KWARG: dict[str, str] = {
     "claude_code": "effort",
@@ -213,6 +226,8 @@ def build_imodel_from_spec(
         if kwarg is not None:
             if provider_raw == "codex":
                 effort = _CODEX_EFFORT_CLAMP.get(effort, effort)
+            elif provider_raw in _CLAUDE_PROVIDER_NAMES:
+                effort = _clamp_claude_effort(effort, ms.model)
             extra[kwarg] = effort
 
     return iModel(
@@ -244,6 +259,8 @@ def build_chat_model(
         if kwarg is not None:
             if provider == "codex":
                 effort = _CODEX_EFFORT_CLAMP.get(effort, effort)
+            elif provider in _CLAUDE_PROVIDER_NAMES:
+                effort = _clamp_claude_effort(effort, model)
             extra[kwarg] = effort
 
     if extra:
