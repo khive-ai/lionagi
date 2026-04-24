@@ -4,7 +4,16 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.22.9] - 2026-04-24
+
+### Security
+
+- **Symlink containment on `li skill` + `li play`** — reject paths whose resolved target escapes the resolved skills/playbooks root. Root symlinks (users pointing `~/.lionagi/skills/` at any directory they manage) still accepted; hostile per-entry symlinks blocked. Addresses PR #930 review finding.
+- **`FlowAgent.id` / `FlowOp.id` validation** — `^[A-Za-z0-9_-]{1,64}$` enforced via Pydantic `field_validator` to block model-controlled strings from becoming filesystem path escapes via `RunDir.agent_artifact_dir()`. Defense-in-depth re-check inside `RunDir`.
+- **Duplicate `FlowAgent.id` / `FlowOp.id` rejected at plan validation** (were silently overwriting).
+- **`--max-ops` enforced cumulatively across re-plan rounds** (previously only initial plan — control op could bypass cap across rounds).
+- **Save-path containment** — resolved `--save DIR` must live under `cwd` or `$HOME`.
+- **Pin `lxml>=6.1.0`** (CVE-2026-41066 — XXE via default `iterparse` / `ETCompatXMLParser`) and **`python-dotenv>=1.2.2`** (CVE-2026-28684 — symlink follow on `set_key` cross-device rename).
 
 ### Added
 
