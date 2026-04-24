@@ -35,9 +35,8 @@ from lionagi.cli.main import _handle_play_shortcut
 from lionagi.cli.orchestrate import _resolve_playbook_path, _validate_spec_fields
 from lionagi.cli.orchestrate.flow import FlowAgent, FlowOp, FlowPlan
 from lionagi.cli.skill import resolve_skill_path
-from lionagi.service.hooks.hook_registry import HookRegistry
 from lionagi.service.hooks._types import HookEventTypes
-
+from lionagi.service.hooks.hook_registry import HookRegistry
 
 # ── MUST-FIX #1: Symlink containment ────────────────────────────────
 
@@ -69,9 +68,7 @@ class TestSkillSymlinkContainment:
         home = tmp_path / "home"
         skills = home / ".lionagi" / "skills" / "ok"
         skills.mkdir(parents=True)
-        (skills / "SKILL.md").write_text(
-            "---\nname: ok\ndescription: legit\n---\nbody"
-        )
+        (skills / "SKILL.md").write_text("---\nname: ok\ndescription: legit\n---\nbody")
         monkeypatch.setenv("HOME", str(home))
 
         path, err = resolve_skill_path("ok")
@@ -85,9 +82,7 @@ class TestSkillSymlinkContainment:
         """
         real_skills = tmp_path / "real" / "skills"
         (real_skills / "ok").mkdir(parents=True)
-        (real_skills / "ok" / "SKILL.md").write_text(
-            "---\nname: ok\n---\nbody"
-        )
+        (real_skills / "ok" / "SKILL.md").write_text("---\nname: ok\n---\nbody")
         home = tmp_path / "home"
         (home / ".lionagi").mkdir(parents=True)
         (home / ".lionagi" / "skills").symlink_to(real_skills)
@@ -133,6 +128,7 @@ class TestHookRegistryAliases:
         """Legacy alias — constructor decorator method is called
         `pre_event_create_hook`, so callers often use this spelling.
         """
+
         def hook(*a, **kw):
             pass
 
@@ -221,25 +217,15 @@ class TestClampClaudeEffort:
         assert _clamp_claude_effort("xhigh", "opus") == "xhigh"
 
     def test_xhigh_clamped_on_sonnet(self):
-        assert (
-            _clamp_claude_effort("xhigh", "claude/claude-sonnet-4-6") == "high"
-        )
+        assert _clamp_claude_effort("xhigh", "claude/claude-sonnet-4-6") == "high"
 
     def test_xhigh_clamped_on_haiku(self):
-        assert (
-            _clamp_claude_effort("xhigh", "claude/claude-haiku-4-5") == "high"
-        )
+        assert _clamp_claude_effort("xhigh", "claude/claude-haiku-4-5") == "high"
 
     def test_non_xhigh_untouched_on_any_model(self):
         for effort in ("none", "minimal", "low", "medium", "high", "max"):
-            assert (
-                _clamp_claude_effort(effort, "claude/claude-sonnet-4-6")
-                == effort
-            )
-            assert (
-                _clamp_claude_effort(effort, "claude/claude-opus-4-7")
-                == effort
-            )
+            assert _clamp_claude_effort(effort, "claude/claude-sonnet-4-6") == effort
+            assert _clamp_claude_effort(effort, "claude/claude-opus-4-7") == effort
 
 
 # ── SHOULD-FIX #5: _handle_play_shortcut coverage ───────────────────
