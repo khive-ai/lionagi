@@ -121,6 +121,54 @@ class TestSpecValidationRejectsBadTypes:
         err = _validate_spec_fields({"team_mode": True})
         assert err is not None
 
+    # ── Present-null values must be rejected (YAML `null` → Python None) ──
+
+    def test_workers_null_rejected(self):
+        err = _validate_spec_fields({"workers": None})
+        assert err is not None
+        assert "workers" in err
+
+    def test_max_agents_null_rejected(self):
+        err = _validate_spec_fields({"max_agents": None})
+        assert err is not None
+        assert "max_agents" in err
+
+    def test_bare_null_rejected(self):
+        err = _validate_spec_fields({"bare": None})
+        assert err is not None
+        assert "bare" in err
+
+    def test_dry_run_null_rejected(self):
+        err = _validate_spec_fields({"dry_run": None})
+        assert err is not None
+
+    def test_with_synthesis_null_rejected(self):
+        err = _validate_spec_fields({"with_synthesis": None})
+        assert err is not None
+
+    def test_prompt_null_rejected(self):
+        err = _validate_spec_fields({"prompt": None})
+        assert err is not None
+        assert "prompt" in err
+
+    def test_save_null_rejected(self):
+        err = _validate_spec_fields({"save": None})
+        assert err is not None
+        assert "save" in err
+
+    def test_model_null_rejected(self):
+        err = _validate_spec_fields({"model": None})
+        assert err is not None
+        assert "model" in err
+
+    def test_agent_null_rejected(self):
+        err = _validate_spec_fields({"agent": None})
+        assert err is not None
+
+    def test_team_mode_null_rejected(self):
+        err = _validate_spec_fields({"team_mode": None})
+        assert err is not None
+
 
 class TestSpecValidationAcceptsValidFields:
     def test_empty_spec(self):
@@ -143,6 +191,10 @@ class TestSpecValidationAcceptsValidFields:
     def test_valid_effort_values(self):
         for effort in ("low", "medium", "high", "xhigh"):
             assert _validate_spec_fields({"effort": effort}) is None
+
+    def test_effort_null_accepted(self):
+        # effort: null means "use profile default" — explicitly allowed
+        assert _validate_spec_fields({"effort": None}) is None
 
     def test_valid_booleans(self):
         assert _validate_spec_fields({"bare": True, "dry_run": False, "with_synthesis": True}) is None
@@ -186,6 +238,15 @@ class TestSpecValidationAcceptsValidFields:
         assert code == 1
         assert "workers" in caplog.text
 
+    def test_run_orchestrate_rejects_null_workers(self, tmp_path, caplog):
+        # YAML `workers: null` is a present field with NoneType — must be rejected
+        spec_file = tmp_path / "null_workers.yaml"
+        spec_file.write_text("model: claude/opus\nprompt: hi\nworkers: null\n")
+        args = _parse_flow_args(["-f", str(spec_file)])
+        code = run_orchestrate(args)
+        assert code == 1
+        assert "workers" in caplog.text
+
 
 # ── Save path containment ─────────────────────────────────────────────────────
 
@@ -210,8 +271,8 @@ class TestSavePathContainment:
         run_flow.assert_not_called()
 
     def test_save_path_accepts_relative_subdirectory(self, tmp_path, caplog):
-        # Use a path under home — guaranteed to pass containment check.
-        save_dir = str(Path.home() / "li_sec_test_output_hardening")
+        # Use a true cwd-relative path — exercises the Path.cwd() branch of containment.
+        save_dir = "./li_sec_test_output_hardening"
         spec_file = tmp_path / "spec.yaml"
         spec_file.write_text(
             yaml.dump({"model": "claude/opus", "prompt": "task", "save": save_dir})
@@ -233,7 +294,7 @@ class TestSavePathContainment:
 
 def test_topo_sort_1000_deep_chain_no_crash():
     """Iterative Kahn's BFS handles a 1000-op linear chain without stack overflow."""
-    n = 200  # max allowed; test the boundary
+    n = 1000
     ops = [_op("op0")]
     for i in range(1, n):
         ops.append(_op(f"op{i}", [f"op{i - 1}"]))
@@ -243,11 +304,11 @@ def test_topo_sort_1000_deep_chain_no_crash():
         assert result[i].id == f"op{i}"
 
 
-def test_topo_sort_rejects_over_200_ops():
-    """Plans with more than 200 ops raise ValueError."""
+def test_topo_sort_no_cap_on_op_count():
+    """_topo_sort_ops imposes no size cap; the 200-op limit lives in _run_flow_inner."""
     ops = [_op(f"op{i}") for i in range(201)]
-    with pytest.raises(ValueError, match="200"):
-        _topo_sort_ops(ops)
+    result = _topo_sort_ops(ops)
+    assert len(result) == 201
 
 
 # ── _run_flow_inner rejects >200 op plans ────────────────────────────────────

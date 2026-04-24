@@ -268,21 +268,27 @@ def _load_flow_spec(path: str) -> dict | None:
 
 
 def _validate_spec_fields(spec: dict) -> str | None:
-    """Validate spec field types and ranges. Returns an error message or None."""
-    workers = spec.get("workers")
-    if workers is not None:
+    """Validate spec field types and ranges. Returns an error message or None.
+
+    Uses ``in`` checks (not ``.get()``) so that YAML ``null`` (Python ``None``)
+    is treated as an invalid present value for all fields except ``effort``,
+    which explicitly allows ``None`` (meaning "use the profile default effort").
+    """
+    if "workers" in spec:
+        workers = spec["workers"]
         if not isinstance(workers, int) or isinstance(workers, bool):
             return f"spec field 'workers' must be an integer, got {type(workers).__name__}"
         if not (1 <= workers <= 32):
             return f"spec field 'workers' must be in [1, 32], got {workers}"
 
-    max_agents = spec.get("max_agents")
-    if max_agents is not None:
+    if "max_agents" in spec:
+        max_agents = spec["max_agents"]
         if not isinstance(max_agents, int) or isinstance(max_agents, bool):
             return f"spec field 'max_agents' must be an integer, got {type(max_agents).__name__}"
         if not (1 <= max_agents <= 50):
             return f"spec field 'max_agents' must be in [1, 50], got {max_agents}"
 
+    # effort: None is explicitly allowed (means "use profile default")
     effort = spec.get("effort")
     if effort is not None:
         if not isinstance(effort, str):
@@ -291,25 +297,28 @@ def _validate_spec_fields(spec: dict) -> str | None:
             return f"spec field 'effort' must be one of ['high', 'low', 'medium', 'xhigh'], got {effort!r}"
 
     for bool_field in ("bare", "dry_run", "with_synthesis"):
-        val = spec.get(bool_field)
-        if val is not None and not isinstance(val, bool):
-            return f"spec field {bool_field!r} must be a bool, got {type(val).__name__}"
+        if bool_field in spec:
+            val = spec[bool_field]
+            if not isinstance(val, bool):
+                return f"spec field {bool_field!r} must be a bool, got {type(val).__name__}"
 
-    prompt = spec.get("prompt")
-    if prompt is not None:
+    if "prompt" in spec:
+        prompt = spec["prompt"]
         if not isinstance(prompt, str):
             return f"spec field 'prompt' must be a string, got {type(prompt).__name__}"
         if len(prompt) > 8192:
             return "spec field 'prompt' exceeds maximum length of 8192 characters"
 
-    save = spec.get("save")
-    if save is not None and not isinstance(save, str):
-        return f"spec field 'save' must be a string, got {type(save).__name__}"
+    if "save" in spec:
+        save = spec["save"]
+        if not isinstance(save, str):
+            return f"spec field 'save' must be a string, got {type(save).__name__}"
 
     for str_field in ("model", "agent", "team_mode"):
-        val = spec.get(str_field)
-        if val is not None and not isinstance(val, str):
-            return f"spec field {str_field!r} must be a string, got {type(val).__name__}"
+        if str_field in spec:
+            val = spec[str_field]
+            if not isinstance(val, str):
+                return f"spec field {str_field!r} must be a string, got {type(val).__name__}"
 
     return None
 

@@ -267,21 +267,17 @@ def _topo_sort_ops(
     """Topological sort of FlowOps so parents appear before children.
 
     Uses iterative Kahn's BFS to avoid Python recursion limits on deep chains.
+    The 200-op hard cap is enforced upstream by the plan validation layer
+    in ``_run_flow_inner`` before this function is called.
 
     Raises
     ------
     ValueError
-        If ``len(ops) > 200`` (hard cap on plan size),
-        if any ``depends_on`` references an id not in ``ops`` or
+        If any ``depends_on`` references an id not in ``ops`` or
         ``existing_op_ids`` (fail-closed on typos and hallucinated deps),
         if an op id is duplicated in ``ops``, or if the
         dependency graph has a cycle.
     """
-    if len(ops) > 200:
-        raise ValueError(
-            f"Plan has {len(ops)} operations; maximum allowed is 200"
-        )
-
     by_id: dict[str, FlowOp] = {}
     for op in ops:
         if op.id in by_id:
@@ -513,6 +509,13 @@ async def _run_flow_inner(
                 f"Invalid plan: op {op.id!r} references unknown agent "
                 f"{op.agent_id!r} (known: {sorted(agent_ids)})"
             )
+
+    # Reject plans exceeding the hard op count cap before sorting.
+    if len(plan.operations) > 200:
+        return (
+            f"Invalid plan: Plan has {len(plan.operations)} operations; "
+            "maximum allowed is 200"
+        )
 
     # Validate topology and depends_on targets up front. Rejects plans
     # with typo'd deps or dependency cycles before we spend any agent
