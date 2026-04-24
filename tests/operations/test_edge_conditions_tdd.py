@@ -513,9 +513,7 @@ async def test_validation_invalid_edge_condition_type():
     node1_id = uuid4()
     node2_id = uuid4()
 
-    with pytest.raises(
-        ValueError, match="Condition must be an instance of EdgeCondition"
-    ):
+    with pytest.raises(ValueError, match="Condition subclass"):
         edge = Edge(
             head=node1_id,
             tail=node2_id,

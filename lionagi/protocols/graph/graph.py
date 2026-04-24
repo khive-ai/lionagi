@@ -448,6 +448,118 @@ class Graph(Element, Relational, Generic[T]):
 
         return None
 
+    @_graph_synchronized
+    def replace_node(self, old: Any, new_node: "Node") -> "Node":
+        """Replace a node, transferring all edges to the new node.
+
+        The new node inherits the old node's exact graph position —
+        all incoming edges now point to ``new_node``, all outgoing
+        edges now originate from ``new_node``. The old node is
+        removed from the graph and returned.
+
+        Args:
+            old: The node or node ID to replace.
+            new_node: The replacement node (must not already be in the graph).
+
+        Returns:
+            The removed old node.
+        """
+        old_id = ID.get_id(old)
+        if old_id not in self.internal_nodes:
+            raise RelationError(f"Node {old_id} not found in graph")
+
+        new_id = new_node.id
+        if new_id in self.internal_nodes:
+            raise RelationError(f"Replacement node {new_id} already in graph")
+
+        self.internal_nodes.insert(len(self.internal_nodes), new_node)
+        self.node_edge_mapping[new_id] = {"in": {}, "out": {}}
+
+        mapping = self.node_edge_mapping[old_id]
+
+        for edge_id, head_id in list(mapping["in"].items()):
+            edge = self.internal_edges[edge_id]
+            edge.tail = new_id
+            self.node_edge_mapping[new_id]["in"][edge_id] = head_id
+            self.node_edge_mapping[head_id]["out"][edge_id] = new_id
+
+        for edge_id, tail_id in list(mapping["out"].items()):
+            edge = self.internal_edges[edge_id]
+            edge.head = new_id
+            self.node_edge_mapping[new_id]["out"][edge_id] = tail_id
+            self.node_edge_mapping[tail_id]["in"][edge_id] = new_id
+
+        self.node_edge_mapping.pop(old_id)
+        return self.internal_nodes.pop(old_id)
+
+    @_graph_synchronized
+    def splice_after(self, anchor: Any, new_node: "Node") -> list[Edge]:
+        """Insert a node between ``anchor`` and all of its successors.
+
+        Before: ``anchor -> s1``, ``anchor -> s2``
+        After:  ``anchor -> new_node -> s1``, ``new_node -> s2``
+
+        The original edges from ``anchor`` to its successors are
+        removed; new edges are created to route through ``new_node``.
+        Edge ``condition``, ``label``, and any extra custom
+        ``properties`` on the original edges are preserved.
+
+        Args:
+            anchor: The node or node ID to splice after.
+            new_node: The node to insert (must not already be in the graph).
+
+        Returns:
+            List of newly created edges. The first entry is the
+            ``anchor -> new_node`` link; the rest are the
+            ``new_node -> successor`` edges.
+        """
+        anchor_id = ID.get_id(anchor)
+        if anchor_id not in self.internal_nodes:
+            raise RelationError(f"Node {anchor_id} not found in graph")
+
+        new_id = new_node.id
+        if new_id in self.internal_nodes:
+            raise RelationError(f"Node {new_id} already in graph")
+
+        self.internal_nodes.insert(len(self.internal_nodes), new_node)
+        self.node_edge_mapping[new_id] = {"in": {}, "out": {}}
+
+        out_edges = list(self.node_edge_mapping[anchor_id]["out"].items())
+
+        new_edges: list[Edge] = []
+        for edge_id, tail_id in out_edges:
+            old_edge = self.internal_edges[edge_id]
+            extra_properties = {
+                k: v
+                for k, v in old_edge.properties.items()
+                if k not in {"condition", "label"}
+            }
+
+            replacement = Edge(
+                head=new_id,
+                tail=tail_id,
+                condition=old_edge.condition,
+                label=old_edge.label,
+                **extra_properties,
+            )
+            self.internal_edges.insert(len(self.internal_edges), replacement)
+            self.node_edge_mapping[new_id]["out"][replacement.id] = tail_id
+            self.node_edge_mapping[tail_id]["in"][replacement.id] = new_id
+
+            self.node_edge_mapping[tail_id]["in"].pop(edge_id)
+            self.node_edge_mapping[anchor_id]["out"].pop(edge_id)
+            self.internal_edges.pop(edge_id)
+
+            new_edges.append(replacement)
+
+        link = Edge(head=anchor_id, tail=new_id)
+        self.internal_edges.insert(len(self.internal_edges), link)
+        self.node_edge_mapping[anchor_id]["out"][link.id] = new_id
+        self.node_edge_mapping[new_id]["in"][link.id] = anchor_id
+
+        new_edges.insert(0, link)
+        return new_edges
+
     def __contains__(self, item: object) -> bool:
         return item in self.internal_nodes or item in self.internal_edges
 
