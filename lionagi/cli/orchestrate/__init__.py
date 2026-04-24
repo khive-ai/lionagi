@@ -251,11 +251,16 @@ def add_orchestrate_subparser(
         ),
     )
     fl.add_argument(
+        "--max-ops",
         "--max-agents",
+        dest="max_ops",
         type=int,
         default=0,
         metavar="N",
-        help="Max total agents the orchestrator may plan (0 = unlimited).",
+        help=(
+            "Cap total ops (nodes in the planned DAG). 0 = unlimited. "
+            "`--max-agents` is a deprecated alias — prefer `--max-ops`."
+        ),
     )
     add_common_cli_args(fl)
 
@@ -365,6 +370,10 @@ def inject_playbook_schema_into_parser(
                 metavar=type_str.upper(),
             )
         resolved_schema[arg_name] = field
+    # Stash the collision-filtered schema on the parser as a default so
+    # run_orchestrate can interpolate against the exact same set of args
+    # (without re-deriving and re-introducing collisions).
+    flow_parser.set_defaults(_playbook_args_schema=resolved_schema)
     return resolved_schema
 
 
@@ -510,7 +519,18 @@ def _load_flow_spec(path: str) -> dict | None:
     if not isinstance(data, dict):
         log_error("spec file must contain a YAML/JSON object")
         return None
-    return data
+    # Normalize top-level keys: accept both dashed (`max-agents`) and
+    # underscored (`max_agents`) forms so authors can mirror CLI flag names.
+    # `argument-hint` stays dashed (CC convention, parsed specially). `args`
+    # holds user-defined arg names; don't touch its children.
+    preserve_dashed = {"argument-hint"}
+    normalized: dict = {}
+    for key, value in data.items():
+        if key in preserve_dashed or "-" not in key:
+            normalized[key] = value
+        else:
+            normalized[key.replace("-", "_")] = value
+    return normalized
 
 
 def _validate_spec_fields(spec: dict) -> str | None:
@@ -529,22 +549,43 @@ def _validate_spec_fields(spec: dict) -> str | None:
         if not (1 <= workers <= 32):
             return f"spec field 'workers' must be in [1, 32], got {workers}"
 
-    if "max_agents" in spec:
-        max_agents = spec["max_agents"]
-        if not isinstance(max_agents, int) or isinstance(max_agents, bool):
-            return f"spec field 'max_agents' must be an integer, got {type(max_agents).__name__}"
-        if not (1 <= max_agents <= 50):
-            return f"spec field 'max_agents' must be in [1, 50], got {max_agents}"
+    # `max_ops` is canonical; `max_agents` is a deprecated alias. Validate
+    # whichever key is present (rejecting a present-None value) and preserve
+    # the user-supplied key name in error messages for discoverability.
+    for key in ("max_ops", "max_agents"):
+        if key not in spec:
+            continue
+        value = spec[key]
+        if not isinstance(value, int) or isinstance(value, bool):
+            return f"spec field {key!r} must be an integer, got {type(value).__name__}"
+        if not (1 <= value <= 50):
+            return f"spec field {key!r} must be in [1, 50], got {value}"
 
-    # effort: None is explicitly allowed (means "use profile default")
+    # effort: None is explicitly allowed (means "use profile default").
+    # Allowed values mirror provider EFFORT_LEVELS in cli/_providers.py so
+    # the spec validator can't reject values the CLI itself accepts.
     effort = spec.get("effort")
     if effort is not None:
+        from .._providers import EFFORT_LEVELS
+
         if not isinstance(effort, str):
             return f"spec field 'effort' must be a string, got {type(effort).__name__}"
-        if effort not in {"low", "medium", "high", "xhigh"}:
-            return f"spec field 'effort' must be one of ['high', 'low', 'medium', 'xhigh'], got {effort!r}"
+        if effort not in EFFORT_LEVELS:
+            allowed = sorted(EFFORT_LEVELS)
+            return f"spec field 'effort' must be one of {allowed}, got {effort!r}"
 
-    for bool_field in ("bare", "dry_run", "with_synthesis"):
+    # with_synthesis mirrors the CLI `--with-synthesis [MODEL]` surface:
+    #   bool  → use orchestrator model (bare flag)
+    #   str   → synthesis model spec (flag with explicit value)
+    if "with_synthesis" in spec:
+        val = spec["with_synthesis"]
+        if not isinstance(val, (bool, str)):
+            return (
+                f"spec field 'with_synthesis' must be bool or str (model spec), "
+                f"got {type(val).__name__}"
+            )
+
+    for bool_field in ("bare", "dry_run", "show_graph"):
         if bool_field in spec:
             val = spec[bool_field]
             if not isinstance(val, bool):
@@ -679,7 +720,14 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 if schema_err is not None:
                     log_error(schema_err)
                     return 1
-            args_schema = _derive_args_schema_from_spec(spec)
+            # Prefer the collision-filtered schema stashed by
+            # inject_playbook_schema_into_parser — guarantees we don't
+            # interpolate against args whose flags were shadowed by base CLI.
+            # Use `is None` (not truthiness) so an empty filtered schema —
+            # e.g. every declared arg collided — still wins over re-derivation.
+            args_schema = getattr(args, "_playbook_args_schema", None)
+            if args_schema is None:
+                args_schema = _derive_args_schema_from_spec(spec)
 
             # Playbook-declared flags were injected into the argparse parser
             # before parse_args ran (see inject_playbook_schema_into_parser).
@@ -727,12 +775,17 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 args.team_mode = spec["team_mode"]
             if getattr(args, "team_attach", None) is None and spec.get("team_attach"):
                 args.team_attach = spec["team_attach"]
-            if args.max_agents == 0 and spec.get("max_agents"):
-                args.max_agents = spec["max_agents"]
+            # Prefer max_ops; fall back to deprecated max_agents spec field.
+            if args.max_ops == 0:
+                spec_cap = spec.get("max_ops") or spec.get("max_agents")
+                if spec_cap:
+                    args.max_ops = spec_cap
             if not args.bare and spec.get("bare"):
                 args.bare = True
             if not args.dry_run and spec.get("dry_run"):
                 args.dry_run = True
+            if not getattr(args, "show_graph", False) and spec.get("show_graph"):
+                args.show_graph = True
             if args.save is None and spec.get("save"):
                 args.save = spec["save"]
             if spec.get("critic_model"):
@@ -829,7 +882,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                     timeout=args.timeout,
                     agent_name=args.agent,
                     bare=args.bare,
-                    max_agents=args.max_agents,
+                    max_ops=args.max_ops,
                     dry_run=args.dry_run,
                     show_graph=getattr(args, "show_graph", False),
                 )

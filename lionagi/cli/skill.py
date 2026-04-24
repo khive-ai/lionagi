@@ -23,7 +23,7 @@ def _skills_root() -> Path:
     return Path("~/.lionagi/skills").expanduser()
 
 
-def resolve_skill_path(name: str) -> "tuple[Path | None, str | None]":
+def resolve_skill_path(name: str) -> tuple[Path | None, str | None]:
     """Resolve a skill NAME to its SKILL.md path.
 
     Returns (Path, None) on success, or (None, error_message) on failure.
@@ -47,7 +47,7 @@ def resolve_skill_path(name: str) -> "tuple[Path | None, str | None]":
     return candidate, None
 
 
-def list_skill_names() -> "list[str]":
+def list_skill_names() -> list[str]:
     """Return sorted list of skill names present in ~/.lionagi/skills/."""
     root = _skills_root()
     if not root.is_dir():
@@ -77,7 +77,7 @@ def strip_frontmatter(text: str) -> str:
     return text
 
 
-def read_skill_body(name: str) -> "tuple[str | None, str | None]":
+def read_skill_body(name: str) -> tuple[str | None, str | None]:
     """Load and return the body of a skill (post-frontmatter)."""
     path, err = resolve_skill_path(name)
     if err is not None:
@@ -86,7 +86,7 @@ def read_skill_body(name: str) -> "tuple[str | None, str | None]":
     return strip_frontmatter(text), None
 
 
-def run_skill(argv: "list[str]") -> int:
+def run_skill(argv: list[str]) -> int:
     """Handle `li skill ...` invocation.
 
     Subcommands:

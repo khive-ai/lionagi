@@ -4,10 +4,35 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import ClassVar
 
-from pydantic import Field
+from pydantic import Field, field_validator
+
+# ── Security: restrict model-produced identifiers used as filesystem paths ──
+#
+# FlowAgent.id and FlowOp.id end up as directory names under `artifact_root/`
+# (see RunDir.agent_artifact_dir) and as worker repo/branch labels. An
+# unconstrained, model-controlled id (e.g. ``/etc/passwd`` or ``../../tmp``)
+# would escape the artifact root and let a compromised planner write outside
+# the intended sandbox. Enforce a narrow alphanumeric + underscore + dash
+# identifier policy at model-validation time; RunDir also re-validates on
+# path construction as defense-in-depth.
+_FLOW_ID_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _validate_flow_id(v: str, *, kind: str) -> str:
+    """Reject path-escape and non-identifier values. Raises ValueError on bad input."""
+    if not isinstance(v, str):
+        raise ValueError(f"{kind} must be a string, got {type(v).__name__}")
+    if not _FLOW_ID_RE.fullmatch(v):
+        raise ValueError(
+            f"{kind} must match {_FLOW_ID_RE.pattern!r} "
+            f"(alphanumeric + '_' '-' only, 1-64 chars); got {v!r}"
+        )
+    return v
+
 
 from lionagi import Branch, FieldModel
 from lionagi._errors import TimeoutError as LionTimeoutError
@@ -45,9 +70,17 @@ class FlowAgent(HashableModel):
     id: str = Field(
         description=(
             "Short unique identifier for this agent, e.g. 'r1', 'impl1'. "
-            "Reused across multiple FlowOp.agent_id references."
+            "Reused across multiple FlowOp.agent_id references. "
+            "Must match ^[A-Za-z0-9_-]{1,64}$ (alphanumeric + _ -, 1-64 chars). "
+            "Path separators, dots, and escape sequences are rejected."
         ),
     )
+
+    @field_validator("id")
+    @classmethod
+    def _validate_agent_id(cls, v: str) -> str:
+        return _validate_flow_id(v, kind="FlowAgent.id")
+
     role: str = Field(
         description=(
             "Role name from the available-agents roster (e.g. 'researcher', "
@@ -82,9 +115,16 @@ class FlowOp(HashableModel):
     id: str = Field(
         description=(
             "Short unique op id, e.g. 'o1', 'review1'. Referenced by "
-            "other ops via depends_on."
+            "other ops via depends_on. "
+            "Must match ^[A-Za-z0-9_-]{1,64}$."
         ),
     )
+
+    @field_validator("id", "agent_id")
+    @classmethod
+    def _validate_op_ids(cls, v: str) -> str:
+        return _validate_flow_id(v, kind="FlowOp.id / agent_id")
+
     agent_id: str = Field(
         description=(
             "The id of the FlowAgent that executes this op. Multiple ops "
@@ -192,7 +232,10 @@ class FlowPlan(HashableModel):
         "CONTROL OPS: Set op.control=true on an op to make it a flow "
         "control checkpoint. Place at most one control op per round; it "
         "should depend on the ops whose work it reviews. "
-        "Set synthesis=true if the task benefits from a final consolidated output."
+        "Set synthesis=true if the task benefits from a final consolidated output. "
+        "AGENT & OP IDS: Use short alphanumeric identifiers matching "
+        "^[A-Za-z0-9_-]{1,64}$ (e.g. 'r1', 'impl_v2', 'ctx-fetch'). Ids are used "
+        "as filesystem path segments — do not include slashes, spaces, or dots."
     )
 
     REPLAN_INSTRUCTION: ClassVar[str] = (
@@ -367,11 +410,26 @@ async def _run_flow(
     timeout: int | None = None,
     agent_name: str | None = None,
     bare: bool = False,
-    max_agents: int = 0,
+    max_ops: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
+    **legacy_kwargs,
 ) -> str:
-    """Auto-DAG flow: orchestrator plans DAG → engine executes with deps."""
+    """Auto-DAG flow: orchestrator plans DAG → engine executes with deps.
+
+    ``max_ops`` caps the number of operations (DAG nodes) the planner may
+    emit. ``max_agents`` is accepted as a deprecated alias.
+    """
+    # Accept legacy max_agents kwarg for backward compat with direct callers.
+    if "max_agents" in legacy_kwargs and max_ops == 0:
+        max_ops = legacy_kwargs.pop("max_agents")
+    elif "max_agents" in legacy_kwargs:
+        legacy_kwargs.pop("max_agents")
+    if legacy_kwargs:
+        # Surface unrecognized kwargs instead of swallowing.
+        raise TypeError(
+            f"_run_flow() got unexpected keyword arguments: {list(legacy_kwargs)}"
+        )
     env = setup_orchestration(
         pattern_name="Flow",
         model_spec=model_spec,
@@ -393,7 +451,7 @@ async def _run_flow(
         output_format=output_format,
         team_name=team_name,
         team_attach=team_attach,
-        max_agents=max_agents,
+        max_ops=max_ops,
         dry_run=dry_run,
         show_graph=show_graph,
     )
@@ -417,7 +475,7 @@ async def _run_flow_inner(
     output_format: str = "text",
     team_name: str | None = None,
     team_attach: str | None = None,
-    max_agents: int = 0,
+    max_ops: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
 ) -> str:
@@ -457,8 +515,13 @@ async def _run_flow_inner(
         roles_guidance = f"Available agents: {'; '.join(role_details)}."
 
     budget_note = ""
-    if max_agents > 0:
-        budget_note = f"BUDGET: You may define at most {max_agents} agents total. "
+    if max_ops > 0:
+        budget_note = (
+            f"BUDGET: Your plan may contain at most {max_ops} ops (DAG nodes) "
+            "total, INCLUDING any synthesis/critic ops you intend to run at "
+            "the end. Plans exceeding this cap will be truncated — design "
+            "accordingly. "
+        )
 
     # Build guidance blocks for plan root
     artifact_guidance = (
@@ -526,12 +589,19 @@ async def _run_flow_inner(
     except ValueError as e:
         return f"Invalid plan: {e}"
 
-    # max_agents caps the total operation count — that is the real work
+    # max_ops caps the total operation count — that is the real work
     # budget. Agent count is bounded implicitly by the op count since
     # every agent runs at least one op.
-    if max_agents > 0 and len(plan.operations) > max_agents:
-        plan.operations = plan.operations[:max_agents]
-        progress(f"Plan truncated to {max_agents} operations (--max-agents)")
+    if max_ops > 0 and len(plan.operations) > max_ops:
+        dropped = len(plan.operations) - max_ops
+        plan.operations = plan.operations[:max_ops]
+        from .._logging import warn as _warn
+
+        _warn(
+            f"Plan truncated: {dropped} op(s) dropped to fit --max-ops={max_ops}. "
+            "The truncated ops (often terminal synthesis/critic) will not run. "
+            "Raise --max-ops or design a tighter plan."
+        )
 
     dag_lines = []
     for op in plan.operations:

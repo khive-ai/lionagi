@@ -102,6 +102,30 @@ class RunDir:
         return self.stream_dir / f"{branch_id}.buffer.jsonl"
 
     def agent_artifact_dir(self, agent_id: str) -> Path:
+        """Return the artifact directory for an agent.
+
+        Defense-in-depth: even though FlowAgent.id is validated at model
+        creation time (see cli/orchestrate/flow.py _FLOW_ID_RE), repeat the
+        containment check here. Any caller that constructs a RunDir path
+        from an untrusted identifier picks up the same safety guarantee.
+        """
+        if (
+            not agent_id
+            or not isinstance(agent_id, str)
+            or "/" in agent_id
+            or "\\" in agent_id
+            or agent_id in (".", "..")
+            or agent_id.startswith(".")
+        ):
+            raise ValueError(f"agent_id {agent_id!r} is not a safe path component")
+        candidate = (self.artifact_root / agent_id).resolve()
+        root = self.artifact_root.resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"agent_id {agent_id!r} resolves outside artifact_root {root}"
+            ) from exc
         return self.artifact_root / agent_id
 
     @property
