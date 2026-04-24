@@ -58,7 +58,7 @@ class Edge(Element):
         self,
         head: ID[Relational].Ref,
         tail: ID[Relational].Ref,
-        condition: EdgeCondition | None = None,
+        condition: Condition | None = None,
         label: list[str] | None = None,
         **kwargs,
     ):
@@ -74,8 +74,11 @@ class Edge(Element):
                 starting point of the edge.
             tail (Relational | str): The tail node or its ID. This is the end
                 point of the edge.
-            condition (EdgeCondition | None): An optional condition that must
-                be satisfied for the edge to be traversed.
+            condition (Condition | None): An optional condition that must
+                be satisfied for the edge to be traversed. Any ``Condition``
+                subclass is accepted — :class:`EdgeCondition` is one such
+                subclass, but custom Conditions work as long as they
+                implement ``async def apply(...)``.
             label (list[str] | None): An optional list of labels that describe
                 the edge.
             kwargs: Optional additional properties for the edge.
@@ -83,8 +86,11 @@ class Edge(Element):
         head = ID.get_id(head)
         tail = ID.get_id(tail)
         if condition:
-            if not isinstance(condition, EdgeCondition):
-                raise ValueError("Condition must be an instance of EdgeCondition.")
+            if not isinstance(condition, Condition):
+                raise ValueError(
+                    "condition must be a Condition subclass "
+                    "(e.g. EdgeCondition or a custom async Condition)."
+                )
             kwargs["condition"] = condition
         if label:
             if isinstance(label, str):
@@ -109,13 +115,16 @@ class Edge(Element):
         return self.properties.get("label", None)
 
     @property
-    def condition(self) -> EdgeCondition | None:
+    def condition(self) -> Condition | None:
         return self.properties.get("condition", None)
 
     @condition.setter
-    def condition(self, value: EdgeCondition | None) -> None:
-        if not isinstance(value, EdgeCondition):
-            raise ValueError("Condition must be an instance of EdgeCondition.")
+    def condition(self, value: Condition | None) -> None:
+        if value is not None and not isinstance(value, Condition):
+            raise ValueError(
+                "condition must be a Condition subclass "
+                "(e.g. EdgeCondition or a custom async Condition)."
+            )
         self.properties["condition"] = value
 
     @label.setter
