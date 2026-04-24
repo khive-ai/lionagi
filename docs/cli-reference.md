@@ -5,7 +5,19 @@ li agent MODEL PROMPT [flags]        # single-turn agent
 li team SUBCMD [flags]               # persistent team messaging
 li o fanout MODEL PROMPT [flags]     # parallel workers
 li o flow   MODEL PROMPT [flags]     # auto-DAG pipeline
+li play NAME [ARGS]                  # sugar for `li o flow -p NAME`
+li skill NAME                        # print a CC-compatible skill body to stdout
 ```
+
+Three reusable primitives live under `~/.lionagi/`:
+
+| Primitive | Location | Invocation |
+|-----------|----------|------------|
+| Agent profile | `~/.lionagi/agents/<name>/<name>.md` | `li agent -a <name>` / `li o flow -a <name>` |
+| Skill (static ref) | `~/.lionagi/skills/<name>/SKILL.md` | `li skill <name>` |
+| Playbook (parametric flow) | `~/.lionagi/playbooks/<name>.playbook.yaml` | `li play <name>` |
+
+See [`examples/`](../examples/) for minimal templates of each.
 
 ---
 
@@ -38,7 +50,7 @@ li agent [model] prompt [flags]
 |----------|---------|-------|
 | `model` | — | Spec or alias. Omit with `-r` or `-c`. `cli/agent.py:156` |
 | `prompt` | — | Message to send. `cli/agent.py:165` |
-| `-a, --agent NAME` | none | Profile from `.lionagi/agents/<NAME>.md`; sets model/effort/system/yolo. `cli/agent.py:167` |
+| `-a, --agent NAME` | none | Profile by name. Resolves `.lionagi/agents/<NAME>/<NAME>.md` first, then legacy `.lionagi/agents/<NAME>.md`. Sets model/effort/system/yolo. `cli/agent.py:167` |
 | `-r, --resume BRANCH_ID` | none | Resume prior branch. `cli/agent.py:178` |
 | `-c, --continue-last` | false | Resume most recent branch. `cli/agent.py:184` |
 
@@ -179,7 +191,9 @@ li o flow [model] prompt [flags]
 
 | Flag | Default | Notes |
 |------|---------|-------|
-| `-a, --agent NAME` | none | Orchestrator profile |
+| `-a, --agent NAME` | none | Orchestrator profile. Resolves `.lionagi/agents/<NAME>/<NAME>.md` first, then legacy `.lionagi/agents/<NAME>.md`. |
+| `-f, --file PATH` | none | Load flow spec from YAML/JSON file. File values are defaults; CLI flags override. |
+| `-p, --playbook NAME` | none | Load playbook from `~/.lionagi/playbooks/<NAME>.playbook.yaml`. Playbook's declared args are injected as additional flags. |
 | `--with-synthesis [MODEL]` | false | Final synthesis after all ops |
 | `--max-concurrent N` | 0 | Max concurrent agents per phase (0 = all) |
 | `--max-agents N` | 0 | Cap total ops (0 = unlimited) |
@@ -189,9 +203,18 @@ li o flow [model] prompt [flags]
 | `--background` | false | Subprocess run; requires `--save`; monitor `tail -f <save>/flow.log`; child inherits `LIONAGI_RUN_ID` (`cli/_runs.py:57`) |
 | `--output {text,json}` | text | Output format |
 | `--save DIR` | none | Artifact dir; required for `--background` |
-| `--team-mode [NAME]` | none | Create persistent team; bare = `"flow"` |
+| `--team-mode [NAME]` | none | Create a FRESH team every invocation (new UUID). Bare = `"flow"`. |
+| `--team-attach NAME` | none | Upsert: attach to existing team by NAME (preserving message history) or create if missing. Mutex with `--team-mode`. |
 
-Source: `cli/orchestrate/__init__.py:122–209`. `--background` re-invokes `python -m lionagi.cli` without itself (`cli/orchestrate/__init__.py:265`). Common flags apply.
+`-f` and `-p` are mutually exclusive. `--team-mode` and `--team-attach` are mutually exclusive. Source: `cli/orchestrate/__init__.py:122–209`. `--background` re-invokes `python -m lionagi.cli` without itself (`cli/orchestrate/__init__.py:265`). Common flags apply.
+
+### Team lifecycle summary
+
+| Goal | Flag | Behavior |
+|------|------|----------|
+| One-off parallel workers, no shared history | `--team-mode [NAME]` | New UUID every invocation. Messages posted; team discarded conceptually. |
+| Persistent thread across invocations | `--team-attach NAME` | First call creates; subsequent calls attach to the same team (same UUID, same history). No pre-step required — you never have to `li team create` first. |
+| Strict attach (error if missing) | `li team create NAME -m ...` first, then `--team-attach NAME` | Explicit human-in-the-loop for shared, long-lived teams. |
 
 ```bash
 li o flow claude/opus "Write and test a CLI arg parser for a new subcommand" \
@@ -215,6 +238,147 @@ Total: 55.8s
 ```
 
 Use `--dry-run` to inspect the plan before running. Artifact dirs per agent: `<save>/{agent_id}/`. Python equivalent: `Builder` + `Session.flow()` → [`api/flow.md`](api/flow.md)
+
+---
+
+## Playbooks (`-f`, `-p`, `li play`)
+
+A **playbook** is a YAML file that declares a reusable, parametric flow
+invocation: model, agent, effort, prompt template, and typed CLI args.
+Source of truth: `~/.lionagi/playbooks/<NAME>.playbook.yaml`.
+
+### Playbook YAML shape
+
+```yaml
+name: audit
+description: Parametric audit pattern
+argument-hint: '[--mode MODE] [--workers N]'   # CC-compatible display string
+
+model: claude-code/opus-4-7
+agent: orchestrator
+effort: high
+
+args:                       # explicit, typed schema (preferred)
+  mode:
+    type: str               # str | int | float | bool
+    default: dry
+    help: "audit mode: dry | security | dead-code"
+  workers:
+    type: int
+    default: 8
+  strict:
+    type: bool
+    default: false
+
+prompt: |
+  Run a {mode} audit with {workers} parallel workers. Strict: {strict}.
+
+  Target: {input}
+```
+
+All playbook fields map to `li o flow` flags. If both `args:` and
+`argument-hint:` are present, `args:` wins. If only `argument-hint:` is
+present, it's parsed as CC does — `[--flag VALUE]` → string arg, `[--flag]`
+→ bool arg, no type coercion.
+
+### Template interpolation
+
+Inside `prompt:`, three rules:
+
+1. `{input}` → the positional prompt text passed on the CLI.
+2. `{arg_name}` → a declared arg (CLI override > playbook default).
+3. If the template has **no** `{...}` placeholders, the positional text is
+   **appended** with a blank line — same convention as Claude Code slash
+   commands.
+
+### Invocation
+
+```bash
+# Long form
+li o flow -p audit --mode security "the auth service"
+
+# Sugar
+li play audit --mode security "the auth service"
+li play list                        # list playbooks in ~/.lionagi/playbooks/
+```
+
+### Ad-hoc specs (`-f`)
+
+For one-off specs not worth installing globally:
+
+```bash
+li o flow -f ./my-spec.yaml "target"
+```
+
+`-f` takes an absolute/relative path; `-p` takes a bare name resolved under
+`~/.lionagi/playbooks/`. They are mutually exclusive.
+
+See [`examples/playbooks/`](../examples/playbooks/) for ready-to-install
+playbooks with different shapes.
+
+---
+
+## Skills (`li skill`)
+
+A **skill** is static reference content the agent pulls on demand. Format
+is identical to Claude Code skills — you can symlink one source file into
+both `~/.claude/skills/<name>/SKILL.md` and
+`~/.lionagi/skills/<name>/SKILL.md`.
+
+```text
+~/.lionagi/skills/commit/SKILL.md
+```
+
+```markdown
+---
+name: commit
+description: Conventional Commits style guide + safety rules.
+---
+
+# Commit conventions
+
+... body ...
+```
+
+### Commands
+
+```bash
+li skill NAME          # print body (post-frontmatter) to stdout
+li skill list          # list installed skills
+li skill show NAME     # print full file (frontmatter + body)
+```
+
+An orchestrator agent can shell out to `li skill <name>`, capture stdout,
+and inject the result into its own context — no extra protocol required.
+
+See [`examples/skills/`](../examples/skills/) for templates.
+
+---
+
+## Agent profile layout
+
+A profile is resolved by name. Two layouts are supported:
+
+```text
+~/.lionagi/agents/
+    orchestrator/                      # preferred — directory layout
+        orchestrator.md                # main profile
+        patterns/                      # optional supplementary references
+            empaco.md
+        refs/
+            commit-conventions.md
+    legacy.md                          # flat layout — backward compat
+```
+
+`li agent -a NAME` and `li o flow -a NAME` check for
+`<NAME>/<NAME>.md` first and fall back to `<NAME>.md`. Supplementary files
+beside the main profile are **not** injected into the initial system prompt
+— the agent reads them on demand (via direct file reads or `li skill`).
+
+Project-local `.lionagi/agents/` takes precedence over `~/.lionagi/agents/`.
+
+See [`examples/agents/`](../examples/agents/) for `minimal/` and `with-refs/`
+templates.
 
 ---
 

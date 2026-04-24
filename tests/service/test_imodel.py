@@ -9,6 +9,7 @@ import pytest
 
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.service.connections.api_calling import APICalling
+from lionagi.service.hooks import HookRegistry
 from lionagi.service.imodel import iModel
 
 
@@ -431,6 +432,81 @@ class TestiModel:
 
         assert len(chunks) >= 2
         assert any("Async:" in str(chunk) for chunk in chunks)
+
+    @pytest.mark.asyncio
+    async def test_process_chunk_uses_string_key_stream_handler(self):
+        async def handler(_event, chunk_type, chunk, **_kw):
+            assert chunk_type == "dict"
+            return {"handled": chunk["value"]}
+
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            hook_registry=HookRegistry(stream_handlers={"dict": handler}),
+        )
+
+        assert await imodel.process_chunk({"value": "ok"}) == {"handled": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_process_chunk_uses_type_key_stream_handler(self):
+        async def handler(_event, chunk_type, chunk, **_kw):
+            assert chunk_type is dict
+            return {"handled": chunk["value"]}
+
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            hook_registry=HookRegistry(stream_handlers={dict: handler}),
+        )
+
+        assert await imodel.process_chunk({"value": "ok"}) == {"handled": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_hook_registry_takes_priority_over_streaming_process_func(self):
+        """Hook registry result is returned directly; streaming_process_func is not called."""
+
+        async def handler(_event, _chunk_type, _chunk, **_kw):
+            return {"choices": [{"delta": {"content": "hooked"}}]}
+
+        def process(chunk):
+            return chunk["choices"][0]["delta"]["content"].upper()
+
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            streaming_process_func=process,
+            hook_registry=HookRegistry(stream_handlers={"dict": handler}),
+        )
+
+        result = await imodel.process_chunk({"value": "raw"})
+        # Hook handles the chunk → returns hook result, NOT process(hook_result)
+        assert result == {"choices": [{"delta": {"content": "hooked"}}]}
+
+    @pytest.mark.asyncio
+    async def test_process_chunk_streaming_hook_exit_policy(self):
+        async def failing_handler(_event, _chunk_type, _chunk, **_kw):
+            raise RuntimeError("stream hook failed")
+
+        non_exit_imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            hook_registry=HookRegistry(stream_handlers={"str": failing_handler}),
+        )
+        assert await non_exit_imodel.process_chunk("raw") is None
+
+        exit_imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+            hook_registry=HookRegistry(stream_handlers={"str": failing_handler}),
+            exit_hook=True,
+        )
+        with pytest.raises(RuntimeError, match="stream hook failed"):
+            await exit_imodel.process_chunk("raw")
 
     @pytest.mark.asyncio
     async def test_imodel_claude_code_session_id_storage(self, mock_response):
@@ -1098,6 +1174,7 @@ class TestiModelProviderSpecificEdgeCases:
 
     def test_ollama_special_handling(self):
         """Test Ollama provider special handling."""
+        pytest.importorskip("ollama")
         imodel = iModel(
             provider="ollama",
             model="llama2",

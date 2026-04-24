@@ -1,6 +1,17 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""Load agent profiles from .lionagi/agents/{name}.md
+"""Load agent profiles from .lionagi/agents/
+
+Directory layout (preferred — supports supplementary references):
+
+    .lionagi/agents/<name>/
+        <name>.md            # Main profile (frontmatter + system prompt)
+        patterns/            # Optional: supplementary reference files
+        refs/                # Optional: anything else the agent reads on demand
+
+Flat layout (legacy, still resolved for backward compat):
+
+    .lionagi/agents/<name>.md
 
 Profile format (YAML frontmatter + markdown body):
 
@@ -80,13 +91,39 @@ def _find_lionagi_dir() -> Path | None:
     return dirs[0] if dirs else None
 
 
+def _resolve_profile_path(agents_dir: Path, name: str) -> Path | None:
+    """Return the profile file for NAME in AGENTS_DIR, or None.
+
+    Resolution order:
+      1. <agents_dir>/<name>/<name>.md   (directory layout, preferred)
+      2. <agents_dir>/<name>.md          (flat legacy layout)
+    """
+    dir_candidate = agents_dir / name / f"{name}.md"
+    if dir_candidate.is_file():
+        return dir_candidate
+    flat_candidate = agents_dir / f"{name}.md"
+    if flat_candidate.is_file():
+        return flat_candidate
+    return None
+
+
 def list_agents() -> list[str]:
-    """List available agent profile names (merged across all .lionagi/ dirs)."""
+    """List available agent profile names (merged across all .lionagi/ dirs).
+
+    Discovers both directory (<name>/<name>.md) and flat (<name>.md) layouts.
+    """
     seen: set[str] = set()
     for d in _find_lionagi_dirs():
         agents_dir = d / "agents"
-        if agents_dir.is_dir():
-            for p in agents_dir.glob("*.md"):
+        if not agents_dir.is_dir():
+            continue
+        # Directory layout
+        for child in agents_dir.iterdir():
+            if child.is_dir() and (child / f"{child.name}.md").is_file():
+                seen.add(child.name)
+        # Flat legacy layout
+        for p in agents_dir.glob("*.md"):
+            if p.is_file():
                 seen.add(p.stem)
     return sorted(seen)
 
@@ -95,6 +132,7 @@ def load_agent_profile(name: str) -> AgentProfile:
     """Load an agent profile by name.
 
     Searches project-local .lionagi/agents/ first, then ~/.lionagi/agents/.
+    Resolves directory layout (<name>/<name>.md) before flat (<name>.md).
     Raises FileNotFoundError if not found in any location.
     """
     dirs = _find_lionagi_dirs()
@@ -105,8 +143,8 @@ def load_agent_profile(name: str) -> AgentProfile:
         )
 
     for d in dirs:
-        path = d / "agents" / f"{name}.md"
-        if path.exists():
+        path = _resolve_profile_path(d / "agents", name)
+        if path is not None:
             text = path.read_text()
             return _parse_profile(name, text)
 

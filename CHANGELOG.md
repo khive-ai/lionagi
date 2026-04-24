@@ -4,6 +4,41 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.22.9] - 2026-04-24
+
+### Security
+
+- **Symlink containment on `li skill` + `li play`** — reject paths whose resolved target escapes the resolved skills/playbooks root. Root symlinks (users pointing `~/.lionagi/skills/` at any directory they manage) still accepted; hostile per-entry symlinks blocked. Addresses PR #930 review finding.
+- **`FlowAgent.id` / `FlowOp.id` validation** — `^[A-Za-z0-9_-]{1,64}$` enforced via Pydantic `field_validator` to block model-controlled strings from becoming filesystem path escapes via `RunDir.agent_artifact_dir()`. Defense-in-depth re-check inside `RunDir`.
+- **Duplicate `FlowAgent.id` / `FlowOp.id` rejected at plan validation** (were silently overwriting).
+- **`--max-ops` enforced cumulatively across re-plan rounds** (previously only initial plan — control op could bypass cap across rounds).
+- **Save-path containment** — resolved `--save DIR` must live under `cwd` or `$HOME`.
+- **Pin `lxml>=6.1.0`** (CVE-2026-41066 — XXE via default `iterparse` / `ETCompatXMLParser`) and **`python-dotenv>=1.2.2`** (CVE-2026-28684 — symlink follow on `set_key` cross-device rename).
+
+### Added
+
+- **`li skill NAME`** — CC-compatible skill reader. Reads `~/.lionagi/skills/<NAME>/SKILL.md`, strips YAML frontmatter, prints body to stdout. Agents can shell out mid-run to fetch reference content. Also `li skill list` and `li skill show NAME`.
+- **`li play NAME [args]`** — sugar for `li o flow -p NAME [args]`. Plus `li play list` to enumerate installed playbooks.
+- **`li o flow -p NAME`** — load a playbook from `~/.lionagi/playbooks/<NAME>.playbook.yaml`. Declared args are injected into argparse so flag values aren't eaten by positional arguments.
+- **Playbook args schema** — playbook YAML may declare `args:` (typed schema with `type`, `default`, `help`) or a CC-compatible `argument-hint:` string (e.g. `'[--tabs N] [--poll]'`) for fallback parsing. Explicit schema wins when both are present.
+- **Template interpolation** — `prompt:` fields in flow specs / playbooks now substitute `{input}` (positional CLI prompt) and `{arg_name}` (declared args). If no placeholders are present, positional text is appended with a blank line (CC slash-command style).
+- **Agent directory layout** — `.lionagi/agents/<name>/<name>.md` (directory form) resolved before flat `.lionagi/agents/<name>.md` (legacy form). Supplementary references under `<name>/patterns/`, `<name>/refs/` can be read on demand.
+- **`examples/`** directory — ready-to-install templates under `examples/{agents,skills,playbooks}/` with a README explaining when to use each primitive.
+- **`--team-attach NAME`** on `li o flow` — upsert semantics: attach to an existing team by name (preserving message history) or create if missing. First use never requires a manual `li team create`. Mutually exclusive with `--team-mode` (which keeps "always fresh" semantics). Also supported as `team_attach:` in playbook YAML.
+
+### Changed
+
+- **`add_orchestrate_subparser`** now returns `{"fanout": fo, "flow": fl}` so callers can post-hoc extend the flow sub-parser with playbook-declared flags. Non-breaking for existing callers that ignore the return value.
+- **`li agent -a NAME` / `li o flow -a NAME`** resolve `<name>/<name>.md` first, then fall back to the flat `<name>.md`. Existing flat profiles continue to work.
+- **`--max-agents` renamed to `--max-ops`** — the flag caps DAG operation count, not agent count. `--max-agents` kept as a deprecated alias; `max_agents:` spec field also still accepted. Planner budget guidance now says "ops (DAG nodes)" instead of "agents", matching enforcement. When truncation happens, a warning now names the number of dropped ops instead of silently slicing. Fixes a footgun where `--max-agents 10` silently dropped the terminal critic op from an 11-op plan.
+- **Spec validation for `effort`** now accepts all values in `cli/_providers.EFFORT_LEVELS` (`none | minimal | low | medium | high | xhigh | max`) — previously only `low | medium | high | xhigh` passed, rejecting playbook values the CLI itself accepts.
+- **Spec validation for `with_synthesis`** now accepts both `bool` and `str` (the latter being a model spec), matching `--with-synthesis [MODEL]` CLI surface. Previously only bool passed.
+
+### Fixed
+
+- **Path-containment hardening (security)**: `FlowAgent.id` and `FlowOp.id` are now validated against `^[A-Za-z0-9_-]{1,64}$` via Pydantic `field_validator`. A model-produced id like `/etc/passwd` or `../../tmp/evil` previously became an artifact directory path and could escape the run artifact root. `RunDir.agent_artifact_dir()` adds defense-in-depth: path-separator / dot checks plus a `relative_to(artifact_root)` containment assertion.
+- **Playbook args collision leaked base-flag values into templates**: when a playbook declared an arg whose name collided with a built-in CLI flag (e.g. `args.save`), parser injection correctly skipped adding the flag, but runtime interpolation re-derived the schema and read the base parser's `args.save` value into `{save}` placeholders. The collision-filtered schema is now stashed on the parser via `set_defaults(_playbook_args_schema=...)` and reused during interpolation.
+
 ## [0.22.6] - 2026-04-20
 
 ### Added

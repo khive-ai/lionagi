@@ -74,11 +74,18 @@ li o flow claude/sonnet "Audit the auth module for security issues" --cwd .
 # Team messaging: inbox coordination between agents
 li team create "review" && li team send "Start analysis" -t <id> --to analyst
 
+# Playbook: parametric flow spec at ~/.lionagi/playbooks/audit.playbook.yaml
+li play audit --mode security "the auth service"
+
+# Skill: print a CC-compatible reference body to stdout (for agent context injection)
+li skill commit
+
 # Resume any run
 li agent -r <branch-id> "follow up on your findings"
 ```
 
-Full reference → [docs/cli-reference.md](docs/cli-reference.md)
+Full reference → [docs/cli-reference.md](docs/cli-reference.md) · Installable
+templates → [examples/](examples/)
 
 ## Python API
 

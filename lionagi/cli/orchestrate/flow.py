@@ -4,10 +4,11 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import ClassVar
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from lionagi import Branch, FieldModel
 from lionagi._errors import TimeoutError as LionTimeoutError
@@ -30,6 +31,30 @@ from ._orchestration import (
     team_guidance,
 )
 
+# ── Security: restrict model-produced identifiers used as filesystem paths ──
+#
+# FlowAgent.id and FlowOp.id end up as directory names under `artifact_root/`
+# (see RunDir.agent_artifact_dir) and as worker repo/branch labels. An
+# unconstrained, model-controlled id (e.g. ``/etc/passwd`` or ``../../tmp``)
+# would escape the artifact root and let a compromised planner write outside
+# the intended sandbox. Enforce a narrow alphanumeric + underscore + dash
+# identifier policy at model-validation time; RunDir also re-validates on
+# path construction as defense-in-depth.
+_FLOW_ID_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _validate_flow_id(v: str, *, kind: str) -> str:
+    """Reject path-escape and non-identifier values. Raises ValueError on bad input."""
+    if not isinstance(v, str):
+        raise ValueError(f"{kind} must be a string, got {type(v).__name__}")
+    if not _FLOW_ID_RE.fullmatch(v):
+        raise ValueError(
+            f"{kind} must match {_FLOW_ID_RE.pattern!r} "
+            f"(alphanumeric + '_' '-' only, 1-64 chars); got {v!r}"
+        )
+    return v
+
+
 # ── Flow models ───────────────────────────────────────────────────────────
 
 
@@ -45,9 +70,17 @@ class FlowAgent(HashableModel):
     id: str = Field(
         description=(
             "Short unique identifier for this agent, e.g. 'r1', 'impl1'. "
-            "Reused across multiple FlowOp.agent_id references."
+            "Reused across multiple FlowOp.agent_id references. "
+            "Must match ^[A-Za-z0-9_-]{1,64}$ (alphanumeric + _ -, 1-64 chars). "
+            "Path separators, dots, and escape sequences are rejected."
         ),
     )
+
+    @field_validator("id")
+    @classmethod
+    def _validate_agent_id(cls, v: str) -> str:
+        return _validate_flow_id(v, kind="FlowAgent.id")
+
     role: str = Field(
         description=(
             "Role name from the available-agents roster (e.g. 'researcher', "
@@ -82,9 +115,16 @@ class FlowOp(HashableModel):
     id: str = Field(
         description=(
             "Short unique op id, e.g. 'o1', 'review1'. Referenced by "
-            "other ops via depends_on."
+            "other ops via depends_on. "
+            "Must match ^[A-Za-z0-9_-]{1,64}$."
         ),
     )
+
+    @field_validator("id", "agent_id")
+    @classmethod
+    def _validate_op_ids(cls, v: str) -> str:
+        return _validate_flow_id(v, kind="FlowOp.id / agent_id")
+
     agent_id: str = Field(
         description=(
             "The id of the FlowAgent that executes this op. Multiple ops "
@@ -192,7 +232,10 @@ class FlowPlan(HashableModel):
         "CONTROL OPS: Set op.control=true on an op to make it a flow "
         "control checkpoint. Place at most one control op per round; it "
         "should depend on the ops whose work it reviews. "
-        "Set synthesis=true if the task benefits from a final consolidated output."
+        "Set synthesis=true if the task benefits from a final consolidated output. "
+        "AGENT & OP IDS: Use short alphanumeric identifiers matching "
+        "^[A-Za-z0-9_-]{1,64}$ (e.g. 'r1', 'impl_v2', 'ctx-fetch'). Ids are used "
+        "as filesystem path segments — do not include slashes, spaces, or dots."
     )
 
     REPLAN_INSTRUCTION: ClassVar[str] = (
@@ -259,42 +302,66 @@ class FlowControlVerdict(HashableModel):
 FLOW_VERDICT_FIELDS = FieldModel(FlowControlVerdict, name="verdict")
 
 
-def _topo_sort_ops(ops: list[FlowOp]) -> list[FlowOp]:
+def _topo_sort_ops(
+    ops: list[FlowOp],
+    *,
+    existing_op_ids: set[str] | None = None,
+) -> list[FlowOp]:
     """Topological sort of FlowOps so parents appear before children.
+
+    Uses iterative Kahn's BFS to avoid Python recursion limits on deep chains.
+    The 200-op hard cap is enforced upstream by the plan validation layer
+    in ``_run_flow_inner`` before this function is called.
 
     Raises
     ------
     ValueError
-        If any ``depends_on`` references an id that is not in ``ops``
-        (fail-closed on typos and hallucinated deps), or if the
+        If any ``depends_on`` references an id not in ``ops`` or
+        ``existing_op_ids`` (fail-closed on typos and hallucinated deps),
+        if an op id is duplicated in ``ops``, or if the
         dependency graph has a cycle.
     """
-    by_id = {op.id: op for op in ops}
+    by_id: dict[str, FlowOp] = {}
+    for op in ops:
+        if op.id in by_id:
+            raise ValueError(f"Duplicate op id {op.id!r}")
+        by_id[op.id] = op
+
+    known_ids = set(by_id) | (existing_op_ids or set())
 
     for op in ops:
         for dep in op.depends_on or []:
-            if dep not in by_id:
+            if dep not in known_ids:
                 raise ValueError(f"Op {op.id!r} declares unknown dependency {dep!r}")
 
-    visited: set[str] = set()
-    in_progress: set[str] = set()
+    # Kahn's BFS — only local (within-batch) deps affect sort order.
+    # Deps on existing_op_ids are satisfied by definition (already executed).
+    from collections import deque
+
+    in_degree: dict[str, int] = {op_id: 0 for op_id in by_id}
+    children: dict[str, list[str]] = {op_id: [] for op_id in by_id}
+    for op in ops:
+        for dep in op.depends_on or []:
+            if dep in by_id:
+                in_degree[op.id] += 1
+                children[dep].append(op.id)
+
+    queue: deque[str] = deque(op_id for op_id in by_id if in_degree[op_id] == 0)
     order: list[FlowOp] = []
 
-    def _visit(op_id: str) -> None:
-        if op_id in visited:
-            return
-        if op_id in in_progress:
-            raise ValueError(f"Dependency cycle detected involving {op_id!r}")
-        in_progress.add(op_id)
-        op = by_id[op_id]
-        for dep in op.depends_on or []:
-            _visit(dep)
-        in_progress.discard(op_id)
-        visited.add(op_id)
-        order.append(op)
+    while queue:
+        op_id = queue.popleft()
+        order.append(by_id[op_id])
+        for child_id in children[op_id]:
+            in_degree[child_id] -= 1
+            if in_degree[child_id] == 0:
+                queue.append(child_id)
 
-    for op in ops:
-        _visit(op.id)
+    if len(order) != len(ops):
+        remaining = {op_id for op_id in by_id if by_id[op_id] not in order}
+        cycle_node = next(iter(remaining))
+        raise ValueError(f"Dependency cycle detected involving {cycle_node!r}")
+
     return order
 
 
@@ -338,15 +405,31 @@ async def _run_flow(
     output_format: str = "text",
     save_dir: str | None = None,
     team_name: str | None = None,
+    team_attach: str | None = None,
     cwd: str | None = None,
     timeout: int | None = None,
     agent_name: str | None = None,
     bare: bool = False,
-    max_agents: int = 0,
+    max_ops: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
+    **legacy_kwargs,
 ) -> str:
-    """Auto-DAG flow: orchestrator plans DAG → engine executes with deps."""
+    """Auto-DAG flow: orchestrator plans DAG → engine executes with deps.
+
+    ``max_ops`` caps the number of operations (DAG nodes) the planner may
+    emit. ``max_agents`` is accepted as a deprecated alias.
+    """
+    # Accept legacy max_agents kwarg for backward compat with direct callers.
+    if "max_agents" in legacy_kwargs and max_ops == 0:
+        max_ops = legacy_kwargs.pop("max_agents")
+    elif "max_agents" in legacy_kwargs:
+        legacy_kwargs.pop("max_agents")
+    if legacy_kwargs:
+        # Surface unrecognized kwargs instead of swallowing.
+        raise TypeError(
+            f"_run_flow() got unexpected keyword arguments: {list(legacy_kwargs)}"
+        )
     env = setup_orchestration(
         pattern_name="Flow",
         model_spec=model_spec,
@@ -367,7 +450,8 @@ async def _run_flow(
         max_concurrent=max_concurrent,
         output_format=output_format,
         team_name=team_name,
-        max_agents=max_agents,
+        team_attach=team_attach,
+        max_ops=max_ops,
         dry_run=dry_run,
         show_graph=show_graph,
     )
@@ -390,7 +474,8 @@ async def _run_flow_inner(
     max_concurrent: int = 0,
     output_format: str = "text",
     team_name: str | None = None,
-    max_agents: int = 0,
+    team_attach: str | None = None,
+    max_ops: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
 ) -> str:
@@ -430,8 +515,13 @@ async def _run_flow_inner(
         roles_guidance = f"Available agents: {'; '.join(role_details)}."
 
     budget_note = ""
-    if max_agents > 0:
-        budget_note = f"BUDGET: You may define at most {max_agents} agents total. "
+    if max_ops > 0:
+        budget_note = (
+            f"BUDGET: Your plan may contain at most {max_ops} ops (DAG nodes) "
+            "total, INCLUDING any synthesis/critic ops you intend to run at "
+            "the end. Plans exceeding this cap will be truncated — design "
+            "accordingly. "
+        )
 
     # Build guidance blocks for plan root
     artifact_guidance = (
@@ -456,7 +546,7 @@ async def _run_flow_inner(
                 f"{budget_note}"
                 f"{artifact_guidance}"
                 f"{EFFORT_GUIDANCE}"
-                f"{team_guidance(team_name)}"
+                f"{team_guidance(team_attach or team_name)}"
                 f"{FlowPlan.PLANNING_DISCIPLINE}"
             ),
         ),
@@ -475,8 +565,30 @@ async def _run_flow_inner(
     if not plan or not plan.agents or not plan.operations:
         return "Orchestrator produced no flow plan."
 
+    # Reject duplicate FlowAgent.id — agents_by_id would silently
+    # overwrite, losing whichever agent came first.
+    seen_agent_ids: set[str] = set()
+    for a in plan.agents:
+        if a.id in seen_agent_ids:
+            return (
+                f"Invalid plan: duplicate FlowAgent.id {a.id!r}. "
+                "Each agent must have a unique id."
+            )
+        seen_agent_ids.add(a.id)
+
+    # Reject duplicate FlowOp.id as well — depends_on references would
+    # become ambiguous.
+    seen_op_ids: set[str] = set()
+    for op in plan.operations:
+        if op.id in seen_op_ids:
+            return (
+                f"Invalid plan: duplicate FlowOp.id {op.id!r}. "
+                "Each op must have a unique id."
+            )
+        seen_op_ids.add(op.id)
+
     # Validate op.agent_id references resolve to a defined agent
-    agent_ids = {a.id for a in plan.agents}
+    agent_ids = seen_agent_ids
     for op in plan.operations:
         if op.agent_id not in agent_ids:
             return (
@@ -484,20 +596,34 @@ async def _run_flow_inner(
                 f"{op.agent_id!r} (known: {sorted(agent_ids)})"
             )
 
+    # Reject plans exceeding the hard op count cap before sorting.
+    if len(plan.operations) > 200:
+        return (
+            f"Invalid plan: Plan has {len(plan.operations)} operations; "
+            "maximum allowed is 200"
+        )
+
     # Validate topology and depends_on targets up front. Rejects plans
     # with typo'd deps or dependency cycles before we spend any agent
     # time executing them.
     try:
-        _topo_sort_ops(plan.operations)
+        plan.operations = _topo_sort_ops(plan.operations)
     except ValueError as e:
         return f"Invalid plan: {e}"
 
-    # max_agents caps the total operation count — that is the real work
+    # max_ops caps the total operation count — that is the real work
     # budget. Agent count is bounded implicitly by the op count since
     # every agent runs at least one op.
-    if max_agents > 0 and len(plan.operations) > max_agents:
-        plan.operations = plan.operations[:max_agents]
-        progress(f"Plan truncated to {max_agents} operations (--max-agents)")
+    if max_ops > 0 and len(plan.operations) > max_ops:
+        dropped = len(plan.operations) - max_ops
+        plan.operations = plan.operations[:max_ops]
+        from .._logging import warn as _warn
+
+        _warn(
+            f"Plan truncated: {dropped} op(s) dropped to fit --max-ops={max_ops}. "
+            "The truncated ops (often terminal synthesis/critic) will not run. "
+            "Raise --max-ops or design a tighter plan."
+        )
 
     dag_lines = []
     for op in plan.operations:
@@ -579,7 +705,20 @@ async def _run_flow_inner(
         agent_id_to_name[a.id] = wname
         all_agent_names.append(wname)
 
-    if team_name:
+    if team_attach:
+        # Upsert: load existing team by name, else create a fresh one.
+        from ..team import _load_team
+
+        try:
+            env.team_data = _load_team(team_attach)
+            progress(
+                f"Team '{team_attach}' attached ({env.team_data['id']}, "
+                f"{len(env.team_data.get('messages', []))} prior msgs)"
+            )
+        except FileNotFoundError:
+            env.team_data = _create_fanout_team(team_attach, all_agent_names)
+            progress(f"Team '{team_attach}' created ({env.team_data['id']})")
+    elif team_name:
         env.team_data = _create_fanout_team(team_name, all_agent_names)
         progress(f"Team '{team_name}' created ({env.team_data['id']})")
     team_data = env.team_data
@@ -883,18 +1022,48 @@ async def _run_flow_inner(
                 if nop.id in op_to_node:
                     progress(f"Re-plan: skipping duplicate op id {nop.id!r}")
                     continue
-                op_id_to_agent[nop.id] = nop.agent_id
                 new_ops.append(nop)
 
             if not new_ops:
                 progress("Re-plan: no executable new ops; ending.")
                 continue
 
+            # Enforce --max-ops cumulatively. Initial plan and every
+            # re-plan round share one op budget; without this check a
+            # control op that repeatedly returns should_continue could
+            # bypass the cap by stretching over multiple rounds.
+            if max_ops > 0:
+                current_total = len(op_to_node)
+                budget_left = max_ops - current_total
+                if budget_left <= 0:
+                    from .._logging import warn as _warn
+
+                    _warn(
+                        f"Re-plan rejected: --max-ops={max_ops} already "
+                        f"reached (current total {current_total}). "
+                        f"Dropping {len(new_ops)} proposed op(s)."
+                    )
+                    continue
+                if len(new_ops) > budget_left:
+                    from .._logging import warn as _warn
+
+                    dropped = len(new_ops) - budget_left
+                    _warn(
+                        f"Re-plan truncated: {dropped} of {len(new_ops)} "
+                        f"proposed op(s) dropped to fit --max-ops={max_ops} "
+                        f"(current total {current_total}, budget left "
+                        f"{budget_left})."
+                    )
+                    new_ops = new_ops[:budget_left]
+
             try:
-                new_ops = _topo_sort_ops(new_ops)
+                new_ops = _topo_sort_ops(new_ops, existing_op_ids=set(op_to_node))
             except ValueError as e:
                 progress(f"Re-plan rejected: {e}")
                 continue
+
+            for nop in new_ops:
+                op_id_to_agent[nop.id] = nop.agent_id
 
             ids = ", ".join(o.id for o in new_ops)
             progress(
@@ -953,7 +1122,7 @@ async def _run_flow_inner(
         # Leaf ops = those not depended on by any other op. Walk op_meta
         # since it covers both initial plan and any re-planned ops.
         depended_on_nodes: set[str] = set()
-        for oid, meta in op_meta.items():
+        for _oid, meta in op_meta.items():
             for d in meta.get("depends_on", []):
                 if d in op_to_node:
                     depended_on_nodes.add(op_to_node[d])

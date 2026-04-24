@@ -285,15 +285,41 @@ class iModel:
             chunk:
                 A portion of the streamed data returned by the API.
         """
-        if self.hook_registry._can_handle(ct_=type(chunk).__name__):
-            return await self.hook_registry.handle_streaming_chunk(
-                type(chunk), chunk, exit=self.exit_hook
+        processed = None
+        chunk_type = type(chunk)
+        chunk_key = None
+        if self.hook_registry._can_handle(ct_=chunk_type):
+            chunk_key = chunk_type
+        elif self.hook_registry._can_handle(ct_=chunk_type.__name__):
+            chunk_key = chunk_type.__name__
+
+        # Hook registry takes priority over streaming_process_func.
+        # If the registry handles the chunk type, streaming_process_func is not called.
+        if chunk_key is not None:
+            hook_result, should_exit, _status = (
+                await self.hook_registry.handle_streaming_chunk(
+                    chunk_key, chunk, exit=self.exit_hook
+                )
             )
+            if should_exit:
+                if (
+                    isinstance(hook_result, tuple)
+                    and len(hook_result) == 2
+                    and isinstance(hook_result[1], BaseException)
+                ):
+                    raise hook_result[1]
+                if isinstance(hook_result, BaseException):
+                    raise hook_result
+                raise RuntimeError("Streaming hook requested exit without a cause")
+            if not isinstance(hook_result, BaseException):
+                return hook_result
+            return processed
+
         if self.streaming_process_func and not isinstance(chunk, APICalling):
             if is_coro_func(self.streaming_process_func):
                 return await self.streaming_process_func(chunk)
             return self.streaming_process_func(chunk)
-        return None
+        return processed
 
     async def stream(self, api_call=None, **kw) -> AsyncGenerator:
         """Performs a streaming API call with the given arguments.

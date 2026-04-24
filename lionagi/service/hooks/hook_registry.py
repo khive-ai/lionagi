@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -33,6 +34,10 @@ def _normalize_hook_key(key: HookEventTypes | str) -> HookEventTypes | str:
         aliases = {
             "pre_invoke": HookEventTypes.PreInvocation,
             "post_invoke": HookEventTypes.PostInvocation,
+            "pre_event_create": HookEventTypes.PreEventCreate,
+            # Legacy alias — decorator name on HookRegistry is
+            # `pre_event_create_hook`, so callers constructing via dict often
+            # use this string. Preserve both spellings for backward compat.
             "pre_event_create_hook": HookEventTypes.PreEventCreate,
         }
         if key in aliases:
@@ -67,17 +72,26 @@ class HookRegistry:
 
     def pre_event_create_hook(self, fn: F) -> F:
         """Decorator that registers *fn* as the pre_event_create hook."""
-        self._hooks[HookEventTypes.PreEventCreate] = fn
+        key = HookEventTypes.PreEventCreate
+        if key in self._hooks:
+            warnings.warn(f"Overwriting existing {key.value} hook", stacklevel=2)
+        self._hooks[key] = fn
         return fn
 
     def pre_invoke(self, fn: F) -> F:
         """Decorator that registers *fn* as the pre_invocation hook."""
-        self._hooks[HookEventTypes.PreInvocation] = fn
+        key = HookEventTypes.PreInvocation
+        if key in self._hooks:
+            warnings.warn(f"Overwriting existing {key.value} hook", stacklevel=2)
+        self._hooks[key] = fn
         return fn
 
     def post_invoke(self, fn: F) -> F:
         """Decorator that registers *fn* as the post_invocation hook."""
-        self._hooks[HookEventTypes.PostInvocation] = fn
+        key = HookEventTypes.PostInvocation
+        if key in self._hooks:
+            warnings.warn(f"Overwriting existing {key.value} hook", stacklevel=2)
+        self._hooks[key] = fn
         return fn
 
     async def _call(
@@ -98,7 +112,10 @@ class HookRegistry:
         elif not ct_:
             raise RuntimeError("Hook type is required when chunk_type is not provided")
         else:
-            validate_stream_handlers({ct_: self._stream_handlers.get(ct_)})
+            handler = self._stream_handlers.get(ct_)
+            if handler is None:
+                raise RuntimeError(f"No stream handler registered for {ct_}")
+            validate_stream_handlers({ct_: handler})
             h = get_handler(self._stream_handlers, ct_, True)
             return await h(ev_, ct_, ch_, **kw)
 
@@ -110,7 +127,10 @@ class HookRegistry:
         /,
         **kw,
     ):
-        validate_stream_handlers({ct_: self._stream_handlers.get(ct_)})
+        handler = self._stream_handlers.get(ct_)
+        if handler is None:
+            raise RuntimeError(f"No stream handler registered for {ct_}")
+        validate_stream_handlers({ct_: handler})
         handler = get_handler(self._stream_handlers, ct_, True)
         return await handler(ev_, ct_, ch_, **kw)
 

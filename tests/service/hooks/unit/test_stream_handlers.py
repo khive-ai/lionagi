@@ -130,18 +130,16 @@ class TestStreamHandlerErrors:
 
     @pytest.mark.anyio
     async def test_missing_stream_handler_returns_error(self):
-        """Test that missing stream handlers return validation errors."""
+        """Missing stream handler raises RuntimeError (not ValidationError)."""
         registry = HookRegistry()
 
-        # Should return ValidationError in result
         res, se, st = await registry.handle_streaming_chunk(
             "missing", "data", exit=False
         )
 
-        # Should return the ValidationError as the result
-        assert isinstance(res, Exception)
-        assert "Stream handler for missing must be callable" in str(res)
-        assert se is False  # exit=False, so should_exit=False
+        assert isinstance(res, RuntimeError)
+        assert "No stream handler registered for missing" in str(res)
+        assert se is False
         assert st == EventStatus.ABORTED
 
     @pytest.mark.anyio
