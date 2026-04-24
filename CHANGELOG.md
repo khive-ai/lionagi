@@ -4,6 +4,24 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **`li skill NAME`** — CC-compatible skill reader. Reads `~/.lionagi/skills/<NAME>/SKILL.md`, strips YAML frontmatter, prints body to stdout. Agents can shell out mid-run to fetch reference content. Also `li skill list` and `li skill show NAME`.
+- **`li play NAME [args]`** — sugar for `li o flow -p NAME [args]`. Plus `li play list` to enumerate installed playbooks.
+- **`li o flow -p NAME`** — load a playbook from `~/.lionagi/playbooks/<NAME>.playbook.yaml`. Declared args are injected into argparse so flag values aren't eaten by positional arguments.
+- **Playbook args schema** — playbook YAML may declare `args:` (typed schema with `type`, `default`, `help`) or a CC-compatible `argument-hint:` string (e.g. `'[--tabs N] [--poll]'`) for fallback parsing. Explicit schema wins when both are present.
+- **Template interpolation** — `prompt:` fields in flow specs / playbooks now substitute `{input}` (positional CLI prompt) and `{arg_name}` (declared args). If no placeholders are present, positional text is appended with a blank line (CC slash-command style).
+- **Agent directory layout** — `.lionagi/agents/<name>/<name>.md` (directory form) resolved before flat `.lionagi/agents/<name>.md` (legacy form). Supplementary references under `<name>/patterns/`, `<name>/refs/` can be read on demand.
+- **`examples/`** directory — ready-to-install templates under `examples/{agents,skills,playbooks}/` with a README explaining when to use each primitive.
+- **`--team-attach NAME`** on `li o flow` — upsert semantics: attach to an existing team by name (preserving message history) or create if missing. First use never requires a manual `li team create`. Mutually exclusive with `--team-mode` (which keeps "always fresh" semantics). Also supported as `team_attach:` in playbook YAML.
+
+### Changed
+
+- **`add_orchestrate_subparser`** now returns `{"fanout": fo, "flow": fl}` so callers can post-hoc extend the flow sub-parser with playbook-declared flags. Non-breaking for existing callers that ignore the return value.
+- **`li agent -a NAME` / `li o flow -a NAME`** resolve `<name>/<name>.md` first, then fall back to the flat `<name>.md`. Existing flat profiles continue to work.
+
 ## [0.22.6] - 2026-04-20
 
 ### Added
