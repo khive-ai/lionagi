@@ -21,6 +21,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 - **`add_orchestrate_subparser`** now returns `{"fanout": fo, "flow": fl}` so callers can post-hoc extend the flow sub-parser with playbook-declared flags. Non-breaking for existing callers that ignore the return value.
 - **`li agent -a NAME` / `li o flow -a NAME`** resolve `<name>/<name>.md` first, then fall back to the flat `<name>.md`. Existing flat profiles continue to work.
+- **`--max-agents` renamed to `--max-ops`** — the flag caps DAG operation count, not agent count. `--max-agents` kept as a deprecated alias; `max_agents:` spec field also still accepted. Planner budget guidance now says "ops (DAG nodes)" instead of "agents", matching enforcement. When truncation happens, a warning now names the number of dropped ops instead of silently slicing. Fixes a footgun where `--max-agents 10` silently dropped the terminal critic op from an 11-op plan.
+- **Spec validation for `effort`** now accepts all values in `cli/_providers.EFFORT_LEVELS` (`none | minimal | low | medium | high | xhigh | max`) — previously only `low | medium | high | xhigh` passed, rejecting playbook values the CLI itself accepts.
+- **Spec validation for `with_synthesis`** now accepts both `bool` and `str` (the latter being a model spec), matching `--with-synthesis [MODEL]` CLI surface. Previously only bool passed.
+
+### Fixed
+
+- **Path-containment hardening (security)**: `FlowAgent.id` and `FlowOp.id` are now validated against `^[A-Za-z0-9_-]{1,64}$` via Pydantic `field_validator`. A model-produced id like `/etc/passwd` or `../../tmp/evil` previously became an artifact directory path and could escape the run artifact root. `RunDir.agent_artifact_dir()` adds defense-in-depth: path-separator / dot checks plus a `relative_to(artifact_root)` containment assertion.
+- **Playbook args collision leaked base-flag values into templates**: when a playbook declared an arg whose name collided with a built-in CLI flag (e.g. `args.save`), parser injection correctly skipped adding the flag, but runtime interpolation re-derived the schema and read the base parser's `args.save` value into `{save}` placeholders. The collision-filtered schema is now stashed on the parser via `set_defaults(_playbook_args_schema=...)` and reused during interpolation.
 
 ## [0.22.6] - 2026-04-20
 
