@@ -248,12 +248,57 @@ class TestDictConstructorStringKeys:
             {
                 "pre_invoke": dummy,
                 "post_invoke": dummy,
-                "pre_event_create_hook": dummy,
+                "pre_event_create": dummy,
             }
         )
         assert registry._hooks[HookEventTypes.PreInvocation] is dummy
         assert registry._hooks[HookEventTypes.PostInvocation] is dummy
         assert registry._hooks[HookEventTypes.PreEventCreate] is dummy
+
+    def test_normalize_key_pre_event_create_without_hook_suffix(self):
+        """Constructor must accept 'pre_event_create' (no _hook suffix)."""
+
+        def dummy(*args, **kwargs):
+            return None
+
+        registry = HookRegistry({"pre_event_create": dummy})
+        assert registry._hooks[HookEventTypes.PreEventCreate] is dummy
+
+    def test_decorator_overwrite_emits_warning(self):
+        """All three decorator methods must warn when overwriting an existing hook."""
+
+        def first(*args, **kwargs):
+            return "first"
+
+        def second(*args, **kwargs):
+            return "second"
+
+        registry = HookRegistry()
+
+        # pre_event_create_hook warns on second registration
+        registry.pre_event_create_hook(first)
+        with pytest.warns(UserWarning, match="pre_event_create"):
+            registry.pre_event_create_hook(second)
+        assert registry._hooks[HookEventTypes.PreEventCreate] is second
+
+        # pre_invoke warns on second registration
+        registry.pre_invoke(first)
+        with pytest.warns(UserWarning, match="pre_invocation"):
+            registry.pre_invoke(second)
+        assert registry._hooks[HookEventTypes.PreInvocation] is second
+
+        # post_invoke warns on second registration
+        registry.post_invoke(first)
+        with pytest.warns(UserWarning, match="post_invocation"):
+            registry.post_invoke(second)
+        assert registry._hooks[HookEventTypes.PostInvocation] is second
+
+    @pytest.mark.anyio
+    async def test_stream_handler_missing_key_raises_runtime_error_not_validation(self):
+        """A missing stream handler key must raise RuntimeError, not ValidationError."""
+        registry = HookRegistry()
+        with pytest.raises(RuntimeError, match="No stream handler registered for missing"):
+            await registry._call_stream_handler("missing", "data", None)
 
     def test_constructor_accepts_raw_enum_values(self):
         def dummy(*args, **kwargs):

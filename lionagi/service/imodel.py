@@ -293,6 +293,8 @@ class iModel:
         elif self.hook_registry._can_handle(ct_=chunk_type.__name__):
             chunk_key = chunk_type.__name__
 
+        # Hook registry takes priority over streaming_process_func.
+        # If the registry handles the chunk type, streaming_process_func is not called.
         if chunk_key is not None:
             hook_result, should_exit, _status = (
                 await self.hook_registry.handle_streaming_chunk(
@@ -310,9 +312,8 @@ class iModel:
                     raise hook_result
                 raise RuntimeError("Streaming hook requested exit without a cause")
             if not isinstance(hook_result, BaseException):
-                processed = hook_result
-                if hook_result is not None:
-                    chunk = hook_result
+                return hook_result
+            return processed
 
         if self.streaming_process_func and not isinstance(chunk, APICalling):
             if is_coro_func(self.streaming_process_func):

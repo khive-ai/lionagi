@@ -464,7 +464,9 @@ class TestiModel:
         assert await imodel.process_chunk({"value": "ok"}) == {"handled": "ok"}
 
     @pytest.mark.asyncio
-    async def test_process_chunk_composes_hook_and_streaming_process_func(self):
+    async def test_hook_registry_takes_priority_over_streaming_process_func(self):
+        """Hook registry result is returned directly; streaming_process_func is not called."""
+
         async def handler(_event, _chunk_type, _chunk, **_kw):
             return {"choices": [{"delta": {"content": "hooked"}}]}
 
@@ -479,7 +481,9 @@ class TestiModel:
             hook_registry=HookRegistry(stream_handlers={"dict": handler}),
         )
 
-        assert await imodel.process_chunk({"value": "raw"}) == "HOOKED"
+        result = await imodel.process_chunk({"value": "raw"})
+        # Hook handles the chunk → returns hook result, NOT process(hook_result)
+        assert result == {"choices": [{"delta": {"content": "hooked"}}]}
 
     @pytest.mark.asyncio
     async def test_process_chunk_streaming_hook_exit_policy(self):
