@@ -451,7 +451,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             log_root.mkdir(parents=True, exist_ok=True)
             log_path = log_root / "flow.log"
             with open(log_path, "w") as log_f:
-                proc = subprocess.Popen(
+                proc = subprocess.Popen(  # noqa: S603
                     [sys.executable, "-m", "lionagi.cli", *bg_args],
                     stdout=log_f,
                     stderr=subprocess.STDOUT,

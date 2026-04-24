@@ -985,7 +985,7 @@ async def _run_flow_inner(
         # Leaf ops = those not depended on by any other op. Walk op_meta
         # since it covers both initial plan and any re-planned ops.
         depended_on_nodes: set[str] = set()
-        for oid, meta in op_meta.items():
+        for _oid, meta in op_meta.items():
             for d in meta.get("depends_on", []):
                 if d in op_to_node:
                     depended_on_nodes.add(op_to_node[d])
