@@ -225,37 +225,46 @@ def add_orchestrate_subparser(subparsers: argparse._SubParsersAction) -> None:
     add_common_cli_args(fl)
 
 
-def _load_flow_spec(path: str) -> dict | int:
-    """Load a YAML or JSON flow spec file. Returns dict on success, int error code on failure."""
+def _load_flow_spec(path: str) -> dict | None:
+    """Load a YAML or JSON flow spec file.
+
+    Returns a dict on success, or None after logging a CLI-facing error.
+    Empty specs are treated as an empty object.
+    """
     from pathlib import Path
 
     p = Path(path).expanduser()
     if not p.is_file():
         log_error(f"spec file not found: {p}")
-        return 1
+        return None
     text = p.read_text()
     suffix = p.suffix.lower()
     try:
         if suffix in (".yaml", ".yml"):
             import yaml
 
-            return yaml.safe_load(text) or {}
+            data = yaml.safe_load(text) or {}
         elif suffix == ".json":
             import json
 
-            return json.loads(text)
+            data = json.loads(text)
         else:
             import yaml
 
             try:
-                return yaml.safe_load(text) or {}
+                data = yaml.safe_load(text) or {}
             except Exception:
                 import json
 
-                return json.loads(text)
+                data = json.loads(text)
     except Exception as e:
         log_error(f"failed to parse spec file {p}: {e}")
-        return 1
+        return None
+
+    if not isinstance(data, dict):
+        log_error("spec file must contain a YAML/JSON object")
+        return None
+    return data
 
 
 def run_orchestrate(args: argparse.Namespace) -> int:
@@ -305,10 +314,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
         file_spec = getattr(args, "file", None)
         if file_spec:
             spec = _load_flow_spec(file_spec)
-            if isinstance(spec, int):
-                return spec  # error code
-            if not isinstance(spec, dict):
-                log_error("spec file must contain a YAML/JSON object")
+            if spec is None:
                 return 1
             # If the file supplies the model/agent, argparse's lone positional
             # is a prompt override, not a model override.

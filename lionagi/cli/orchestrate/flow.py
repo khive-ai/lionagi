@@ -259,21 +259,32 @@ class FlowControlVerdict(HashableModel):
 FLOW_VERDICT_FIELDS = FieldModel(FlowControlVerdict, name="verdict")
 
 
-def _topo_sort_ops(ops: list[FlowOp]) -> list[FlowOp]:
+def _topo_sort_ops(
+    ops: list[FlowOp],
+    *,
+    existing_op_ids: set[str] | None = None,
+) -> list[FlowOp]:
     """Topological sort of FlowOps so parents appear before children.
 
     Raises
     ------
     ValueError
-        If any ``depends_on`` references an id that is not in ``ops``
-        (fail-closed on typos and hallucinated deps), or if the
+        If any ``depends_on`` references an id that is not in ``ops`` or
+        ``existing_op_ids`` (fail-closed on typos and hallucinated deps),
+        if an op id is duplicated in ``ops``, or if the
         dependency graph has a cycle.
     """
-    by_id = {op.id: op for op in ops}
+    by_id: dict[str, FlowOp] = {}
+    for op in ops:
+        if op.id in by_id:
+            raise ValueError(f"Duplicate op id {op.id!r}")
+        by_id[op.id] = op
+
+    known_ids = set(by_id) | (existing_op_ids or set())
 
     for op in ops:
         for dep in op.depends_on or []:
-            if dep not in by_id:
+            if dep not in known_ids:
                 raise ValueError(f"Op {op.id!r} declares unknown dependency {dep!r}")
 
     visited: set[str] = set()
@@ -288,7 +299,8 @@ def _topo_sort_ops(ops: list[FlowOp]) -> list[FlowOp]:
         in_progress.add(op_id)
         op = by_id[op_id]
         for dep in op.depends_on or []:
-            _visit(dep)
+            if dep in by_id:
+                _visit(dep)
         in_progress.discard(op_id)
         visited.add(op_id)
         order.append(op)
@@ -488,7 +500,7 @@ async def _run_flow_inner(
     # with typo'd deps or dependency cycles before we spend any agent
     # time executing them.
     try:
-        _topo_sort_ops(plan.operations)
+        plan.operations = _topo_sort_ops(plan.operations)
     except ValueError as e:
         return f"Invalid plan: {e}"
 
@@ -883,7 +895,6 @@ async def _run_flow_inner(
                 if nop.id in op_to_node:
                     progress(f"Re-plan: skipping duplicate op id {nop.id!r}")
                     continue
-                op_id_to_agent[nop.id] = nop.agent_id
                 new_ops.append(nop)
 
             if not new_ops:
@@ -891,10 +902,13 @@ async def _run_flow_inner(
                 continue
 
             try:
-                new_ops = _topo_sort_ops(new_ops)
+                new_ops = _topo_sort_ops(new_ops, existing_op_ids=set(op_to_node))
             except ValueError as e:
                 progress(f"Re-plan rejected: {e}")
                 continue
+
+            for nop in new_ops:
+                op_id_to_agent[nop.id] = nop.agent_id
 
             ids = ", ".join(o.id for o in new_ops)
             progress(

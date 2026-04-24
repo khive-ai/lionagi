@@ -58,13 +58,13 @@ class TestLoadFlowSpec:
 
     def test_missing_file(self):
         result = _load_flow_spec("/nonexistent/path/spec.yaml")
-        assert result == 1
+        assert result is None
 
     def test_invalid_yaml(self, tmp_path):
         p = tmp_path / "bad.yaml"
         p.write_text(": : : invalid")
         result = _load_flow_spec(str(p))
-        assert result == 1
+        assert result is None
 
     def test_empty_yaml(self, tmp_path):
         p = tmp_path / "empty.yaml"
@@ -78,6 +78,20 @@ class TestLoadFlowSpec:
         p.write_text(yaml.dump(spec))
         result = _load_flow_spec(str(p))
         assert result["prompt"] == "detect format"
+
+    def test_json_content_with_yaml_extension(self, tmp_path):
+        spec = {"model": "codex/gpt-5.5", "prompt": "json in yaml"}
+        p = tmp_path / "spec.yaml"
+        p.write_text(json.dumps(spec))
+        result = _load_flow_spec(str(p))
+        assert result == spec
+
+    def test_scalar_spec_returns_none(self, tmp_path, caplog):
+        p = tmp_path / "scalar.yaml"
+        p.write_text("2\n")
+        result = _load_flow_spec(str(p))
+        assert result is None
+        assert "spec file must contain a YAML/JSON object" in caplog.text
 
     def test_full_spec_fields(self, tmp_path):
         spec = {

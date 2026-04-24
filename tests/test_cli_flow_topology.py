@@ -3,9 +3,18 @@
 
 """Tests for _topo_sort_ops (CLI plan validation)."""
 
+from types import SimpleNamespace
+from uuid import uuid4
+
 import pytest
 
-from lionagi.cli.orchestrate.flow import FlowOp, _topo_sort_ops
+from lionagi.cli.orchestrate.flow import (
+    FlowAgent,
+    FlowOp,
+    FlowPlan,
+    _run_flow_inner,
+    _topo_sort_ops,
+)
 
 
 def _op(oid: str, deps: list[str] | None = None) -> FlowOp:
@@ -47,6 +56,18 @@ def test_topo_sort_rejects_unknown_dependency():
         _topo_sort_ops(ops)
 
 
+def test_topo_sort_allows_dependency_on_existing_op():
+    ops = [_op("new", ["old"])]
+    sorted_ops = _topo_sort_ops(ops, existing_op_ids={"old"})
+    assert [o.id for o in sorted_ops] == ["new"]
+
+
+def test_topo_sort_rejects_duplicate_op_ids():
+    ops = [_op("a"), _op("a")]
+    with pytest.raises(ValueError, match="Duplicate op id"):
+        _topo_sort_ops(ops)
+
+
 def test_topo_sort_rejects_self_cycle():
     ops = [_op("a", ["a"])]
     with pytest.raises(ValueError, match="cycle detected"):
@@ -72,3 +93,62 @@ def test_topo_sort_empty_list():
 def test_topo_sort_single_op_no_deps():
     [only] = _topo_sort_ops([_op("solo")])
     assert only.id == "solo"
+
+
+class _FakeBuilder:
+    def __init__(self):
+        self.added = []
+
+    def add_operation(self, operation, **kwargs):
+        node_id = f"node-{len(self.added) + 1}"
+        self.added.append({"id": node_id, "operation": operation, "kwargs": kwargs})
+        return node_id
+
+    def get_graph(self):
+        return object()
+
+
+class _FakeSession:
+    def __init__(self, builder, plan):
+        self.builder = builder
+        self.plan = plan
+
+    async def flow(self, _graph, **_kwargs):
+        plan_root = self.builder.added[0]["id"]
+        return {"operation_results": {plan_root: SimpleNamespace(plan=self.plan)}}
+
+
+@pytest.mark.asyncio
+async def test_run_flow_inner_dry_run_uses_topologically_sorted_ops(tmp_path):
+    plan = FlowPlan(
+        agents=[FlowAgent(id="a1", role="researcher")],
+        operations=[_op("c", ["b"]), _op("b", ["a"]), _op("a")],
+    )
+    builder = _FakeBuilder()
+    env = SimpleNamespace(
+        run=SimpleNamespace(
+            artifact_root=tmp_path,
+            dag_image_path=tmp_path / "dag.png",
+        ),
+        session=_FakeSession(builder, plan),
+        orc_branch=SimpleNamespace(id=uuid4()),
+        builder=builder,
+        bare=True,
+        effort=None,
+        verbose=False,
+        team_data=None,
+    )
+
+    output = await _run_flow_inner(
+        "codex/gpt-5.5",
+        "do the task",
+        env=env,
+        dry_run=True,
+    )
+
+    op_ids = [
+        line.strip().split()[0]
+        for line in output.splitlines()
+        if line.startswith("  ") and line.strip().split()[0] in {"a", "b", "c"}
+    ]
+    assert op_ids == ["a", "b", "c"]
