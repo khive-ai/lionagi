@@ -50,6 +50,7 @@ def _clamp_claude_effort(effort: str, model: str) -> str:
         return effort
     return "high"
 
+
 # provider name → kwarg name for effort
 PROVIDER_EFFORT_KWARG: dict[str, str] = {
     "claude_code": "effort",

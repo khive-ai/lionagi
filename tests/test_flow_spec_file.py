@@ -131,6 +131,51 @@ class TestLoadFlowSpec:
         assert run_flow.call_args.kwargs["prompt"] == "Write the thing"
         assert capsys.readouterr().out.strip() == "flow output"
 
+    def test_positional_prompt_appends_to_file_prompt(self, tmp_path, capsys):
+        p = tmp_path / "spec.yaml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "model": "claude-code/opus-4-7",
+                    "prompt": "Review the codebase for security issues.",
+                }
+            )
+        )
+        args = _parse_flow_args(["-f", str(p), "Focus on auth middleware"])
+
+        with patch(
+            "lionagi.cli.orchestrate._run_flow",
+            AsyncMock(return_value="ok"),
+        ) as run_flow:
+            code = run_orchestrate(args)
+
+        assert code == 0
+        prompt = run_flow.call_args.kwargs["prompt"]
+        assert prompt.startswith("Review the codebase for security issues.")
+        assert prompt.endswith("Focus on auth middleware")
+
+    def test_positional_prompt_fills_template_placeholder(self, tmp_path, capsys):
+        p = tmp_path / "spec.yaml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "model": "claude-code/opus-4-7",
+                    "prompt": "Audit {input} for OWASP top 10 vulnerabilities.",
+                }
+            )
+        )
+        args = _parse_flow_args(["-f", str(p), "the auth service"])
+
+        with patch(
+            "lionagi.cli.orchestrate._run_flow",
+            AsyncMock(return_value="ok"),
+        ) as run_flow:
+            code = run_orchestrate(args)
+
+        assert code == 0
+        prompt = run_flow.call_args.kwargs["prompt"]
+        assert prompt == "Audit the auth service for OWASP top 10 vulnerabilities."
+
     def test_non_object_spec_fails_with_cli_error(self, tmp_path, caplog):
         p = tmp_path / "list.yaml"
         p.write_text("- item\n")

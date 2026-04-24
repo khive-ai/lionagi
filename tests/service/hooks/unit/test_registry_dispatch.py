@@ -297,7 +297,9 @@ class TestDictConstructorStringKeys:
     async def test_stream_handler_missing_key_raises_runtime_error_not_validation(self):
         """A missing stream handler key must raise RuntimeError, not ValidationError."""
         registry = HookRegistry()
-        with pytest.raises(RuntimeError, match="No stream handler registered for missing"):
+        with pytest.raises(
+            RuntimeError, match="No stream handler registered for missing"
+        ):
             await registry._call_stream_handler("missing", "data", None)
 
     def test_constructor_accepts_raw_enum_values(self):

@@ -303,9 +303,7 @@ def _topo_sort_ops(
                 in_degree[op.id] += 1
                 children[dep].append(op.id)
 
-    queue: deque[str] = deque(
-        op_id for op_id in by_id if in_degree[op_id] == 0
-    )
+    queue: deque[str] = deque(op_id for op_id in by_id if in_degree[op_id] == 0)
     order: list[FlowOp] = []
 
     while queue:

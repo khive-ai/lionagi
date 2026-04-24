@@ -197,7 +197,12 @@ class TestSpecValidationAcceptsValidFields:
         assert _validate_spec_fields({"effort": None}) is None
 
     def test_valid_booleans(self):
-        assert _validate_spec_fields({"bare": True, "dry_run": False, "with_synthesis": True}) is None
+        assert (
+            _validate_spec_fields(
+                {"bare": True, "dry_run": False, "with_synthesis": True}
+            )
+            is None
+        )
 
     def test_valid_prompt(self):
         assert _validate_spec_fields({"prompt": "Do the thing"}) is None
@@ -232,7 +237,9 @@ class TestSpecValidationAcceptsValidFields:
 
     def test_run_orchestrate_rejects_bad_spec(self, tmp_path, caplog):
         spec_file = tmp_path / "bad.yaml"
-        spec_file.write_text(yaml.dump({"model": "claude/opus", "workers": "not-an-int", "prompt": "hi"}))
+        spec_file.write_text(
+            yaml.dump({"model": "claude/opus", "workers": "not-an-int", "prompt": "hi"})
+        )
         args = _parse_flow_args(["-f", str(spec_file)])
         code = run_orchestrate(args)
         assert code == 1

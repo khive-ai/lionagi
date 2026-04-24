@@ -277,7 +277,9 @@ def _validate_spec_fields(spec: dict) -> str | None:
     if "workers" in spec:
         workers = spec["workers"]
         if not isinstance(workers, int) or isinstance(workers, bool):
-            return f"spec field 'workers' must be an integer, got {type(workers).__name__}"
+            return (
+                f"spec field 'workers' must be an integer, got {type(workers).__name__}"
+            )
         if not (1 <= workers <= 32):
             return f"spec field 'workers' must be in [1, 32], got {workers}"
 
@@ -390,8 +392,13 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 args.model = spec["model"]
             if args.agent is None and spec.get("agent"):
                 args.agent = spec["agent"]
-            if args.prompt is None and spec.get("prompt"):
-                args.prompt = spec["prompt"]
+            if spec.get("prompt"):
+                if args.prompt is None:
+                    args.prompt = spec["prompt"]
+                elif "{input}" in spec["prompt"]:
+                    args.prompt = spec["prompt"].replace("{input}", args.prompt)
+                else:
+                    args.prompt = spec["prompt"] + "\n\n" + args.prompt
             if args.max_concurrent == 0 and spec.get("workers"):
                 args.max_concurrent = spec["workers"]
             if args.effort is None and spec.get("effort"):
