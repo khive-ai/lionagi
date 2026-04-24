@@ -362,6 +362,7 @@ async def _run_flow(
     output_format: str = "text",
     save_dir: str | None = None,
     team_name: str | None = None,
+    team_attach: str | None = None,
     cwd: str | None = None,
     timeout: int | None = None,
     agent_name: str | None = None,
@@ -391,6 +392,7 @@ async def _run_flow(
         max_concurrent=max_concurrent,
         output_format=output_format,
         team_name=team_name,
+        team_attach=team_attach,
         max_agents=max_agents,
         dry_run=dry_run,
         show_graph=show_graph,
@@ -414,6 +416,7 @@ async def _run_flow_inner(
     max_concurrent: int = 0,
     output_format: str = "text",
     team_name: str | None = None,
+    team_attach: str | None = None,
     max_agents: int = 0,
     dry_run: bool = False,
     show_graph: bool = False,
@@ -480,7 +483,7 @@ async def _run_flow_inner(
                 f"{budget_note}"
                 f"{artifact_guidance}"
                 f"{EFFORT_GUIDANCE}"
-                f"{team_guidance(team_name)}"
+                f"{team_guidance(team_attach or team_name)}"
                 f"{FlowPlan.PLANNING_DISCIPLINE}"
             ),
         ),
@@ -610,7 +613,20 @@ async def _run_flow_inner(
         agent_id_to_name[a.id] = wname
         all_agent_names.append(wname)
 
-    if team_name:
+    if team_attach:
+        # Upsert: load existing team by name, else create a fresh one.
+        from ..team import _load_team
+
+        try:
+            env.team_data = _load_team(team_attach)
+            progress(
+                f"Team '{team_attach}' attached ({env.team_data['id']}, "
+                f"{len(env.team_data.get('messages', []))} prior msgs)"
+            )
+        except FileNotFoundError:
+            env.team_data = _create_fanout_team(team_attach, all_agent_names)
+            progress(f"Team '{team_attach}' created ({env.team_data['id']})")
+    elif team_name:
         env.team_data = _create_fanout_team(team_name, all_agent_names)
         progress(f"Team '{team_name}' created ({env.team_data['id']})")
     team_data = env.team_data

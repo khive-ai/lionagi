@@ -18,10 +18,51 @@ import argparse
 import signal
 import sys
 
-from ._logging import configure_cli_logging
+from ._logging import configure_cli_logging, log_error
 from .agent import add_agent_subparser, run_agent
-from .orchestrate import add_orchestrate_subparser, run_orchestrate
+from .orchestrate import (
+    add_orchestrate_subparser,
+    inject_playbook_schema_into_parser,
+    run_orchestrate,
+)
+from .skill import run_skill
 from .team import add_team_subparser, run_team
+
+
+def _handle_play_shortcut(argv: list[str]) -> list[str] | int:
+    """Expand `li play` sugar into `li o flow -p NAME ...`.
+
+    Returns the rewritten argv (list[str]), or an exit code (int) if the
+    subcommand fully handled the invocation (e.g. `li play list`).
+    """
+    from pathlib import Path
+
+    if not argv or argv[0] != "play":
+        return argv
+    rest = argv[1:]
+    if not rest:
+        print("Usage: li play <name> [args...]  |  li play list")
+        return 1
+    head = rest[0]
+    if head == "list":
+        root = Path("~/.lionagi/playbooks").expanduser()
+        if not root.is_dir():
+            print(f"(no playbooks directory at {root})")
+            return 0
+        names = sorted(
+            p.name.removesuffix(".playbook.yaml") for p in root.glob("*.playbook.yaml")
+        )
+        if not names:
+            print(f"(no playbooks in {root})")
+            return 0
+        for name in names:
+            print(name)
+        return 0
+    if head.startswith("-"):
+        log_error("li play NAME must come before flags")
+        return 1
+    # Rewrite `play <name> [...]` → `o flow -p <name> [...]`
+    return ["o", "flow", "-p", head, *rest[1:]]
 
 
 def _get_version() -> str:
@@ -39,6 +80,18 @@ def main(argv: list[str] | None = None) -> int:
     verbose = "-v" in _argv or "--verbose" in _argv
     configure_cli_logging(verbose)
 
+    # `li skill NAME` prints a CC-compatible skill body to stdout.
+    # Never falls through to argparse — dispatch directly.
+    if _argv and _argv[0] == "skill":
+        return run_skill(_argv[1:])
+
+    # `li play NAME [...]` is sugar for `li o flow -p NAME [...]`.
+    # Rewrite argv before argparse runs. Also handles `li play list`.
+    rewritten = _handle_play_shortcut(_argv)
+    if isinstance(rewritten, int):
+        return rewritten
+    _argv = rewritten
+
     parser = argparse.ArgumentParser(
         prog="li",
         description="lionagi command line — spawn subagents via any CLI-backed provider.",
@@ -50,11 +103,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    add_orchestrate_subparser(sub)
+    orch_parsers = add_orchestrate_subparser(sub)
     add_agent_subparser(sub)
     add_team_subparser(sub)
 
-    args = parser.parse_args(argv)
+    # If the user is invoking `li o flow -p NAME`, inject the playbook's
+    # declared args as flags on the flow sub-parser BEFORE argparse runs,
+    # so positional prompts don't swallow flag values.
+    inject_playbook_schema_into_parser(orch_parsers["flow"], _argv)
+
+    args = parser.parse_args(_argv)
 
     if args.command in ("orchestrate", "o"):
         return run_orchestrate(args)

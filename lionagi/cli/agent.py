@@ -170,7 +170,8 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         metavar="NAME",
         default=None,
         help=(
-            "Load agent profile from .lionagi/agents/<NAME>.md. "
+            "Load agent profile by name. Resolves "
+            ".lionagi/agents/<NAME>/<NAME>.md first, then .lionagi/agents/<NAME>.md. "
             "Profile provides system prompt, default model, effort, yolo. "
             "CLI flags override profile settings."
         ),
