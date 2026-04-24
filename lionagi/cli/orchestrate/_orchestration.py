@@ -357,6 +357,12 @@ def build_worker_branch(
     artifact_dir = env.run.agent_artifact_dir(agent_id)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     w_imodel.endpoint.config.kwargs["repo"] = artifact_dir
+    # Grant write access to the actual project directory so workers can
+    # edit source files, not just their artifact sandbox.
+    project_root = str(Path(env.cwd).resolve()) if env.cwd else str(Path.cwd().resolve())
+    w_imodel.endpoint.config.kwargs.setdefault("add_dir", [])
+    if project_root not in w_imodel.endpoint.config.kwargs["add_dir"]:
+        w_imodel.endpoint.config.kwargs["add_dir"].append(project_root)
 
     # Name assignment — caller may pre-compute, otherwise we dedupe by role.
     if explicit_name is not None:
