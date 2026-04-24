@@ -267,6 +267,53 @@ def _load_flow_spec(path: str) -> dict | None:
     return data
 
 
+def _validate_spec_fields(spec: dict) -> str | None:
+    """Validate spec field types and ranges. Returns an error message or None."""
+    workers = spec.get("workers")
+    if workers is not None:
+        if not isinstance(workers, int) or isinstance(workers, bool):
+            return f"spec field 'workers' must be an integer, got {type(workers).__name__}"
+        if not (1 <= workers <= 32):
+            return f"spec field 'workers' must be in [1, 32], got {workers}"
+
+    max_agents = spec.get("max_agents")
+    if max_agents is not None:
+        if not isinstance(max_agents, int) or isinstance(max_agents, bool):
+            return f"spec field 'max_agents' must be an integer, got {type(max_agents).__name__}"
+        if not (1 <= max_agents <= 50):
+            return f"spec field 'max_agents' must be in [1, 50], got {max_agents}"
+
+    effort = spec.get("effort")
+    if effort is not None:
+        if not isinstance(effort, str):
+            return f"spec field 'effort' must be a string, got {type(effort).__name__}"
+        if effort not in {"low", "medium", "high", "xhigh"}:
+            return f"spec field 'effort' must be one of ['high', 'low', 'medium', 'xhigh'], got {effort!r}"
+
+    for bool_field in ("bare", "dry_run", "with_synthesis"):
+        val = spec.get(bool_field)
+        if val is not None and not isinstance(val, bool):
+            return f"spec field {bool_field!r} must be a bool, got {type(val).__name__}"
+
+    prompt = spec.get("prompt")
+    if prompt is not None:
+        if not isinstance(prompt, str):
+            return f"spec field 'prompt' must be a string, got {type(prompt).__name__}"
+        if len(prompt) > 8192:
+            return "spec field 'prompt' exceeds maximum length of 8192 characters"
+
+    save = spec.get("save")
+    if save is not None and not isinstance(save, str):
+        return f"spec field 'save' must be a string, got {type(save).__name__}"
+
+    for str_field in ("model", "agent", "team_mode"):
+        val = spec.get(str_field)
+        if val is not None and not isinstance(val, str):
+            return f"spec field {str_field!r} must be a string, got {type(val).__name__}"
+
+    return None
+
+
 def run_orchestrate(args: argparse.Namespace) -> int:
     """Dispatch orchestrate sub-commands."""
     if args.orch_command == "fanout":
@@ -315,6 +362,10 @@ def run_orchestrate(args: argparse.Namespace) -> int:
         if file_spec:
             spec = _load_flow_spec(file_spec)
             if spec is None:
+                return 1
+            spec_err = _validate_spec_fields(spec)
+            if spec_err is not None:
+                log_error(spec_err)
                 return 1
             # If the file supplies the model/agent, argparse's lone positional
             # is a prompt override, not a model override.
@@ -367,6 +418,25 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             log_error("prompt is required (positional or via -f spec file)")
             return 1
 
+        if args.save is not None:
+            from pathlib import Path as _Path
+
+            _resolved_save = _Path(args.save).expanduser().resolve()
+            _safe_save = False
+            for _root in (_Path.cwd().resolve(), _Path.home().resolve()):
+                try:
+                    _resolved_save.relative_to(_root)
+                    _safe_save = True
+                    break
+                except ValueError:
+                    pass
+            if not _safe_save:
+                log_error(
+                    f"save path {str(_resolved_save)!r} escapes allowed roots "
+                    f"(must be under cwd or home)"
+                )
+                return 1
+
         background = getattr(args, "background", False)
         if background and not args.save:
             log_error("--background requires --save")
@@ -380,12 +450,13 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             log_root = _Path(args.save).expanduser()
             log_root.mkdir(parents=True, exist_ok=True)
             log_path = log_root / "flow.log"
-            proc = subprocess.Popen(
-                [sys.executable, "-m", "lionagi.cli", *bg_args],
-                stdout=open(log_path, "w"),
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+            with open(log_path, "w") as log_f:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "lionagi.cli", *bg_args],
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
             hint(f"Flow running in background (PID {proc.pid})")
             hint(f"Output: {log_path}")
             hint(f"Monitor: tail -f {log_path}")

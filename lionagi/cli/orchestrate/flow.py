@@ -266,14 +266,22 @@ def _topo_sort_ops(
 ) -> list[FlowOp]:
     """Topological sort of FlowOps so parents appear before children.
 
+    Uses iterative Kahn's BFS to avoid Python recursion limits on deep chains.
+
     Raises
     ------
     ValueError
-        If any ``depends_on`` references an id that is not in ``ops`` or
+        If ``len(ops) > 200`` (hard cap on plan size),
+        if any ``depends_on`` references an id not in ``ops`` or
         ``existing_op_ids`` (fail-closed on typos and hallucinated deps),
         if an op id is duplicated in ``ops``, or if the
         dependency graph has a cycle.
     """
+    if len(ops) > 200:
+        raise ValueError(
+            f"Plan has {len(ops)} operations; maximum allowed is 200"
+        )
+
     by_id: dict[str, FlowOp] = {}
     for op in ops:
         if op.id in by_id:
@@ -287,26 +295,36 @@ def _topo_sort_ops(
             if dep not in known_ids:
                 raise ValueError(f"Op {op.id!r} declares unknown dependency {dep!r}")
 
-    visited: set[str] = set()
-    in_progress: set[str] = set()
-    order: list[FlowOp] = []
+    # Kahn's BFS — only local (within-batch) deps affect sort order.
+    # Deps on existing_op_ids are satisfied by definition (already executed).
+    from collections import deque
 
-    def _visit(op_id: str) -> None:
-        if op_id in visited:
-            return
-        if op_id in in_progress:
-            raise ValueError(f"Dependency cycle detected involving {op_id!r}")
-        in_progress.add(op_id)
-        op = by_id[op_id]
+    in_degree: dict[str, int] = {op_id: 0 for op_id in by_id}
+    children: dict[str, list[str]] = {op_id: [] for op_id in by_id}
+    for op in ops:
         for dep in op.depends_on or []:
             if dep in by_id:
-                _visit(dep)
-        in_progress.discard(op_id)
-        visited.add(op_id)
-        order.append(op)
+                in_degree[op.id] += 1
+                children[dep].append(op.id)
 
-    for op in ops:
-        _visit(op.id)
+    queue: deque[str] = deque(
+        op_id for op_id in by_id if in_degree[op_id] == 0
+    )
+    order: list[FlowOp] = []
+
+    while queue:
+        op_id = queue.popleft()
+        order.append(by_id[op_id])
+        for child_id in children[op_id]:
+            in_degree[child_id] -= 1
+            if in_degree[child_id] == 0:
+                queue.append(child_id)
+
+    if len(order) != len(ops):
+        remaining = {op_id for op_id in by_id if by_id[op_id] not in order}
+        cycle_node = next(iter(remaining))
+        raise ValueError(f"Dependency cycle detected involving {cycle_node!r}")
+
     return order
 
 
