@@ -259,6 +259,45 @@ class FlowControlVerdict(HashableModel):
 FLOW_VERDICT_FIELDS = FieldModel(FlowControlVerdict, name="verdict")
 
 
+def _topo_sort_ops(ops: list[FlowOp]) -> list[FlowOp]:
+    """Topological sort of FlowOps so parents appear before children.
+
+    Raises
+    ------
+    ValueError
+        If any ``depends_on`` references an id that is not in ``ops``
+        (fail-closed on typos and hallucinated deps), or if the
+        dependency graph has a cycle.
+    """
+    by_id = {op.id: op for op in ops}
+
+    for op in ops:
+        for dep in op.depends_on or []:
+            if dep not in by_id:
+                raise ValueError(f"Op {op.id!r} declares unknown dependency {dep!r}")
+
+    visited: set[str] = set()
+    in_progress: set[str] = set()
+    order: list[FlowOp] = []
+
+    def _visit(op_id: str) -> None:
+        if op_id in visited:
+            return
+        if op_id in in_progress:
+            raise ValueError(f"Dependency cycle detected involving {op_id!r}")
+        in_progress.add(op_id)
+        op = by_id[op_id]
+        for dep in op.depends_on or []:
+            _visit(dep)
+        in_progress.discard(op_id)
+        visited.add(op_id)
+        order.append(op)
+
+    for op in ops:
+        _visit(op.id)
+    return order
+
+
 def _format_flow_result_text(
     agent_results: list[dict],
     synthesis_result: dict | None = None,
@@ -444,6 +483,14 @@ async def _run_flow_inner(
                 f"Invalid plan: op {op.id!r} references unknown agent "
                 f"{op.agent_id!r} (known: {sorted(agent_ids)})"
             )
+
+    # Validate topology and depends_on targets up front. Rejects plans
+    # with typo'd deps or dependency cycles before we spend any agent
+    # time executing them.
+    try:
+        _topo_sort_ops(plan.operations)
+    except ValueError as e:
+        return f"Invalid plan: {e}"
 
     # max_agents caps the total operation count — that is the real work
     # budget. Agent count is bounded implicitly by the op count since
@@ -841,6 +888,12 @@ async def _run_flow_inner(
 
             if not new_ops:
                 progress("Re-plan: no executable new ops; ending.")
+                continue
+
+            try:
+                new_ops = _topo_sort_ops(new_ops)
+            except ValueError as e:
+                progress(f"Re-plan rejected: {e}")
                 continue
 
             ids = ", ".join(o.id for o in new_ops)
