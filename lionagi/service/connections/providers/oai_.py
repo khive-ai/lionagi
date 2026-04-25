@@ -178,8 +178,15 @@ class DeepseekChatEndpoint(Endpoint):
         **kwargs,
     ):
         payload, headers = super().create_payload(request, extra_headers, **kwargs)
+        # Validate top-level DeepSeek fields (thinking, reasoning_effort)
+        # but preserve original messages — re-serializing through the model
+        # would strip DeepSeek-specific fields like reasoning_content from
+        # assistant messages that the OpenAI base model doesn't define.
+        original_messages = payload.get("messages")
         req = DeepseekChatCompletionsRequest.model_validate(payload)
         payload = req.model_dump(exclude_none=True, mode="json")
+        if original_messages is not None:
+            payload["messages"] = original_messages
         return payload, headers
 
     async def _call(self, payload: dict, headers: dict, **kwargs):
