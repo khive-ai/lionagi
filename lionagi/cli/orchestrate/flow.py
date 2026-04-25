@@ -823,9 +823,13 @@ async def _run_flow_inner(
     def _record_result(result: dict) -> None:
         """Append result and persist immediately to artifact dir."""
         agent_results.append(result)
-        agent_dir = run.agent_artifact_dir(result["agent_id"])
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / f"{result['id']}.md").write_text(result["response"])
+        try:
+            agent_dir = run.agent_artifact_dir(result["agent_id"])
+            agent_dir.mkdir(parents=True, exist_ok=True)
+            (agent_dir / f"{result['id']}.md").write_text(result["response"])
+        except OSError as exc:
+            from .._logging import warn as _warn
+            _warn(f"Failed to save artifact for {result['id']}: {exc}")
 
     regular_ops = [op for op in plan.operations if not op.control]
     control_ops = [op for op in plan.operations if op.control]
