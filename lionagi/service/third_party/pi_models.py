@@ -10,6 +10,7 @@ import contextlib
 import json
 import logging
 import shutil
+import warnings
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from dataclasses import field as datafield
@@ -54,11 +55,10 @@ __all__ = (
 
 # Model name prefix → pi --provider value.
 # Longest prefixes first to avoid false matches.
-# Model prefix → pi --provider. Only unambiguous prefixes where the
-# model name uniquely identifies the provider. strip=True removes the
-# prefix from the model (needed for openrouter/ routing).
-# Ambiguous names (llama, gemma, mistral — available on multiple
-# providers) are omitted; set provider explicitly or let pi resolve.
+# Model name prefix → pi --provider value.
+# Longest prefixes first to avoid false matches.
+# Entries with strip=True remove the prefix from the model name
+# (needed for OpenRouter where "openrouter/google/gemini" → --model google/gemini).
 _PI_MODEL_PROVIDER_MAP: list[tuple[str, str, bool]] = [
     ("openrouter/", "openrouter", True),
     ("deepseek-", "deepseek", False),
@@ -67,11 +67,15 @@ _PI_MODEL_PROVIDER_MAP: list[tuple[str, str, bool]] = [
     ("o1", "openai", False),
     ("o3", "openai", False),
     ("o4", "openai", False),
+    ("gemini-", "google", False),
+    ("gemma-", "google", False),
+    ("llama-", "groq", False),
+    ("mistral-", "mistral", False),
+    ("codestral-", "mistral", False),
 ]
 
 
 # --------------------------------------------------------------------------- flag metadata
-
 
 def _cli(
     flag: str,
@@ -86,7 +90,6 @@ def _cli(
 
 
 # --------------------------------------------------------------------------- request model
-
 
 class PiCodeRequest(BaseModel):
     """Configuration + prompt for a Pi coding agent CLI invocation.
@@ -111,7 +114,8 @@ class PiCodeRequest(BaseModel):
     )
     api_key: str | None = Field(
         default=None,
-        description="API key override (passed via env, not CLI args)",
+        description="API key override",
+        json_schema_extra=_cli("--api-key", 12),
     )
     thinking: PiThinkingLevel | None = Field(
         default=None,
@@ -221,7 +225,7 @@ class PiCodeRequest(BaseModel):
             if model.startswith(prefix):
                 data["provider"] = prov
                 if strip:
-                    data["model"] = model[len(prefix) :]
+                    data["model"] = model[len(prefix):]
                 break
         return data
 
@@ -261,36 +265,14 @@ class PiCodeRequest(BaseModel):
         # declarative flags
         args.extend(self._build_declarative_args())
 
-        # file references before prompt
+        # file references
         for f in self.file_args:
             args.append(f"@{f}" if not f.startswith("@") else f)
 
-        # Pi's arg parser has no -- terminator support; prompt is
-        # positional. Prompts starting with - or @ may be misparsed
-        # by Pi's CLI — callers should avoid leading dashes in prompts.
+        # prompt always last
         args.append(self.prompt)
 
         return args
-
-    # Pi's env var names per provider (from pi-ai/src/env-api-keys.ts)
-    _PI_ENV_KEY_MAP: dict[str, str] = {
-        "google": "GEMINI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "mistral": "MISTRAL_API_KEY",
-        "xai": "XAI_API_KEY",
-    }
-
-    def env(self) -> dict[str, str] | None:
-        """Environment overrides for the subprocess (API key injection)."""
-        if not self.api_key:
-            return None
-        provider = self.provider or "google"
-        key = self._PI_ENV_KEY_MAP.get(provider, f"{provider.upper()}_API_KEY")
-        return {key: self.api_key}
 
     def _build_declarative_args(self) -> list[str]:
         """Collect fields with ``_cli()`` metadata and emit flags."""
@@ -368,9 +350,7 @@ def _extract_summary(session: PiSession) -> dict[str, Any]:
     tool_counts: dict[str, int] = {}
     key_actions: list[str] = []
     file_operations: dict[str, list[str]] = {
-        "reads": [],
-        "writes": [],
-        "edits": [],
+        "reads": [], "writes": [], "edits": [],
     }
 
     for tu in session.tool_uses:
@@ -428,19 +408,12 @@ async def _ndjson_from_cli(request: PiCodeRequest):
             "Pi CLI not found. Install with: npm i -g @mariozechner/pi-coding-agent"
         )
 
-    import os
-
-    env = None
-    if request.env():
-        env = {**os.environ, **request.env()}
-
     proc = await asyncio.create_subprocess_exec(
         PI_CLI,
         *request.as_cmd_args(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(request.repo),
-        env=env,
         start_new_session=True,
     )
 
@@ -479,12 +452,12 @@ async def _ndjson_from_cli(request: PiCodeRequest):
             except json.JSONDecodeError:
                 log.error("Skipped unrecoverable JSON tail: %.120s...", buffer)
 
-        rc = await proc.wait()
-        if rc != 0:
+        if await proc.wait() != 0:
             err = ""
             if proc.stderr is not None:
                 err = (await proc.stderr.read()).decode().strip()
-            raise RuntimeError(err or f"Pi CLI exited with code {rc}")
+            if err:
+                raise RuntimeError(err)
 
     finally:
         with contextlib.suppress(ProcessLookupError):
@@ -501,7 +474,9 @@ async def _ndjson_from_cli(request: PiCodeRequest):
 async def stream_pi_cli_events(request: PiCodeRequest):
     """Stream events from Pi CLI."""
     if not PI_CLI:
-        raise RuntimeError("Pi CLI not found (npm i -g @mariozechner/pi-coding-agent)")
+        raise RuntimeError(
+            "Pi CLI not found (npm i -g @mariozechner/pi-coding-agent)"
+        )
     async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
         async for obj in stream:
             yield obj
@@ -519,9 +494,7 @@ def _pp_tool_use(tu: dict[str, Any], theme: str = "light") -> None:
     preview = shorten(str(tu.get("input", tu.get("args", {}))).replace("\n", " "), 130)
     print_readable(
         f"- Tool Use — {tu.get('name', tu.get('toolName', 'unknown'))}: {preview}",
-        border=False,
-        panel=False,
-        theme=theme,
+        border=False, panel=False, theme=theme,
     )
 
 
@@ -530,73 +503,11 @@ def _pp_tool_result(tr: dict[str, Any], theme: str = "light") -> None:
     status = "ERR" if tr.get("isError", tr.get("is_error")) else "OK"
     print_readable(
         f"- Tool Result — {status}: {body}",
-        border=False,
-        panel=False,
-        theme=theme,
+        border=False, panel=False, theme=theme,
     )
 
 
 # --------------------------------------------------------------------------- main parser
-
-
-def _assistant_message_text(message: dict[str, Any]) -> str:
-    content = message.get("content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
-        return "\n".join(part for part in parts if part)
-    return ""
-
-
-def _remember_assistant_message(
-    session: PiSession,
-    message: dict[str, Any] | None,
-) -> None:
-    if not isinstance(message, dict):
-        return
-
-    if model := message.get("model"):
-        session.model = model
-    if usage := message.get("usage"):
-        if isinstance(usage, dict):
-            session.usage = usage
-    if text := _assistant_message_text(message):
-        session.result = text
-
-
-def _tool_call_from_event(event: dict[str, Any]) -> dict[str, Any]:
-    tc = event.get("toolCall", event)
-    args = tc.get("arguments", tc.get("args", tc.get("input", {})))
-    if isinstance(args, str):
-        with contextlib.suppress(json.JSONDecodeError):
-            args = json.loads(args)
-    return {
-        "id": tc.get("id", tc.get("toolCallId", "")),
-        "name": tc.get("name", tc.get("toolName", "")),
-        "input": args,
-    }
-
-
-def _error_message_from_event(event: dict[str, Any]) -> str:
-    error = event.get("error")
-    if isinstance(error, dict):
-        return (
-            error.get("errorMessage")
-            or error.get("message")
-            or _assistant_message_text(error)
-            or str(error)
-        )
-    return (
-        event.get("errorMessage")
-        or event.get("message")
-        or (str(error) if error is not None else str(event))
-    )
 
 
 async def stream_pi_cli(
@@ -610,9 +521,10 @@ async def stream_pi_cli(
 ) -> AsyncIterator[PiChunk | dict | PiSession]:
     """Consume JSONL stream from Pi CLI and return a populated PiSession.
 
-    Pi events follow the AgentEvent schema. Assistant deltas are carried by
-    message_update.assistantMessageEvent and use the pi-ai
-    AssistantMessageEvent discriminated union.
+    Pi events follow the AgentEvent schema:
+      agent_start, agent_end, turn_start, turn_end,
+      message_start, message_update, message_end,
+      tool_execution_start, tool_execution_update, tool_execution_end
     """
     if session is None:
         session = PiSession()
@@ -631,16 +543,21 @@ async def stream_pi_cli(
 
             elif typ == "agent_end":
                 msgs = obj.get("messages", [])
+                session.messages.extend(msgs)
                 if msgs:
-                    _remember_assistant_message(session, msgs[-1])
+                    last = msgs[-1]
+                    content = last.get("content", "")
+                    if isinstance(content, str):
+                        session.result = content
                 yield chunk
 
-            elif typ == "turn_start":
+            elif typ in ("turn_start",):
                 yield chunk
 
             elif typ == "turn_end":
+                msg = obj.get("message", {})
+                session.messages.append(msg)
                 session.num_turns = (session.num_turns or 0) + 1
-                _remember_assistant_message(session, obj.get("message"))
                 yield chunk
 
             elif typ == "message_start":
@@ -650,52 +567,32 @@ async def stream_pi_cli(
                 event = obj.get("assistantMessageEvent", {})
                 etype = event.get("type", "")
 
-                if etype == "start":
-                    _remember_assistant_message(session, event.get("partial"))
-
-                elif etype == "text_delta":
-                    text = event.get("delta", "")
+                if etype in ("text_delta", "text_start", "text_end"):
+                    text = event.get("text", event.get("delta", ""))
                     if text:
                         chunk.text = text
                         if on_text:
-                            await _maybe_await(on_text, text)
+                            _maybe_call(on_text, text)
                         if request.verbose_output:
                             _pp_text(text, theme)
 
-                elif etype == "text_end":
-                    if text := event.get("content", ""):
-                        session.result = text
-
-                elif etype == "text_start":
-                    pass
-
-                elif etype == "thinking_delta":
-                    if text := event.get("delta", ""):
+                elif etype in ("thinking_delta", "thinking_start", "thinking_end"):
+                    text = event.get("text", event.get("delta", ""))
+                    if text:
                         chunk.thinking = text
-
-                elif etype == "thinking_end":
-                    if text := event.get("content", ""):
-                        chunk.thinking = text
-
-                elif etype == "thinking_start":
-                    pass
-
-                elif etype == "done":
-                    _remember_assistant_message(session, event.get("message"))
-
-                elif etype == "error":
-                    session.is_error = True
-                    session.result = _error_message_from_event(event)
-                    yield chunk
-                    continue
 
                 elif etype in ("toolcall_start", "toolcall_delta", "toolcall_end"):
                     if etype == "toolcall_end":
-                        tu = _tool_call_from_event(event)
+                        tc = event.get("toolCall", event)
+                        tu = {
+                            "id": tc.get("id", tc.get("toolCallId", "")),
+                            "name": tc.get("name", tc.get("toolName", "")),
+                            "input": tc.get("arguments", tc.get("args", tc.get("input", {}))),
+                        }
                         chunk.tool_use = tu
                         session.tool_uses.append(tu)
                         if on_tool_use:
-                            await _maybe_await(on_tool_use, tu)
+                            _maybe_call(on_tool_use, tu)
                         if request.verbose_output:
                             _pp_tool_use(tu, theme)
 
@@ -705,7 +602,6 @@ async def stream_pi_cli(
                 msg = obj.get("message", {})
                 if msg:
                     session.messages.append(msg)
-                    _remember_assistant_message(session, msg)
                 yield chunk
 
             elif typ == "tool_execution_start":
@@ -729,7 +625,7 @@ async def stream_pi_cli(
                 chunk.tool_result = tr
                 session.tool_results.append(tr)
                 if on_tool_result:
-                    await _maybe_await(on_tool_result, tr)
+                    _maybe_call(on_tool_result, tr)
                 if request.verbose_output:
                     _pp_tool_result(tr, theme)
                 yield chunk
@@ -739,11 +635,6 @@ async def stream_pi_cli(
 
             elif typ == "done":
                 break
-
-            elif typ == "error":
-                session.is_error = True
-                session.result = _error_message_from_event(obj)
-                yield chunk
 
             else:
                 yield chunk
@@ -758,18 +649,18 @@ async def stream_pi_cli(
     if session.num_turns is None and session.messages:
         session.num_turns = len(session.messages)
     if session.duration_ms is None:
-        session.duration_ms = int((asyncio.get_running_loop().time() - _start) * 1000)
+        session.duration_ms = int(
+            (asyncio.get_running_loop().time() - _start) * 1000
+        )
 
     if on_final:
-        await _maybe_await(on_final, session)
+        _maybe_call(on_final, session)
 
     yield session
 
 
-async def _maybe_await(func, *args):
-    """Call func which may be sync or async."""
+def _maybe_call(func, *args):
     import inspect
-
     res = func(*args) if func else None
     if inspect.iscoroutine(res):
-        await res
+        asyncio.get_running_loop().create_task(res)

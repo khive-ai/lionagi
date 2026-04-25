@@ -72,7 +72,7 @@ def match_endpoint(
 
             return NvidiaNimChatEndpoint(None, **kwargs)
     if provider == "deepseek" and "chat" in endpoint:
-        from .providers.deepseek_ import DeepseekChatEndpoint
+        from .providers.oai_ import DeepseekChatEndpoint
 
         return DeepseekChatEndpoint(None, **kwargs)
     if provider in {"claude_code", "claude-code", "claude"}:

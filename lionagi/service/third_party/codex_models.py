@@ -125,7 +125,7 @@ class CodexCodeRequest(BaseModel):
         json_schema_extra=_cli("--oss", 12, "bool"),
     )
     search: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Enable live web search for Codex. Since 2026-04, the old "
             "`--search` flag was removed; web search is now exposed as the "

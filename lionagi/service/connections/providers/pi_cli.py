@@ -84,17 +84,18 @@ class PiCLIEndpoint(CLIEndpoint):
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
-        session = PiSession()
-        async with contextlib.aclosing(stream_pi_cli(request_obj, session)) as gen:
+        async with contextlib.aclosing(stream_pi_cli(request_obj)) as gen:
             async for item in gen:
                 if isinstance(item, PiSession):
-                    yield StreamChunk(
-                        type="result",
-                        content=item.result or "",
-                        metadata={"session_id": item.session_id},
-                    )
                     continue
                 if isinstance(item, dict):
+                    typ = item.get("type", "")
+                    if typ == "result":
+                        yield StreamChunk(
+                            type="result",
+                            content=item.get("result", ""),
+                            metadata=item,
+                        )
                     continue
                 if isinstance(item, PiChunk):
                     if item.text is not None:
@@ -117,6 +118,18 @@ class PiCLIEndpoint(CLIEndpoint):
                             tool_output=tr.get("content"),
                             is_error=tr.get("is_error", False),
                         )
+                    if (
+                        item.text is None
+                        and item.thinking is None
+                        and item.tool_use is None
+                        and item.tool_result is None
+                        and item.type == "agent_end"
+                    ):
+                        yield StreamChunk(
+                            type="result",
+                            content=item.raw.get("result", ""),
+                            metadata=item.raw,
+                        )
 
     async def _call(
         self,
@@ -137,7 +150,9 @@ class PiCLIEndpoint(CLIEndpoint):
                         break
                 responses.append(chunk)
 
-        pi_log.info(f"Session finished with {len(responses)} chunks")
+        pi_log.info(
+            f"Session finished with {len(responses)} chunks"
+        )
         if not session.result:
             texts = [c.text for c in session.chunks if c.text is not None]
             session.result = "\n".join(texts)

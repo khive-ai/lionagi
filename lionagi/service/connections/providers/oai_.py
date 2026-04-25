@@ -144,6 +144,30 @@ class GeminiChatEndpoint(Endpoint):
         super().__init__(config, **kwargs)
 
 
+def _get_deepseek_config(**kwargs):
+    """Create DeepSeek endpoint configuration with defaults."""
+    config = dict(
+        name="deepseek_chat",
+        provider="deepseek",
+        base_url="https://api.deepseek.com/v1",
+        endpoint="chat/completions",
+        kwargs={"model": "deepseek-chat"},
+        api_key=settings.DEEPSEEK_API_KEY or "dummy-key-for-testing",
+        auth_type="bearer",
+        content_type="application/json",
+        method="POST",
+        request_options=OpenAIChatCompletionsRequest,
+    )
+    config.update(kwargs)
+    return EndpointConfig(**config)
+
+
+class DeepseekChatEndpoint(Endpoint):
+    def __init__(self, config=None, **kwargs):
+        config = config or _get_deepseek_config()
+        super().__init__(config, **kwargs)
+
+
 class OpenaiEmbedEndpoint(Endpoint):
     def __init__(self, config=None, **kwargs):
         config = config or _get_oai_config(
