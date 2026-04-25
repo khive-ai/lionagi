@@ -1,0 +1,666 @@
+# Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+"""Pi coding agent CLI integration — request model, NDJSON stream, session."""
+
+from __future__ import annotations
+
+import asyncio
+import codecs
+import contextlib
+import json
+import logging
+import shutil
+import warnings
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
+from dataclasses import field as datafield
+from functools import partial
+from pathlib import Path
+from textwrap import shorten
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from lionagi import ln
+from lionagi.libs.schema.as_readable import as_readable
+
+HAS_PI_CLI = False
+PI_CLI = None
+
+if (c := (shutil.which("pi") or "pi")) and shutil.which(c):
+    HAS_PI_CLI = True
+    PI_CLI = c
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("pi-cli")
+
+
+# --------------------------------------------------------------------------- types
+
+PiThinkingLevel = Literal[
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+]
+
+__all__ = (
+    "PiChunk",
+    "PiCodeRequest",
+    "PiSession",
+    "stream_pi_cli",
+)
+
+# Model name prefix → pi --provider value.
+# Longest prefixes first to avoid false matches.
+# Model name prefix → pi --provider value.
+# Longest prefixes first to avoid false matches.
+# Entries with strip=True remove the prefix from the model name
+# (needed for OpenRouter where "openrouter/google/gemini" → --model google/gemini).
+_PI_MODEL_PROVIDER_MAP: list[tuple[str, str, bool]] = [
+    ("openrouter/", "openrouter", True),
+    ("deepseek-", "deepseek", False),
+    ("claude-", "anthropic", False),
+    ("gpt-", "openai", False),
+    ("o1", "openai", False),
+    ("o3", "openai", False),
+    ("o4", "openai", False),
+    ("gemini-", "google", False),
+    ("gemma-", "google", False),
+    ("llama-", "groq", False),
+    ("mistral-", "mistral", False),
+    ("codestral-", "mistral", False),
+]
+
+
+# --------------------------------------------------------------------------- flag metadata
+
+def _cli(
+    flag: str,
+    order: int,
+    kind: str = "value",
+) -> dict[str, Any]:
+    return {
+        "cli_flag": flag,
+        "cli_order": order,
+        "cli_kind": kind,
+    }
+
+
+# --------------------------------------------------------------------------- request model
+
+class PiCodeRequest(BaseModel):
+    """Configuration + prompt for a Pi coding agent CLI invocation.
+
+    Fields annotated with ``_cli(...)`` metadata are automatically
+    assembled into CLI arguments by :meth:`as_cmd_args`, sorted by order.
+    """
+
+    # ── prompt (always required) ──────────────────────────────────
+    prompt: str = Field(description="The prompt for Pi CLI")
+
+    # ── provider & model (order 10–19) ────────────────────────────
+    provider: str | None = Field(
+        default=None,
+        description="API provider (google, anthropic, openai, deepseek, etc.)",
+        json_schema_extra=_cli("--provider", 10),
+    )
+    model: str | None = Field(
+        default=None,
+        description="Model pattern or ID",
+        json_schema_extra=_cli("--model", 11),
+    )
+    api_key: str | None = Field(
+        default=None,
+        description="API key override",
+        json_schema_extra=_cli("--api-key", 12),
+    )
+    thinking: PiThinkingLevel | None = Field(
+        default=None,
+        description="Reasoning depth level",
+        json_schema_extra=_cli("--thinking", 13),
+    )
+
+    # ── session (order 20–29) ─────────────────────────────────────
+    no_session: bool = Field(
+        default=True,
+        description="Don't save session (ephemeral)",
+        json_schema_extra=_cli("--no-session", 20, "bool"),
+    )
+
+    # ── tools (order 30–39) ───────────────────────────────────────
+    tools: list[str] | None = Field(
+        default=None,
+        description="Comma-separated allowlist of tool names",
+        json_schema_extra=_cli("--tools", 30, "repeat"),
+    )
+    no_tools: bool = Field(
+        default=False,
+        description="Disable all tools",
+        json_schema_extra=_cli("--no-tools", 31, "bool"),
+    )
+    no_builtin_tools: bool = Field(
+        default=False,
+        description="Disable built-in tools but keep extensions",
+        json_schema_extra=_cli("--no-builtin-tools", 32, "bool"),
+    )
+
+    # ── prompt control (order 40–49) ──────────────────────────────
+    system_prompt: str | None = Field(
+        default=None,
+        description="Override default system prompt",
+        json_schema_extra=_cli("--system-prompt", 40),
+    )
+    append_system_prompt: list[str] | None = Field(
+        default=None,
+        description="Append text/file to system prompt",
+        json_schema_extra=_cli("--append-system-prompt", 41, "repeat"),
+    )
+    no_context_files: bool = Field(
+        default=False,
+        description="Disable AGENTS.md/CLAUDE.md loading",
+        json_schema_extra=_cli("--no-context-files", 42, "bool"),
+    )
+
+    # ── extensions & skills (order 50–59) ─────────────────────────
+    extension: list[str] | None = Field(
+        default=None,
+        description="Load extension file(s)",
+        json_schema_extra=_cli("--extension", 50, "repeat"),
+    )
+    skill: list[str] | None = Field(
+        default=None,
+        description="Load skill file or directory",
+        json_schema_extra=_cli("--skill", 51, "repeat"),
+    )
+    no_extensions: bool = Field(
+        default=False,
+        description="Disable extension discovery",
+        json_schema_extra=_cli("--no-extensions", 52, "bool"),
+    )
+    no_skills: bool = Field(
+        default=False,
+        description="Disable skill discovery",
+        json_schema_extra=_cli("--no-skills", 53, "bool"),
+    )
+
+    # ── workspace (not a CLI flag, used for cwd) ──────────────────
+    repo: Path = Field(default_factory=Path.cwd, exclude=True)
+
+    # ── file references (@ prefixed) ─────────────────────────────
+    file_args: list[str] = Field(
+        default_factory=list,
+        description="File paths to include (will be @-prefixed)",
+    )
+
+    # ── lionagi internal (no CLI flags) ───────────────────────────
+    verbose_output: bool = Field(default=False, exclude=True)
+    cli_display_theme: Literal["light", "dark"] = Field(default="light", exclude=True)
+    cli_include_summary: bool = Field(default=False, exclude=True)
+
+    # ── validators ────────────────────────────────────────────────
+
+    @field_validator("tools", mode="before")
+    def _norm_tools(cls, v):
+        if isinstance(v, str):
+            return [v]
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_provider_from_model(cls, data):
+        """Infer pi's --provider from model name when not explicitly set.
+
+        Pi CLI needs both --provider and --model. When lionagi passes
+        model="deepseek-chat", we detect the provider prefix so pi
+        routes to the correct API. For OpenRouter, the prefix is also
+        stripped from the model name (openrouter/vendor/id → vendor/id).
+        """
+        if data.get("provider"):
+            return data
+        model = data.get("model") or ""
+        for prefix, prov, strip in _PI_MODEL_PROVIDER_MAP:
+            if model.startswith(prefix):
+                data["provider"] = prov
+                if strip:
+                    data["model"] = model[len(prefix):]
+                break
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_message_prompt(cls, data):
+        """Convert messages format to prompt if needed."""
+        if data.get("prompt"):
+            return data
+
+        if not (msg := data.get("messages")):
+            raise ValueError("messages or prompt required")
+
+        prompts = []
+        for message in msg:
+            if message["role"] != "system":
+                content = message["content"]
+                if isinstance(content, (dict, list)):
+                    prompts.append(ln.json_dumps(content))
+                else:
+                    prompts.append(content)
+            elif message["role"] == "system" and not data.get("system_prompt"):
+                data["system_prompt"] = message["content"]
+
+        data["prompt"] = "\n".join(prompts)
+        return data
+
+    # ── CLI command builder ───────────────────────────────────────
+
+    def as_cmd_args(self) -> list[str]:
+        """Build argument list for ``pi`` invocation.
+
+        Structure: ``-p --mode json [flags] [--] [prompt] [@files...]``
+        """
+        args: list[str] = ["-p", "--mode", "json"]
+
+        # declarative flags
+        args.extend(self._build_declarative_args())
+
+        # file references
+        for f in self.file_args:
+            args.append(f"@{f}" if not f.startswith("@") else f)
+
+        # prompt always last
+        args.append(self.prompt)
+
+        return args
+
+    def _build_declarative_args(self) -> list[str]:
+        """Collect fields with ``_cli()`` metadata and emit flags."""
+        flagged: list[tuple[int, dict, Any]] = []
+        for field_name, field_info in type(self).model_fields.items():
+            extra = field_info.json_schema_extra
+            if not extra or "cli_flag" not in extra:
+                continue
+            val = getattr(self, field_name)
+            if val is None:
+                continue
+            if isinstance(val, list) and not val:
+                continue
+            if val is False:
+                continue
+            flagged.append((extra["cli_order"], extra, val))
+
+        flagged.sort(key=lambda x: x[0])
+
+        args: list[str] = []
+        for _, extra, val in flagged:
+            flag = extra["cli_flag"]
+            kind = extra.get("cli_kind", "value")
+
+            if kind == "bool":
+                if val:
+                    args.append(flag)
+            elif kind == "repeat":
+                for v in val:
+                    args.extend([flag, str(v)])
+            else:
+                args.extend([flag, str(val)])
+
+        return args
+
+
+# --------------------------------------------------------------------------- chunks & session
+
+
+@dataclass
+class PiChunk:
+    """Low-level wrapper around every JSON object from Pi CLI."""
+
+    raw: dict[str, Any]
+    type: str
+    text: str | None = None
+    thinking: str | None = None
+    tool_use: dict[str, Any] | None = None
+    tool_result: dict[str, Any] | None = None
+
+
+@dataclass
+class PiSession:
+    """Aggregated view of a whole Pi CLI conversation."""
+
+    session_id: str | None = None
+    model: str | None = None
+    chunks: list[PiChunk] = datafield(default_factory=list)
+    messages: list[dict[str, Any]] = datafield(default_factory=list)
+    tool_uses: list[dict[str, Any]] = datafield(default_factory=list)
+    tool_results: list[dict[str, Any]] = datafield(default_factory=list)
+    result: str = ""
+    usage: dict[str, Any] = datafield(default_factory=dict)
+    num_turns: int | None = None
+    duration_ms: int | None = None
+    is_error: bool = False
+    summary: dict | None = None
+
+    def populate_summary(self) -> None:
+        self.summary = _extract_summary(self)
+
+
+def _extract_summary(session: PiSession) -> dict[str, Any]:
+    """Extract summary from session data."""
+    tool_counts: dict[str, int] = {}
+    key_actions: list[str] = []
+    file_operations: dict[str, list[str]] = {
+        "reads": [], "writes": [], "edits": [],
+    }
+
+    for tu in session.tool_uses:
+        name = tu.get("name", "unknown")
+        inp = tu.get("input", tu.get("args", {}))
+        tool_counts[name] = tool_counts.get(name, 0) + 1
+
+        if name in ("read", "Read", "read_file"):
+            fp = inp.get("path", inp.get("file_path", "unknown"))
+            file_operations["reads"].append(fp)
+            key_actions.append(f"Read {fp}")
+        elif name in ("write", "Write", "write_file", "create_file"):
+            fp = inp.get("path", inp.get("file_path", "unknown"))
+            file_operations["writes"].append(fp)
+            key_actions.append(f"Wrote {fp}")
+        elif name in ("edit", "Edit", "edit_file", "patch"):
+            fp = inp.get("path", inp.get("file_path", "unknown"))
+            file_operations["edits"].append(fp)
+            key_actions.append(f"Edited {fp}")
+        elif name in ("bash", "Bash", "shell"):
+            cmd = inp.get("command", inp.get("cmd", ""))
+            cmd_short = cmd[:50] + "..." if len(cmd) > 50 else cmd
+            key_actions.append(f"Ran: {cmd_short}")
+        else:
+            key_actions.append(f"Used {name}")
+
+    for op_type in file_operations:
+        file_operations[op_type] = list(dict.fromkeys(file_operations[op_type]))
+
+    result_summary = (
+        (session.result[:200] + "...") if len(session.result) > 200 else session.result
+    )
+
+    return {
+        "tool_counts": tool_counts,
+        "file_operations": file_operations,
+        "key_actions": list(dict.fromkeys(key_actions)) or ["No specific actions"],
+        "total_tool_calls": sum(tool_counts.values()),
+        "result_summary": result_summary,
+        "usage_stats": {
+            "num_turns": session.num_turns,
+            "duration_ms": session.duration_ms,
+            **session.usage,
+        },
+    }
+
+
+# --------------------------------------------------------------------------- NDJSON stream
+
+
+async def _ndjson_from_cli(request: PiCodeRequest):
+    """Yields each JSON object emitted by Pi CLI (JSONL mode)."""
+    if PI_CLI is None:
+        raise RuntimeError(
+            "Pi CLI not found. Install with: npm i -g @mariozechner/pi-coding-agent"
+        )
+
+    proc = await asyncio.create_subprocess_exec(
+        PI_CLI,
+        *request.as_cmd_args(),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(request.repo),
+        start_new_session=True,
+    )
+
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    json_decoder = json.JSONDecoder()
+    buffer: str = ""
+
+    if proc.stdout is None:
+        raise RuntimeError("Failed to capture stdout from Pi CLI")
+
+    try:
+        while True:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
+                break
+
+            buffer += decoder.decode(chunk)
+
+            while buffer:
+                buffer = buffer.lstrip()
+                if not buffer:
+                    break
+                try:
+                    obj, idx = json_decoder.raw_decode(buffer)
+                    yield obj
+                    buffer = buffer[idx:]
+                except json.JSONDecodeError:
+                    break
+
+        buffer += decoder.decode(b"", final=True)
+        buffer = buffer.strip()
+        if buffer:
+            try:
+                obj, idx = json_decoder.raw_decode(buffer)
+                yield obj
+            except json.JSONDecodeError:
+                log.error("Skipped unrecoverable JSON tail: %.120s...", buffer)
+
+        if await proc.wait() != 0:
+            err = ""
+            if proc.stderr is not None:
+                err = (await proc.stderr.read()).decode().strip()
+            if err:
+                raise RuntimeError(err)
+
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
+
+
+async def stream_pi_cli_events(request: PiCodeRequest):
+    """Stream events from Pi CLI."""
+    if not PI_CLI:
+        raise RuntimeError(
+            "Pi CLI not found (npm i -g @mariozechner/pi-coding-agent)"
+        )
+    async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
+        async for obj in stream:
+            yield obj
+    yield {"type": "done"}
+
+
+print_readable = partial(as_readable, md=True, display_str=True)
+
+
+def _pp_text(text: str, theme: str = "light") -> None:
+    print_readable(f"\n    > Pi:\n    {text}\n", theme=theme)
+
+
+def _pp_tool_use(tu: dict[str, Any], theme: str = "light") -> None:
+    preview = shorten(str(tu.get("input", tu.get("args", {}))).replace("\n", " "), 130)
+    print_readable(
+        f"- Tool Use — {tu.get('name', tu.get('toolName', 'unknown'))}: {preview}",
+        border=False, panel=False, theme=theme,
+    )
+
+
+def _pp_tool_result(tr: dict[str, Any], theme: str = "light") -> None:
+    body = shorten(str(tr.get("result", tr.get("content", ""))).replace("\n", " "), 130)
+    status = "ERR" if tr.get("isError", tr.get("is_error")) else "OK"
+    print_readable(
+        f"- Tool Result — {status}: {body}",
+        border=False, panel=False, theme=theme,
+    )
+
+
+# --------------------------------------------------------------------------- main parser
+
+
+async def stream_pi_cli(
+    request: PiCodeRequest,
+    session: PiSession | None = None,
+    *,
+    on_text: Callable[[str], None] | None = None,
+    on_tool_use: Callable[[dict[str, Any]], None] | None = None,
+    on_tool_result: Callable[[dict[str, Any]], None] | None = None,
+    on_final: Callable[[PiSession], None] | None = None,
+) -> AsyncIterator[PiChunk | dict | PiSession]:
+    """Consume JSONL stream from Pi CLI and return a populated PiSession.
+
+    Pi events follow the AgentEvent schema:
+      agent_start, agent_end, turn_start, turn_end,
+      message_start, message_update, message_end,
+      tool_execution_start, tool_execution_update, tool_execution_end
+    """
+    if session is None:
+        session = PiSession()
+    theme = request.cli_display_theme or "light"
+    _start = asyncio.get_running_loop().time()
+
+    stream = stream_pi_cli_events(request)
+    try:
+        async for obj in stream:
+            typ = obj.get("type", "unknown")
+            chunk = PiChunk(raw=obj, type=typ)
+            session.chunks.append(chunk)
+
+            if typ == "agent_start":
+                yield obj
+
+            elif typ == "agent_end":
+                msgs = obj.get("messages", [])
+                session.messages.extend(msgs)
+                if msgs:
+                    last = msgs[-1]
+                    content = last.get("content", "")
+                    if isinstance(content, str):
+                        session.result = content
+                yield chunk
+
+            elif typ in ("turn_start",):
+                yield chunk
+
+            elif typ == "turn_end":
+                msg = obj.get("message", {})
+                session.messages.append(msg)
+                session.num_turns = (session.num_turns or 0) + 1
+                yield chunk
+
+            elif typ == "message_start":
+                yield chunk
+
+            elif typ == "message_update":
+                event = obj.get("assistantMessageEvent", {})
+                etype = event.get("type", "")
+
+                if etype in ("text_delta", "text_start", "text_end"):
+                    text = event.get("text", event.get("delta", ""))
+                    if text:
+                        chunk.text = text
+                        if on_text:
+                            _maybe_call(on_text, text)
+                        if request.verbose_output:
+                            _pp_text(text, theme)
+
+                elif etype in ("thinking_delta", "thinking_start", "thinking_end"):
+                    text = event.get("text", event.get("delta", ""))
+                    if text:
+                        chunk.thinking = text
+
+                elif etype in ("toolcall_start", "toolcall_delta", "toolcall_end"):
+                    if etype == "toolcall_end":
+                        tc = event.get("toolCall", event)
+                        tu = {
+                            "id": tc.get("id", tc.get("toolCallId", "")),
+                            "name": tc.get("name", tc.get("toolName", "")),
+                            "input": tc.get("arguments", tc.get("args", tc.get("input", {}))),
+                        }
+                        chunk.tool_use = tu
+                        session.tool_uses.append(tu)
+                        if on_tool_use:
+                            _maybe_call(on_tool_use, tu)
+                        if request.verbose_output:
+                            _pp_tool_use(tu, theme)
+
+                yield chunk
+
+            elif typ == "message_end":
+                msg = obj.get("message", {})
+                if msg:
+                    session.messages.append(msg)
+                yield chunk
+
+            elif typ == "tool_execution_start":
+                tu = {
+                    "id": obj.get("toolCallId", ""),
+                    "name": obj.get("toolName", ""),
+                    "input": obj.get("args", {}),
+                }
+                chunk.tool_use = tu
+                if request.verbose_output:
+                    _pp_tool_use(tu, theme)
+                yield chunk
+
+            elif typ == "tool_execution_end":
+                tr = {
+                    "tool_use_id": obj.get("toolCallId", ""),
+                    "name": obj.get("toolName", ""),
+                    "content": obj.get("result", ""),
+                    "is_error": obj.get("isError", False),
+                }
+                chunk.tool_result = tr
+                session.tool_results.append(tr)
+                if on_tool_result:
+                    _maybe_call(on_tool_result, tr)
+                if request.verbose_output:
+                    _pp_tool_result(tr, theme)
+                yield chunk
+
+            elif typ == "tool_execution_update":
+                yield chunk
+
+            elif typ == "done":
+                break
+
+            else:
+                yield chunk
+
+    finally:
+        await stream.aclose()
+
+    if not session.result:
+        parts = [c.text for c in session.chunks if c.text is not None]
+        if parts:
+            session.result = "\n".join(parts)
+    if session.num_turns is None and session.messages:
+        session.num_turns = len(session.messages)
+    if session.duration_ms is None:
+        session.duration_ms = int(
+            (asyncio.get_running_loop().time() - _start) * 1000
+        )
+
+    if on_final:
+        _maybe_call(on_final, session)
+
+    yield session
+
+
+def _maybe_call(func, *args):
+    import inspect
+    res = func(*args) if func else None
+    if inspect.iscoroutine(res):
+        asyncio.get_running_loop().create_task(res)

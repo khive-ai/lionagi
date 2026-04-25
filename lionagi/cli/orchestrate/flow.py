@@ -1182,10 +1182,15 @@ async def _run_flow_inner(
     else:
         output = _format_flow_result_text(agent_results, synthesis_result)
 
-    # ── Save synthesis (per-agent files are already in run.artifact_root/{id}/) ──
+    # ── Incremental save: persist op responses as files ──────────
+    for r in agent_results:
+        agent_dir = run.agent_artifact_dir(r["agent_id"])
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / f"{r['id']}.md").write_text(r["response"])
+    progress(f"Saved {len(agent_results)} op results to {run.artifact_root}")
+
     if synthesis_result:
         run.synthesis_path.write_text(synthesis_result["response"])
-    progress(f"Saved to {run.artifact_root}")
 
     if team_data:
         _post_results_to_team(
