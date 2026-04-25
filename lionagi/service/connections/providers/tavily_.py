@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 from lionagi.config import settings
-from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.third_party.tavily_models import (
     TavilyExtractRequest,
     TavilySearchRequest,
 )
+
+from ..endpoint import Endpoint, EndpointConfig
 
 __all__ = ("TavilySearchEndpoint", "TavilyExtractEndpoint")
 

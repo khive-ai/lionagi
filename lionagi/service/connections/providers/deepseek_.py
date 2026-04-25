@@ -4,12 +4,12 @@
 from pydantic import BaseModel
 
 from lionagi.config import settings
-from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.third_party.deepseek_models import (
     DeepseekChatCompletionsRequest,
     normalize_deepseek_usage,
 )
+
+from ..endpoint import Endpoint, EndpointConfig
 
 
 def _get_deepseek_config(**kwargs):

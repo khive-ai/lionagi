@@ -8,14 +8,13 @@ from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
 
-from lionagi.service.connections.cli_endpoint import CLIEndpoint
-from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.codex_models import CodexChunk, CodexCodeRequest, CodexSession
 from ...third_party.codex_models import log as codex_log
 from ...third_party.codex_models import stream_codex_cli
+from ..cli_endpoint import CLIEndpoint, EndpointConfig
 
 _get_config = lambda: EndpointConfig(
     name="codex_cli",
