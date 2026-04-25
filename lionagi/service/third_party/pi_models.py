@@ -10,7 +10,6 @@ import contextlib
 import json
 import logging
 import shutil
-import warnings
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from dataclasses import field as datafield
@@ -533,6 +532,66 @@ def _pp_tool_result(tr: dict[str, Any], theme: str = "light") -> None:
 # --------------------------------------------------------------------------- main parser
 
 
+def _assistant_message_text(message: dict[str, Any]) -> str:
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "\n".join(part for part in parts if part)
+    return ""
+
+
+def _remember_assistant_message(
+    session: PiSession,
+    message: dict[str, Any] | None,
+) -> None:
+    if not isinstance(message, dict):
+        return
+
+    if model := message.get("model"):
+        session.model = model
+    if usage := message.get("usage"):
+        if isinstance(usage, dict):
+            session.usage = usage
+    if text := _assistant_message_text(message):
+        session.result = text
+
+
+def _tool_call_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    tc = event.get("toolCall", event)
+    args = tc.get("arguments", tc.get("args", tc.get("input", {})))
+    if isinstance(args, str):
+        with contextlib.suppress(json.JSONDecodeError):
+            args = json.loads(args)
+    return {
+        "id": tc.get("id", tc.get("toolCallId", "")),
+        "name": tc.get("name", tc.get("toolName", "")),
+        "input": args,
+    }
+
+
+def _error_message_from_event(event: dict[str, Any]) -> str:
+    error = event.get("error")
+    if isinstance(error, dict):
+        return (
+            error.get("errorMessage")
+            or error.get("message")
+            or _assistant_message_text(error)
+            or str(error)
+        )
+    return (
+        event.get("errorMessage")
+        or event.get("message")
+        or (str(error) if error is not None else str(event))
+    )
+
+
 async def stream_pi_cli(
     request: PiCodeRequest,
     session: PiSession | None = None,
@@ -544,10 +603,9 @@ async def stream_pi_cli(
 ) -> AsyncIterator[PiChunk | dict | PiSession]:
     """Consume JSONL stream from Pi CLI and return a populated PiSession.
 
-    Pi events follow the AgentEvent schema:
-      agent_start, agent_end, turn_start, turn_end,
-      message_start, message_update, message_end,
-      tool_execution_start, tool_execution_update, tool_execution_end
+    Pi events follow the AgentEvent schema. Assistant deltas are carried by
+    message_update.assistantMessageEvent and use the pi-ai
+    AssistantMessageEvent discriminated union.
     """
     if session is None:
         session = PiSession()
@@ -565,22 +623,9 @@ async def stream_pi_cli(
                 yield obj
 
             elif typ == "agent_end":
-                # agent_end carries final messages — use as authoritative
-                # result source but don't double-append (turn_end already
-                # appended per-turn messages).
                 msgs = obj.get("messages", [])
                 if msgs:
-                    last = msgs[-1]
-                    content = last.get("content", "")
-                    if isinstance(content, str):
-                        session.result = content
-                    elif isinstance(content, list):
-                        parts = [
-                            b.get("text", "")
-                            for b in content
-                            if isinstance(b, dict) and b.get("type") == "text"
-                        ]
-                        session.result = "\n".join(parts)
+                    _remember_assistant_message(session, msgs[-1])
                 yield chunk
 
             elif typ == "turn_start":
@@ -588,6 +633,7 @@ async def stream_pi_cli(
 
             elif typ == "turn_end":
                 session.num_turns = (session.num_turns or 0) + 1
+                _remember_assistant_message(session, obj.get("message"))
                 yield chunk
 
             elif typ == "message_start":
@@ -597,12 +643,11 @@ async def stream_pi_cli(
                 event = obj.get("assistantMessageEvent", {})
                 etype = event.get("type", "")
 
-                # Pi @mariozechner/pi-ai emits: text_delta, text_start,
-                # text_end, content_start, thinking_delta, thinking_start,
-                # thinking_end, toolcall_start, toolcall_delta, toolcall_end,
-                # start, done, error.
-                if etype in ("text_delta", "text_start", "text_end", "content_start"):
-                    text = event.get("text", event.get("delta", event.get("content", "")))
+                if etype == "start":
+                    _remember_assistant_message(session, event.get("partial"))
+
+                elif etype == "text_delta":
+                    text = event.get("delta", "")
                     if text:
                         chunk.text = text
                         if on_text:
@@ -610,25 +655,36 @@ async def stream_pi_cli(
                         if request.verbose_output:
                             _pp_text(text, theme)
 
-                elif etype in ("thinking_delta", "thinking_start", "thinking_end"):
-                    text = event.get("text", event.get("delta", event.get("content", "")))
-                    if text:
+                elif etype == "text_end":
+                    if text := event.get("content", ""):
+                        session.result = text
+
+                elif etype == "text_start":
+                    pass
+
+                elif etype == "thinking_delta":
+                    if text := event.get("delta", ""):
                         chunk.thinking = text
 
-                elif etype in ("error",):
+                elif etype == "thinking_end":
+                    if text := event.get("content", ""):
+                        chunk.thinking = text
+
+                elif etype == "thinking_start":
+                    pass
+
+                elif etype == "done":
+                    _remember_assistant_message(session, event.get("message"))
+
+                elif etype == "error":
                     session.is_error = True
-                    session.result = event.get("message", event.get("error", str(event)))
+                    session.result = _error_message_from_event(event)
                     yield chunk
                     continue
 
                 elif etype in ("toolcall_start", "toolcall_delta", "toolcall_end"):
                     if etype == "toolcall_end":
-                        tc = event.get("toolCall", event)
-                        tu = {
-                            "id": tc.get("id", tc.get("toolCallId", "")),
-                            "name": tc.get("name", tc.get("toolName", "")),
-                            "input": tc.get("arguments", tc.get("args", tc.get("input", {}))),
-                        }
+                        tu = _tool_call_from_event(event)
                         chunk.tool_use = tu
                         session.tool_uses.append(tu)
                         if on_tool_use:
@@ -642,6 +698,7 @@ async def stream_pi_cli(
                 msg = obj.get("message", {})
                 if msg:
                     session.messages.append(msg)
+                    _remember_assistant_message(session, msg)
                 yield chunk
 
             elif typ == "tool_execution_start":
@@ -675,6 +732,11 @@ async def stream_pi_cli(
 
             elif typ == "done":
                 break
+
+            elif typ == "error":
+                session.is_error = True
+                session.result = _error_message_from_event(obj)
+                yield chunk
 
             else:
                 yield chunk
