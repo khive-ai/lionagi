@@ -820,6 +820,13 @@ async def _run_flow_inner(
     op_id_to_agent: dict[str, str] = {op.id: op.agent_id for op in plan.operations}
     agent_results: list[dict] = []
 
+    def _record_result(result: dict) -> None:
+        """Append result and persist immediately to artifact dir."""
+        agent_results.append(result)
+        agent_dir = run.agent_artifact_dir(result["agent_id"])
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / f"{result['id']}.md").write_text(result["response"])
+
     regular_ops = [op for op in plan.operations if not op.control]
     control_ops = [op for op in plan.operations if op.control]
 
@@ -870,7 +877,7 @@ async def _run_flow_inner(
         nid = op_to_node[op.id]
         meta = op_meta[op.id]
         res = op_results.get(nid)
-        agent_results.append(
+        _record_result(
             {
                 "id": op.id,
                 "agent_id": op.agent_id,
@@ -933,7 +940,7 @@ async def _run_flow_inner(
         verdict: FlowControlVerdict | None = getattr(ctrl_res, "verdict", None)
         verdict_text = str(ctrl_res) if ctrl_res is not None else "(no response)"
 
-        agent_results.append(
+        _record_result(
             {
                 "id": cop.id,
                 "agent_id": cop.agent_id,
@@ -1100,7 +1107,7 @@ async def _run_flow_inner(
                 nid = op_to_node[nop.id]
                 meta = op_meta[nop.id]
                 res = new_res_map.get(nid)
-                agent_results.append(
+                _record_result(
                     {
                         "id": nop.id,
                         "agent_id": nop.agent_id,
@@ -1134,7 +1141,7 @@ async def _run_flow_inner(
         artifacts = [
             f"[op {r['id']} via {r['name']}]: {r['response']}" for r in agent_results
         ]
-        adirs = [str(run.agent_artifact_dir(a.id)) for a in plan.agents]
+        adirs = [str(run.agent_artifact_dir(aid)) for aid in agents_by_id]
         artifact_chain_note = (
             f"\n\nARTIFACT CHAIN: Read ALL files in: {', '.join(adirs)}. "
             "Trace how work flowed through the DAG."
@@ -1181,13 +1188,6 @@ async def _run_flow_inner(
         output = _format_result_json(agent_results, synthesis_result)
     else:
         output = _format_flow_result_text(agent_results, synthesis_result)
-
-    # ── Incremental save: persist op responses as files ──────────
-    for r in agent_results:
-        agent_dir = run.agent_artifact_dir(r["agent_id"])
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / f"{r['id']}.md").write_text(r["response"])
-    progress(f"Saved {len(agent_results)} op results to {run.artifact_root}")
 
     if synthesis_result:
         run.synthesis_path.write_text(synthesis_result["response"])
