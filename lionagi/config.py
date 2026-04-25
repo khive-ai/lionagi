@@ -65,6 +65,7 @@ class AppSettings(BaseSettings, frozen=True):
     ANTHROPIC_API_KEY: SecretStr | None = None
     NVIDIA_NIM_API_KEY: SecretStr | None = None
     GEMINI_API_KEY: SecretStr | None = None
+    DEEPSEEK_API_KEY: SecretStr | None = None
 
     OPENAI_DEFAULT_MODEL: str = "gpt-4.1-mini"
 

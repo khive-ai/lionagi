@@ -8,14 +8,13 @@ from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
 
-from lionagi.service.connections.cli_endpoint import CLIEndpoint
-from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.claude_code import ClaudeChunk, ClaudeCodeRequest, ClaudeSession
 from ...third_party.claude_code import log as cc_log
 from ...third_party.claude_code import stream_claude_code_cli
+from ..cli_endpoint import CLIEndpoint, EndpointConfig
 
 _get_config = lambda: EndpointConfig(
     name="claude_code_cli",

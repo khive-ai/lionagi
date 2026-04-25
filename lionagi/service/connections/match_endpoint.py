@@ -71,6 +71,10 @@ def match_endpoint(
             from .providers.nvidia_nim_ import NvidiaNimChatEndpoint
 
             return NvidiaNimChatEndpoint(None, **kwargs)
+    if provider == "deepseek" and "chat" in endpoint:
+        from .providers.deepseek_ import DeepseekChatEndpoint
+
+        return DeepseekChatEndpoint(None, **kwargs)
     if provider in {"claude_code", "claude-code", "claude"}:
         from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
 
@@ -87,6 +91,10 @@ def match_endpoint(
         from .providers.codex_cli import CodexCLIEndpoint
 
         return CodexCLIEndpoint(None, **kwargs)
+    if provider in {"pi", "pi-code", "pi_code"}:
+        from .providers.pi_cli import PiCLIEndpoint
+
+        return PiCLIEndpoint(None, **kwargs)
 
     from .providers.oai_ import OpenaiChatEndpoint
 
