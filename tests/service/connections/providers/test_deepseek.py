@@ -22,7 +22,7 @@ def test_deepseek_config_uses_deepseek_request_model():
     [
         ("low", "high"),
         ("medium", "high"),
-        ("high", "max"),
+        ("high", "high"),
         ("xhigh", "max"),
         ("max", "max"),
     ],
