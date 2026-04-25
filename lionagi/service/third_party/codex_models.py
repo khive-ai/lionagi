@@ -125,14 +125,13 @@ class CodexCodeRequest(BaseModel):
         json_schema_extra=_cli("--oss", 12, "bool"),
     )
     search: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Enable live web search for Codex. Since 2026-04, the old "
             "`--search` flag was removed; web search is now exposed as the "
             "`tool_search` feature flag (`stable`, default `true`). When "
-            "search=True we emit `--enable tool_search` to make the intent "
-            "explicit in the command line; when False we do NOT pass "
-            "`--disable tool_search` (leave the default alone)."
+            "search=True we emit `--enable tool_search`; when False we emit "
+            "`--disable tool_search` to explicitly opt out."
         ),
     )
 
@@ -371,6 +370,8 @@ class CodexCodeRequest(BaseModel):
         # express intent via the `tool_search` feature flag instead.
         if self.search:
             args.extend(["--enable", "tool_search"])
+        else:
+            args.extend(["--disable", "tool_search"])
 
         # System prompt → -c developer_instructions=<val>
         # (Codex CLI has no --system-prompt flag; uses developer_instructions)

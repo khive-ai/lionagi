@@ -55,10 +55,11 @@ __all__ = (
 
 # Model name prefix → pi --provider value.
 # Longest prefixes first to avoid false matches.
-# Model name prefix → pi --provider value.
-# Longest prefixes first to avoid false matches.
-# Entries with strip=True remove the prefix from the model name
-# (needed for OpenRouter where "openrouter/google/gemini" → --model google/gemini).
+# Model prefix → pi --provider. Only unambiguous prefixes where the
+# model name uniquely identifies the provider. strip=True removes the
+# prefix from the model (needed for openrouter/ routing).
+# Ambiguous names (llama, gemma, mistral — available on multiple
+# providers) are omitted; set provider explicitly or let pi resolve.
 _PI_MODEL_PROVIDER_MAP: list[tuple[str, str, bool]] = [
     ("openrouter/", "openrouter", True),
     ("deepseek-", "deepseek", False),
@@ -68,10 +69,6 @@ _PI_MODEL_PROVIDER_MAP: list[tuple[str, str, bool]] = [
     ("o3", "openai", False),
     ("o4", "openai", False),
     ("gemini-", "google", False),
-    ("gemma-", "google", False),
-    ("llama-", "groq", False),
-    ("mistral-", "mistral", False),
-    ("codestral-", "mistral", False),
 ]
 
 
@@ -114,8 +111,7 @@ class PiCodeRequest(BaseModel):
     )
     api_key: str | None = Field(
         default=None,
-        description="API key override",
-        json_schema_extra=_cli("--api-key", 12),
+        description="API key override (passed via env, not CLI args)",
     )
     thinking: PiThinkingLevel | None = Field(
         default=None,
@@ -265,14 +261,23 @@ class PiCodeRequest(BaseModel):
         # declarative flags
         args.extend(self._build_declarative_args())
 
-        # file references
+        # file references before prompt
         for f in self.file_args:
             args.append(f"@{f}" if not f.startswith("@") else f)
 
-        # prompt always last
+        # -- separator prevents prompt from being parsed as flags
+        args.append("--")
         args.append(self.prompt)
 
         return args
+
+    def env(self) -> dict[str, str] | None:
+        """Environment overrides for the subprocess (API key injection)."""
+        if not self.api_key:
+            return None
+        provider = self.provider or "google"
+        key = f"{provider.upper()}_API_KEY"
+        return {key: self.api_key}
 
     def _build_declarative_args(self) -> list[str]:
         """Collect fields with ``_cli()`` metadata and emit flags."""
@@ -408,12 +413,18 @@ async def _ndjson_from_cli(request: PiCodeRequest):
             "Pi CLI not found. Install with: npm i -g @mariozechner/pi-coding-agent"
         )
 
+    import os
+    env = None
+    if request.env():
+        env = {**os.environ, **request.env()}
+
     proc = await asyncio.create_subprocess_exec(
         PI_CLI,
         *request.as_cmd_args(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(request.repo),
+        env=env,
         start_new_session=True,
     )
 
@@ -452,12 +463,12 @@ async def _ndjson_from_cli(request: PiCodeRequest):
             except json.JSONDecodeError:
                 log.error("Skipped unrecoverable JSON tail: %.120s...", buffer)
 
-        if await proc.wait() != 0:
+        rc = await proc.wait()
+        if rc != 0:
             err = ""
             if proc.stderr is not None:
                 err = (await proc.stderr.read()).decode().strip()
-            if err:
-                raise RuntimeError(err)
+            raise RuntimeError(err or f"Pi CLI exited with code {rc}")
 
     finally:
         with contextlib.suppress(ProcessLookupError):
@@ -542,21 +553,28 @@ async def stream_pi_cli(
                 yield obj
 
             elif typ == "agent_end":
+                # agent_end carries final messages — use as authoritative
+                # result source but don't double-append (turn_end already
+                # appended per-turn messages).
                 msgs = obj.get("messages", [])
-                session.messages.extend(msgs)
                 if msgs:
                     last = msgs[-1]
                     content = last.get("content", "")
                     if isinstance(content, str):
                         session.result = content
+                    elif isinstance(content, list):
+                        parts = [
+                            b.get("text", "")
+                            for b in content
+                            if isinstance(b, dict) and b.get("type") == "text"
+                        ]
+                        session.result = "\n".join(parts)
                 yield chunk
 
-            elif typ in ("turn_start",):
+            elif typ == "turn_start":
                 yield chunk
 
             elif typ == "turn_end":
-                msg = obj.get("message", {})
-                session.messages.append(msg)
                 session.num_turns = (session.num_turns or 0) + 1
                 yield chunk
 
@@ -567,19 +585,29 @@ async def stream_pi_cli(
                 event = obj.get("assistantMessageEvent", {})
                 etype = event.get("type", "")
 
-                if etype in ("text_delta", "text_start", "text_end"):
-                    text = event.get("text", event.get("delta", ""))
+                # Pi @mariozechner/pi-ai emits: text_delta, text_start,
+                # text_end, content_start, thinking_delta, thinking_start,
+                # thinking_end, toolcall_start, toolcall_delta, toolcall_end,
+                # start, done, error.
+                if etype in ("text_delta", "text_start", "text_end", "content_start"):
+                    text = event.get("text", event.get("delta", event.get("content", "")))
                     if text:
                         chunk.text = text
                         if on_text:
-                            _maybe_call(on_text, text)
+                            await _maybe_await(on_text, text)
                         if request.verbose_output:
                             _pp_text(text, theme)
 
                 elif etype in ("thinking_delta", "thinking_start", "thinking_end"):
-                    text = event.get("text", event.get("delta", ""))
+                    text = event.get("text", event.get("delta", event.get("content", "")))
                     if text:
                         chunk.thinking = text
+
+                elif etype in ("error",):
+                    session.is_error = True
+                    session.result = event.get("message", event.get("error", str(event)))
+                    yield chunk
+                    continue
 
                 elif etype in ("toolcall_start", "toolcall_delta", "toolcall_end"):
                     if etype == "toolcall_end":
@@ -592,16 +620,13 @@ async def stream_pi_cli(
                         chunk.tool_use = tu
                         session.tool_uses.append(tu)
                         if on_tool_use:
-                            _maybe_call(on_tool_use, tu)
+                            await _maybe_await(on_tool_use, tu)
                         if request.verbose_output:
                             _pp_tool_use(tu, theme)
 
                 yield chunk
 
             elif typ == "message_end":
-                msg = obj.get("message", {})
-                if msg:
-                    session.messages.append(msg)
                 yield chunk
 
             elif typ == "tool_execution_start":
@@ -625,7 +650,7 @@ async def stream_pi_cli(
                 chunk.tool_result = tr
                 session.tool_results.append(tr)
                 if on_tool_result:
-                    _maybe_call(on_tool_result, tr)
+                    await _maybe_await(on_tool_result, tr)
                 if request.verbose_output:
                     _pp_tool_result(tr, theme)
                 yield chunk
@@ -654,13 +679,14 @@ async def stream_pi_cli(
         )
 
     if on_final:
-        _maybe_call(on_final, session)
+        await _maybe_await(on_final, session)
 
     yield session
 
 
-def _maybe_call(func, *args):
+async def _maybe_await(func, *args):
+    """Call func which may be sync or async."""
     import inspect
     res = func(*args) if func else None
     if inspect.iscoroutine(res):
-        asyncio.get_running_loop().create_task(res)
+        await res
