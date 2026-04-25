@@ -149,7 +149,7 @@ def _get_deepseek_config(**kwargs):
     config = dict(
         name="deepseek_chat",
         provider="deepseek",
-        base_url="https://api.deepseek.com",
+        base_url="https://api.deepseek.com/v1",
         endpoint="chat/completions",
         kwargs={"model": "deepseek-chat"},
         api_key=settings.DEEPSEEK_API_KEY or "dummy-key-for-testing",
