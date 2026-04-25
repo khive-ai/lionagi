@@ -1,6 +1,6 @@
 import pytest
 
-from lionagi.service.connections.providers.deepseek_ import (
+from lionagi.service.connections.providers.oai_ import (
     DeepseekChatEndpoint,
     _get_deepseek_config,
 )
@@ -22,7 +22,7 @@ def test_deepseek_config_uses_deepseek_request_model():
     [
         ("low", "high"),
         ("medium", "high"),
-        ("high", "high"),
+        ("high", "max"),
         ("xhigh", "max"),
         ("max", "max"),
     ],
@@ -71,7 +71,9 @@ def test_deepseek_usage_surfaces_thinking_tokens_alias():
 
     assert normalized["usage"]["thinking_tokens"] == 7
     assert normalized["usage"]["reasoning_tokens"] == 7
-    assert normalized["usage"]["completion_tokens_details"]["thinking_tokens"] == 7
+    assert (
+        normalized["usage"]["completion_tokens_details"]["thinking_tokens"] == 7
+    )
 
 
 def test_deepseek_usage_preserves_zero_thinking_tokens():

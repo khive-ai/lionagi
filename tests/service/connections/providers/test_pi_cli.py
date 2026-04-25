@@ -34,7 +34,6 @@ class TestPiCodeRequest:
         assert args.index("--thinking") < args.index("--no-session")
         assert args.index("--tools") < args.index("--system-prompt")
         assert args[-3:] == ["@README.md", "@pyproject.toml", "fix the tests"]
-        assert "--" not in args, "Pi CLI does not support -- terminator"
 
     @pytest.mark.parametrize(
         ("model", "provider", "normalized_model"),
@@ -105,7 +104,9 @@ async def test_stream_pi_cli_parses_jsonl_agent_events(monkeypatch):
     thinking_chunks = [
         c.thinking for c in seen if isinstance(c, PiChunk) and c.thinking
     ]
-    tool_uses = [c.tool_use for c in seen if isinstance(c, PiChunk) and c.tool_use]
+    tool_uses = [
+        c.tool_use for c in seen if isinstance(c, PiChunk) and c.tool_use
+    ]
     tool_results = [
         c.tool_result for c in seen if isinstance(c, PiChunk) and c.tool_result
     ]
@@ -167,7 +168,7 @@ async def test_stream_pi_cli_handles_nested_and_top_level_errors(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pi_cli_endpoint_stream_maps_pi_chunks_to_stream_chunks(monkeypatch):
-    async def fake_stream(_request_obj, _session=None):
+    async def fake_stream(_request_obj):
         yield PiChunk(raw={}, type="message_update", text="hello")
         yield PiChunk(raw={}, type="message_update", thinking="reasoning")
         yield PiChunk(

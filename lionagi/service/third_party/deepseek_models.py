@@ -39,11 +39,9 @@ class DeepseekChatCompletionsRequest(OpenAIChatCompletionsRequest):
 
     @model_validator(mode="after")
     def _normalize_deepseek_reasoning(self):
-        # DeepSeek accepts: low, medium, high, max.
-        # Map lionagi/OpenAI effort names to DeepSeek equivalents.
         if self.reasoning_effort in {"low", "medium"}:
             self.reasoning_effort = "high"
-        elif self.reasoning_effort == "xhigh":
+        elif self.reasoning_effort in {"high", "xhigh"}:
             self.reasoning_effort = "max"
         return self
 
@@ -67,25 +65,23 @@ def normalize_deepseek_usage(response: Any) -> Any:
     if not isinstance(details, dict):
         details = {}
 
-    # Prefer provider-native location as canonical source.
-    # Use sentinel to distinguish 0 from missing.
-    _missing = object()
     thinking_tokens = None
-    for src, key in (
-        (details, "reasoning_tokens"),
-        (details, "thinking_tokens"),
-        (usage, "reasoning_tokens"),
+    for source, key in (
         (usage, "thinking_tokens"),
+        (usage, "reasoning_tokens"),
+        (details, "thinking_tokens"),
+        (details, "reasoning_tokens"),
     ):
-        val = src.get(key, _missing)
-        if val is not _missing:
-            thinking_tokens = val
+        if key in source:
+            thinking_tokens = source[key]
             break
     if thinking_tokens is not None:
         usage["thinking_tokens"] = thinking_tokens
-        usage["reasoning_tokens"] = thinking_tokens
+        usage.setdefault("reasoning_tokens", thinking_tokens)
         if isinstance(usage.get("completion_tokens_details"), dict):
-            usage["completion_tokens_details"]["thinking_tokens"] = thinking_tokens
-            usage["completion_tokens_details"]["reasoning_tokens"] = thinking_tokens
+            usage["completion_tokens_details"].setdefault(
+                "thinking_tokens",
+                thinking_tokens,
+            )
 
     return response
