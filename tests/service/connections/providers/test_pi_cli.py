@@ -105,9 +105,7 @@ async def test_stream_pi_cli_parses_jsonl_agent_events(monkeypatch):
     thinking_chunks = [
         c.thinking for c in seen if isinstance(c, PiChunk) and c.thinking
     ]
-    tool_uses = [
-        c.tool_use for c in seen if isinstance(c, PiChunk) and c.tool_use
-    ]
+    tool_uses = [c.tool_use for c in seen if isinstance(c, PiChunk) and c.tool_use]
     tool_results = [
         c.tool_result for c in seen if isinstance(c, PiChunk) and c.tool_result
     ]

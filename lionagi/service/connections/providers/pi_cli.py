@@ -137,9 +137,7 @@ class PiCLIEndpoint(CLIEndpoint):
                         break
                 responses.append(chunk)
 
-        pi_log.info(
-            f"Session finished with {len(responses)} chunks"
-        )
+        pi_log.info(f"Session finished with {len(responses)} chunks")
         if not session.result:
             texts = [c.text for c in session.chunks if c.text is not None]
             session.result = "\n".join(texts)
