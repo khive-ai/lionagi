@@ -1,6 +1,6 @@
 import pytest
 
-from lionagi.service.connections.providers.oai_ import (
+from lionagi.service.connections.providers.deepseek_ import (
     DeepseekChatEndpoint,
     _get_deepseek_config,
 )
