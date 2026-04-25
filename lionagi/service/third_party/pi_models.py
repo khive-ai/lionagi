@@ -68,7 +68,6 @@ _PI_MODEL_PROVIDER_MAP: list[tuple[str, str, bool]] = [
     ("o1", "openai", False),
     ("o3", "openai", False),
     ("o4", "openai", False),
-    ("gemini-", "google", False),
 ]
 
 
@@ -265,18 +264,31 @@ class PiCodeRequest(BaseModel):
         for f in self.file_args:
             args.append(f"@{f}" if not f.startswith("@") else f)
 
-        # -- separator prevents prompt from being parsed as flags
-        args.append("--")
+        # Pi's arg parser has no -- terminator support; prompt is
+        # positional. Prompts starting with - or @ may be misparsed
+        # by Pi's CLI — callers should avoid leading dashes in prompts.
         args.append(self.prompt)
 
         return args
+
+    # Pi's env var names per provider (from pi-ai/src/env-api-keys.ts)
+    _PI_ENV_KEY_MAP: dict[str, str] = {
+        "google": "GEMINI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "mistral": "MISTRAL_API_KEY",
+        "xai": "XAI_API_KEY",
+    }
 
     def env(self) -> dict[str, str] | None:
         """Environment overrides for the subprocess (API key injection)."""
         if not self.api_key:
             return None
         provider = self.provider or "google"
-        key = f"{provider.upper()}_API_KEY"
+        key = self._PI_ENV_KEY_MAP.get(provider, f"{provider.upper()}_API_KEY")
         return {key: self.api_key}
 
     def _build_declarative_args(self) -> list[str]:
@@ -627,6 +639,9 @@ async def stream_pi_cli(
                 yield chunk
 
             elif typ == "message_end":
+                msg = obj.get("message", {})
+                if msg:
+                    session.messages.append(msg)
                 yield chunk
 
             elif typ == "tool_execution_start":
