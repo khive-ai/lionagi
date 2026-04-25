@@ -308,7 +308,8 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
     """Add shared CLI flags to any subparser."""
     parser.add_argument("--yolo", action="store_true", help="Auto-approve tool calls.")
     parser.add_argument(
-        "--bypass", action="store_true",
+        "--bypass",
+        action="store_true",
         help="Bypass all codex approvals and sandbox (for cloud/codespace environments).",
     )
     parser.add_argument(

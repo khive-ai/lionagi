@@ -829,6 +829,7 @@ async def _run_flow_inner(
             (agent_dir / f"{result['id']}.md").write_text(result["response"])
         except OSError as exc:
             from .._logging import warn as _warn
+
             _warn(f"Failed to save artifact for {result['id']}: {exc}")
 
     regular_ops = [op for op in plan.operations if not op.control]

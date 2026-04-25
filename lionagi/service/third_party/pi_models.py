@@ -72,6 +72,7 @@ _PI_MODEL_PROVIDER_MAP: list[tuple[str, str, bool]] = [
 
 # --------------------------------------------------------------------------- flag metadata
 
+
 def _cli(
     flag: str,
     order: int,
@@ -85,6 +86,7 @@ def _cli(
 
 
 # --------------------------------------------------------------------------- request model
+
 
 class PiCodeRequest(BaseModel):
     """Configuration + prompt for a Pi coding agent CLI invocation.
@@ -219,7 +221,7 @@ class PiCodeRequest(BaseModel):
             if model.startswith(prefix):
                 data["provider"] = prov
                 if strip:
-                    data["model"] = model[len(prefix):]
+                    data["model"] = model[len(prefix) :]
                 break
         return data
 
@@ -366,7 +368,9 @@ def _extract_summary(session: PiSession) -> dict[str, Any]:
     tool_counts: dict[str, int] = {}
     key_actions: list[str] = []
     file_operations: dict[str, list[str]] = {
-        "reads": [], "writes": [], "edits": [],
+        "reads": [],
+        "writes": [],
+        "edits": [],
     }
 
     for tu in session.tool_uses:
@@ -425,6 +429,7 @@ async def _ndjson_from_cli(request: PiCodeRequest):
         )
 
     import os
+
     env = None
     if request.env():
         env = {**os.environ, **request.env()}
@@ -496,9 +501,7 @@ async def _ndjson_from_cli(request: PiCodeRequest):
 async def stream_pi_cli_events(request: PiCodeRequest):
     """Stream events from Pi CLI."""
     if not PI_CLI:
-        raise RuntimeError(
-            "Pi CLI not found (npm i -g @mariozechner/pi-coding-agent)"
-        )
+        raise RuntimeError("Pi CLI not found (npm i -g @mariozechner/pi-coding-agent)")
     async with contextlib.aclosing(_ndjson_from_cli(request)) as stream:
         async for obj in stream:
             yield obj
@@ -516,7 +519,9 @@ def _pp_tool_use(tu: dict[str, Any], theme: str = "light") -> None:
     preview = shorten(str(tu.get("input", tu.get("args", {}))).replace("\n", " "), 130)
     print_readable(
         f"- Tool Use — {tu.get('name', tu.get('toolName', 'unknown'))}: {preview}",
-        border=False, panel=False, theme=theme,
+        border=False,
+        panel=False,
+        theme=theme,
     )
 
 
@@ -525,7 +530,9 @@ def _pp_tool_result(tr: dict[str, Any], theme: str = "light") -> None:
     status = "ERR" if tr.get("isError", tr.get("is_error")) else "OK"
     print_readable(
         f"- Tool Result — {status}: {body}",
-        border=False, panel=False, theme=theme,
+        border=False,
+        panel=False,
+        theme=theme,
     )
 
 
@@ -751,9 +758,7 @@ async def stream_pi_cli(
     if session.num_turns is None and session.messages:
         session.num_turns = len(session.messages)
     if session.duration_ms is None:
-        session.duration_ms = int(
-            (asyncio.get_running_loop().time() - _start) * 1000
-        )
+        session.duration_ms = int((asyncio.get_running_loop().time() - _start) * 1000)
 
     if on_final:
         await _maybe_await(on_final, session)
@@ -764,6 +769,7 @@ async def stream_pi_cli(
 async def _maybe_await(func, *args):
     """Call func which may be sync or async."""
     import inspect
+
     res = func(*args) if func else None
     if inspect.iscoroutine(res):
         await res

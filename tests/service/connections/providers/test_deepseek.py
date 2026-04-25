@@ -71,9 +71,7 @@ def test_deepseek_usage_surfaces_thinking_tokens_alias():
 
     assert normalized["usage"]["thinking_tokens"] == 7
     assert normalized["usage"]["reasoning_tokens"] == 7
-    assert (
-        normalized["usage"]["completion_tokens_details"]["thinking_tokens"] == 7
-    )
+    assert normalized["usage"]["completion_tokens_details"]["thinking_tokens"] == 7
 
 
 def test_deepseek_usage_preserves_zero_thinking_tokens():
