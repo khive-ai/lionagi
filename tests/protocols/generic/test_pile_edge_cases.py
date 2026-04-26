@@ -509,6 +509,8 @@ class TestAsyncEdgeCases:
         p = Pile()
         other = Item(value=99)
         await p.aexclude(other)  # should not raise
+        # Pile must remain empty and unchanged
+        assert len(p) == 0
 
     async def test_aget_returns_item(self):
         item = Item(value=7)

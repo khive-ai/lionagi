@@ -7,7 +7,7 @@ import inspect
 
 import pytest
 
-from lionagi.agent.hooks import auto_format_python, guard_paths
+from lionagi.agent.hooks import auto_format_python, guard_destructive, guard_paths
 
 
 async def test_guard_paths_returns_callable_hook(tmp_path):
@@ -50,3 +50,35 @@ async def test_auto_format_python_uses_argv_without_shell(monkeypatch):
 
     assert result is None
     assert calls == [(["ruff", "format", "src/weird;name.py"], False, 10.0, None)]
+
+
+async def test_guard_destructive_blocks_dangerous_commands():
+    with pytest.raises(PermissionError, match="Blocked destructive command"):
+        await guard_destructive("bash", "run", {"command": "git reset --hard HEAD"})
+
+
+async def test_guard_destructive_allows_safe_commands():
+    result = await guard_destructive("bash", "run", {"command": "git status"})
+    assert result is None
+
+
+async def test_guard_paths_blocks_absolute_denied_path(tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.touch()
+    hook = guard_paths(denied_paths=[str(secret)])
+    with pytest.raises(PermissionError, match="deny rule"):
+        await hook("reader", "read", {"path": str(secret)})
+
+
+async def test_guard_paths_blocks_relative_denied_name(tmp_path):
+    hook = guard_paths(denied_paths=[".env"])
+    with pytest.raises(PermissionError, match="deny rule"):
+        await hook("reader", "read", {"path": str(tmp_path / ".env.local")})
+
+
+async def test_guard_paths_allows_unrelated_path(tmp_path):
+    allowed = tmp_path / "ok.py"
+    allowed.touch()
+    hook = guard_paths(denied_paths=[".env"])
+    result = await hook("reader", "read", {"path": str(allowed)})
+    assert result is None

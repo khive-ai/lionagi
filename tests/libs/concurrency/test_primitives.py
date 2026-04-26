@@ -66,8 +66,16 @@ async def test_capacity_limiter_one_token(anyio_backend):
 @pytest.mark.anyio
 async def test_lock_is_a_context_manager(anyio_backend):
     lock = Lock()
+    inside = []
     async with lock:
-        pass  # no error
+        inside.append(True)
+    assert inside == [True], "Code inside lock context should have run"
+
+    # Acquiring the lock again sequentially should succeed
+    inside.clear()
+    async with lock:
+        inside.append(True)
+    assert inside == [True]
 
 
 @pytest.mark.anyio
@@ -105,12 +113,25 @@ def test_resource_tracker_default_name_and_clear():
 
 
 def test_module_level_track_resource_defaults():
+    from lionagi.ln.concurrency.resource_tracker import _TRACKER
+
     class Y:
         pass
 
     y = Y()
-    track_resource(y)  # default name/kind
+    id_y = id(y)
+
+    track_resource(y, name="test-y", kind="Y")
+
+    # Resource should be registered in the module-level tracker
+    live_ids = {id(obj_id) for obj_id in []}  # not needed — check live() directly
+    live_names = {info.name for info in _TRACKER.live()}
+    assert "test-y" in live_names, "Resource should appear in tracker after track_resource()"
+
     untrack_resource(y)  # should not raise
+
+    live_names_after = {info.name for info in _TRACKER.live()}
+    assert "test-y" not in live_names_after, "Resource should be removed after untrack_resource()"
 
 
 @pytest.mark.anyio

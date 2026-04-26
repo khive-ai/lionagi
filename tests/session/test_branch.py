@@ -345,3 +345,26 @@ def test_to_dict_from_dict(branch_with_mock_imodel: Branch):
     assert len(new_branch.messages) == 1
     nm = new_branch.messages[0]
     assert nm.content.instruction == "hello user"
+
+
+# ---------------------------------------------------------------------------
+# Edge cases (P1)
+# ---------------------------------------------------------------------------
+
+
+def test_branch_connect_rejects_duplicate_tool_name_without_update():
+    """connect() raises ValueError when the same name is registered twice."""
+    from lionagi.service.imodel import iModel
+
+    branch = Branch()
+    imodel = iModel(provider="openai", model="gpt-4.1-mini", api_key="test_key")
+
+    branch.connect("lookup", imodel=imodel, name="lookup")
+    assert "lookup" in branch.tools
+
+    with pytest.raises(ValueError, match="already exists"):
+        branch.connect("lookup", imodel=imodel, name="lookup")
+
+    # update=True replaces without error
+    branch.connect("lookup", imodel=imodel, name="lookup", update=True)
+    assert "lookup" in branch.tools

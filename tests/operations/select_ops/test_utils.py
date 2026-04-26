@@ -290,14 +290,11 @@ class TestParseToRepresentationEdgeCases:
     """Test edge cases for parse_to_representation."""
 
     def test_parse_empty_list(self):
-        """Test parsing empty list."""
-        # Empty list doesn't raise - it's handled elsewhere
-        # Just verify it doesn't crash
-        try:
-            result = parse_to_representation([])
-            # Either raises or returns something
-        except (NotImplementedError, ValueError):
-            pass  # Either exception is acceptable
+        """Test parsing empty list returns two empty parallel sequences."""
+        result = parse_to_representation([])
+        items, keys = result
+        assert items == []
+        assert keys == []
 
     def test_parse_unsupported_type(self):
         """Test unsupported input type."""

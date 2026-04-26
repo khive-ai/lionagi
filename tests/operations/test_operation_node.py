@@ -345,19 +345,19 @@ async def test_operation_invoke_exception_handling():
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_operation_invoke_cancellation():
-    """Test handling of operation cancellation."""
-    # Create a mock branch
+    """Test handling of operation cancellation using an event gate."""
     branch = MagicMock()
     branch.id = "12345678-1234-4678-9234-567812345678"
 
-    # Mock method that will be cancelled
+    started = asyncio.Event()
+
     async def slow_method(**kwargs):
-        await asyncio.sleep(10)  # Long running operation
+        started.set()
+        await asyncio.sleep(100)  # Never completes on its own
         return "should_not_reach_here"
 
     branch.chat = AsyncMock(side_effect=slow_method)
 
-    # Mock get_operation to return the correct async method
     def mock_get_operation(operation: str):
         if operation == "chat":
             return branch.chat
@@ -367,10 +367,9 @@ async def test_operation_invoke_cancellation():
 
     op = Operation(operation="chat")
 
-    # Create task and cancel it
     _set_branch(op, branch)
     task = asyncio.create_task(op.invoke())
-    await asyncio.sleep(0.1)  # Let it start
+    await asyncio.wait_for(started.wait(), timeout=2.0)  # wait for task to start
     task.cancel()
 
     with pytest.raises(get_cancelled_exc_class()):

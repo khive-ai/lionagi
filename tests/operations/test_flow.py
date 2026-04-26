@@ -543,3 +543,57 @@ async def test_flow_max_concurrent_limit():
 
     # Verify concurrent limit was respected
     assert max_concurrent_seen <= 3
+
+
+def test_cleanup_flow_results_filters_results_and_completed_operations():
+    """cleanup_flow_results keeps only requested operation IDs."""
+    from lionagi.operations.flow import cleanup_flow_results
+
+    result = {
+        "operation_results": {"a": 1, "b": 2},
+        "completed_operations": ["a", "b"],
+    }
+    out = cleanup_flow_results(result, keep_only=["b"])
+    assert out["operation_results"] == {"b": 2}
+    assert out["completed_operations"] == ["b"]
+
+
+def test_cleanup_flow_results_non_dict_returned_unchanged():
+    """cleanup_flow_results leaves non-dict inputs untouched."""
+    from lionagi.operations.flow import cleanup_flow_results
+
+    assert cleanup_flow_results("not a dict") == "not a dict"
+    assert cleanup_flow_results({"no_op_results": True}) == {"no_op_results": True}
+
+
+@pytest.mark.asyncio
+async def test_flow_rejects_non_edge_condition_object_via_public_flow():
+    """flow raises TypeError when an edge has a Condition that is not EdgeCondition."""
+    from lionagi.operations.flow import flow
+    from lionagi.operations.node import Operation
+    from lionagi.protocols._concepts import Condition
+    from lionagi.protocols.graph.edge import Edge
+    from lionagi.protocols.graph.graph import Graph
+    from lionagi.session.session import Session
+
+    class _RawCondition(Condition):
+        async def apply(self, *args, **kwargs):
+            return True
+
+    op1 = Operation(operation="chat", parameters={"instruction": "q1"})
+    op2 = Operation(operation="chat", parameters={"instruction": "q2"})
+
+    graph = Graph()
+    graph.add_node(op1)
+    graph.add_node(op2)
+
+    bad_edge = Edge(head=op1.id, tail=op2.id, condition=_RawCondition())
+    graph.add_edge(bad_edge)
+
+    session = Session()
+    branch = make_mock_branch()
+    session.branches.include(branch)
+    session.default_branch = branch
+
+    with pytest.raises(TypeError, match="invalid condition type"):
+        await flow(session, graph, parallel=False, verbose=False)

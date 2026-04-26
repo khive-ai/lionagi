@@ -16,17 +16,18 @@ from lionagi.service.hooks._utils import (
 
 class TestValidateHooks:
     def test_validate_hooks_accepts_correct_dict(self):
-        """Test that validate_hooks accepts a proper hook dictionary."""
+        """validate_hooks accepts a well-formed dict and returns None."""
         valid_hooks = {
             HookEventTypes.PreInvocation: lambda e, **kw: None,
             HookEventTypes.PostInvocation: lambda e, **kw: None,
         }
-        # Should not raise
-        validate_hooks(valid_hooks)
+        result = validate_hooks(valid_hooks)
+        assert result is None, "validate_hooks should return None for a valid dict"
 
     def test_validate_hooks_accepts_empty_dict(self):
-        """Test that validate_hooks accepts an empty dictionary."""
-        validate_hooks({})
+        """validate_hooks accepts an empty dict and returns None."""
+        result = validate_hooks({})
+        assert result is None
 
     def test_validate_hooks_rejects_non_dict(self):
         """Test that validate_hooks rejects non-dictionary input."""

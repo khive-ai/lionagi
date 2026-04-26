@@ -93,14 +93,21 @@ class TestGraphBasics:
         assert isinstance(empty_graph.node_edge_mapping, dict)
 
     def test_add_node(self, empty_graph):
-        """Test adding a node"""
+        """Adding a node increments internal_nodes and initialises edge mapping."""
         node = Node()
+        count_before = len(empty_graph.internal_nodes)
         empty_graph.add_node(node)
+        assert len(empty_graph.internal_nodes) == count_before + 1
         assert node.id in empty_graph.internal_nodes
-        assert empty_graph.node_edge_mapping[node.id] == {
-            "in": {},
-            "out": {},
-        }
+        assert empty_graph.node_edge_mapping[node.id] == {"in": {}, "out": {}}
+
+    def test_add_multiple_nodes_all_present(self, empty_graph):
+        """Multiple distinct nodes all appear in internal_nodes."""
+        nodes = [Node() for _ in range(3)]
+        for n in nodes:
+            empty_graph.add_node(n)
+        for n in nodes:
+            assert n.id in empty_graph.internal_nodes
 
     def test_add_invalid_node(self, empty_graph):
         """Test adding invalid node type"""
@@ -115,11 +122,15 @@ class TestGraphBasics:
             empty_graph.add_node(node)
 
     def test_add_edge(self, simple_graph):
-        """Test adding an edge"""
+        """Adding an edge updates both head (out) and tail (in) node mappings."""
         graph, node1, node2, edge = simple_graph
         assert edge.id in graph.internal_edges
         assert graph.node_edge_mapping[node1.id]["out"][edge.id] == node2.id
         assert graph.node_edge_mapping[node2.id]["in"][edge.id] == node1.id
+        # head node has no in-edges from this edge
+        assert edge.id not in graph.node_edge_mapping[node1.id]["in"]
+        # tail node has no out-edges from this edge
+        assert edge.id not in graph.node_edge_mapping[node2.id]["out"]
 
     def test_add_invalid_edge(self, empty_graph):
         """Test adding invalid edge"""

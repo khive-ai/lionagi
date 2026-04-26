@@ -326,7 +326,7 @@ class TestCustomOperations:
         assert callable(session.operation)
 
     def test_register_operation_with_function(self):
-        """register_operation accepts a name and a callable."""
+        """register_operation stores the callable under the given name."""
         from lionagi import Session
 
         session = Session()
@@ -335,10 +335,12 @@ class TestCustomOperations:
             return "custom result"
 
         session.register_operation("custom_op", custom_op)
-        # No exception means registration succeeded
+        # Operation should be retrievable from the internal registry
+        assert "custom_op" in session._operation_manager.registry
+        assert session._operation_manager.registry["custom_op"] is custom_op
 
     def test_operation_decorator_usage(self):
-        """@session.operation() registers a function by its name."""
+        """@session.operation() registers a function under its own __name__."""
         from lionagi import Session
 
         session = Session()
@@ -347,11 +349,12 @@ class TestCustomOperations:
         async def summarize(branch, **kwargs):
             return "summary"
 
-        # The function should still be callable after decoration
         assert callable(summarize)
+        assert "summarize" in session._operation_manager.registry
+        assert session._operation_manager.registry["summarize"] is summarize
 
     def test_operation_decorator_custom_name(self):
-        """@session.operation('custom_name') registers with the given name."""
+        """@session.operation('my_custom_op') registers under the given name."""
         from lionagi import Session
 
         session = Session()
@@ -361,3 +364,6 @@ class TestCustomOperations:
             return "result"
 
         assert callable(some_func)
+        assert "my_custom_op" in session._operation_manager.registry
+        # Original function name should NOT be the registry key
+        assert "some_func" not in session._operation_manager.registry

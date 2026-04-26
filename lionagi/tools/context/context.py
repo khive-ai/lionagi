@@ -76,9 +76,7 @@ class ContextTool(LionTool):
             content = ""
             if hasattr(msg, "content"):
                 c = msg.content
-                if isinstance(c, dict):
-                    c = str(c)
-                elif isinstance(c, list):
+                if not isinstance(c, str):
                     c = str(c)
                 if c:
                     content = c[:120].replace("\n", " ")

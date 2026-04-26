@@ -244,3 +244,28 @@ class TestSpec:
         spec = Spec(str, name="field")
         with pytest.raises(Exception):  # FrozenInstanceError or similar
             spec.base_type = int
+
+
+class TestSpecDefaultValueEdgeCases:
+    def test_spec_create_default_value_errors_without_default(self):
+        """Spec with no default or factory raises ValueError."""
+        spec = Spec(str, name="title")
+        with pytest.raises(ValueError, match="No default value"):
+            spec.create_default_value()
+
+    async def test_spec_async_default_factory_requires_async_creation(self):
+        """Sync create_default_value raises for async factory; acreate_default_value returns value."""
+        import warnings
+
+        async def factory():
+            return "x"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            spec = Spec(str, name="title", default_factory=factory)
+
+        with pytest.raises(ValueError, match="asynchronous"):
+            spec.create_default_value()
+
+        result = await spec.acreate_default_value()
+        assert result == "x"

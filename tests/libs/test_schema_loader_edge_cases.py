@@ -236,3 +236,22 @@ class TestUnsupportedType:
                 load_pydantic_model_from_schema(schema, "M")
         finally:
             lpms._HAS_DATAMODEL_CODE_GENERATOR = old
+
+
+class TestCodegenFallback:
+    def test_schema_loader_raises_runtime_error_when_codegen_fallback_unavailable(
+        self, monkeypatch
+    ):
+        """Monkeypatching _create_model_from_schema to raise unsupported, with
+        _HAS_DATAMODEL_CODE_GENERATOR=False, must produce RuntimeError."""
+        import lionagi.libs.schema.load_pydantic_model_from_schema as lpms
+
+        def _always_unsupported(schema_dict, model_name):
+            raise lpms._CreateModelUnsupportedError("unsupported")
+
+        monkeypatch.setattr(lpms, "_create_model_from_schema", _always_unsupported)
+        monkeypatch.setattr(lpms, "_HAS_DATAMODEL_CODE_GENERATOR", False)
+
+        schema = {"type": "object", "properties": {"x": {"type": "integer"}}}
+        with pytest.raises(RuntimeError, match="datamodel-code-generator"):
+            lpms.load_pydantic_model_from_schema(schema, "M")

@@ -152,3 +152,71 @@ async def test_operate_with_actions_preserves_response_data():
     # Verify action_responses were added
     assert len(result.action_responses) == 1
     assert result.action_responses[0].function == "add"
+
+
+# ---------------------------------------------------------------------------
+# Edge cases for prepare_operate_kw (P0)
+# ---------------------------------------------------------------------------
+
+from lionagi.operations.operate.operate import prepare_operate_kw
+
+
+def test_prepare_operate_kw_rejects_multiple_response_format_aliases():
+    """Cannot specify both response_format and request_model simultaneously."""
+    class ModelA(BaseModel):
+        x: str
+
+    class ModelB(BaseModel):
+        y: str
+
+    branch = Branch()
+    with pytest.raises(ValueError, match="Cannot specify multiple of"):
+        prepare_operate_kw(branch, response_format=ModelA, request_model=ModelB)
+
+
+def test_prepare_operate_kw_rejects_invalid_field_model_entry():
+    """field_models list containing a non-FieldModel/Spec raises TypeError."""
+    branch = Branch()
+    with pytest.raises(TypeError, match="Expected FieldModel or Spec"):
+        prepare_operate_kw(branch, field_models=[object()])
+
+
+@pytest.mark.asyncio
+async def test_operate_handle_validation_raise_reports_expected_model(monkeypatch):
+    """operate(..., handle_validation='raise') raises ValueError on parse mismatch."""
+    from pydantic import BaseModel
+
+    class ExpectedModel(BaseModel):
+        answer: str
+
+    async def stub_middle(b, ins, **kw):
+        return {"not": "model"}
+
+    branch = Branch()
+
+    async def fake_invoke(**kw):
+        config = _get_oai_config(
+            name="oai_chat",
+            endpoint="chat/completions",
+            request_options=OpenAIChatCompletionsRequest,
+            kwargs={"model": "gpt-4.1-mini"},
+        )
+        endpoint = Endpoint(config=config)
+        fake_call = APICalling(
+            payload={"model": "gpt-4.1-mini", "messages": []},
+            headers={"Authorization": "Bearer test"},
+            endpoint=endpoint,
+        )
+        fake_call.execution.response = '{"not": "model"}'
+        fake_call.execution.status = EventStatus.COMPLETED
+        return fake_call
+
+    branch.chat_model.invoke = AsyncMock(side_effect=fake_invoke)
+
+    with pytest.raises((ValueError, Exception)):
+        await branch.operate(
+            instruction="test",
+            response_format=ExpectedModel,
+            handle_validation="raise",
+            invoke_actions=False,
+        )
