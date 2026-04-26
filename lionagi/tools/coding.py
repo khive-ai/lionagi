@@ -1067,7 +1067,7 @@ class CodingToolkit(LionTool):
 
                 sub_branch = await _create(sub_config, load_settings=False)
 
-                result = await sub_branch.operate(
+                result = await sub_branch.ReAct(
                     instruction=instruction,
                     tools=True,
                     max_extensions=max_turns,
