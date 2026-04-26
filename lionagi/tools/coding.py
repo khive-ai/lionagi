@@ -434,7 +434,6 @@ class CodingToolkit(LionTool):
         from lionagi.protocols.messages import ActionResponse
 
         file_state: dict[str, float] = {}
-        evicted: list = []
         call_count = [0]
         msgs = branch.msgs
         notify = self.notify
@@ -471,8 +470,9 @@ class CodingToolkit(LionTool):
                 parts.append(f"{n_action_results} action results")
             if n_files > 0:
                 parts.append(f"{n_files} files tracked")
-            if evicted:
-                parts.append(f"{len(evicted)} evicted")
+            full_len = len(msgs.progression)
+            if full_len > n_msgs:
+                parts.append(f"{full_len - n_msgs} evicted")
 
             status = f"[System: {', '.join(parts)}]"
 
@@ -632,6 +632,17 @@ class CodingToolkit(LionTool):
 
         # -- Context ---------------------------------------------------------
 
+        def _ensure_current_progression():
+            """Lazily copy full progression into metadata on first evict."""
+            if "current_progression" not in branch.metadata:
+                from lionagi.protocols.generic.progression import Progression
+
+                cp = Progression()
+                for uid in msgs.progression:
+                    cp.append(uid)
+                branch.metadata["current_progression"] = cp
+            return branch.metadata["current_progression"]
+
         async def context(
             action: str,
             start: int = None,
@@ -642,12 +653,14 @@ class CodingToolkit(LionTool):
 
             Use this to stay within context limits during long tasks. Evict verbose
             tool outputs you no longer need to free space for new work.
+            Evicted messages are hidden from the LLM but preserved in conversation record.
             """
-            progression = msgs.progression
+            progression = branch.progression
             pile = msgs.messages
 
             if action == "status":
-                total = len(progression)
+                full_len = len(msgs.progression)
+                active_len = len(progression)
                 by_type: dict[str, int] = {}
                 total_tokens = 0
                 for uid in progression:
@@ -660,11 +673,12 @@ class CodingToolkit(LionTool):
                             total_tokens += TokenCalculator.tokenize(str(c) if not isinstance(c, str) else c)
                 return {
                     "success": True,
-                    "total_messages": total,
+                    "active_messages": active_len,
+                    "total_messages": full_len,
+                    "evicted": full_len - active_len,
                     "by_type": by_type,
                     "estimated_tokens": total_tokens,
                     "files_tracked": len(file_state),
-                    "evicted_messages": len(evicted),
                 }
 
             elif action == "get_messages":
@@ -686,28 +700,28 @@ class CodingToolkit(LionTool):
                 return {"success": True, "range": f"[{s}:{e}] of {len(progression)}", "messages": summaries}
 
             elif action == "evict":
+                cp = _ensure_current_progression()
                 s = max(1, start or 1)
                 e = end if end is not None else s + 1
-                e = min(len(progression), e)
+                e = min(len(cp), e)
                 if s >= e:
                     return {"success": False, "error": f"Invalid range [{s}:{e})"}
-                uids = [progression[i] for i in range(s, e) if i < len(progression)]
-                progression.exclude(uids)
-                evicted.extend(uids)
-                return {"success": True, "removed": len(uids), "remaining": len(progression)}
+                uids = [cp[i] for i in range(s, e) if i < len(cp)]
+                cp.exclude(uids)
+                return {"success": True, "removed": len(uids), "active": len(cp), "total": len(msgs.progression)}
 
             elif action == "evict_action_results":
+                cp = _ensure_current_progression()
                 keep = keep_last if keep_last is not None else 5
                 ar_uids = [
-                    uid for uid in progression
+                    uid for uid in cp
                     if uid in pile and isinstance(pile[uid], ActionResponse)
                 ]
                 if len(ar_uids) <= keep:
                     return {"success": True, "removed": 0, "message": f"Only {len(ar_uids)} action results, keeping all."}
                 to_evict = ar_uids[:-keep] if keep > 0 else ar_uids
-                progression.exclude(to_evict)
-                evicted.extend(to_evict)
-                return {"success": True, "removed": len(to_evict), "remaining": len(progression)}
+                cp.exclude(to_evict)
+                return {"success": True, "removed": len(to_evict), "active": len(cp), "total": len(msgs.progression)}
 
             return {"success": False, "error": f"Unknown action: {action}"}
 
