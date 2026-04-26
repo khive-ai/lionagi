@@ -62,20 +62,35 @@ async def create_agent(
     branch_kwargs = {}
 
     if config.model:
-        from lionagi.cli._providers import build_chat_model, parse_model_spec
+        from lionagi.cli._providers import (
+            PROVIDER_EFFORT_KWARG,
+            _CLAUDE_PROVIDER_NAMES,
+            parse_model_spec,
+        )
 
         ms = parse_model_spec(config.model)
-        provider = ms.model.split("/")[0] if "/" in ms.model else ms.model
-        effort_kwargs = {}
-        if config.effort or ms.effort:
-            from lionagi.cli._providers import PROVIDER_EFFORT_KWARG
+        if "/" in ms.model:
+            provider, model_name = ms.model.split("/", 1)
+        else:
+            provider = model_name = ms.model
 
-            effort = config.effort or ms.effort
-            effort_kwargs = PROVIDER_EFFORT_KWARG.get(provider, {}).get(
-                effort, {}
-            )
+        extra = {}
+        effort = config.effort or ms.effort
+        if effort:
+            kwarg = PROVIDER_EFFORT_KWARG.get(provider)
+            if kwarg:
+                extra[kwarg] = effort
+        if config.yolo:
+            from lionagi.cli._providers import PROVIDER_YOLO_KWARGS
 
-        chat_model = build_chat_model(config.model, **(effort_kwargs or {}))
+            extra.update(PROVIDER_YOLO_KWARGS.get(provider, {}))
+
+        chat_model = iModel(
+            provider=provider,
+            model=model_name,
+            api_key="dummy",
+            **extra,
+        )
         branch_kwargs["chat_model"] = chat_model
 
     branch = Branch(**branch_kwargs)
