@@ -13,6 +13,12 @@ from lionagi.libs.schema.as_readable import (
 )
 
 
+def test_as_readable_truncates_nested_structures_without_display():
+    data = {"outer": {"items": list(range(20))}}
+    result = as_readable(data, max_chars=40, display_str=False)
+    assert "[Truncated output]" in result
+
+
 class TestFormatDict:
     """Test cases for format_dict function."""
 

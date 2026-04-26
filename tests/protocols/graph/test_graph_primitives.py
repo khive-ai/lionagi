@@ -203,3 +203,39 @@ def test_edge_setter_rejects_non_condition():
 
     with pytest.raises(ValueError, match="Condition subclass"):
         e.condition = _NotACondition()
+
+
+# ---------------------------------------------------------------------------
+# D5 – replace_node rewires inbound and outbound edges
+# ---------------------------------------------------------------------------
+
+
+def test_graph_replace_node_rewires_inbound_and_outbound_edges():
+    """replace_node transfers all edges from old node to new node."""
+    g = Graph()
+    a, b, c = Node(), Node(), Node()
+    for n in (a, b, c):
+        g.add_node(n)
+
+    # a --> b --> c
+    e_ab = Edge(head=a.id, tail=b.id)
+    e_bc = Edge(head=b.id, tail=c.id)
+    g.add_edge(e_ab)
+    g.add_edge(e_bc)
+
+    new_b = Node()
+    g.replace_node(b, new_b)
+
+    # old b is gone; new_b is in graph
+    assert b.id not in g.internal_nodes
+    assert new_b.id in g.internal_nodes
+
+    # Edge that was a->b should now point to new_b
+    assert g.internal_edges[e_ab.id].tail == new_b.id
+    # Edge that was b->c should now originate from new_b
+    assert g.internal_edges[e_bc.id].head == new_b.id
+
+    # new_b has one inbound and one outbound edge in the adjacency mapping
+    mapping = g.node_edge_mapping[new_b.id]
+    assert e_ab.id in mapping["in"]
+    assert e_bc.id in mapping["out"]

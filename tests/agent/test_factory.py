@@ -271,3 +271,84 @@ async def test_post_hook_registered_on_tool():
     result = {"success": True}
     await reader_tool.postprocessor(result)
     assert "reader" in calls
+
+
+# ---------------------------------------------------------------------------
+# A5: model string parsed into provider / model / effort / yolo kwargs
+# ---------------------------------------------------------------------------
+
+
+async def test_create_agent_parses_model_provider_effort_and_yolo_kwargs(monkeypatch):
+    import lionagi.cli._providers as providers_mod
+    import lionagi.service.imodel as imodel_mod
+
+    monkeypatch.setitem(providers_mod.PROVIDER_EFFORT_KWARG, "openai", "reasoning_effort")
+    monkeypatch.setitem(providers_mod.PROVIDER_YOLO_KWARGS, "openai", {"stream": True})
+
+    real_init = imodel_mod.iModel.__init__
+    captured = {}
+
+    def spy_init(self, *args, **kwargs):
+        captured.update(kwargs)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(imodel_mod.iModel, "__init__", spy_init)
+
+    config = AgentConfig(model="openai/gpt-4.1-mini", effort="high", yolo=True)
+    branch = await create_agent(config, load_settings=False)
+
+    assert isinstance(branch, Branch)
+    assert captured.get("provider") == "openai"
+    assert captured.get("model") == "gpt-4.1-mini"
+    assert captured.get("reasoning_effort") == "high"
+    assert captured.get("stream") is True
+
+
+# ---------------------------------------------------------------------------
+# A6: trust_project_settings=False prevents project settings from loading
+# ---------------------------------------------------------------------------
+
+
+async def test_create_agent_does_not_load_project_settings_without_trust(
+    tmp_path, monkeypatch
+):
+    import lionagi.agent.settings as settings_mod
+
+    (tmp_path / ".lionagi").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    calls = []
+    real_load = settings_mod.load_settings
+
+    def spy_load(project_dir=None, *, include_project=True):
+        calls.append(include_project)
+        return real_load(project_dir, include_project=include_project)
+
+    monkeypatch.setattr(settings_mod, "load_settings", spy_load)
+
+    config = AgentConfig()
+    await create_agent(config, load_settings=True, trust_project_settings=False)
+
+    assert calls == [False], f"load_settings called with include_project={calls}"
+
+
+# ---------------------------------------------------------------------------
+# C9: _chain_post_hooks ignores non-dict hook returns; dict returns update result
+# ---------------------------------------------------------------------------
+
+
+async def test_agent_post_hooks_ignore_non_dict_results_and_keep_previous_result():
+    """Non-dict hook return is ignored; a subsequent dict return is applied."""
+    from lionagi.agent.factory import _chain_post_hooks
+
+    async def hook_returns_string(tool_name, op, kwargs, result):
+        return "not a dict — should be ignored"
+
+    async def hook_returns_dict(tool_name, op, kwargs, result):
+        return {"ok": 2}
+
+    chained = _chain_post_hooks("mytool", [hook_returns_string, hook_returns_dict])
+    assert chained is not None
+
+    final = await chained({"ok": 1})
+    assert final == {"ok": 2}

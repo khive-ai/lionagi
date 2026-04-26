@@ -141,3 +141,33 @@ class TestOperative:
         assert operative.request_type is not None
         assert "username" in operative.request_type.model_fields
         assert "age" in operative.request_type.model_fields
+
+    def test_operative_validate_response_strict_false_records_retry_state(
+        self, monkeypatch
+    ):
+        """When the adapter raises during validation with strict=False,
+        response_str_dict is set to the input text and _should_retry is False."""
+        from unittest.mock import patch
+
+        operative = Operative(base_type=SampleModel, auto_retry_parse=True)
+        operative.create_response_model()
+
+        # Make the adapter always raise so we exercise the except branch
+        original_get_adapter = operative._get_adapter
+
+        class _AlwaysFailAdapter:
+            @staticmethod
+            def validate_response(text, cls, strict, fuzzy_parse):
+                raise ValueError("forced adapter failure")
+
+        with patch.object(operative, "_get_adapter", return_value=_AlwaysFailAdapter):
+            result = operative.validate_response("not-json")
+
+        assert result is None
+        assert operative.response_str_dict == "not-json"
+        assert operative._should_retry is False
+
+    def test_operative_update_response_model_requires_text_or_data(self):
+        operative = Operative(base_type=SampleModel)
+        with pytest.raises(ValueError, match="Either text or data must be provided"):
+            operative.update_response_model()

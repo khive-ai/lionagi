@@ -4,7 +4,7 @@ from pydantic import ConfigDict
 from lionagi._errors import RelationError
 from lionagi.protocols.types import Edge, EdgeCondition, Graph
 
-from .test_graph_base import create_test_node
+from .helpers import create_test_node
 
 
 class CustomEdgeCondition(EdgeCondition):

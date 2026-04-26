@@ -302,3 +302,52 @@ async def test_to_tool_callable_executes(tmp_path):
     )
     assert result["success"] is True
     assert result["count"] > 0
+
+
+# ---------------------------------------------------------------------------
+# A12: grep timeout returns structured error
+# ---------------------------------------------------------------------------
+
+
+async def test_search_tool_grep_timeout_returns_structured_error(monkeypatch):
+    import subprocess as _subprocess
+
+    import lionagi.tools.code.search as search_mod
+
+    def fake_run(*args, **kwargs):
+        raise _subprocess.TimeoutExpired("grep", 30)
+
+    monkeypatch.setattr(search_mod.subprocess, "run", fake_run)
+
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.grep, pattern="needle", path=".")
+    )
+
+    assert resp.success is False
+    assert resp.count == 0
+    assert "timed out" in (resp.error or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# A13: find nonzero exit with stderr returns error response
+# ---------------------------------------------------------------------------
+
+
+async def test_search_tool_find_stderr_nonzero_is_error(monkeypatch):
+    import lionagi.tools.code.search as search_mod
+
+    class _FakeResult:
+        returncode = 1
+        stdout = ""
+        stderr = "permission denied"
+
+    monkeypatch.setattr(search_mod.subprocess, "run", lambda *a, **kw: _FakeResult())
+
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.find, pattern="*.py", path="/restricted")
+    )
+
+    assert resp.success is False
+    assert "permission denied" in (resp.error or "").lower()

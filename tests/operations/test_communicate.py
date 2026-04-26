@@ -79,3 +79,45 @@ async def test_communicate_with_model_validation():
     # We'll assume your code sets parsed.data = "mocked_response_string"
     assert parsed.data == "mocked_response_string"
     assert len(branch.messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_communicate_wraps_parse_value_error_with_context(monkeypatch):
+    from unittest.mock import AsyncMock, patch
+    from pydantic import BaseModel as PydanticBaseModel
+
+    class AnswerModel(PydanticBaseModel):
+        answer: str
+
+    branch = make_mocked_branch_for_communicate()
+
+    # parse is imported locally inside communicate(); patch at source module
+    with patch(
+        "lionagi.operations.parse.parse.parse",
+        new=AsyncMock(side_effect=ValueError("bad parse")),
+    ):
+        with pytest.raises(ValueError, match="bad parse"):
+            await branch.communicate(
+                instruction="some instruction",
+                response_format=AnswerModel,
+            )
+
+
+@pytest.mark.asyncio
+async def test_communicate_clear_messages_clears_before_turn():
+    branch = make_mocked_branch_for_communicate()
+    branch.msgs.add_message(
+        instruction="pre-existing",
+        sender=branch.user or "user",
+        recipient=branch.id,
+    )
+    assert len(branch.messages) >= 1
+
+    await branch.communicate(
+        instruction="new instruction",
+        clear_messages=True,
+        skip_validation=True,
+    )
+
+    # After clear + 1 turn: exactly instruction + assistant_response = 2
+    assert len(branch.messages) == 2

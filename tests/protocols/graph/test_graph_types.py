@@ -2,7 +2,7 @@ import pytest
 
 from lionagi.protocols.types import Edge, Graph
 
-from .test_graph_base import GraphNode
+from .helpers import GraphNode
 
 
 class TypeANode(GraphNode):

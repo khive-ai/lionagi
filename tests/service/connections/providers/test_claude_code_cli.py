@@ -59,8 +59,8 @@ class TestHandlerValidation:
             "on_final": lambda x: None,
         }
 
-        # Should not raise
-        _validate_handlers(handlers)
+        result = _validate_handlers(handlers)
+        assert result is None
 
     def test_validate_handlers_invalid_type(self):
         """Test _validate_handlers rejects non-dict input."""
@@ -105,8 +105,8 @@ class TestHandlerValidation:
             "on_tool_use": None,
         }
 
-        # Should not raise
-        _validate_handlers(handlers)
+        result = _validate_handlers(handlers)
+        assert result is None
 
 
 class TestClaudeHandlers:

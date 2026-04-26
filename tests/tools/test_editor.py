@@ -422,3 +422,25 @@ async def test_to_tool_callable_executes(tmp_path):
     )
     assert result["success"] is True
     assert target.read_text() == "via tool\n"
+
+
+# ---------------------------------------------------------------------------
+# C3: edit requires both old_string and new_string
+# ---------------------------------------------------------------------------
+
+
+async def test_editor_tool_requires_old_and_new_strings_for_edit(tmp_path):
+    tool = EditorTool(workspace_root=str(tmp_path))
+    target = tmp_path / "f.txt"
+
+    resp = await tool.handle_request(
+        EditorRequest(action=EditorAction.edit, file_path=str(target))
+    )
+    assert resp.success is False
+    assert "old_string" in resp.error
+
+    resp2 = await tool.handle_request(
+        EditorRequest(action=EditorAction.edit, file_path=str(target), old_string="x")
+    )
+    assert resp2.success is False
+    assert "new_string" in resp2.error

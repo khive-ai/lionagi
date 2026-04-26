@@ -449,3 +449,49 @@ class TestNodeIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ---------------------------------------------------------------------------
+# D6 – Node embedding: JSON string must decode to a list of floats
+# ---------------------------------------------------------------------------
+
+
+class TestNodeEmbeddingJsonString:
+    """Validate Node._parse_embedding behaviour for JSON-encoded strings."""
+
+    def test_embedding_json_string_decoded_to_float_list(self):
+        """A valid JSON-encoded float array is accepted and decoded."""
+        import json
+
+        raw = json.dumps([1.0, 2.5, 3.14])
+        node = Node(embedding=raw)
+        assert node.embedding == [1.0, 2.5, 3.14]
+        assert all(isinstance(v, float) for v in node.embedding)
+
+    def test_embedding_json_string_with_ints_coerced_to_float(self):
+        """Integer values in a JSON-encoded array are coerced to float."""
+        import json
+
+        raw = json.dumps([1, 2, 3])
+        node = Node(embedding=raw)
+        assert node.embedding == [1.0, 2.0, 3.0]
+        assert all(isinstance(v, float) for v in node.embedding)
+
+    def test_embedding_json_dict_string_rejected(self):
+        """A JSON object (dict) encoded as string must be rejected."""
+        import json
+
+        import pytest
+        from pydantic import ValidationError
+
+        raw = json.dumps({"a": 1.0})
+        with pytest.raises((ValidationError, ValueError)):
+            Node(embedding=raw)
+
+    def test_embedding_non_json_string_rejected(self):
+        """A plain non-JSON string must be rejected."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises((ValidationError, ValueError)):
+            Node(embedding="not-a-json-list")

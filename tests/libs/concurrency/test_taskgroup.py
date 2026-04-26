@@ -51,12 +51,15 @@ async def test_error_in_one_task_cancels_peers_promptly(anyio_backend):
 
 @pytest.mark.anyio
 async def test_taskgroup_name_passthrough(anyio_backend):
-    # We can't introspect names portably, but ensure the API accepts them.
+    executed = []
+
     async def noop():
-        pass
+        executed.append(True)
 
     async with create_task_group() as tg:
         tg.start_soon(noop, name="x")
+
+    assert executed == [True]
 
 
 @pytest.mark.anyio

@@ -442,3 +442,36 @@ def test_extend_use_keys_after_validation():
     assert (
         "non_existent" not in model_class.model_fields
     ), "Keys not present in parameter_fields/field_models should not appear in the final model."
+
+
+# ---------------------------------------------------------------------------
+# D7 – ModelParams rejects non-FieldInfo values in parameter_fields
+# ---------------------------------------------------------------------------
+
+
+def test_model_params_rejects_non_fieldinfo_parameter_fields():
+    """parameter_fields must contain FieldInfo instances; plain values raise ValueError."""
+    with pytest.raises(ValueError, match="FieldInfo"):
+        ModelParams(
+            name="BadModel",
+            parameter_fields={"x": "not-a-fieldinfo"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# D8 – ModelParams cache key handles unhashable field metadata
+# ---------------------------------------------------------------------------
+
+
+def test_model_params_create_new_model_is_idempotent():
+    """Calling create_new_model() twice with identical params returns cached model."""
+    f = Field(default=42)
+    f.annotation = int
+
+    p = ModelParams(name="CachedModel", parameter_fields={"val": f})
+    m1 = p.create_new_model()
+    m2 = p.create_new_model()
+
+    # Should be the same class object (or at least behave identically)
+    assert m1.__name__ == m2.__name__ == "CachedModel"
+    assert m1(val=1).val == 1

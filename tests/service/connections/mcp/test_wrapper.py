@@ -275,12 +275,9 @@ class TestMCPConnectionPoolCreateClient:
                 await MCPConnectionPool._create_client(config)
 
                 call_kwargs = mock_stdio.call_args.kwargs
-                # Debug mode should not set LOG_LEVEL to ERROR
-                # (it may be set by default env, but not forced by our code)
                 env = call_kwargs["env"]
-                # Check that we didn't explicitly suppress logs
-                # (in debug mode, we skip the suppression logic)
-                assert True  # Just verify no exception raised
+                # In debug mode we must NOT force LOG_LEVEL=ERROR
+                assert env.get("LOG_LEVEL") != "ERROR"
 
 
 class TestMCPConnectionPoolCleanup:

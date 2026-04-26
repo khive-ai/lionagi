@@ -3,9 +3,11 @@
 import pytest
 
 from lionagi._errors import RelationError
+from lionagi.protocols.graph.edge import EdgeCondition
+from lionagi.protocols.graph.node import Node
 from lionagi.protocols.types import Edge, Graph, Pile
 
-from .test_graph_base import create_test_node
+from .helpers import create_test_node
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -455,3 +457,39 @@ class TestFindPath:
         path = await graph.find_path(nodes[0].id, nodes[1].id)
         assert path is not None
         assert len(path) == 1
+
+
+# ---------------------------------------------------------------------------
+# D4 – find_path skips edges when condition returns False
+# ---------------------------------------------------------------------------
+
+
+class _FalseCondition(EdgeCondition):
+    """Condition that always returns False (blocks traversal)."""
+
+    async def apply(self, *args, **kwargs) -> bool:
+        return False
+
+
+@pytest.mark.asyncio
+async def test_graph_find_path_skips_edges_when_condition_false():
+    """With check_conditions=True, edges whose condition returns False are skipped."""
+    g = Graph()
+    a, b, c = Node(), Node(), Node()
+    for n in (a, b, c):
+        g.add_node(n)
+
+    # A --(blocking condition)--> B --> C
+    e_ab = Edge(head=a.id, tail=b.id, condition=_FalseCondition())
+    e_bc = Edge(head=b.id, tail=c.id)
+    g.add_edge(e_ab)
+    g.add_edge(e_bc)
+
+    # With conditions checked, A->B is blocked so no path A->C exists
+    result_blocked = await g.find_path(a, c, check_conditions=True)
+    assert result_blocked is None
+
+    # Without condition checking, path A->B->C is found
+    result_free = await g.find_path(a, c, check_conditions=False)
+    assert result_free is not None
+    assert len(result_free) == 2

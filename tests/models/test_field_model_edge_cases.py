@@ -240,7 +240,8 @@ class TestFieldModelValidators:
 
     def test_validate_passes_silently(self):
         fm = FieldModel(base_type=int).with_validator(_pos_validator)
-        fm.validate(10)
+        result = fm.validate(10)
+        assert result is None
 
     def test_has_validator_false_without_validator(self):
         fm = FieldModel(base_type=str)
@@ -248,7 +249,8 @@ class TestFieldModelValidators:
 
     def test_validate_no_validators_noop(self):
         fm = FieldModel(base_type=str)
-        fm.validate("anything")
+        result = fm.validate("anything")
+        assert result is None
 
     def test_field_validator_property_returns_dict(self):
         def my_val(v):
@@ -261,7 +263,8 @@ class TestFieldModelValidators:
     def test_validate_pydantic_style_validator(self):
         """Pydantic-style (cls, value) validator: validation passes without raising."""
         fm = FieldModel(base_type=int).with_validator(lambda cls, v: v)
-        fm.validate(3, field_name="score")
+        result = fm.validate(3, field_name="score")
+        assert result is None
 
     def test_validate_boolean_false_raises_validation_error(self):
         """Simple bool validator returning False raises ValidationError."""

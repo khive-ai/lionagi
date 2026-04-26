@@ -80,9 +80,12 @@ class TestSetattrRegularField:
 class TestDelattrRegularField:
     def test_delete_regular_field_uses_super(self):
         m = _Sample()
-        # Regular field deletion goes to super().__delattr__.
-        # Pydantic allows it (field falls back to default on next access).
-        del m.base  # should not raise; exercises the super().__delattr__ path
+        m.base = "changed"
+        assert m.base == "changed"
+        del m.base
+        # After deletion the field value is cleared to the Undefined sentinel
+        from lionagi.ln.types._sentinel import UndefinedType
+        assert isinstance(m.base, UndefinedType)
 
 
 class TestAddFieldEdgeCases:

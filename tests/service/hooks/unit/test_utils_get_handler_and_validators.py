@@ -45,12 +45,6 @@ class TestValidateHooks:
         with pytest.raises(ValidationError):
             validate_hooks({42: lambda e: None})  # int key
 
-    def test_validate_hooks_rejects_invalid_enum_value(self):
-        """Test that validate_hooks rejects HookEventTypes not in ALLOWED_HOOKS_TYPES."""
-        # This would require creating an invalid enum value, which is hard to do
-        # The current implementation checks both isinstance and membership in ALLOWED_HOOKS_TYPES
-        pass
-
     def test_validate_hooks_rejects_non_callable_values(self):
         """Test that validate_hooks rejects non-callable hook values."""
         with pytest.raises(ValidationError):
@@ -67,12 +61,13 @@ class TestValidateStreamHandlers:
             "chunk_type": lambda ev, ct, ch, **kw: None,
             str: lambda ev, ct, ch, **kw: None,
         }
-        # Should not raise
-        validate_stream_handlers(valid_handlers)
+        result = validate_stream_handlers(valid_handlers)
+        assert result is None
 
     def test_validate_stream_handlers_accepts_empty_dict(self):
         """Test that validate_stream_handlers accepts an empty dictionary."""
-        validate_stream_handlers({})
+        result = validate_stream_handlers({})
+        assert result is None
 
     def test_validate_stream_handlers_rejects_non_dict(self):
         """Test that validate_stream_handlers rejects non-dictionary input."""
@@ -97,7 +92,8 @@ class TestValidateStreamHandlers:
             str: lambda ev, ct, ch, **kw: None,
             int: lambda ev, ct, ch, **kw: None,
         }
-        validate_stream_handlers(valid_handlers)
+        result = validate_stream_handlers(valid_handlers)
+        assert result is None
 
     def test_validate_stream_handlers_rejects_non_callable_values(self):
         """Test that validate_stream_handlers rejects non-callable values."""

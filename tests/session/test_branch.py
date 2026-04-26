@@ -597,3 +597,48 @@ async def test_react_stream_instruct_object_converted_to_dict(monkeypatch):
     await _drain(branch.ReActStream(instruct_obj))
 
     assert captured_instruction[0] == "from_object"
+
+
+def test_branch_clone_rejects_invalid_sender_and_rewrites_valid_sender():
+    import uuid
+    branch = Branch(system="hello", user="tester")
+    branch.msgs.add_message(
+        instruction="test instruction",
+        sender=branch.user or "user",
+        recipient=branch.id,
+    )
+
+    with pytest.raises(ValueError, match="is not a valid sender"):
+        branch.clone(sender="not-a-uuid")
+
+    valid_sender_id = str(uuid.uuid4())
+    clone = branch.clone(sender=valid_sender_id)
+    assert clone is not branch
+    for msg in clone.msgs.messages:
+        assert str(msg.sender) == valid_sender_id
+
+
+def test_branch_round_trips_without_duplicate_system_message():
+    from lionagi.protocols.messages import System
+
+    original = Branch(system="You are a helpful assistant.", user="tester")
+    original.msgs.add_message(
+        instruction="hello",
+        sender=original.user or "user",
+        recipient=original.id,
+    )
+
+    original_msg_count = len(original.msgs.messages)
+    original_system_count = sum(
+        1 for m in original.msgs.messages if isinstance(m, System)
+    )
+
+    data = original.to_dict()
+    restored = Branch.from_dict(data)
+
+    restored_system_count = sum(
+        1 for m in restored.msgs.messages if isinstance(m, System)
+    )
+
+    assert len(restored.msgs.messages) == original_msg_count
+    assert restored_system_count == original_system_count

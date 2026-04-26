@@ -131,6 +131,40 @@ async def test_context_tool_get_messages_clamps_requested_range():
         assert summary.startswith("[")
 
 
+# ---------------------------------------------------------------------------
+# C4: keep_last=0 evicts all action results
+# ---------------------------------------------------------------------------
+
+
+async def test_context_tool_keep_last_zero_evicts_all_context():
+    """keep_last=0 removes all ActionResponse messages; non-action messages remain."""
+    from lionagi.protocols.messages import ActionResponse
+
+    branch = Branch(system="sys")
+    branch.msgs.add_message(
+        instruction=branch.msgs.create_instruction(instruction="user q")
+    )
+    for i in range(3):
+        ar = ActionResponse(
+            content={
+                "function": f"fn_{i}",
+                "arguments": {},
+                "output": {"i": i},
+            }
+        )
+        branch.msgs.messages.include(ar)
+        branch.msgs.progression.include(ar.id)
+
+    non_action_count = len(branch.msgs.progression) - 3  # system + instruction
+
+    tool = ContextTool().bind(branch)
+    result = await tool.func_callable(action="evict_action_results", keep_last=0)
+
+    assert result["success"] is True
+    assert result["removed"] == 3
+    assert len(branch.msgs.progression) == non_action_count
+
+
 async def test_context_tool_evict_action_results_respects_keep_last_zero():
     """evict_action_results with keep_last=0 removes all action responses."""
     from lionagi.protocols.messages import ActionResponse

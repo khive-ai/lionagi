@@ -109,3 +109,26 @@ def test_element_bool():
 def test_element_class_name():
     assert Element.class_name() == "Element"
     assert Element.class_name(full=True) == "lionagi.protocols.generic.element.Element"
+
+
+def test_element_from_dict_accepts_db_node_metadata_without_mutating_input():
+    import uuid
+    from lionagi.protocols.generic.element import Element
+
+    original_data = {
+        "id": str(uuid.uuid4()),
+        "created_at": 1700000000.0,
+        "node_metadata": {
+            "lion_class": "lionagi.protocols.generic.element.Element",
+            "a": 1,
+            "b": "hello",
+        },
+    }
+    original_node_metadata = dict(original_data["node_metadata"])
+
+    elem = Element.from_dict(original_data)
+
+    assert elem.metadata.get("a") == 1
+    assert elem.metadata.get("b") == "hello"
+    assert "lion_class" not in elem.metadata
+    assert original_data["node_metadata"] == original_node_metadata

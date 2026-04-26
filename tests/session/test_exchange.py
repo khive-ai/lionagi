@@ -368,21 +368,18 @@ class TestExchangeAsync:
 
         exchange = Exchange()
 
-        # Start run loop in background
         task = asyncio.create_task(exchange.run(interval=0.01))
-
-        # Let it run briefly
         await asyncio.sleep(0.05)
-
-        # Stop it
         exchange.stop()
 
-        # Wait for task to complete
         try:
             await asyncio.wait_for(task, timeout=0.5)
         except TimeoutError:
             task.cancel()
             pytest.fail("run() did not stop after stop() was called")
+
+        assert exchange._stop is True
+        assert task.done()
 
 
 class TestExchangeEdgeCases:

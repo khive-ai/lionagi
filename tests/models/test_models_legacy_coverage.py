@@ -379,7 +379,9 @@ class TestOperableModelRemoveField:
 
     def test_remove_nonexistent_field_is_safe(self):
         m = SimpleModel()
-        m.remove_field("nonexistent")  # should not raise
+        m.add_field("existing", value="v", annotation=str)
+        m.remove_field("nonexistent")
+        assert "existing" in m.all_fields
 
 
 class TestOperableModelAllFields:

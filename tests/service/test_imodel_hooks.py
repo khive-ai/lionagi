@@ -533,3 +533,92 @@ class TestiModelHooks:
         assert "v1" in call_log
         assert "v2" in call_log
         assert call_log.index("v1") < call_log.index("v2")
+
+
+# ---------------------------------------------------------------------------
+# D12 – process_chunk raises exception from exit tuple
+# ---------------------------------------------------------------------------
+
+
+class TestProcessChunkExitTuple:
+    """process_chunk raises hook_result[1] when the hook signals exit with a BaseException."""
+
+    @pytest.mark.asyncio
+    async def test_process_chunk_raises_exception_from_exit_tuple(self):
+        """When handle_streaming_chunk returns ((*_, exc), True, *_), raise exc."""
+        from unittest.mock import AsyncMock, patch
+
+        from lionagi.ln.types import Undefined
+        from lionagi.protocols.generic.event import EventStatus
+        from lionagi.service.imodel import iModel
+
+        sentinel_exc = ValueError("streaming abort")
+
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+        )
+
+        class _FakeChunk:
+            pass
+
+        fake_chunk = _FakeChunk()
+
+        with (
+            patch.object(
+                imodel.hook_registry,
+                "_can_handle",
+                return_value=True,
+            ),
+            patch.object(
+                imodel.hook_registry,
+                "handle_streaming_chunk",
+                new=AsyncMock(
+                    return_value=(
+                        (Undefined, sentinel_exc),
+                        True,
+                        EventStatus.CANCELLED,
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(ValueError, match="streaming abort"):
+                await imodel.process_chunk(fake_chunk)
+
+    @pytest.mark.asyncio
+    async def test_process_chunk_raises_runtime_error_when_no_cause(self):
+        """When exit=True but hook_result has no BaseException, RuntimeError is raised."""
+        from unittest.mock import AsyncMock, patch
+
+        from lionagi.service.imodel import iModel
+
+        imodel = iModel(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="test-key",
+        )
+
+        class _FakeChunk:
+            pass
+
+        with (
+            patch.object(
+                imodel.hook_registry,
+                "_can_handle",
+                return_value=True,
+            ),
+            patch.object(
+                imodel.hook_registry,
+                "handle_streaming_chunk",
+                new=AsyncMock(
+                    return_value=(
+                        "not-an-exception",
+                        True,
+                        None,
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Streaming hook requested exit without a cause"):
+                await imodel.process_chunk(_FakeChunk())

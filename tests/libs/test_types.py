@@ -232,9 +232,8 @@ def test_dataclass_eq():
     obj1 = MyDataClass(field1="test", field2=42)
     obj2 = MyDataClass(field1="test", field2=42)
     obj3 = MyDataClass(field1="other", field2=99)
-    # Just verify equality can be checked
-    _ = obj1 == obj2
-    _ = obj1 != obj3
+    assert obj1 == obj2
+    assert obj1 != obj3
 
 
 def test_dataclass_eq_not_dataclass():
@@ -289,9 +288,8 @@ def test_params_eq():
     params1 = MyParams(field1="test", field2=42)
     params2 = MyParams(field1="test", field2=42)
     params3 = MyParams(field1="other", field2=99)
-    # Just verify equality can be checked
-    _ = params1 == params2
-    _ = params1 != params3
+    assert params1 == params2
+    assert params1 != params3
 
 
 def test_params_eq_not_params():

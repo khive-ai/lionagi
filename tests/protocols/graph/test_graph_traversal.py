@@ -2,7 +2,7 @@ import pytest
 
 from lionagi.protocols.types import Edge, Graph, Pile
 
-from .test_graph_base import create_test_node
+from .helpers import create_test_node
 
 
 @pytest.fixture

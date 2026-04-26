@@ -102,7 +102,9 @@ class TestOperableModelRemoveField:
 
     def test_remove_nonexistent_field_noop(self):
         m = OperableModel()
+        m.add_field("existing", value=1, annotation=int)
         m.remove_field("does_not_exist")
+        assert "existing" in m.all_fields
 
 
 class TestOperableModelFieldAttr:
@@ -224,6 +226,7 @@ class TestOperableModelSetAttr:
         fm = FieldModel(base_type=int).with_validator(_pos_validator)
         m.add_field("positive", value=1, field_model=fm)
         m.positive = 5
+        assert m.positive == 5
 
     def test_dunder_field_assignment_raises(self):
         m = OperableModel()

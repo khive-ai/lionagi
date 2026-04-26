@@ -281,6 +281,55 @@ and more text"""
         assert original.age == 30
 
 
+# ---------------------------------------------------------------------------
+# C7: callable default becomes default_factory
+# ---------------------------------------------------------------------------
+
+
+def test_pydantic_field_adapter_uses_callable_metadata_as_default_factory():
+    """A callable passed as default= to Spec becomes default_factory in FieldInfo."""
+    factory = lambda: "computed"  # noqa: E731
+    spec = Spec(str, name="result", default=factory, nullable=True)
+    field_info = PydanticSpecAdapter.create_field(spec)
+
+    # The callable must land in default_factory, not default
+    assert field_info.default_factory is factory
+    # A model built from this field should produce the factory's value
+    specs = [spec]
+    operable = Operable(specs)
+    ResultModel = PydanticSpecAdapter.create_model(operable, "ResultModel")
+    instance = ResultModel()
+    assert instance.result == "computed"
+
+
+# ---------------------------------------------------------------------------
+# C8: strict fuzzy_match_fields raises; non-strict coerces typos and drops unknowns
+# ---------------------------------------------------------------------------
+
+
+def test_pydantic_field_adapter_strict_fuzzy_match_raises_on_unmatched_key():
+    """strict=True raises ValueError; strict=False coerces near-matches and drops unknowns."""
+    specs = [Spec(str, name="first_name"), Spec(int, name="age")]
+    operable = Operable(specs)
+    NameModel = PydanticSpecAdapter.create_model(operable, "NameModel")
+
+    # strict=True: completely unknown key must raise
+    with pytest.raises(ValueError):
+        PydanticSpecAdapter.fuzzy_match_fields(
+            {"zzz_unknown": "x", "age": 30}, NameModel, strict=True
+        )
+
+    # strict=False: near-match "frist_name" → "first_name", unknown key dropped
+    matched = PydanticSpecAdapter.fuzzy_match_fields(
+        {"frist_name": "Alice", "age": 30, "extra_junk": "ignored"},
+        NameModel,
+        strict=False,
+    )
+    assert matched.get("first_name") == "Alice"
+    assert matched.get("age") == 30
+    assert "extra_junk" not in matched
+
+
 class TestEdgeCases:
     """Test edge cases and error handling."""
 

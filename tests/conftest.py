@@ -149,44 +149,6 @@ def anthropic_imodel():
     )
 
 
-@pytest.fixture
-def mock_branch_factory():
-    """Factory for creating mock Branch instances with customizable behavior."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from lionagi.session.branch import Branch
-
-    def _factory(selected_items=None, operate_response=None):
-        """
-        Create a mock branch with customizable operate response.
-
-        Args:
-            selected_items: List of items to return in SelectionModel
-            operate_response: Custom response object to return from operate
-        """
-        from lionagi.operations.select.utils import SelectionModel
-
-        branch = MagicMock(spec=Branch)
-
-        if operate_response is not None:
-            # Use custom response
-            async def mock_operate(**kwargs):
-                return operate_response
-
-        elif selected_items is not None:
-            # Use SelectionModel with provided items
-            async def mock_operate(**kwargs):
-                return SelectionModel(selected=selected_items)
-
-        else:
-            # Default: return empty SelectionModel
-            async def mock_operate(**kwargs):
-                return SelectionModel(selected=[])
-
-        branch.operate = AsyncMock(side_effect=mock_operate)
-        return branch
-
-    return _factory
 
 
 @pytest.fixture

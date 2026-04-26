@@ -212,3 +212,37 @@ class TestMatchEndpoint:
 
         # Should have different configurations
         assert endpoint1.config is not endpoint2.config
+
+    def test_match_endpoint_routes_firecrawl_tavily_and_cli_aliases(self):
+        from lionagi.service.connections.providers.firecrawl_ import (
+            FirecrawlMapEndpoint,
+            FirecrawlScrapeEndpoint,
+        )
+        from lionagi.service.connections.providers.tavily_ import TavilyExtractEndpoint
+        from lionagi.service.connections.providers.codex_cli import CodexCLIEndpoint
+        from lionagi.service.connections.providers.gemini_cli import GeminiCLIEndpoint
+        from lionagi.service.connections.providers.pi_cli import PiCLIEndpoint
+
+        cases = [
+            ("firecrawl", "map", FirecrawlMapEndpoint),
+            ("firecrawl", "scrape", FirecrawlScrapeEndpoint),
+            ("tavily", "extract", TavilyExtractEndpoint),
+            ("gemini_cli", "chat", GeminiCLIEndpoint),
+            ("codex", "chat", CodexCLIEndpoint),
+            ("pi", "chat", PiCLIEndpoint),
+        ]
+        for provider, endpoint, expected_cls in cases:
+            result = match_endpoint(provider=provider, endpoint=endpoint)
+            assert isinstance(result, expected_cls), (
+                f"Expected {expected_cls.__name__} for {provider}/{endpoint}, "
+                f"got {type(result).__name__}"
+            )
+
+    def test_match_endpoint_fallback_builds_openai_compatible_endpoint_config(self):
+        result = match_endpoint(provider="custom_provider", endpoint="")
+
+        assert type(result).__name__ == "Endpoint"
+        assert result.config.provider == "custom_provider"
+        assert result.config.endpoint == "chat/completions"
+        assert result.config.auth_type == "bearer"
+        assert result.config.content_type == "application/json"
