@@ -16,6 +16,7 @@ from ..base import LionTool
 
 class ReaderAction(str, Enum):
     read = "read"
+    open = "open"
     list_dir = "list_dir"
 
 
@@ -24,28 +25,30 @@ class ReaderRequest(BaseModel):
         ...,
         description=(
             "Action to perform. One of:\n"
-            "- 'read': Read a file and return its contents with line numbers.\n"
+            "- 'read': Read a text file with line numbers (lightweight, no conversion).\n"
+            "- 'open': Convert a document (PDF, PPTX, DOCX, HTML, URL) to text via docling. "
+            "Result is cached by path — subsequent reads use offset/limit on the cached text.\n"
             "- 'list_dir': List files in a directory."
         ),
     )
     path: str | None = Field(
         None,
         description=(
-            "File or directory path. Required for both 'read' and 'list_dir'."
+            "File path, directory path, or URL. Required for all actions."
         ),
     )
     offset: int | None = Field(
         None,
         description=(
             "Zero-indexed line number to start reading from. "
-            "Only used for 'read'. Defaults to 0."
+            "Used for 'read' and for reading cached 'open' results. Defaults to 0."
         ),
     )
     limit: int | None = Field(
         None,
         description=(
             "Maximum number of lines to return. "
-            "Only used for 'read'. Defaults to 2000."
+            "Used for 'read' and cached reads. Defaults to 2000."
         ),
     )
     recursive: bool | None = Field(
@@ -134,36 +137,102 @@ def _list_dir_sync(
     return ReaderResponse(success=True, content=content)
 
 
+import time
+
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+
+def _open_sync(path: str, cache: dict[str, tuple[str, float]]) -> ReaderResponse:
+    """Convert document via docling, cache result keyed by path."""
+    try:
+        from docling.document_converter import DocumentConverter
+    except ImportError:
+        return ReaderResponse(
+            success=False,
+            error="docling not installed. Run: pip install lionagi[reader]",
+        )
+
+    try:
+        converter = DocumentConverter()
+        result = converter.convert(path)
+        text = result.document.export_to_markdown()
+    except Exception as e:
+        return ReaderResponse(success=False, error=f"Conversion error: {e}")
+
+    cache[path] = (text, time.time())
+    lines = text.split("\n")
+    return ReaderResponse(
+        success=True,
+        content=f"Opened: {path} ({len(lines)} lines, {len(text)} chars). Use read with offset/limit to view.",
+    )
+
+
+def _read_cached(path: str, offset: int, limit: int, cache: dict[str, tuple[str, float]]) -> ReaderResponse | None:
+    """Read from cache if path was previously opened and not expired."""
+    if path not in cache:
+        return None
+    text, cached_at = cache[path]
+    if time.time() - cached_at > _CACHE_TTL_SECONDS:
+        del cache[path]
+        return None
+    lines = text.split("\n")
+    selected = lines[offset : offset + limit]
+    numbered = "".join(f"{offset + i + 1}\t{line}\n" for i, line in enumerate(selected))
+    return ReaderResponse(success=True, content=numbered)
+
+
+def _evict_expired(cache: dict[str, tuple[str, float]]) -> int:
+    """Remove expired entries. Returns count evicted."""
+    now = time.time()
+    expired = [k for k, (_, t) in cache.items() if now - t > _CACHE_TTL_SECONDS]
+    for k in expired:
+        del cache[k]
+    return len(expired)
+
+
 class ReaderTool(LionTool):
     is_lion_system_tool = True
     system_tool_name = "reader_tool"
 
-    def __init__(self):
+    def __init__(self, cache_ttl: int = _CACHE_TTL_SECONDS):
         self._tool = None
+        self._cache: dict[str, tuple[str, float]] = {}
+        self._cache_ttl = cache_ttl
 
     async def handle_request(self, request: ReaderRequest) -> ReaderResponse:
         if isinstance(request, dict):
             request = ReaderRequest(**request)
+        if not request.path:
+            return ReaderResponse(success=False, error="'path' is required")
+
+        _evict_expired(self._cache)
+
+        if request.action == ReaderAction.open:
+            return await run_sync(_open_sync, request.path, self._cache)
+
         if request.action == ReaderAction.read:
-            if not request.path:
-                return ReaderResponse(success=False, error="'path' is required for action='read'")
+            start = max(0, request.offset or 0)
+            limit = request.limit if (request.limit and request.limit > 0) else 2000
+            cached = _read_cached(request.path, start, limit, self._cache)
+            if cached is not None:
+                return cached
             return await run_sync(_read_sync, request.path, request.offset, request.limit)
+
         if request.action == ReaderAction.list_dir:
-            if not request.path:
-                return ReaderResponse(success=False, error="'path' is required for action='list_dir'")
             return await run_sync(_list_dir_sync, request.path, request.recursive, request.file_types)
+
         return ReaderResponse(success=False, error="Unknown action")
 
     def to_tool(self) -> Tool:
         if self._tool is None:
 
             async def reader_tool(**kwargs):
-                """
-                Read files or list directory contents.
+                """Read files, convert documents (PDF/PPTX/DOCX/URL via docling), or list directories.
 
-                Use action='read' to get file contents with line numbers (supports
-                offset and limit for large files). Use action='list_dir' to enumerate
-                files in a directory. Binary files are rejected gracefully.
+                Use action='read' for text files (lightweight, line numbers).
+                Use action='open' for documents needing conversion (PDF, PPTX, HTML, URL) —
+                result is cached by path for 5 minutes, then use 'read' with offset/limit.
+                Use action='list_dir' for directory listings.
                 """
                 return (await self.handle_request(ReaderRequest(**kwargs))).model_dump()
 
