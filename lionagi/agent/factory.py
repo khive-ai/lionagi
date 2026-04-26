@@ -1,0 +1,108 @@
+# Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from lionagi.session.branch import Branch
+
+from .config import AgentConfig
+
+if TYPE_CHECKING:
+    pass
+
+
+async def create_agent(config: AgentConfig) -> Branch:
+    """Create a fully configured Branch from an AgentConfig.
+
+    Wires: system prompt → model → tools → hooks → permissions.
+
+    Usage::
+
+        config = AgentConfig.coding(model="openai/gpt-4.1")
+        branch = await create_agent(config)
+        response = await branch.chat("Fix the bug in utils.py")
+
+    Returns:
+        A Branch ready to use with tools registered and hooks applied.
+    """
+    from lionagi.service.imodel import iModel
+
+    branch_kwargs = {}
+
+    if config.model:
+        from lionagi.cli._providers import build_chat_model, parse_model_spec
+
+        provider, model_name = parse_model_spec(config.model)
+        effort_kwargs = {}
+        if config.effort:
+            from lionagi.cli._providers import PROVIDER_EFFORT_KWARG
+
+            effort_kwargs = PROVIDER_EFFORT_KWARG.get(provider, {}).get(config.effort, {})
+
+        chat_model = build_chat_model(config.model, **(effort_kwargs or {}))
+        branch_kwargs["chat_model"] = chat_model
+
+    branch = Branch(**branch_kwargs)
+
+    if config.system_prompt:
+        if config.lion_system:
+            from lionagi.session.prompts import LION_SYSTEM_MESSAGE
+
+            full_prompt = LION_SYSTEM_MESSAGE.strip() + "\n\n" + config.system_prompt
+        else:
+            full_prompt = config.system_prompt
+        branch.msgs.set_system(
+            branch.msgs.create_system(system=full_prompt)
+        )
+
+    _register_tools(branch, config)
+
+    return branch
+
+
+def _register_tools(branch: Branch, config: AgentConfig) -> None:
+    """Register tools based on config.tools list, applying hooks."""
+    for tool_spec in config.tools:
+        if tool_spec == "coding":
+            _register_coding_tools(branch, config)
+        elif tool_spec == "reader":
+            from lionagi.tools.file.reader import ReaderTool
+
+            branch.register_tools(ReaderTool().to_tool())
+        elif tool_spec == "editor":
+            from lionagi.tools.file.editor import EditorTool
+
+            branch.register_tools(EditorTool().to_tool())
+        elif tool_spec == "bash":
+            from lionagi.tools.code.bash import BashTool
+
+            branch.register_tools(BashTool().to_tool())
+        elif tool_spec == "search":
+            from lionagi.tools.code.search import SearchTool
+
+            branch.register_tools(SearchTool().to_tool())
+
+
+def _register_coding_tools(branch: Branch, config: AgentConfig) -> None:
+    """Register CodingToolkit with hooks from config."""
+    from lionagi.tools.coding import CodingToolkit
+
+    toolkit = CodingToolkit()
+
+    for key, handlers in config.hook_handlers.items():
+        parts = key.split(":", 1)
+        if len(parts) != 2:
+            continue
+        phase, tool_name = parts
+        for handler in handlers:
+            if phase == "pre":
+                toolkit.pre(tool_name, handler)
+            elif phase == "post":
+                toolkit.post(tool_name, handler)
+            elif phase == "error":
+                toolkit.on_error(tool_name, handler)
+
+    tools = toolkit.bind(branch)
+    branch.register_tools(tools)
