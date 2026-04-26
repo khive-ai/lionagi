@@ -357,3 +357,42 @@ def test_get_tool_schema_partial_list(populated_manager):
     with pytest.raises(ValueError) as exc_info:
         populated_manager.get_tool_schema(tools, auto_register=False)
     assert "Tool brand_new_tool is not registered" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: line 86 — duplicate Tool registration → name = tool.function
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterToolDuplicateToolObject:
+    """Line 86: register_tool with a duplicate Tool object (update=False)."""
+
+    def test_duplicate_tool_object_raises_with_function_name(self):
+        """Line 86: tool.function extracted for error message when Tool duplicated."""
+        manager = ActionManager()
+
+        def my_func(x: int) -> int:
+            return x
+
+        tool = Tool(func_callable=my_func)
+        manager.register_tool(tool)
+
+        # Second registration with same function name raises ValueError
+        # __contains__ checks tool.function in registry → True
+        # → enters if block → isinstance(tool, Tool) → name = tool.function (line 86)
+        with pytest.raises(ValueError, match="my_func"):
+            manager.register_tool(tool, update=False)
+
+    def test_duplicate_callable_tool_registered_as_name(self):
+        """Line 88: callable.__name__ extracted when function already registered."""
+        manager = ActionManager()
+
+        def another_fn(y: str) -> str:
+            return y
+
+        # Register by callable
+        manager.register_tool(another_fn)
+
+        # Second callable registration with update=False → ValueError via __name__
+        with pytest.raises(ValueError, match="another_fn"):
+            manager.register_tool(another_fn, update=False)

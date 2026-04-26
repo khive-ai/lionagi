@@ -121,3 +121,96 @@ async def test_communicate_clear_messages_clears_before_turn():
 
     # After clear + 1 turn: exactly instruction + assistant_response = 2
     assert len(branch.messages) == 2
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for communicate.py lines 48, 60, 71-76, 158-160, 169-178
+# ---------------------------------------------------------------------------
+
+import warnings
+
+from lionagi.operations.communicate.communicate import prepare_communicate_kw
+
+
+class SomeModel(BaseModel):
+    data: str = "default"
+
+
+def test_prepare_communicate_kw_operative_model_deprecation():
+    """Line 48: operative_model param → DeprecationWarning."""
+    branch = make_mocked_branch_for_communicate()
+    with pytest.warns(DeprecationWarning, match="operative_model"):
+        kw = prepare_communicate_kw(branch, operative_model=SomeModel)
+    assert kw["chat_param"].response_format is SomeModel
+
+
+def test_prepare_communicate_kw_dual_response_format_raises():
+    """Line 60: response_format + request_model together → ValueError."""
+    branch = make_mocked_branch_for_communicate()
+    with pytest.raises(ValueError, match="Cannot specify both"):
+        prepare_communicate_kw(branch, response_format=SomeModel, request_model=SomeModel)
+
+
+def test_prepare_communicate_kw_operative_model_and_response_format_raises():
+    """Line 60: operative_model + response_format → ValueError."""
+    branch = make_mocked_branch_for_communicate()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            prepare_communicate_kw(
+                branch, operative_model=SomeModel, response_format=SomeModel
+            )
+
+
+def test_prepare_communicate_kw_high_retries_capped():
+    """Lines 71-76: num_parse_retries > 5 → UserWarning and capped to 5."""
+    branch = make_mocked_branch_for_communicate()
+    with pytest.warns(UserWarning, match="num_parse_retries"):
+        kw = prepare_communicate_kw(
+            branch, num_parse_retries=10, response_format=SomeModel
+        )
+    # parse_param should be set (response_format provided)
+    assert kw["parse_param"] is not None
+
+
+@pytest.mark.asyncio
+async def test_communicate_updates_metadata_when_res2_is_assistant_response():
+    """Lines 158-160: parse returns (out, AssistantResponse) → metadata updated."""
+    from unittest.mock import AsyncMock, patch
+
+    from lionagi.protocols.messages.assistant_response import AssistantResponse
+
+    branch = make_mocked_branch_for_communicate()
+    fake_out = SomeModel(data="parsed")
+    fake_res2 = AssistantResponse.from_response("parsed")
+
+    with patch(
+        "lionagi.operations.parse.parse.parse",
+        new=AsyncMock(return_value=(fake_out, fake_res2)),
+    ):
+        result = await branch.communicate(
+            instruction="test",
+            response_format=SomeModel,
+        )
+    assert result == fake_out
+
+
+@pytest.mark.asyncio
+async def test_communicate_with_request_fields_returns_dict():
+    """Lines 169-178: request_fields path → fuzzy_validate_mapping → dict."""
+    branch = make_mocked_branch_for_communicate()
+    # Mocked response is '{"data":"mocked_response_string"}'
+    result = await branch.communicate(
+        instruction="give me data",
+        request_fields={"data": str},
+        skip_validation=False,
+    )
+    assert isinstance(result, dict)
+
+
+@pytest.mark.asyncio
+async def test_communicate_plain_returns_raw_response():
+    """Line 178: no response_format, no request_fields → return res.response."""
+    branch = make_mocked_branch_for_communicate()
+    result = await branch.communicate(instruction="hello")
+    assert result == '{"data":"mocked_response_string"}'

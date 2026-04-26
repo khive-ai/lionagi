@@ -394,13 +394,13 @@ class TestAsReadableJsonFallback:
         assert isinstance(result, str)
 
     def test_in_notebook_exception_returns_false(self, monkeypatch):
-        """Lines 103-104: get_ipython() raises → in_notebook() returns False."""
+        """Lines 103-104: ImportError for IPython → in_notebook() returns False."""
+        import sys
         import lionagi.libs.schema.as_readable as ar_mod
 
-        def raise_import(*a, **kw):
-            raise RuntimeError("no ipython")
-
-        monkeypatch.setattr(ar_mod, "in_notebook", lambda: False)
+        # Setting sys.modules['IPython'] = None causes ImportError when
+        # in_notebook() executes: from IPython import get_ipython
+        monkeypatch.setitem(sys.modules, "IPython", None)
         result = ar_mod.in_notebook()
         assert result is False
 

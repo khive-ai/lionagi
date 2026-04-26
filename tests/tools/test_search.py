@@ -351,3 +351,143 @@ async def test_search_tool_find_stderr_nonzero_is_error(monkeypatch):
 
     assert resp.success is False
     assert "permission denied" in (resp.error or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# grep: FileNotFoundError and generic Exception (lines 103-108)
+# ---------------------------------------------------------------------------
+
+
+async def test_grep_file_not_found_returns_error(monkeypatch):
+    import lionagi.tools.code.search as search_mod
+
+    def raise_fnf(*a, **kw):
+        raise FileNotFoundError("grep not found")
+
+    monkeypatch.setattr(search_mod.subprocess, "run", raise_fnf)
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.grep, pattern="x", path=".")
+    )
+    assert resp.success is False
+    assert resp.count == 0
+    assert "not found" in (resp.error or "")
+
+
+async def test_grep_generic_exception_returns_error(monkeypatch):
+    import lionagi.tools.code.search as search_mod
+
+    def raise_exc(*a, **kw):
+        raise RuntimeError("unexpected grep failure")
+
+    monkeypatch.setattr(search_mod.subprocess, "run", raise_exc)
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.grep, pattern="x", path=".")
+    )
+    assert resp.success is False
+    assert "grep error" in (resp.error or "")
+
+
+# ---------------------------------------------------------------------------
+# grep: exit code 2 (line 112)
+# ---------------------------------------------------------------------------
+
+
+async def test_grep_exit_code_2_returns_error(monkeypatch):
+    import lionagi.tools.code.search as search_mod
+
+    class _FakeResult:
+        returncode = 2
+        stdout = ""
+        stderr = "grep: invalid regex"
+
+    monkeypatch.setattr(search_mod.subprocess, "run", lambda *a, **kw: _FakeResult())
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.grep, pattern="[invalid", path=".")
+    )
+    assert resp.success is False
+    assert "invalid regex" in (resp.error or "")
+
+
+# ---------------------------------------------------------------------------
+# find: TimeoutExpired, FileNotFoundError, generic Exception (lines 132-139)
+# ---------------------------------------------------------------------------
+
+
+async def test_find_timeout_returns_error(monkeypatch):
+    import subprocess as _subprocess
+
+    import lionagi.tools.code.search as search_mod
+
+    def raise_timeout(*a, **kw):
+        raise _subprocess.TimeoutExpired("find", 30)
+
+    monkeypatch.setattr(search_mod.subprocess, "run", raise_timeout)
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.find, pattern="*.py", path=".")
+    )
+    assert resp.success is False
+    assert "timed out" in (resp.error or "").lower()
+
+
+async def test_find_file_not_found_returns_error(monkeypatch):
+    import lionagi.tools.code.search as search_mod
+
+    def raise_fnf(*a, **kw):
+        raise FileNotFoundError("find not found")
+
+    monkeypatch.setattr(search_mod.subprocess, "run", raise_fnf)
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.find, pattern="*.py", path=".")
+    )
+    assert resp.success is False
+    assert "not found" in (resp.error or "")
+
+
+async def test_find_generic_exception_returns_error(monkeypatch):
+    import lionagi.tools.code.search as search_mod
+
+    def raise_exc(*a, **kw):
+        raise OSError("find I/O error")
+
+    monkeypatch.setattr(search_mod.subprocess, "run", raise_exc)
+    tool = SearchTool()
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.find, pattern="*.py", path=".")
+    )
+    assert resp.success is False
+    assert "find error" in (resp.error or "")
+
+
+# ---------------------------------------------------------------------------
+# handle_request: unknown action fallback (line 174)
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_request_unknown_action_returns_error():
+    from unittest.mock import MagicMock
+
+    tool = SearchTool()
+    fake_req = MagicMock()
+    fake_req.action = "unknown_action"
+    resp = await tool.handle_request(fake_req)
+    assert resp.success is False
+    assert "Unknown action" in (resp.error or "")
+
+
+# ---------------------------------------------------------------------------
+# to_tool: custom system_tool_name triggers rename (line 192)
+# ---------------------------------------------------------------------------
+
+
+def test_to_tool_custom_system_tool_name():
+    class CustomSearchTool(SearchTool):
+        system_tool_name = "my_search"
+
+    tool = CustomSearchTool()
+    t = tool.to_tool()
+    assert t.func_callable.__name__ == "my_search"

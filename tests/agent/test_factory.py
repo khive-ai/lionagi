@@ -352,3 +352,218 @@ async def test_agent_post_hooks_ignore_non_dict_results_and_keep_previous_result
 
     final = await chained({"ok": 1})
     assert final == {"ok": 2}
+
+
+# ---------------------------------------------------------------------------
+# model spec without "/" — provider = model_name = ms.model (line 75)
+# ---------------------------------------------------------------------------
+
+
+async def test_create_agent_model_without_slash_uses_model_as_provider(monkeypatch):
+    import lionagi.service.imodel as imodel_mod
+
+    captured = {}
+    real_init = imodel_mod.iModel.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured.update(kwargs)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(imodel_mod.iModel, "__init__", spy_init)
+
+    config = AgentConfig(model="gpt-4o")
+    await create_agent(config, load_settings=False)
+
+    assert captured.get("provider") == "gpt-4o"
+    assert captured.get("model") == "gpt-4o"
+
+
+# ---------------------------------------------------------------------------
+# system_prompt without lion_system (line 104)
+# ---------------------------------------------------------------------------
+
+
+async def test_create_agent_system_prompt_without_lion_system():
+    config = AgentConfig(system_prompt="You are a helpful assistant.", lion_system=False)
+    branch = await create_agent(config, load_settings=False)
+    sys_msg = branch.msgs.system
+    assert sys_msg is not None
+    assert "helpful assistant" in sys_msg.rendered
+
+
+# ---------------------------------------------------------------------------
+# _apply_permissions: non-PermissionPolicy non-dict → returns early (lines 127-130)
+# ---------------------------------------------------------------------------
+
+
+async def test_apply_permissions_invalid_type_returns_early():
+    from lionagi.agent.factory import _apply_permissions
+
+    config = AgentConfig()
+    config.permissions = "invalid_permissions_type"
+    _apply_permissions(config)
+    assert config.hook_handlers.get("security_pre:*", []) == []
+
+
+# ---------------------------------------------------------------------------
+# _chain_pre_hooks: no hooks → returns None (line 158)
+# ---------------------------------------------------------------------------
+
+
+def test_chain_pre_hooks_no_hooks_returns_none():
+    from lionagi.agent.factory import _chain_pre_hooks
+
+    result = _chain_pre_hooks("tool", [], [])
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _chain_pre_hooks: hook returns dict → args updated (line 165)
+# ---------------------------------------------------------------------------
+
+
+async def test_chain_pre_hooks_dict_return_updates_args():
+    from lionagi.agent.factory import _chain_pre_hooks
+
+    async def rewrite(tool_name, action, args):
+        return {**args, "extra": "added"}
+
+    chained = _chain_pre_hooks("tool", [], [rewrite])
+    result = await chained({"cmd": "ls"})
+    assert result["extra"] == "added"
+    assert result["cmd"] == "ls"
+
+
+# ---------------------------------------------------------------------------
+# _chain_post_hooks: non-dict initial result bypasses hooks (line 176)
+# ---------------------------------------------------------------------------
+
+
+async def test_chain_post_hooks_non_dict_result_returned_unchanged():
+    from lionagi.agent.factory import _chain_post_hooks
+
+    async def hook(tool_name, op, args, result):
+        return {"should": "not be used"}
+
+    chained = _chain_post_hooks("tool", [hook])
+    result = await chained("plain string result")
+    assert result == "plain string result"
+
+
+# ---------------------------------------------------------------------------
+# standalone tools: reader, editor, search registration (lines 196, 206-228)
+# ---------------------------------------------------------------------------
+
+
+async def test_create_agent_registers_standalone_reader():
+    config = AgentConfig(tools=["reader"])
+    branch = await _make(config)
+    assert "reader_tool" in branch.acts.registry
+
+
+async def test_create_agent_registers_standalone_editor():
+    config = AgentConfig(tools=["editor"])
+    branch = await _make(config)
+    assert "editor_tool" in branch.acts.registry
+
+
+async def test_create_agent_registers_standalone_search():
+    config = AgentConfig(tools=["search"])
+    branch = await _make(config)
+    assert "search_tool" in branch.acts.registry
+
+
+async def test_attach_hooks_adds_postprocessor_for_standalone_tool():
+    config = AgentConfig(tools=["reader"])
+
+    async def my_post(tool_name, action, args, result):
+        return result
+
+    config.post("reader", my_post)
+    branch = await _make(config)
+    tool = branch.acts.registry["reader_tool"]
+    assert tool.postprocessor is not None
+
+
+# ---------------------------------------------------------------------------
+# _register_coding_tools: malformed key (line 243) and error phase (lines 253-254)
+# ---------------------------------------------------------------------------
+
+
+async def test_register_coding_tools_skips_malformed_keys():
+    from lionagi.agent.factory import _register_coding_tools
+
+    config = AgentConfig.coding()
+    config.hook_handlers["malformed_no_colon"] = [lambda *a: None]
+    branch = await _make(config)
+    assert isinstance(branch, Branch)
+
+
+async def test_register_coding_tools_error_hook_wired():
+    config = AgentConfig.coding()
+    error_calls = []
+
+    async def my_error(tool_name, action, args, error):
+        error_calls.append(tool_name)
+
+    config.on_error("bash", my_error)
+    branch = await _make(config)
+    assert isinstance(branch, Branch)
+
+
+# ---------------------------------------------------------------------------
+# _load_mcp: explicit mcp_config_path (lines 279-281)
+# ---------------------------------------------------------------------------
+
+
+async def test_load_mcp_explicit_config_path_used(tmp_path, monkeypatch):
+    from lionagi.protocols.action.manager import ActionManager
+
+    mcp_file = tmp_path / "custom.mcp.json"
+    mcp_file.write_text('{"mcpServers": {}}')
+
+    calls = []
+
+    async def fake_load_mcp(self, config_path, server_names=None, update=False):
+        calls.append(config_path)
+        return {}
+
+    monkeypatch.setattr(ActionManager, "load_mcp_config", fake_load_mcp)
+
+    config = AgentConfig(mcp_config_path=str(mcp_file))
+    await create_agent(config, load_settings=False)
+
+    assert calls == [str(mcp_file)]
+
+
+# ---------------------------------------------------------------------------
+# _load_mcp: trust_project_settings + .lionagi dir stops search (line 291)
+# ---------------------------------------------------------------------------
+
+
+async def test_load_mcp_breaks_at_lionagi_dir(tmp_path, monkeypatch):
+    from lionagi.protocols.action.manager import ActionManager
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    lionagi_dir = project / ".lionagi"
+    lionagi_dir.mkdir()
+    mcp_file = lionagi_dir / ".mcp.json"
+    mcp_file.write_text('{"mcpServers": {}}')
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    calls = []
+
+    async def fake_load_mcp(self, config_path, server_names=None, update=False):
+        calls.append(config_path)
+        return {}
+
+    monkeypatch.setattr(ActionManager, "load_mcp_config", fake_load_mcp)
+
+    await create_agent(
+        AgentConfig(cwd=str(project)),
+        load_settings=False,
+        trust_project_settings=True,
+    )
+
+    assert calls and calls[0] == str(mcp_file)

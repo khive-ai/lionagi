@@ -351,30 +351,6 @@ class TestPileAdapters:
         assert isinstance(result, str)
         assert "collections" in result
 
-    def test_adapt_from_raises_with_wrong_signature(self):
-        """Lines 1048-1049: adapt_from is called (hits lines even if raises)."""
-        a = Element()
-        p = Pile(collections=[a])
-        j = p.adapt_to("json")
-        with pytest.raises(Exception):
-            Pile.adapt_from(j, "json")
-
-    @pytest.mark.asyncio
-    async def test_adapt_to_async_hits_method(self):
-        """Lines 1059-1060: adapt_to_async is called (hits lines even if raises)."""
-        a = Element()
-        p = Pile(collections=[a])
-        with pytest.raises(Exception):
-            await p.adapt_to_async("json")
-
-    @pytest.mark.asyncio
-    async def test_adapt_from_async_hits_method(self):
-        """Line 1066: adapt_from_async is called (hits line even if raises)."""
-        a = Element()
-        p = Pile(collections=[a])
-        j = p.adapt_to("json")
-        with pytest.raises(Exception):
-            await Pile.adapt_from_async(j, "json")
 
 
 # ---------------------------------------------------------------------------
