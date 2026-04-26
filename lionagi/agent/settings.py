@@ -118,7 +118,9 @@ def apply_hooks_from_settings(
             if not isinstance(hook_specs, list):
                 hook_specs = [hook_specs]
             for spec in hook_specs:
-                handler = _resolve_hook_spec(spec, phase, tool_name, trusted_hook_modules)
+                handler = _resolve_hook_spec(
+                    spec, phase, tool_name, trusted_hook_modules
+                )
                 if handler is None:
                     continue
                 if phase == "pre":
@@ -149,7 +151,9 @@ def _resolve_hook_spec(
 
     if isinstance(spec, dict):
         if "python" in spec:
-            return _import_hook(spec["python"], trusted_hook_modules=trusted_hook_modules)
+            return _import_hook(
+                spec["python"], trusted_hook_modules=trusted_hook_modules
+            )
         if "command" in spec:
             return _make_shell_hook(spec["command"], phase, tool_name)
 
@@ -181,7 +185,9 @@ def _import_hook(
         return None
 
 
-def _make_shell_hook(command_template: list[str], phase: str, tool_name: str) -> Callable:
+def _make_shell_hook(
+    command_template: list[str], phase: str, tool_name: str
+) -> Callable:
     """Create an async hook that runs a shell command via argv list (shell=False).
 
     Finding 11: command_template must be a list of strings (no shell string).

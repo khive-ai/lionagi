@@ -20,9 +20,7 @@ _DENIED_NAMES: frozenset[str] = frozenset(
     {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
 )
 # Finding 9: allowed document extensions for the 'open' action
-_DOC_EXTENSIONS: frozenset[str] = frozenset(
-    {".pdf", ".pptx", ".docx", ".html", ".htm"}
-)
+_DOC_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".pptx", ".docx", ".html", ".htm"})
 # Finding 9: max document size for 'open' (50 MB)
 _MAX_DOC_BYTES = 50 * 1024 * 1024
 # Finding 8: max files returned by list_dir
@@ -125,7 +123,9 @@ def _read_sync(
         return ReaderResponse(success=False, error=str(e))
 
     if p.is_symlink():
-        return ReaderResponse(success=False, error=f"Refusing to read symlink: {path!r}")
+        return ReaderResponse(
+            success=False, error=f"Refusing to read symlink: {path!r}"
+        )
     if not p.exists():
         return ReaderResponse(success=False, error=f"File not found: {path}")
     if not p.is_file():

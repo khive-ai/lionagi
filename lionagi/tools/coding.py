@@ -238,7 +238,9 @@ def _read_image_sync(path: str, workspace_root: Path) -> dict:
     }
 
 
-def _read_file_sync(path: str, offset: int, max_lines: int, workspace_root: Path) -> dict:
+def _read_file_sync(
+    path: str, offset: int, max_lines: int, workspace_root: Path
+) -> dict:
     # Finding 14: validate path under workspace root
     try:
         p = _resolve_workspace_path(path, workspace_root)

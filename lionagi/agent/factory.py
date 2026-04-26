@@ -113,7 +113,9 @@ def _apply_permissions(config: AgentConfig) -> None:
         return
 
     # Finding 13: insert permission hook into security_pre phase, not pre phase
-    config.hook_handlers.setdefault("security_pre:*", []).insert(0, policy.to_pre_hook())
+    config.hook_handlers.setdefault("security_pre:*", []).insert(
+        0, policy.to_pre_hook()
+    )
 
 
 def _tool_hooks(config: AgentConfig, phase: str, tool_name: str) -> list[Callable]:
@@ -157,9 +159,8 @@ def _chain_post_hooks(tool_name: str, hooks: list[Callable]) -> Callable | None:
 
 def _attach_hooks(tool: Any, config: AgentConfig, canonical_name: str) -> Any:
     """Finding 15: attach security_pre + pre + post hooks to a standalone tool."""
-    pre_hooks = (
-        _tool_hooks(config, "security_pre", canonical_name)
-        + _tool_hooks(config, "pre", canonical_name)
+    pre_hooks = _tool_hooks(config, "security_pre", canonical_name) + _tool_hooks(
+        config, "pre", canonical_name
     )
     post_hooks = _tool_hooks(config, "post", canonical_name)
     pre = _chain_pre_hooks(canonical_name, pre_hooks)
