@@ -359,11 +359,6 @@ class CodingToolkit(LionTool):
     is_lion_system_tool = True
     system_tool_name = "coding_toolkit"
 
-    def __init__(self):
-        self._pre_hooks: dict[str, list[Callable]] = {}
-        self._post_hooks: dict[str, list[Callable]] = {}
-        self._error_hooks: dict[str, list[Callable]] = {}
-
     def pre(self, tool_name: str, handler: Callable) -> CodingToolkit:
         self._pre_hooks.setdefault(tool_name, []).append(handler)
         return self
@@ -422,19 +417,30 @@ class CodingToolkit(LionTool):
 
         return chained_post
 
-    notify: bool = True
-    notify_threshold: float = 0.7  # warn when context exceeds this fraction
-    notify_max_tokens: int = 200_000  # assumed context window size
+    def __init__(
+        self,
+        notify: bool = True,
+        notify_threshold: float = 0.7,
+        notify_max_tokens: int = 200_000,
+    ):
+        self._pre_hooks: dict[str, list[Callable]] = {}
+        self._post_hooks: dict[str, list[Callable]] = {}
+        self._error_hooks: dict[str, list[Callable]] = {}
+        self.notify = notify
+        self.notify_threshold = notify_threshold
+        self.notify_max_tokens = notify_max_tokens
 
     def bind(self, branch: Branch) -> list[Tool]:
         from lionagi.protocols.messages import ActionResponse
 
         file_state: dict[str, float] = {}
+        evicted: list = []
         call_count = [0]
         msgs = branch.msgs
         notify = self.notify
         threshold = self.notify_threshold
         max_tokens = self.notify_max_tokens
+
 
         def _system_status() -> str | None:
             if not notify:
@@ -465,6 +471,8 @@ class CodingToolkit(LionTool):
                 parts.append(f"{n_action_results} action results")
             if n_files > 0:
                 parts.append(f"{n_files} files tracked")
+            if evicted:
+                parts.append(f"{len(evicted)} evicted")
 
             status = f"[System: {', '.join(parts)}]"
 
@@ -656,6 +664,7 @@ class CodingToolkit(LionTool):
                     "by_type": by_type,
                     "estimated_tokens": total_tokens,
                     "files_tracked": len(file_state),
+                    "evicted_messages": len(evicted),
                 }
 
             elif action == "get_messages":
@@ -683,28 +692,22 @@ class CodingToolkit(LionTool):
                 if s >= e:
                     return {"success": False, "error": f"Invalid range [{s}:{e})"}
                 uids = [progression[i] for i in range(s, e) if i < len(progression)]
-                removed = 0
-                for uid in uids:
-                    if uid in pile:
-                        pile.exclude(uid)
-                        removed += 1
-                return {"success": True, "removed": removed, "remaining": len(progression)}
+                progression.exclude(uids)
+                evicted.extend(uids)
+                return {"success": True, "removed": len(uids), "remaining": len(progression)}
 
             elif action == "evict_action_results":
                 keep = keep_last if keep_last is not None else 5
-                ar_indices = []
-                for i, uid in enumerate(progression):
-                    if uid in pile and isinstance(pile[uid], ActionResponse):
-                        ar_indices.append((i, uid))
-                if len(ar_indices) <= keep:
-                    return {"success": True, "removed": 0, "message": f"Only {len(ar_indices)} action results, keeping all."}
-                to_evict = ar_indices[:-keep] if keep > 0 else ar_indices
-                removed = 0
-                for _, uid in to_evict:
-                    if uid in pile:
-                        pile.exclude(uid)
-                        removed += 1
-                return {"success": True, "removed": removed, "remaining": len(progression)}
+                ar_uids = [
+                    uid for uid in progression
+                    if uid in pile and isinstance(pile[uid], ActionResponse)
+                ]
+                if len(ar_uids) <= keep:
+                    return {"success": True, "removed": 0, "message": f"Only {len(ar_uids)} action results, keeping all."}
+                to_evict = ar_uids[:-keep] if keep > 0 else ar_uids
+                progression.exclude(to_evict)
+                evicted.extend(to_evict)
+                return {"success": True, "removed": len(to_evict), "remaining": len(progression)}
 
             return {"success": False, "error": f"Unknown action: {action}"}
 
