@@ -448,7 +448,7 @@ class CodingToolkit(LionTool):
 
         # -- Reader ----------------------------------------------------------
 
-        async def reader_tool(
+        async def reader(
             action: str,
             path: str,
             offset: int = None,
@@ -473,7 +473,7 @@ class CodingToolkit(LionTool):
 
         # -- Editor ----------------------------------------------------------
 
-        async def editor_tool(
+        async def editor(
             action: str,
             file_path: str,
             content: str = None,
@@ -511,7 +511,7 @@ class CodingToolkit(LionTool):
 
         # -- Bash ------------------------------------------------------------
 
-        async def bash_tool(
+        async def bash(
             command: str,
             timeout: int = None,
             cwd: str = None,
@@ -539,7 +539,7 @@ class CodingToolkit(LionTool):
 
         # -- Search ----------------------------------------------------------
 
-        async def search_tool(
+        async def search(
             action: str,
             pattern: str,
             path: str = None,
@@ -577,7 +577,7 @@ class CodingToolkit(LionTool):
 
         # -- Context ---------------------------------------------------------
 
-        async def context_tool(
+        async def context(
             action: str,
             start: int = None,
             end: int = None,
@@ -664,11 +664,11 @@ class CodingToolkit(LionTool):
         # -- Assemble (hooks wired via Tool's native pre/postprocessor) ------
 
         tool_defs = [
-            ("reader", reader_tool, ReaderRequest),
-            ("editor", editor_tool, EditorRequest),
-            ("bash", bash_tool, BashRequest),
-            ("search", search_tool, SearchRequest),
-            ("context", context_tool, ContextRequest),
+            ("reader", reader, ReaderRequest),
+            ("editor", editor, EditorRequest),
+            ("bash", bash, BashRequest),
+            ("search", search, SearchRequest),
+            ("context", context, ContextRequest),
         ]
 
         tools = []
