@@ -6,6 +6,8 @@ from __future__ import annotations
 import base64
 import contextlib
 import os
+import re
+import shlex
 import signal
 import subprocess
 import threading
@@ -39,6 +41,9 @@ def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
     """Finding 14: resolve path under workspace_root; raise PermissionError if it escapes."""
     raw = Path(path).expanduser()
     candidate = raw if raw.is_absolute() else workspace_root / raw
+    # GAP B: check symlink on candidate BEFORE resolve() follows it
+    if candidate.is_symlink():
+        raise PermissionError(f"Refusing to access symlink: {path!r}")
     resolved = candidate.resolve(strict=False)
     try:
         resolved.relative_to(workspace_root)
@@ -196,6 +201,34 @@ class ContextRequest(BaseModel):
     keep_last: int | None = Field(
         None,
         description="For 'evict_action_results': keep N most recent. Default 5.",
+    )
+
+
+class SubagentRequest(BaseModel):
+    instruction: str = Field(
+        ...,
+        description=(
+            "Task description for the sub-agent. Be specific about what to do, "
+            "what files to look at, and what output you expect."
+        ),
+    )
+    permissions: str = Field(
+        default="read_only",
+        description=(
+            "Permission level for the sub-agent. One of:\n"
+            "- 'read_only': Can only read files and search (safest).\n"
+            "- 'safe': Can read/write/search, bash restricted (no rm/sudo).\n"
+            "- 'inherit': Same permissions as parent agent.\n"
+            "- 'allow_all': No restrictions (use with caution)."
+        ),
+    )
+    max_turns: int = Field(
+        default=5,
+        description="Maximum ReAct iterations. Default 5, max 20.",
+    )
+    cwd: str | None = Field(
+        None,
+        description="Working directory for the sub-agent. Defaults to parent's cwd.",
     )
 
 
@@ -380,6 +413,9 @@ def _edit_file_sync(
         "_mtime": mtime,
     }
 
+
+# GAP A: shell control operators — same pattern as bash.py
+_SHELL_CONTROL = re.compile(r"(;|&&|\|\||\||`|\$\(|[<>]|\n)")
 
 _MAX_OUTPUT_BYTES = 100_000
 
@@ -759,7 +795,25 @@ class CodingToolkit(LionTool):
             timeout_ms = max(1, min(timeout or 30000, 300000))
             timeout_s = timeout_ms / 1000.0
 
-            result = await run_sync(_subprocess_sync, command, True, timeout_s, cwd)
+            # GAP A: reject shell control operators (same filter as standalone BashTool)
+            if _SHELL_CONTROL.search(command):
+                return {
+                    "stdout": "",
+                    "stderr": f"Shell control operators rejected: {command!r}",
+                    "return_code": -1,
+                    "timed_out": False,
+                }
+            try:
+                cmd = shlex.split(command)
+            except ValueError as exc:
+                return {
+                    "stdout": "",
+                    "stderr": f"Malformed command: {exc}",
+                    "return_code": -1,
+                    "timed_out": False,
+                }
+
+            result = await run_sync(_subprocess_sync, cmd, False, timeout_s, cwd)
 
             result.setdefault("timed_out", False)
             result["return_code"] = result.pop("returncode", -1)
@@ -950,6 +1004,83 @@ class CodingToolkit(LionTool):
         if notify:
             self.post("*", _notify_post)
 
+        # -- Subagent --------------------------------------------------------
+
+        async def subagent(
+            instruction: str,
+            permissions: str = "read_only",
+            max_turns: int = 5,
+            cwd: str = None,
+        ) -> dict:
+            """Spawn a sub-agent to handle a task independently.
+
+            The sub-agent gets its own Branch with coding tools and runs a
+            ReAct loop. Use for delegating research, exploration, or scoped
+            edits without polluting your own context. Results are returned
+            as a summary — the sub-agent's full conversation stays separate.
+
+            Permission levels control what the sub-agent can do:
+            - read_only: search + read files only (safest for research)
+            - safe: read + write + search, bash restricted (no rm/sudo)
+            - allow_all: full access (use for trusted implementation tasks)
+            """
+            from lionagi.agent.config import AgentConfig
+            from lionagi.agent.permissions import PermissionPolicy
+
+            max_turns = min(max(1, max_turns), 20)
+            sub_cwd = cwd or (str(workspace_root) if workspace_root else None)
+
+            perm_map = {
+                "read_only": PermissionPolicy.read_only(),
+                "safe": PermissionPolicy.safe(),
+                "allow_all": PermissionPolicy.allow_all(),
+            }
+            sub_permissions = perm_map.get(permissions, PermissionPolicy.read_only())
+
+            try:
+                model_spec = None
+                try:
+                    ep = branch.chat_model.endpoint
+                    provider = getattr(ep.config, "provider", "")
+                    model_name = ""
+                    if hasattr(ep.config, "kwargs"):
+                        model_name = ep.config.kwargs.get("model", "")
+                    if provider and model_name:
+                        model_spec = f"{provider}/{model_name}"
+                except AttributeError:
+                    pass
+
+                sub_config = AgentConfig(
+                    name="subagent",
+                    model=model_spec,
+                    tools=["coding"],
+                    permissions=sub_permissions,
+                    cwd=sub_cwd,
+                    system_prompt=(
+                        "You are a sub-agent. Complete the assigned task concisely. "
+                        "Report your findings and any changes made. Be thorough but brief."
+                    ),
+                    lion_system=False,
+                )
+
+                from lionagi.agent.factory import create_agent as _create
+
+                sub_branch = await _create(sub_config, load_settings=False)
+
+                result = await sub_branch.operate(
+                    instruction=instruction,
+                    tools=True,
+                )
+
+                response = result if isinstance(result, str) else str(result)
+                return {
+                    "success": True,
+                    "response": response[:5000],
+                    "tools_used": len(sub_branch.msgs.messages) - 2,
+                }
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
         # -- Assemble (hooks wired via Tool's native pre/postprocessor) ------
 
         tool_defs = [
@@ -958,6 +1089,7 @@ class CodingToolkit(LionTool):
             ("bash", bash, BashRequest),
             ("search", search, SearchRequest),
             ("context", context, ContextRequest),
+            ("subagent", subagent, SubagentRequest),
         ]
 
         tools = []
