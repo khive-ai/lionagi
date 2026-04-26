@@ -208,13 +208,8 @@ class TestGetitemNonCallable:
         item = pile_5[-1]
         assert item.id == nodes_5[-1].id
 
-    @pytest.mark.xfail(
-        reason="Pre-existing Pile slice bug: Progression.__getitem__ returns "
-        "Progression for slices but _getitem expects list — still unresolved",
-        strict=True,
-    )
     def test_getitem_slice(self, pile_5, nodes_5):
-        """Slice returns multiple items (blocked by Pile slice bug)."""
+        """Slice returns multiple items as a list."""
         items = pile_5[1:3]
         assert isinstance(items, list)
         assert len(items) == 2

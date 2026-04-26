@@ -133,15 +133,18 @@ def test_chunk_output_file_parquet_ok(mod_paths, ensure_fake_lionagi, tmp_path):
     assert len(res) == 5  # 50 tokens with chunk_size=10
 
 
-@pytest.mark.skipif(
-    __import__("importlib").util.find_spec("docling") is not None,
-    reason="docling installed; this test targets the missing dependency path",
-)
 def test_chunk_docling_reader_missing_dependency(
-    mod_paths, ensure_fake_lionagi, tmp_path
+    mod_paths, ensure_fake_lionagi, tmp_path, monkeypatch
 ):
+    """Missing-dependency path runs regardless of environment via monkeypatching.
+
+    Patch is_import_installed on the already-loaded process module so that
+    'docling' appears absent, then verify ImportError is raised.
+    """
     api = importlib.import_module(mod_paths["api_mod"])
-    # When reader_tool="docling" and docling is not installed, expect ImportError
+    # Patch is_import_installed on the module so 'docling' looks missing
+    monkeypatch.setattr(api, "is_import_installed", lambda name: False)
+    # When reader_tool="docling" and docling is reported absent, expect ImportError
     with pytest.raises(ImportError):
         api.chunk(
             url_or_path="some.pdf",
