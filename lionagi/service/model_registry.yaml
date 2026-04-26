@@ -1,0 +1,59 @@
+# Model context window registry
+# Used by token_budget.py for context tracking.
+# Format: provider → model_prefix → context_window (tokens)
+# Add new models here — no code changes needed.
+
+openai:
+  gpt-4.1: 1_000_000
+  gpt-4.1-mini: 1_000_000
+  gpt-4.1-nano: 1_000_000
+  gpt-4o: 128_000
+  gpt-4o-mini: 128_000
+  gpt-4-turbo: 128_000
+  gpt-4: 128_000
+  gpt-5: 1_000_000
+  gpt-5.5: 1_000_000
+  o1: 200_000
+  o1-mini: 128_000
+  o1-pro: 200_000
+  o3: 200_000
+  o3-mini: 200_000
+  o4-mini: 200_000
+
+anthropic:
+  claude-opus-4: 200_000
+  claude-sonnet-4: 200_000
+  claude-haiku-4: 200_000
+  claude-3.5-sonnet: 200_000
+  claude-3.5-haiku: 200_000
+  claude-3-opus: 200_000
+
+google:
+  gemini-2.5-pro: 1_000_000
+  gemini-2.5-flash: 1_000_000
+  gemini-2.0-flash: 1_000_000
+  gemini-1.5-pro: 2_000_000
+  gemini-1.5-flash: 1_000_000
+
+deepseek:
+  deepseek-chat: 128_000
+  deepseek-reasoner: 128_000
+  deepseek-v3: 128_000
+  deepseek-v4: 128_000
+
+meta:
+  llama-3.3-70b: 128_000
+  llama-3.1-405b: 128_000
+  llama-4-maverick: 1_000_000
+  llama-4-scout: 10_000_000
+
+mistral:
+  mistral-large: 128_000
+  mistral-small: 128_000
+  codestral: 256_000
+
+nvidia:
+  nemotron-4-340b: 4_096
+  llama-3.1-nemotron-70b: 128_000
+
+default: 128_000

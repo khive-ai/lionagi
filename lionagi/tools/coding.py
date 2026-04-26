@@ -445,40 +445,34 @@ class CodingToolkit(LionTool):
             if not notify:
                 return None
             call_count[0] += 1
-            progression = msgs.progression
-            pile = msgs.messages
-            n_msgs = len(progression)
+
+            from lionagi.service.token_budget import get_token_budget
+
+            budget = get_token_budget(branch)
+            n_active = len(branch.progression)
+            n_total = len(msgs.progression)
             n_files = len(file_state)
 
-            est_tokens = 0
             n_action_results = 0
-            for uid in progression:
-                if uid in pile:
-                    msg = pile[uid]
-                    if isinstance(msg, ActionResponse):
-                        n_action_results += 1
-                    c = msg.content if hasattr(msg, "content") else ""
-                    if c:
-                        est_tokens += TokenCalculator.tokenize(
-                            str(c) if not isinstance(c, str) else c
-                        )
+            pile = msgs.messages
+            for uid in branch.progression:
+                if uid in pile and isinstance(pile[uid], ActionResponse):
+                    n_action_results += 1
 
-            usage_pct = est_tokens / max_tokens if max_tokens > 0 else 0
-            parts = [f"context {est_tokens // 1000}k/{max_tokens // 1000}k tokens ({usage_pct:.0%})"]
-            parts.append(f"{n_msgs} messages")
+            parts = [f"context {budget.used // 1000}k/{budget.limit // 1000}k tokens ({budget.usage_pct:.0%})"]
+            parts.append(f"{n_active} messages")
             if n_action_results > 0:
                 parts.append(f"{n_action_results} action results")
             if n_files > 0:
                 parts.append(f"{n_files} files tracked")
-            full_len = len(msgs.progression)
-            if full_len > n_msgs:
-                parts.append(f"{full_len - n_msgs} evicted")
+            if n_total > n_active:
+                parts.append(f"{n_total - n_active} evicted")
 
             status = f"[System: {', '.join(parts)}]"
 
-            if usage_pct >= 0.9:
+            if budget.is_critical:
                 status += " ⚠️ Context nearly full — evict old action results now."
-            elif usage_pct >= threshold:
+            elif budget.is_warning:
                 status += " Consider evicting earlier action results to free space."
 
             return status

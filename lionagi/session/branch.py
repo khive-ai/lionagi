@@ -270,6 +270,17 @@ class Branch(Element, Relational):
         return self._message_manager.messages
 
     @property
+    def token_budget(self):
+        """Current token budget: used, limit, remaining, usage_pct.
+
+        Reads from model_registry.yaml for context window limits.
+        Uses branch.progression (respects evicted messages).
+        """
+        from lionagi.service.token_budget import get_token_budget
+
+        return get_token_budget(self)
+
+    @property
     def logs(self) -> Pile[Log]:
         """Convenience property to retrieve all logs from the LogManager."""
         return self._log_manager.logs
