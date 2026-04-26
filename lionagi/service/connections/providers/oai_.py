@@ -27,10 +27,12 @@ from lionagi.service.third_party.openai_models import OpenAIChatCompletionsReque
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-5.5": 1_000_000,
+    "gpt-5.4-mini": 1_000_000,
+    "gpt-5.4": 1_048_576,
     "gpt-5": 1_000_000,
-    "gpt-4.1-mini": 1_047_576,
-    "gpt-4.1-nano": 1_047_576,
-    "gpt-4.1": 1_047_576,
+    "gpt-4.1-mini": 1_000_000,
+    "gpt-4.1-nano": 1_000_000,
+    "gpt-4.1": 1_000_000,
     "gpt-4o-mini": 128_000,
     "gpt-4o": 128_000,
     "gpt-4-turbo": 128_000,
