@@ -5,18 +5,17 @@
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # A9 / A10: check_async_postgres_available
 # ---------------------------------------------------------------------------
 
 
-def test_check_async_postgres_available_reports_missing_optional_dependency(monkeypatch):
+def test_check_async_postgres_available_reports_missing_optional_dependency(
+    monkeypatch,
+):
     import lionagi.utils as utils_mod
 
-    monkeypatch.setattr(
-        utils_mod, "is_import_installed", lambda pkg: pkg != "asyncpg"
-    )
+    monkeypatch.setattr(utils_mod, "is_import_installed", lambda pkg: pkg != "asyncpg")
 
     from lionagi.adapters._utils import check_async_postgres_available
 
@@ -46,9 +45,10 @@ async def test_async_postgres_to_obj_ensures_table_for_dsn_before_delegating(
 ):
     from unittest.mock import AsyncMock
 
+    from pydapter.extras.async_postgres_ import AsyncPostgresAdapter
+
     from lionagi.adapters.async_postgres_adapter import LionAGIAsyncPostgresAdapter
     from lionagi.protocols.graph.node import Node
-    from pydapter.extras.async_postgres_ import AsyncPostgresAdapter
 
     ensure_mock = AsyncMock()
     parent_to_obj_mock = AsyncMock(return_value="ok")
@@ -63,7 +63,5 @@ async def test_async_postgres_to_obj_ensures_table_for_dsn_before_delegating(
         dsn="postgresql+asyncpg://u:p@h/db",
     )
 
-    ensure_mock.assert_awaited_once_with(
-        "postgresql+asyncpg://u:p@h/db", "nodes"
-    )
+    ensure_mock.assert_awaited_once_with("postgresql+asyncpg://u:p@h/db", "nodes")
     assert result == "ok"

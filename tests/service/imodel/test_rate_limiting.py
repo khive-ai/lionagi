@@ -12,6 +12,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.hooks import HookRegistry
 from lionagi.service.imodel import iModel
 
+
 class TestiModelRateLimitingEdgeCases:
     """Tests for rate limiting edge cases and boundary conditions."""
 
@@ -161,5 +162,3 @@ class TestiModelRateLimitingEdgeCases:
         # Some requests should complete
         successful = [r for r in results if isinstance(r, APICalling)]
         assert len(successful) > 0
-
-

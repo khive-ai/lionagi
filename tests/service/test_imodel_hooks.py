@@ -620,5 +620,7 @@ class TestProcessChunkExitTuple:
                 ),
             ),
         ):
-            with pytest.raises(RuntimeError, match="Streaming hook requested exit without a cause"):
+            with pytest.raises(
+                RuntimeError, match="Streaming hook requested exit without a cause"
+            ):
                 await imodel.process_chunk(_FakeChunk())

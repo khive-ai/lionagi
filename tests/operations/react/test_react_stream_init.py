@@ -89,6 +89,7 @@ async def async_search(query: str) -> str:
 
 """Tests for ReAct tool execution flows and initial invocation."""
 
+
 @pytest.mark.asyncio
 async def test_single_tool_invocation():
     """Test ReAct with single tool call - verifies tool integration."""
@@ -270,5 +271,3 @@ async def test_tools_parameter_variations():
             max_extensions=0,
         )
         assert result == "Done"
-
-

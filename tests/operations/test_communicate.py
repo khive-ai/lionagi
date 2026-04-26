@@ -84,6 +84,7 @@ async def test_communicate_with_model_validation():
 @pytest.mark.asyncio
 async def test_communicate_wraps_parse_value_error_with_context(monkeypatch):
     from unittest.mock import AsyncMock, patch
+
     from pydantic import BaseModel as PydanticBaseModel
 
     class AnswerModel(PydanticBaseModel):
@@ -148,7 +149,9 @@ def test_prepare_communicate_kw_dual_response_format_raises():
     """Line 60: response_format + request_model together → ValueError."""
     branch = make_mocked_branch_for_communicate()
     with pytest.raises(ValueError, match="Cannot specify both"):
-        prepare_communicate_kw(branch, response_format=SomeModel, request_model=SomeModel)
+        prepare_communicate_kw(
+            branch, response_format=SomeModel, request_model=SomeModel
+        )
 
 
 def test_prepare_communicate_kw_operative_model_and_response_format_raises():

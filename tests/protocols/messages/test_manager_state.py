@@ -28,6 +28,7 @@ def message_manager():
 
 """Tests for MessageManager initialization and message creation."""
 
+
 def test_message_manager_initialization():
     """Test basic initialization of MessageManager"""
     manager = MessageManager()
@@ -496,5 +497,3 @@ def test_add_message_system_instruction_error(message_manager):
             system="System message",
             instruction="Instruction",
         )
-
-

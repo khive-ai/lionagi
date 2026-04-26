@@ -4,11 +4,16 @@
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from lionagi._errors import ItemNotFoundError, ValidationError
 from lionagi.protocols.generic.element import Element
-from lionagi.protocols.generic.pile import Pile, _validate_item_type, _validate_progression
+from lionagi.protocols.generic.pile import (
+    Pile,
+    _validate_item_type,
+    _validate_progression,
+)
 from lionagi.protocols.generic.progression import Progression
 
 
@@ -23,6 +28,7 @@ class ItemB(Element):
 # ---------------------------------------------------------------------------
 # _validate_item_type: string resolution and error paths
 # ---------------------------------------------------------------------------
+
 
 class TestValidateItemType:
     def test_string_type_resolves_to_class(self):
@@ -52,8 +58,10 @@ class TestValidateItemType:
 
     def test_non_observable_type_raises_validation_error(self):
         """Line 92: type that is not Observable subclass raises ValidationError."""
+
         class PlainClass:
             pass
+
         with pytest.raises(ValidationError):
             _validate_item_type(PlainClass)
 
@@ -61,6 +69,7 @@ class TestValidateItemType:
 # ---------------------------------------------------------------------------
 # _validate_progression: dict path, duplicates, ID not found
 # ---------------------------------------------------------------------------
+
 
 class TestValidateProgression:
     def test_dict_with_order_key_creates_progression(self):
@@ -115,6 +124,7 @@ class TestValidateProgression:
 # Pile with order kwarg, item_type serialization
 # ---------------------------------------------------------------------------
 
+
 class TestPileInit:
     def test_init_with_order_kwarg(self):
         """Line 240: Pile with explicit 'order' kwarg uses _validate_progression."""
@@ -126,10 +136,12 @@ class TestPileInit:
     def test_validate_before_with_order_key(self):
         """Line 240: _validate_before called directly with 'order' key triggers that branch."""
         a, b = Element(), Element()
-        result = Pile._validate_before({
-            "collections": [a, b],
-            "order": [a.id, b.id],
-        })
+        result = Pile._validate_before(
+            {
+                "collections": [a, b],
+                "order": [a.id, b.id],
+            }
+        )
         assert "progression" in result
         assert isinstance(result["progression"], Progression)
 
@@ -158,6 +170,7 @@ class TestPileInit:
 # ---------------------------------------------------------------------------
 # _getitem: callable key, UUID key, list key edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestPileGetItem:
     def test_callable_key_filters_items(self):
@@ -211,6 +224,7 @@ class TestPileGetItem:
 # _setitem: non-int key paths and mismatch errors
 # ---------------------------------------------------------------------------
 
+
 class TestPileSetItem:
     def test_setitem_uuid_key_adds_new_item(self):
         """Lines 868-883: non-int key path appends to progression."""
@@ -250,6 +264,7 @@ class TestPileSetItem:
 # ---------------------------------------------------------------------------
 # _get: list of non-int keys
 # ---------------------------------------------------------------------------
+
 
 class TestPileGet:
     def test_get_list_of_elements_multi(self):
@@ -291,6 +306,7 @@ class TestPileGet:
 # ---------------------------------------------------------------------------
 # _pop: non-int key paths
 # ---------------------------------------------------------------------------
+
 
 class TestPilePop:
     def test_pop_element_key(self):
@@ -342,6 +358,7 @@ class TestPilePop:
 # adapt_to / adapt_from
 # ---------------------------------------------------------------------------
 
+
 class TestPileAdapters:
     def test_adapt_to_json(self):
         """Lines 1028-1029: adapt_to passes adapt_meth kwarg."""
@@ -352,10 +369,10 @@ class TestPileAdapters:
         assert "collections" in result
 
 
-
 # ---------------------------------------------------------------------------
 # Async iteration
 # ---------------------------------------------------------------------------
+
 
 class TestPileAsyncIteration:
     @pytest.mark.asyncio
@@ -397,8 +414,10 @@ class TestPileAsyncIteration:
 # to_list_type: None input (module-level function in pile.py)
 # ---------------------------------------------------------------------------
 
+
 class TestToListType:
     def test_to_list_type_none_returns_empty_list(self):
         """Line 1175: to_list_type(None) returns []."""
         from lionagi.protocols.generic.pile import to_list_type
+
         assert to_list_type(None) == []

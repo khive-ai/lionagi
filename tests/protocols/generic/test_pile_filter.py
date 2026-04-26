@@ -66,6 +66,7 @@ pandas_missing = importlib.util.find_spec("pandas") is None
 
 """Tests for Pile filter, homogeneity, adapt_to, misc, and filter_method."""
 
+
 class TestIsHomogenous:
     def test_empty_is_homogenous(self):
         p = Pile()

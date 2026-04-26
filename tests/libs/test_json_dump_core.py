@@ -340,5 +340,3 @@ def test_failing_both_methods():
     # With safe_fallback, should not raise
     result = json_dumps(obj, safe_fallback=True)
     assert isinstance(result, str)
-
-

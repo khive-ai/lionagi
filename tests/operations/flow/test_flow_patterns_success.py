@@ -90,6 +90,7 @@ def create_mock_branch(branch_id: str, **operation_mocks):
 
 """Tests for successful flow execution patterns."""
 
+
 @pytest.mark.asyncio
 async def test_dynamic_fanout_pattern():
     """Test the complete dynamic fan-out pattern from the user's example."""
@@ -598,5 +599,3 @@ async def test_mixed_operation_types():
     assert "parse" in op_types
     assert "communicate" in op_types
     assert "chat" in op_types
-
-

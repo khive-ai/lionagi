@@ -12,6 +12,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.hooks import HookRegistry
 from lionagi.service.imodel import iModel
 
+
 class TestiModelProviderSpecificEdgeCases:
     """Tests for provider-specific edge cases."""
 

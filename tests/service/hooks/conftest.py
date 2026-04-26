@@ -60,9 +60,6 @@ def patch_logger(monkeypatch):
     return calls
 
 
-
-
-
 class FakeFailAfter:
     """Mock fail_after context manager that immediately raises cancellation."""
 

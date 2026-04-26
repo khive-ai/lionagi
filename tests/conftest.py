@@ -149,8 +149,6 @@ def anthropic_imodel():
     )
 
 
-
-
 @pytest.fixture
 def mock_response():
     """Standard mock API response for testing."""

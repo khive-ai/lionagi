@@ -12,6 +12,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.hooks import HookRegistry
 from lionagi.service.imodel import iModel
 
+
 class TestiModelEdgeCases:
     """Edge case tests for iModel - concurrent behavior, rate limiting, error recovery."""
 
@@ -324,5 +325,3 @@ class TestiModelEdgeCases:
         assert restored.executor.config["limit_tokens"] == 1000
         assert restored.executor.config["queue_capacity"] == 50
         assert restored.provider_metadata == imodel.provider_metadata
-
-

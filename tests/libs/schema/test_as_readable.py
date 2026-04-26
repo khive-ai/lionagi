@@ -383,8 +383,9 @@ class TestAsReadableJsonFallback:
     """Line 239-241: json.dumps exception → str() fallback."""
 
     def test_json_fallback_when_dumps_raises(self, monkeypatch):
-        import lionagi.libs.schema.as_readable as ar_mod
         from unittest.mock import MagicMock
+
+        import lionagi.libs.schema.as_readable as ar_mod
 
         mock_json = MagicMock()
         mock_json.dumps.side_effect = TypeError("not serializable")
@@ -396,6 +397,7 @@ class TestAsReadableJsonFallback:
     def test_in_notebook_exception_returns_false(self, monkeypatch):
         """Lines 103-104: ImportError for IPython → in_notebook() returns False."""
         import sys
+
         import lionagi.libs.schema.as_readable as ar_mod
 
         # Setting sys.modules['IPython'] = None causes ImportError when
@@ -411,8 +413,9 @@ class TestAsReadableJsonFallback:
 
     def test_display_str_true_prints_and_returns_none(self, capsys):
         """Line 329: plain fallback when no rich/notebook → print(str_)."""
-        import lionagi.libs.schema.as_readable as ar_mod
         from unittest.mock import patch
+
+        import lionagi.libs.schema.as_readable as ar_mod
 
         with patch.object(ar_mod, "RICH_AVAILABLE", False):
             with patch.object(ar_mod, "in_notebook", return_value=False):

@@ -636,6 +636,7 @@ class TestEndpoint:
     @pytest.mark.asyncio
     async def test_endpoint_call_composes_retry_then_circuit_without_cache(self):
         from unittest.mock import patch
+
         from lionagi.service.resilience import CircuitBreaker, RetryConfig
 
         retry_config = RetryConfig(max_retries=1)
@@ -649,7 +650,9 @@ class TestEndpoint:
             content_type="application/json",
             api_key="test-key",
         )
-        endpoint = Endpoint(config, circuit_breaker=circuit_breaker, retry_config=retry_config)
+        endpoint = Endpoint(
+            config, circuit_breaker=circuit_breaker, retry_config=retry_config
+        )
 
         async def fake_call(payload, headers, **kwargs):
             return {"result": "ok"}

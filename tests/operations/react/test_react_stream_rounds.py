@@ -381,5 +381,3 @@ async def test_react_with_async_tool_registration():
         )
 
         assert "Search results found" in result
-
-

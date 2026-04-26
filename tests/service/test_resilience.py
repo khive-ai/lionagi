@@ -579,6 +579,7 @@ class TestWithRetryDecorator:
     @pytest.mark.asyncio
     async def test_retry_with_backoff_excluded_exception_does_not_sleep_or_retry(self):
         from unittest.mock import patch
+
         import lionagi.service.resilience as resilience_mod
 
         sleep_calls = []
@@ -603,6 +604,7 @@ class TestWithRetryDecorator:
     @pytest.mark.asyncio
     async def test_retry_with_backoff_no_jitter_uses_capped_delay_sequence(self):
         from unittest.mock import patch
+
         import lionagi.service.resilience as resilience_mod
 
         sleep_calls = []

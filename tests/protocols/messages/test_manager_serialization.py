@@ -28,6 +28,7 @@ def message_manager():
 
 """Tests for MessageManager serialization, chat_msgs, and complex flows."""
 
+
 def test_to_chat_msgs_basic(message_manager):
     """Test conversion to chat messages"""
     message_manager.add_message(

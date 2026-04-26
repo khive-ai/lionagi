@@ -10,18 +10,17 @@ import time
 import pytest
 
 from lionagi.tools.coding import (
+    _MAX_OUTPUT_BYTES,
     CodingToolkit,
     _drain_stream,
     _edit_file_sync,
     _list_dir_sync,
-    _MAX_OUTPUT_BYTES,
     _read_file_sync,
     _read_image_sync,
     _resolve_workspace_path,
     _subprocess_sync,
     _write_file_sync,
 )
-
 
 # ---------------------------------------------------------------------------
 # _resolve_workspace_path: symlink refusal, denied names, valid paths
@@ -79,7 +78,7 @@ def test_resolve_workspace_path_relative_resolved_under_root(tmp_path):
 def _make_tiny_png(path):
     # Minimal valid 1x1 red PNG (67 bytes)
     png_bytes = (
-        b"\x89PNG\r\n\x1a\n"                # signature
+        b"\x89PNG\r\n\x1a\n"  # signature
         + b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
         + b"\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N"
         + b"\x00\x00\x00\x00IEND\xaeB`\x82"
@@ -221,9 +220,7 @@ def test_edit_file_sync_oserror_on_read(tmp_path, monkeypatch):
 
 def test_drain_stream_truncates_at_max(monkeypatch):
     # Simulate a stream that emits 1 chunk larger than _MAX_OUTPUT_BYTES
-    monkeypatch.setattr(
-        "lionagi.tools.coding._MAX_OUTPUT_BYTES", 16, raising=False
-    )
+    monkeypatch.setattr("lionagi.tools.coding._MAX_OUTPUT_BYTES", 16, raising=False)
     data = b"A" * 20
 
     call_count = [0]
@@ -277,9 +274,7 @@ def test_drain_stream_handles_read_exception():
 
 
 def test_subprocess_sync_file_not_found_returns_error():
-    result = _subprocess_sync(
-        ["cmd_that_does_not_exist_xyz_abc_999"], False, 5.0, None
-    )
+    result = _subprocess_sync(["cmd_that_does_not_exist_xyz_abc_999"], False, 5.0, None)
     assert result["returncode"] == -1
     assert "stderr" in result
 
@@ -584,8 +579,9 @@ async def test_sandbox_no_active_session_error(tmp_path):
 
 
 async def test_sandbox_unknown_action_returns_error(tmp_path, monkeypatch):
-    from lionagi.session.branch import Branch
     from unittest.mock import AsyncMock, MagicMock
+
+    from lionagi.session.branch import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -608,8 +604,9 @@ async def test_sandbox_unknown_action_returns_error(tmp_path, monkeypatch):
 
 
 async def test_sandbox_already_active_blocks_create(tmp_path, monkeypatch):
-    from lionagi.session.branch import Branch
     from unittest.mock import AsyncMock, MagicMock
+
+    from lionagi.session.branch import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))

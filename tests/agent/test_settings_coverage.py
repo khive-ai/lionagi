@@ -17,20 +17,23 @@ from lionagi.agent.settings import (
     load_settings,
 )
 
-
 # ---------------------------------------------------------------------------
 # _import_hook: untrusted module raises, no colon returns None, ImportError
 # ---------------------------------------------------------------------------
 
 
 def test_import_hook_no_colon_returns_none():
-    result = _import_hook("lionagi.agent.hooks", trusted_hook_modules={"lionagi.agent.hooks"})
+    result = _import_hook(
+        "lionagi.agent.hooks", trusted_hook_modules={"lionagi.agent.hooks"}
+    )
     assert result is None
 
 
 def test_import_hook_untrusted_module_raises():
     with pytest.raises(PermissionError, match="Untrusted hook module"):
-        _import_hook("evil.module:function", trusted_hook_modules={"lionagi.agent.hooks"})
+        _import_hook(
+            "evil.module:function", trusted_hook_modules={"lionagi.agent.hooks"}
+        )
 
 
 def test_import_hook_trusted_module_import_error_returns_none():
@@ -111,7 +114,9 @@ async def test_make_shell_post_hook_runs_and_returns_none(monkeypatch):
     mock_proc = MagicMock()
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc))
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc)
+    )
 
     hook = _make_shell_hook(["echo", "{file_path}"], "post", "editor")
 
@@ -135,7 +140,9 @@ async def test_make_shell_pre_hook_timeout_raises_permission_error(monkeypatch):
     mock_proc = MagicMock()
     mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc))
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc)
+    )
 
     hook = _make_shell_hook(["slow-guard"], "pre", "bash")
     with pytest.raises(PermissionError, match="timed out"):
@@ -159,7 +166,9 @@ async def test_make_shell_pre_hook_nonzero_empty_stderr_uses_fallback(monkeypatc
     mock_proc.returncode = 1
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc))
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc)
+    )
 
     hook = _make_shell_hook(["guard"], "pre", "bash")
     with pytest.raises(PermissionError, match="Hook blocked"):

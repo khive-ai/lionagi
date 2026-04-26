@@ -66,6 +66,7 @@ pandas_missing = importlib.util.find_spec("pandas") is None
 
 """Tests for Pile mutation: set ops, filter, strict_type, setitem, insert."""
 
+
 class TestInPlaceSetOps:
     """In-place set ops mutate self — tested here because |= / &= / ^=
     are uncovered and work correctly (unlike __or__, __and__, __xor__
@@ -395,10 +396,9 @@ class TestInsert:
 # ---------------------------------------------------------------------------
 
 
-
-
 def test_pile_setitem_rolls_back_on_key_item_id_mismatch():
     import uuid
+
     from lionagi.protocols.generic.element import Element
     from lionagi.protocols.generic.pile import Pile
 
@@ -418,6 +418,7 @@ def test_pile_setitem_rolls_back_on_key_item_id_mismatch():
 
 def test_pile_init_rebuilds_invalid_progression_from_collection_order():
     import uuid
+
     from lionagi.protocols.generic.element import Element
     from lionagi.protocols.generic.pile import Pile
 

@@ -313,5 +313,3 @@ def test_to_dict_complex_nested_scenario():
     # JSON string not parsed in dict context due to kwarg issue
     assert result["json_str"] == '{"parsed": true}'
     assert result["regular"] == "string"
-
-

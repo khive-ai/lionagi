@@ -601,6 +601,7 @@ async def test_react_stream_instruct_object_converted_to_dict(monkeypatch):
 
 def test_branch_clone_rejects_invalid_sender_and_rewrites_valid_sender():
     import uuid
+
     branch = Branch(system="hello", user="tester")
     branch.msgs.add_message(
         instruction="test instruction",

@@ -66,6 +66,7 @@ pandas_missing = importlib.util.find_spec("pandas") is None
 
 """Tests for Pile async edges and serialization roundtrip."""
 
+
 @pytest.mark.asyncio
 class TestAsyncEdgeCases:
     async def test_ainclude_adds_item(self):
@@ -208,5 +209,3 @@ class TestSerializationRoundtrip:
 # ---------------------------------------------------------------------------
 # 10. is_homogenous
 # ---------------------------------------------------------------------------
-
-

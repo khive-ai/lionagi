@@ -67,7 +67,6 @@ pandas_missing = importlib.util.find_spec("pandas") is None
 """Tests for Pile serialization: to_df, dump, roundtrip."""
 
 
-
 @pytest.mark.skipif(pandas_missing, reason="pandas not installed")
 class TestToDataFrame:
     def test_to_df_returns_dataframe(self, pile_3):
@@ -159,5 +158,3 @@ class TestDump:
 # ---------------------------------------------------------------------------
 # 2. Set operations — __ior__, __iand__, __ixor__ (in-place; these work)
 # ---------------------------------------------------------------------------
-
-

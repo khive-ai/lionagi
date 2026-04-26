@@ -12,6 +12,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.hooks import HookRegistry
 from lionagi.service.imodel import iModel
 
+
 class TestiModel:
     """Test the iModel class for request validation and parallel calls."""
 
@@ -612,5 +613,3 @@ class TestiModel:
 
         assert isinstance(result, APICalling)
         assert result.status == EventStatus.COMPLETED
-
-

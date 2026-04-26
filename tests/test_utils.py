@@ -9,7 +9,6 @@ import pytest
 
 from lionagi.utils import copy, create_path, is_same_dtype, union_members
 
-
 # ---------------------------------------------------------------------------
 # A15: create_path rejects backslash and existing file without overwrite
 # ---------------------------------------------------------------------------

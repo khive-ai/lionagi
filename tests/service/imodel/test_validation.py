@@ -12,6 +12,7 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.hooks import HookRegistry
 from lionagi.service.imodel import iModel
 
+
 class TestiModelValidationErrors:
     """Tests for validation error handling in iModel."""
 
@@ -81,5 +82,3 @@ class TestiModelValidationErrors:
             messages=[{"role": "user", "content": special_content}]
         )
         assert api_call.payload["messages"][0]["content"] == special_content
-
-

@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from lionagi.tools.base import Prompt, Resource, ResourceCategory
 
-
 # ---------------------------------------------------------------------------
 # ResourceCategory enum
 # ---------------------------------------------------------------------------

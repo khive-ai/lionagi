@@ -224,9 +224,7 @@ async def test_to_tool_callable_executes():
 
 async def test_bash_tool_malformed_command_returns_permission_error_response():
     tool = BashTool()
-    resp = await tool.handle_request(
-        BashRequest(command="python -c 'unterminated")
-    )
+    resp = await tool.handle_request(BashRequest(command="python -c 'unterminated"))
     assert resp.return_code == -1
     assert resp.stderr.startswith("Malformed command")
 

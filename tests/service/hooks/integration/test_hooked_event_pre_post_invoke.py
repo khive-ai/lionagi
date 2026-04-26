@@ -21,7 +21,7 @@ class MockHookedEvent(HookedEvent):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
     invoke_result: Any = Field(default="test_invoke_result")
-    invoke_error: Optional[Exception] = Field(default=None)
+    invoke_error: Exception | None = Field(default=None)
     invoke_called: bool = Field(default=False)
 
     async def _core_invoke(self):

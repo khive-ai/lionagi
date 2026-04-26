@@ -18,7 +18,6 @@ from lionagi.protocols.generic.log import (
 )
 from lionagi.protocols.generic.pile import Pile
 
-
 # ---------------------------------------------------------------------------
 # DataLoggerConfig validators
 # ---------------------------------------------------------------------------

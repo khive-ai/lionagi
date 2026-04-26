@@ -157,6 +157,7 @@ async def test_file_state_mtime_tracked_after_read(tmp_path):
 
     # Overwrite externally; advance mtime explicitly to guarantee it differs
     import os
+
     f.write_text("changed externally\n")
     os.utime(f, (f.stat().st_mtime + 1, f.stat().st_mtime + 1))
 

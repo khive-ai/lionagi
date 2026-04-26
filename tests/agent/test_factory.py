@@ -282,7 +282,9 @@ async def test_create_agent_parses_model_provider_effort_and_yolo_kwargs(monkeyp
     import lionagi.cli._providers as providers_mod
     import lionagi.service.imodel as imodel_mod
 
-    monkeypatch.setitem(providers_mod.PROVIDER_EFFORT_KWARG, "openai", "reasoning_effort")
+    monkeypatch.setitem(
+        providers_mod.PROVIDER_EFFORT_KWARG, "openai", "reasoning_effort"
+    )
     monkeypatch.setitem(providers_mod.PROVIDER_YOLO_KWARGS, "openai", {"stream": True})
 
     real_init = imodel_mod.iModel.__init__
@@ -384,7 +386,9 @@ async def test_create_agent_model_without_slash_uses_model_as_provider(monkeypat
 
 
 async def test_create_agent_system_prompt_without_lion_system():
-    config = AgentConfig(system_prompt="You are a helpful assistant.", lion_system=False)
+    config = AgentConfig(
+        system_prompt="You are a helpful assistant.", lion_system=False
+    )
     branch = await create_agent(config, load_settings=False)
     sys_msg = branch.msgs.system
     assert sys_msg is not None

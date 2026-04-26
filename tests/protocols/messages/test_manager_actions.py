@@ -28,6 +28,7 @@ def message_manager():
 
 """Tests for MessageManager clear, last_*, and properties."""
 
+
 def test_clear_messages_no_system(message_manager):
     """Test clearing messages when no system message exists"""
     message_manager.add_message(
@@ -232,5 +233,3 @@ def test_actions_property(message_manager):
     assert len(actions) == 2
     assert request in actions
     assert response in actions
-
-

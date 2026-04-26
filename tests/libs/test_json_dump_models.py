@@ -273,5 +273,3 @@ def test_json_lines_iter_empty():
     """Test json_lines_iter with empty iterable."""
     lines = list(json_lines_iter([]))
     assert len(lines) == 0
-
-

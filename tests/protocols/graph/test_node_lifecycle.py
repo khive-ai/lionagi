@@ -450,5 +450,3 @@ class TestNodeTouch:
         assert a.updated_at is not None
         assert a.metadata["updated_by"] == "system"
         assert a.content_hash is not None
-
-

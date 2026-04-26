@@ -41,5 +41,3 @@ def mocked_branch_structured():
             "phone": "555-1234",
         },
     )
-
-

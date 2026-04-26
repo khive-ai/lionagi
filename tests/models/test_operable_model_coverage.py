@@ -85,6 +85,7 @@ class TestDelattrRegularField:
         del m.base
         # After deletion the field value is cleared to the Undefined sentinel
         from lionagi.ln.types._sentinel import UndefinedType
+
         assert isinstance(m.base, UndefinedType)
 
 

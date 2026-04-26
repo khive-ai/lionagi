@@ -20,6 +20,7 @@ def _make_prog(*elems) -> tuple[Progression, list[Element]]:
 # __getitem__: TypeError and empty-slice branches
 # ---------------------------------------------------------------------------
 
+
 class TestProgressionGetItem:
     def test_getitem_non_int_raises_type_error(self):
         """Lines 139-140: non-int/slice key raises TypeError."""
@@ -37,6 +38,7 @@ class TestProgressionGetItem:
 # ---------------------------------------------------------------------------
 # __setitem__: slice path and out-of-range int insert
 # ---------------------------------------------------------------------------
+
 
 class TestProgressionSetItem:
     def test_setitem_slice_replaces_range(self):
@@ -60,6 +62,7 @@ class TestProgressionSetItem:
 # include: ValueError and empty-refs paths
 # ---------------------------------------------------------------------------
 
+
 class TestProgressionInclude:
     def test_include_invalid_value_returns_false(self):
         """Lines 246-247: validate_order raises → include returns False."""
@@ -79,6 +82,7 @@ class TestProgressionInclude:
 # ---------------------------------------------------------------------------
 # exclude: ValueError and empty-refs paths
 # ---------------------------------------------------------------------------
+
 
 class TestProgressionExclude:
     def test_exclude_invalid_value_returns_false(self):
@@ -100,6 +104,7 @@ class TestProgressionExclude:
 # pop: middle-index path
 # ---------------------------------------------------------------------------
 
+
 class TestProgressionPop:
     def test_pop_middle_index(self):
         """Lines 317-318: pop at non-boundary index uses deque del."""
@@ -114,6 +119,7 @@ class TestProgressionPop:
 # ---------------------------------------------------------------------------
 # remove: invalid UUID string
 # ---------------------------------------------------------------------------
+
 
 class TestProgressionRemove:
     def test_remove_invalid_uuid_raises(self):
@@ -134,6 +140,7 @@ class TestProgressionRemove:
 # index: with end parameter
 # ---------------------------------------------------------------------------
 
+
 class TestProgressionIndex:
     def test_index_with_end_param(self):
         """Line 398: index() with end parameter passes it to deque.index."""
@@ -151,6 +158,7 @@ class TestProgressionIndex:
 # ---------------------------------------------------------------------------
 # __add__ and __isub__
 # ---------------------------------------------------------------------------
+
 
 class TestProgressionArithmetic:
     def test_add_creates_new_progression(self):
@@ -183,6 +191,7 @@ class TestProgressionArithmetic:
 # ---------------------------------------------------------------------------
 # Comparison operators
 # ---------------------------------------------------------------------------
+
 
 class TestProgressionComparisons:
     def _two_progs(self):
