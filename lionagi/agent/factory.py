@@ -13,10 +13,21 @@ if TYPE_CHECKING:
     pass
 
 
-async def create_agent(config: AgentConfig) -> Branch:
+async def create_agent(
+    config: AgentConfig,
+    *,
+    load_settings: bool = True,
+    project_dir: str | None = None,
+) -> Branch:
     """Create a fully configured Branch from an AgentConfig.
 
-    Wires: system prompt → model → tools → hooks → permissions.
+    Wires: settings → hooks → system prompt → model → tools.
+
+    Args:
+        config: Agent configuration.
+        load_settings: If True, load hooks from .lionagi/settings.yaml
+            (global + project-local) and apply to config before building.
+        project_dir: Project root for settings resolution. Auto-detected if None.
 
     Usage::
 
@@ -27,6 +38,12 @@ async def create_agent(config: AgentConfig) -> Branch:
     Returns:
         A Branch ready to use with tools registered and hooks applied.
     """
+    if load_settings:
+        from .settings import apply_hooks_from_settings, load_settings as _load
+
+        settings = _load(project_dir)
+        apply_hooks_from_settings(config, settings)
+
     from lionagi.service.imodel import iModel
 
     branch_kwargs = {}
