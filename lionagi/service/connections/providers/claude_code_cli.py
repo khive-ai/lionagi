@@ -12,6 +12,17 @@ from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.claude_code import ClaudeChunk, ClaudeCodeRequest, ClaudeSession
+
+CONTEXT_WINDOWS: dict[str, int] = {
+    "opus-4-7": 1_000_000,
+    "opus-4-6": 1_000_000,
+    "opus": 1_000_000,
+    "sonnet-4-6": 1_000_000,
+    "sonnet-4-5": 200_000,
+    "sonnet": 1_000_000,
+    "haiku-4-5": 200_000,
+    "haiku": 200_000,
+}
 from ...third_party.claude_code import log as cc_log
 from ...third_party.claude_code import stream_claude_code_cli
 from ..cli_endpoint import CLIEndpoint, EndpointConfig

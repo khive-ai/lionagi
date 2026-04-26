@@ -11,6 +11,17 @@ from lionagi.service.third_party.deepseek_models import (
 
 from ..endpoint import Endpoint, EndpointConfig
 
+CONTEXT_WINDOWS: dict[str, int] = {
+    "deepseek-v4-pro": 1_000_000,
+    "deepseek-v4-flash": 1_000_000,
+    "deepseek-v4": 1_000_000,
+    "deepseek-coder-v2": 128_000,
+    "deepseek-chat": 1_000_000,
+    "deepseek-reasoner": 1_000_000,
+    "deepseek-v3": 128_000,
+    "deepseek-r1": 64_000,
+}
+
 
 def _get_deepseek_config(**kwargs):
     """Create DeepSeek endpoint configuration with defaults."""

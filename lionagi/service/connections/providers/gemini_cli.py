@@ -14,6 +14,13 @@ from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.gemini_models import GeminiChunk, GeminiCodeRequest, GeminiSession
+
+CONTEXT_WINDOWS: dict[str, int] = {
+    "gemini-2.5": 1_048_576,
+    "gemini-2.0": 1_048_576,
+    "gemini-1.5-pro": 2_097_152,
+    "gemini-1.5-flash": 1_048_576,
+}
 from ...third_party.gemini_models import log as gemini_log
 from ...third_party.gemini_models import stream_gemini_cli
 

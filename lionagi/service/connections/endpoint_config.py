@@ -40,6 +40,7 @@ class EndpointConfig(BaseModel):
     max_retries: int = 3
     openai_compatible: bool = False
     requires_tokens: bool = False
+    context_window: int | None = None
     kwargs: dict = Field(default_factory=dict)
     client_kwargs: dict = Field(default_factory=dict)
     _api_key: str | None = PrivateAttr(None)

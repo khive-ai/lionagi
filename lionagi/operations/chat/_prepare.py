@@ -37,7 +37,7 @@ def _prepare_run_kwargs(
     ins = branch.msgs.create_instruction(**params)
 
     _use_ins, _use_msgs, _act_res = None, [], []
-    progression = param.progression or branch.msgs.progression
+    progression = param.progression or branch.progression
 
     for msg in (branch.msgs.messages[j] for j in progression):
         if isinstance(msg, ActionResponse):

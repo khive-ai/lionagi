@@ -251,9 +251,34 @@ class Branch(Element, Relational):
         return self._imodel_manager
 
     @property
+    def progression(self) -> Progression:
+        """Active message ordering for LLM calls.
+
+        If metadata contains 'current_progression', uses that (agent-managed
+        subset). Otherwise returns the full progression from MessageManager.
+        Context tools modify current_progression to evict messages from the
+        LLM's view without deleting them from the conversation record.
+        """
+        cp = self.metadata.get("current_progression")
+        if cp is not None:
+            return cp
+        return self._message_manager.progression
+
+    @property
     def messages(self) -> Pile[RoledMessage]:
         """Convenience property to retrieve all messages from MessageManager."""
         return self._message_manager.messages
+
+    @property
+    def token_budget(self):
+        """Current token budget: used, limit, remaining, usage_pct.
+
+        Reads context window from the provider's CONTEXT_WINDOWS dict.
+        Uses branch.progression (respects evicted messages).
+        """
+        from lionagi.service.token_budget import get_token_budget
+
+        return get_token_budget(self)
 
     @property
     def logs(self) -> Pile[Log]:

@@ -14,6 +14,10 @@ from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.pi_models import PiChunk, PiCodeRequest, PiSession
+
+CONTEXT_WINDOWS: dict[str, int] = {
+    "pi": 128_000,
+}
 from ...third_party.pi_models import log as pi_log
 from ...third_party.pi_models import stream_pi_cli
 
