@@ -376,38 +376,51 @@ class CodingToolkit(LionTool):
         self._error_hooks.setdefault(tool_name, []).append(handler)
         return self
 
-    async def _run_pre(self, tool_name: str, action: str, args: dict) -> dict:
-        for handler in self._pre_hooks.get(tool_name, []):
-            result = await handler(tool_name, action, args)
-            if isinstance(result, dict):
-                args = result
-        for handler in self._pre_hooks.get("*", []):
-            result = await handler(tool_name, action, args)
-            if isinstance(result, dict):
-                args = result
-        return args
+    def _build_preprocessor(self, tool_name: str) -> Callable | None:
+        """Build a chained preprocessor from registered pre-hooks for this tool.
 
-    async def _run_post(self, tool_name: str, action: str, args: dict, result: dict) -> dict:
-        for handler in self._post_hooks.get(tool_name, []):
-            modified = await handler(tool_name, action, args, result)
-            if isinstance(modified, dict):
-                result = modified
-        for handler in self._post_hooks.get("*", []):
-            modified = await handler(tool_name, action, args, result)
-            if isinstance(modified, dict):
-                result = modified
-        return result
+        Returns a callable matching Tool.preprocessor signature:
+            preprocessor(args: dict, **kwargs) -> dict
+        """
+        hooks = [
+            *self._pre_hooks.get(tool_name, []),
+            *self._pre_hooks.get("*", []),
+        ]
+        if not hooks:
+            return None
 
-    async def _run_error(self, tool_name: str, action: str, args: dict, error: Exception) -> dict | None:
-        for handler in self._error_hooks.get(tool_name, []):
-            result = await handler(tool_name, action, args, error)
-            if isinstance(result, dict):
+        async def chained_pre(args: dict, **_kw) -> dict:
+            for handler in hooks:
+                result = await handler(tool_name, args.get("action", ""), args)
+                if isinstance(result, dict):
+                    args = result
+            return args
+
+        return chained_pre
+
+    def _build_postprocessor(self, tool_name: str) -> Callable | None:
+        """Build a chained postprocessor from registered post-hooks for this tool.
+
+        Returns a callable matching Tool.postprocessor signature:
+            postprocessor(result: Any, **kwargs) -> Any
+        """
+        hooks = [
+            *self._post_hooks.get(tool_name, []),
+            *self._post_hooks.get("*", []),
+        ]
+        if not hooks:
+            return None
+
+        async def chained_post(result: Any, **_kw) -> Any:
+            if not isinstance(result, dict):
                 return result
-        for handler in self._error_hooks.get("*", []):
-            result = await handler(tool_name, action, args, error)
-            if isinstance(result, dict):
-                return result
-        return None
+            for handler in hooks:
+                modified = await handler(tool_name, "", {}, result)
+                if isinstance(modified, dict):
+                    result = modified
+            return result
+
+        return chained_post
 
     def bind(self, branch: Branch) -> list[Tool]:
         from lionagi.protocols.messages import ActionResponse
@@ -433,10 +446,6 @@ class CodingToolkit(LionTool):
             if resolved and mtime is not None:
                 file_state[resolved] = mtime
 
-        run_pre = self._run_pre
-        run_post = self._run_post
-        run_error = self._run_error
-
         # -- Reader ----------------------------------------------------------
 
         async def reader_tool(
@@ -452,26 +461,15 @@ class CodingToolkit(LionTool):
             Use action='read' to get file contents with line numbers.
             Use action='list_dir' to list files. Always read a file before editing it.
             """
-            args = {"action": action, "path": path, "offset": offset, "limit": limit, "recursive": recursive, "file_types": file_types}
-            try:
-                args = await run_pre("reader", action, args)
-                if args.get("action") == "read":
-                    start = max(0, args.get("offset") or 0)
-                    max_lines = args.get("limit") or 2000
-                    if max_lines <= 0:
-                        max_lines = 2000
-                    result = await run_sync(_read_file_sync, args["path"], start, max_lines)
-                    _track(result)
-                elif args.get("action") == "list_dir":
-                    result = await run_sync(_list_dir_sync, args["path"], bool(args.get("recursive")), args.get("file_types"))
-                else:
-                    result = {"success": False, "error": f"Unknown action: {args.get('action')}"}
-                return await run_post("reader", action, args, result)
-            except Exception as e:
-                recovered = await run_error("reader", action, args, e)
-                if recovered is not None:
-                    return recovered
-                return {"success": False, "error": str(e)}
+            if action == "read":
+                start = max(0, offset or 0)
+                max_lines = limit if (limit and limit > 0) else 2000
+                result = await run_sync(_read_file_sync, path, start, max_lines)
+                _track(result)
+                return result
+            elif action == "list_dir":
+                return await run_sync(_list_dir_sync, path, bool(recursive), file_types)
+            return {"success": False, "error": f"Unknown action: {action}"}
 
         # -- Editor ----------------------------------------------------------
 
@@ -488,36 +486,28 @@ class CodingToolkit(LionTool):
             Use action='write' to create or overwrite. Use action='edit' for
             exact string replacement — safer than full rewrites.
             """
-            args = {"action": action, "file_path": file_path, "content": content, "old_string": old_string, "new_string": new_string, "replace_all": replace_all}
-            try:
-                args = await run_pre("editor", action, args)
-                fp = args["file_path"]
-                if args["action"] == "write":
-                    if args.get("content") is None:
-                        result = {"success": False, "error": "'content' required for write"}
-                    elif Path(fp).exists() and (guard := _check_read_guard(fp)):
-                        result = {"success": False, "error": guard}
-                    else:
-                        result = await run_sync(_write_file_sync, fp, args["content"])
-                        _track(result)
-                elif args["action"] == "edit":
-                    if args.get("old_string") is None:
-                        result = {"success": False, "error": "'old_string' required for edit"}
-                    elif args.get("new_string") is None:
-                        result = {"success": False, "error": "'new_string' required for edit"}
-                    elif (guard := _check_read_guard(fp)):
-                        result = {"success": False, "error": guard}
-                    else:
-                        result = await run_sync(_edit_file_sync, fp, args["old_string"], args["new_string"], args["replace_all"])
-                        _track(result)
-                else:
-                    result = {"success": False, "error": f"Unknown action: {args['action']}"}
-                return await run_post("editor", action, args, result)
-            except Exception as e:
-                recovered = await run_error("editor", action, args, e)
-                if recovered is not None:
-                    return recovered
-                return {"success": False, "error": str(e)}
+            if action == "write":
+                if content is None:
+                    return {"success": False, "error": "'content' required for write"}
+                if Path(file_path).exists():
+                    guard = _check_read_guard(file_path)
+                    if guard:
+                        return {"success": False, "error": guard}
+                result = await run_sync(_write_file_sync, file_path, content)
+                _track(result)
+                return result
+            elif action == "edit":
+                if old_string is None:
+                    return {"success": False, "error": "'old_string' required for edit"}
+                if new_string is None:
+                    return {"success": False, "error": "'new_string' required for edit"}
+                guard = _check_read_guard(file_path)
+                if guard:
+                    return {"success": False, "error": guard}
+                result = await run_sync(_edit_file_sync, file_path, old_string, new_string, replace_all)
+                _track(result)
+                return result
+            return {"success": False, "error": f"Unknown action: {action}"}
 
         # -- Bash ------------------------------------------------------------
 
@@ -531,29 +521,21 @@ class CodingToolkit(LionTool):
             Use for running builds, tests, git commands, and any system operations.
             Output is truncated if it exceeds 100K characters.
             """
-            args = {"command": command, "timeout": timeout, "cwd": cwd}
-            try:
-                args = await run_pre("bash", "run", args)
-                timeout_ms = max(1, min(args.get("timeout") or 30000, 300000))
-                timeout_s = timeout_ms / 1000.0
+            timeout_ms = max(1, min(timeout or 30000, 300000))
+            timeout_s = timeout_ms / 1000.0
 
-                result = await run_sync(_subprocess_sync, args["command"], True, timeout_s, args.get("cwd"))
+            result = await run_sync(_subprocess_sync, command, True, timeout_s, cwd)
 
-                max_chars = 100_000
-                for key in ("stdout", "stderr"):
-                    val = result.get(key, "")
-                    if len(val) > max_chars:
-                        half = max_chars // 2
-                        result[key] = val[:half] + f"\n\n[...truncated {len(val) - max_chars} chars...]\n\n" + val[-half:]
+            max_chars = 100_000
+            for key in ("stdout", "stderr"):
+                val = result.get(key, "")
+                if len(val) > max_chars:
+                    half = max_chars // 2
+                    result[key] = val[:half] + f"\n\n[...truncated {len(val) - max_chars} chars...]\n\n" + val[-half:]
 
-                result.setdefault("timed_out", False)
-                result["return_code"] = result.pop("returncode", -1)
-                return await run_post("bash", "run", args, result)
-            except Exception as e:
-                recovered = await run_error("bash", "run", args, e)
-                if recovered is not None:
-                    return recovered
-                return {"success": False, "error": str(e)}
+            result.setdefault("timed_out", False)
+            result["return_code"] = result.pop("returncode", -1)
+            return result
 
         # -- Search ----------------------------------------------------------
 
@@ -569,44 +551,29 @@ class CodingToolkit(LionTool):
             Use action='grep' to search with regex. Use action='find' for file names.
             Results are capped at max_results to prevent context overflow.
             """
-            args = {"action": action, "pattern": pattern, "path": path, "include": include, "max_results": max_results}
-            try:
-                args = await run_pre("search", action, args)
-                a = args["action"]
-                if a == "grep":
-                    search_path = args.get("path") or "."
-                    limit = args.get("max_results") or 50
-                    cmd = ["grep", "-rn", "-E", args["pattern"], search_path]
-                    if args.get("include"):
-                        cmd.insert(3, f"--include={args['include']}")
-                    raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
-                    if raw.get("returncode") == 2:
-                        result = {"success": False, "error": raw["stderr"].strip()}
-                    else:
-                        lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
-                        total = len(lines)
-                        result = {"success": True, "content": "\n".join(lines[:limit]), "total_matches": total, "shown": min(total, limit)}
-
-                elif a == "find":
-                    search_path = args.get("path") or "."
-                    limit = args.get("max_results") or 100
-                    cmd = ["find", search_path, "-name", args["pattern"]]
-                    raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
-                    if raw.get("returncode", 0) != 0 and raw.get("stderr", "").strip():
-                        result = {"success": False, "error": raw["stderr"].strip()}
-                    else:
-                        lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
-                        total = len(lines)
-                        result = {"success": True, "content": "\n".join(lines[:limit]), "total_found": total, "shown": min(total, limit)}
-                else:
-                    result = {"success": False, "error": f"Unknown action: {a}"}
-
-                return await run_post("search", action, args, result)
-            except Exception as e:
-                recovered = await run_error("search", action, args, e)
-                if recovered is not None:
-                    return recovered
-                return {"success": False, "error": str(e)}
+            if action == "grep":
+                search_path = path or "."
+                limit = max_results or 50
+                cmd = ["grep", "-rn", "-E", pattern, search_path]
+                if include:
+                    cmd.insert(3, f"--include={include}")
+                raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
+                if raw.get("returncode") == 2:
+                    return {"success": False, "error": raw["stderr"].strip()}
+                lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                total = len(lines)
+                return {"success": True, "content": "\n".join(lines[:limit]), "total_matches": total, "shown": min(total, limit)}
+            elif action == "find":
+                search_path = path or "."
+                limit = max_results or 100
+                cmd = ["find", search_path, "-name", pattern]
+                raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
+                if raw.get("returncode", 0) != 0 and raw.get("stderr", "").strip():
+                    return {"success": False, "error": raw["stderr"].strip()}
+                lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                total = len(lines)
+                return {"success": True, "content": "\n".join(lines[:limit]), "total_found": total, "shown": min(total, limit)}
+            return {"success": False, "error": f"Unknown action: {action}"}
 
         # -- Context ---------------------------------------------------------
 
@@ -621,22 +588,6 @@ class CodingToolkit(LionTool):
             Use this to stay within context limits during long tasks. Evict verbose
             tool outputs you no longer need to free space for new work.
             """
-            args = {"action": action, "start": start, "end": end, "keep_last": keep_last}
-            try:
-                args = await run_pre("context", action, args)
-                result = await _context_dispatch(args)
-                return await run_post("context", action, args, result)
-            except Exception as e:
-                recovered = await run_error("context", action, args, e)
-                if recovered is not None:
-                    return recovered
-                return {"success": False, "error": str(e)}
-
-        async def _context_dispatch(args: dict) -> dict:
-            action = args["action"]
-            start = args.get("start")
-            end = args.get("end")
-            keep_last = args.get("keep_last")
             progression = msgs.progression
             pile = msgs.messages
 
@@ -710,15 +661,25 @@ class CodingToolkit(LionTool):
 
             return {"success": False, "error": f"Unknown action: {action}"}
 
-        # -- Assemble --------------------------------------------------------
+        # -- Assemble (hooks wired via Tool's native pre/postprocessor) ------
 
-        return [
-            Tool(func_callable=reader_tool, request_options=ReaderRequest),
-            Tool(func_callable=editor_tool, request_options=EditorRequest),
-            Tool(func_callable=bash_tool, request_options=BashRequest),
-            Tool(func_callable=search_tool, request_options=SearchRequest),
-            Tool(func_callable=context_tool, request_options=ContextRequest),
+        tool_defs = [
+            ("reader", reader_tool, ReaderRequest),
+            ("editor", editor_tool, EditorRequest),
+            ("bash", bash_tool, BashRequest),
+            ("search", search_tool, SearchRequest),
+            ("context", context_tool, ContextRequest),
         ]
+
+        tools = []
+        for name, func, request_cls in tool_defs:
+            tools.append(Tool(
+                func_callable=func,
+                request_options=request_cls,
+                preprocessor=self._build_preprocessor(name),
+                postprocessor=self._build_postprocessor(name),
+            ))
+        return tools
 
     def to_tool(self) -> Tool:
         raise NotImplementedError(
