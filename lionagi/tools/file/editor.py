@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
@@ -80,6 +81,69 @@ class EditorResponse(BaseModel):
     )
 
 
+def _write_sync(file_path: str, content: str) -> EditorResponse:
+    p = Path(file_path)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    except OSError as e:
+        return EditorResponse(success=False, error=f"Write error: {e}")
+    return EditorResponse(success=True, content=f"Written: {p}")
+
+
+def _edit_sync(
+    file_path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool,
+) -> EditorResponse:
+    p = Path(file_path)
+    if not p.exists():
+        return EditorResponse(success=False, error=f"File not found: {file_path}")
+    if not p.is_file():
+        return EditorResponse(success=False, error=f"Path is not a file: {file_path}")
+
+    try:
+        original = p.read_text(encoding="utf-8")
+    except OSError as e:
+        return EditorResponse(success=False, error=f"Read error: {e}")
+
+    count = original.count(old_string)
+    if count == 0:
+        return EditorResponse(
+            success=False,
+            error=f"old_string not found in {file_path}",
+        )
+    if count > 1 and not replace_all:
+        return EditorResponse(
+            success=False,
+            error=(
+                f"old_string appears {count} times in {file_path}. "
+                "Set replace_all=True to replace all occurrences."
+            ),
+        )
+
+    updated = original.replace(old_string, new_string, -1 if replace_all else 1)
+
+    try:
+        p.write_text(updated, encoding="utf-8")
+    except OSError as e:
+        return EditorResponse(success=False, error=f"Write error: {e}")
+
+    idx = updated.find(new_string)
+    if idx == -1:
+        snippet = new_string[:200]
+    else:
+        snip_start = max(0, idx - 40)
+        snip_end = min(len(updated), idx + len(new_string) + 40)
+        snippet = updated[snip_start:snip_end]
+
+    return EditorResponse(
+        success=True,
+        content=f"Replaced {count if replace_all else 1} occurrence(s). Snippet: ...{snippet}...",
+    )
+
+
 class EditorTool(LionTool):
     is_lion_system_tool = True
     system_tool_name = "editor_tool"
@@ -87,13 +151,20 @@ class EditorTool(LionTool):
     def __init__(self):
         self._tool = None
 
-    def handle_request(self, request: EditorRequest) -> EditorResponse:
+    async def handle_request(self, request: EditorRequest) -> EditorResponse:
         if isinstance(request, dict):
             request = EditorRequest(**request)
         if request.action == EditorAction.write:
-            return self._write(request.file_path, request.content)
+            if request.content is None:
+                return EditorResponse(success=False, error="'content' is required for action='write'")
+            return await run_sync(_write_sync, request.file_path, request.content)
         if request.action == EditorAction.edit:
-            return self._edit(
+            if request.old_string is None:
+                return EditorResponse(success=False, error="'old_string' is required for action='edit'")
+            if request.new_string is None:
+                return EditorResponse(success=False, error="'new_string' is required for action='edit'")
+            return await run_sync(
+                _edit_sync,
                 request.file_path,
                 request.old_string,
                 request.new_string,
@@ -101,82 +172,10 @@ class EditorTool(LionTool):
             )
         return EditorResponse(success=False, error="Unknown action")
 
-    def _write(self, file_path: str, content: str | None) -> EditorResponse:
-        if content is None:
-            return EditorResponse(success=False, error="'content' is required for action='write'")
-
-        p = Path(file_path)
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
-        except OSError as e:
-            return EditorResponse(success=False, error=f"Write error: {e}")
-
-        return EditorResponse(success=True, content=f"Written: {p}")
-
-    def _edit(
-        self,
-        file_path: str,
-        old_string: str | None,
-        new_string: str | None,
-        replace_all: bool,
-    ) -> EditorResponse:
-        if old_string is None:
-            return EditorResponse(success=False, error="'old_string' is required for action='edit'")
-        if new_string is None:
-            return EditorResponse(success=False, error="'new_string' is required for action='edit'")
-
-        p = Path(file_path)
-        if not p.exists():
-            return EditorResponse(success=False, error=f"File not found: {file_path}")
-        if not p.is_file():
-            return EditorResponse(success=False, error=f"Path is not a file: {file_path}")
-
-        try:
-            original = p.read_text(encoding="utf-8")
-        except OSError as e:
-            return EditorResponse(success=False, error=f"Read error: {e}")
-
-        count = original.count(old_string)
-        if count == 0:
-            return EditorResponse(
-                success=False,
-                error=f"old_string not found in {file_path}",
-            )
-        if count > 1 and not replace_all:
-            return EditorResponse(
-                success=False,
-                error=(
-                    f"old_string appears {count} times in {file_path}. "
-                    "Set replace_all=True to replace all occurrences."
-                ),
-            )
-
-        updated = original.replace(old_string, new_string, -1 if replace_all else 1)
-
-        try:
-            p.write_text(updated, encoding="utf-8")
-        except OSError as e:
-            return EditorResponse(success=False, error=f"Write error: {e}")
-
-        # Return a snippet around the first edited location
-        idx = updated.find(new_string)
-        if idx == -1:
-            snippet = new_string[:200]
-        else:
-            snip_start = max(0, idx - 40)
-            snip_end = min(len(updated), idx + len(new_string) + 40)
-            snippet = updated[snip_start:snip_end]
-
-        return EditorResponse(
-            success=True,
-            content=f"Replaced {count if replace_all else 1} occurrence(s). Snippet: ...{snippet}...",
-        )
-
     def to_tool(self) -> Tool:
         if self._tool is None:
 
-            def editor_tool(**kwargs):
+            async def editor_tool(**kwargs):
                 """
                 Write or edit files on disk.
 
@@ -186,7 +185,7 @@ class EditorTool(LionTool):
                 Edits fail fast if the old_string is ambiguous (multiple matches) unless
                 replace_all=True is set.
                 """
-                return self.handle_request(EditorRequest(**kwargs)).model_dump()
+                return (await self.handle_request(EditorRequest(**kwargs))).model_dump()
 
             if self.system_tool_name != "editor_tool":
                 editor_tool.__name__ = self.system_tool_name

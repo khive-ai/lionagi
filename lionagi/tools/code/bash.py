@@ -7,6 +7,7 @@ import subprocess
 
 from pydantic import BaseModel, Field
 
+from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
@@ -70,6 +71,43 @@ def _truncate(text: str) -> str:
     )
 
 
+def _subprocess_sync(
+    command: str,
+    timeout_sec: float,
+    timeout_ms: int,
+    cwd: str | None,
+) -> BashResponse:
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            cwd=cwd,
+        )
+        return BashResponse(
+            stdout=_truncate(result.stdout),
+            stderr=_truncate(result.stderr),
+            return_code=result.returncode,
+            timed_out=False,
+        )
+    except subprocess.TimeoutExpired:
+        return BashResponse(
+            stdout="",
+            stderr=f"Command timed out after {timeout_ms} ms",
+            return_code=-1,
+            timed_out=True,
+        )
+    except Exception as e:
+        return BashResponse(
+            stdout="",
+            stderr=f"Execution error: {e}",
+            return_code=-1,
+            timed_out=False,
+        )
+
+
 class BashTool(LionTool):
     is_lion_system_tool = True
     system_tool_name = "bash_tool"
@@ -77,7 +115,7 @@ class BashTool(LionTool):
     def __init__(self):
         self._tool = None
 
-    def handle_request(self, request: BashRequest) -> BashResponse:
+    async def handle_request(self, request: BashRequest) -> BashResponse:
         if isinstance(request, dict):
             request = BashRequest(**request)
 
@@ -85,40 +123,18 @@ class BashTool(LionTool):
         timeout_ms = min(max(timeout_ms, 1), 300_000)
         timeout_sec = timeout_ms / 1000.0
 
-        try:
-            result = subprocess.run(
-                request.command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout_sec,
-                cwd=request.cwd or None,
-            )
-            return BashResponse(
-                stdout=_truncate(result.stdout),
-                stderr=_truncate(result.stderr),
-                return_code=result.returncode,
-                timed_out=False,
-            )
-        except subprocess.TimeoutExpired:
-            return BashResponse(
-                stdout="",
-                stderr=f"Command timed out after {timeout_ms} ms",
-                return_code=-1,
-                timed_out=True,
-            )
-        except Exception as e:
-            return BashResponse(
-                stdout="",
-                stderr=f"Execution error: {e}",
-                return_code=-1,
-                timed_out=False,
-            )
+        return await run_sync(
+            _subprocess_sync,
+            request.command,
+            timeout_sec,
+            timeout_ms,
+            request.cwd or None,
+        )
 
     def to_tool(self) -> Tool:
         if self._tool is None:
 
-            def bash_tool(**kwargs):
+            async def bash_tool(**kwargs):
                 """
                 Execute a shell command and return its output.
 
@@ -128,7 +144,7 @@ class BashTool(LionTool):
                 (first 50 K + last 50 K). Prefer absolute paths; set cwd when the
                 command depends on a specific working directory.
                 """
-                return self.handle_request(BashRequest(**kwargs)).model_dump()
+                return (await self.handle_request(BashRequest(**kwargs))).model_dump()
 
             if self.system_tool_name != "bash_tool":
                 bash_tool.__name__ = self.system_tool_name

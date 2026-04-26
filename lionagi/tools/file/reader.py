@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
@@ -78,6 +79,61 @@ class ReaderResponse(BaseModel):
     )
 
 
+def _read_sync(
+    path: str,
+    offset: int | None,
+    limit: int | None,
+) -> ReaderResponse:
+    p = Path(path)
+    if not p.exists():
+        return ReaderResponse(success=False, error=f"File not found: {path}")
+    if not p.is_file():
+        return ReaderResponse(success=False, error=f"Path is not a file: {path}")
+
+    try:
+        with open(p, "rb") as fbin:
+            chunk = fbin.read(8192)
+        if b"\x00" in chunk:
+            return ReaderResponse(success=False, error=f"Binary file not supported: {path}")
+    except OSError as e:
+        return ReaderResponse(success=False, error=f"Cannot open file: {e}")
+
+    start = max(0, offset or 0)
+    max_lines = limit if (limit is not None and limit > 0) else 2000
+
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError as e:
+        return ReaderResponse(success=False, error=f"Read error: {e}")
+
+    selected = lines[start : start + max_lines]
+    numbered = "".join(
+        f"{start + i + 1}\t{line}" for i, line in enumerate(selected)
+    )
+    return ReaderResponse(success=True, content=numbered)
+
+
+def _list_dir_sync(
+    path: str,
+    recursive: bool | None,
+    file_types: list[str] | None,
+) -> ReaderResponse:
+    from lionagi.libs.file.process import dir_to_files
+
+    try:
+        files = dir_to_files(
+            path,
+            recursive=bool(recursive),
+            file_types=file_types,
+        )
+        content = "\n".join(str(f) for f in files)
+    except Exception as e:
+        return ReaderResponse(success=False, error=f"List error: {e}")
+
+    return ReaderResponse(success=True, content=content)
+
+
 class ReaderTool(LionTool):
     is_lion_system_tool = True
     system_tool_name = "reader_tool"
@@ -85,81 +141,23 @@ class ReaderTool(LionTool):
     def __init__(self):
         self._tool = None
 
-    def handle_request(self, request: ReaderRequest) -> ReaderResponse:
+    async def handle_request(self, request: ReaderRequest) -> ReaderResponse:
         if isinstance(request, dict):
             request = ReaderRequest(**request)
         if request.action == ReaderAction.read:
-            return self._read(request.path, request.offset, request.limit)
+            if not request.path:
+                return ReaderResponse(success=False, error="'path' is required for action='read'")
+            return await run_sync(_read_sync, request.path, request.offset, request.limit)
         if request.action == ReaderAction.list_dir:
-            return self._list_dir(request.path, request.recursive, request.file_types)
+            if not request.path:
+                return ReaderResponse(success=False, error="'path' is required for action='list_dir'")
+            return await run_sync(_list_dir_sync, request.path, request.recursive, request.file_types)
         return ReaderResponse(success=False, error="Unknown action")
-
-    def _read(
-        self,
-        path: str | None,
-        offset: int | None,
-        limit: int | None,
-    ) -> ReaderResponse:
-        if not path:
-            return ReaderResponse(success=False, error="'path' is required for action='read'")
-
-        p = Path(path)
-        if not p.exists():
-            return ReaderResponse(success=False, error=f"File not found: {path}")
-        if not p.is_file():
-            return ReaderResponse(success=False, error=f"Path is not a file: {path}")
-
-        # Binary detection: try reading a small chunk as bytes
-        try:
-            with open(p, "rb") as fbin:
-                chunk = fbin.read(8192)
-            if b"\x00" in chunk:
-                return ReaderResponse(success=False, error=f"Binary file not supported: {path}")
-        except OSError as e:
-            return ReaderResponse(success=False, error=f"Cannot open file: {e}")
-
-        start = max(0, offset or 0)
-        max_lines = limit if (limit is not None and limit > 0) else 2000
-
-        try:
-            with open(p, encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-        except OSError as e:
-            return ReaderResponse(success=False, error=f"Read error: {e}")
-
-        selected = lines[start : start + max_lines]
-        numbered = "".join(
-            f"{start + i + 1}\t{line}" for i, line in enumerate(selected)
-        )
-        return ReaderResponse(success=True, content=numbered)
-
-    def _list_dir(
-        self,
-        path: str | None,
-        recursive: bool | None,
-        file_types: list[str] | None,
-    ) -> ReaderResponse:
-        if not path:
-            return ReaderResponse(success=False, error="'path' is required for action='list_dir'")
-
-        from lionagi.libs.file.process import dir_to_files
-
-        try:
-            files = dir_to_files(
-                path,
-                recursive=bool(recursive),
-                file_types=file_types,
-            )
-            content = "\n".join(str(f) for f in files)
-        except Exception as e:
-            return ReaderResponse(success=False, error=f"List error: {e}")
-
-        return ReaderResponse(success=True, content=content)
 
     def to_tool(self) -> Tool:
         if self._tool is None:
 
-            def reader_tool(**kwargs):
+            async def reader_tool(**kwargs):
                 """
                 Read files or list directory contents.
 
@@ -167,7 +165,7 @@ class ReaderTool(LionTool):
                 offset and limit for large files). Use action='list_dir' to enumerate
                 files in a directory. Binary files are rejected gracefully.
                 """
-                return self.handle_request(ReaderRequest(**kwargs)).model_dump()
+                return (await self.handle_request(ReaderRequest(**kwargs))).model_dump()
 
             if self.system_tool_name != "reader_tool":
                 reader_tool.__name__ = self.system_tool_name

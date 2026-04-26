@@ -96,7 +96,7 @@ class ContextTool(LionTool):
                     content = str(c)
             return TokenCalculator.tokenize(content) if content else 0
 
-        def context_tool(
+        async def context_tool(
             action: str,
             start: int = None,
             end: int = None,

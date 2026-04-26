@@ -8,6 +8,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
@@ -80,6 +81,70 @@ class SearchResponse(BaseModel):
     )
 
 
+def _grep_sync(
+    pattern: str,
+    path: str,
+    include: str | None,
+    max_results: int,
+) -> SearchResponse:
+    cmd = ["grep", "-rn", "-E", pattern, path]
+    if include:
+        cmd += ["--include", include]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return SearchResponse(success=False, error="grep timed out", count=0)
+    except FileNotFoundError:
+        return SearchResponse(success=False, error="grep not found on this system", count=0)
+    except Exception as e:
+        return SearchResponse(success=False, error=f"grep error: {e}", count=0)
+
+    # exit code 1 = no matches (not an error), 2 = real error
+    if result.returncode == 2:
+        return SearchResponse(success=False, error=result.stderr.strip(), count=0)
+
+    lines = [l for l in result.stdout.splitlines() if l][:max_results]
+    return SearchResponse(
+        success=True,
+        content="\n".join(lines),
+        count=len(lines),
+    )
+
+
+def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
+    cmd = ["find", path, "-name", pattern]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return SearchResponse(success=False, error="find timed out", count=0)
+    except FileNotFoundError:
+        return SearchResponse(success=False, error="find not found on this system", count=0)
+    except Exception as e:
+        return SearchResponse(success=False, error=f"find error: {e}", count=0)
+
+    if result.returncode != 0 and result.stderr.strip():
+        return SearchResponse(success=False, error=result.stderr.strip(), count=0)
+
+    lines = [l for l in result.stdout.splitlines() if l][:max_results]
+    return SearchResponse(
+        success=True,
+        content="\n".join(lines),
+        count=len(lines),
+    )
+
+
 class SearchTool(LionTool):
     is_lion_system_tool = True
     system_tool_name = "search_tool"
@@ -87,82 +152,19 @@ class SearchTool(LionTool):
     def __init__(self):
         self._tool = None
 
-    def handle_request(self, request: SearchRequest) -> SearchResponse:
+    async def handle_request(self, request: SearchRequest) -> SearchResponse:
         if isinstance(request, dict):
             request = SearchRequest(**request)
         if request.action == SearchAction.grep:
-            return self._grep(request.pattern, request.path, request.include, request.max_results)
+            return await run_sync(_grep_sync, request.pattern, request.path, request.include, request.max_results)
         if request.action == SearchAction.find:
-            return self._find(request.path, request.pattern, request.max_results)
+            return await run_sync(_find_sync, request.path, request.pattern, request.max_results)
         return SearchResponse(success=False, error="Unknown action", count=0)
-
-    def _grep(
-        self,
-        pattern: str,
-        path: str,
-        include: str | None,
-        max_results: int,
-    ) -> SearchResponse:
-        cmd = ["grep", "-rn", "-E", pattern, path]
-        if include:
-            cmd += ["--include", include]
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired:
-            return SearchResponse(success=False, error="grep timed out", count=0)
-        except FileNotFoundError:
-            return SearchResponse(success=False, error="grep not found on this system", count=0)
-        except Exception as e:
-            return SearchResponse(success=False, error=f"grep error: {e}", count=0)
-
-        # exit code 1 = no matches (not an error), 2 = real error
-        if result.returncode == 2:
-            return SearchResponse(success=False, error=result.stderr.strip(), count=0)
-
-        lines = [l for l in result.stdout.splitlines() if l][:max_results]
-        return SearchResponse(
-            success=True,
-            content="\n".join(lines),
-            count=len(lines),
-        )
-
-    def _find(self, path: str, pattern: str, max_results: int) -> SearchResponse:
-        cmd = ["find", path, "-name", pattern]
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired:
-            return SearchResponse(success=False, error="find timed out", count=0)
-        except FileNotFoundError:
-            return SearchResponse(success=False, error="find not found on this system", count=0)
-        except Exception as e:
-            return SearchResponse(success=False, error=f"find error: {e}", count=0)
-
-        if result.returncode != 0 and result.stderr.strip():
-            return SearchResponse(success=False, error=result.stderr.strip(), count=0)
-
-        lines = [l for l in result.stdout.splitlines() if l][:max_results]
-        return SearchResponse(
-            success=True,
-            content="\n".join(lines),
-            count=len(lines),
-        )
 
     def to_tool(self) -> Tool:
         if self._tool is None:
 
-            def search_tool(**kwargs):
+            async def search_tool(**kwargs):
                 """
                 Search file contents or find files by name.
 
@@ -172,7 +174,7 @@ class SearchTool(LionTool):
                 (grep -E, find) with no external dependencies. Results are capped at
                 max_results (default 50/100) to avoid flooding context.
                 """
-                return self.handle_request(SearchRequest(**kwargs)).model_dump()
+                return (await self.handle_request(SearchRequest(**kwargs))).model_dump()
 
             if self.system_tool_name != "search_tool":
                 search_tool.__name__ = self.system_tool_name
