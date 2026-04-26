@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import base64
 import subprocess
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -178,8 +179,13 @@ class ContextRequest(BaseModel):
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 _IMAGE_MEDIA_TYPES = {
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
 }
 
 
@@ -226,16 +232,19 @@ def _read_file_sync(path: str, offset: int, max_lines: int) -> dict:
         return {"success": False, "error": str(e)}
 
     selected = lines[offset : offset + max_lines]
-    numbered = "".join(
-        f"{offset + i + 1}\t{line}" for i, line in enumerate(selected)
-    )
+    numbered = "".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(selected))
 
     try:
         mtime = p.stat().st_mtime
     except OSError:
         mtime = 0.0
 
-    return {"success": True, "content": numbered, "_resolved": str(p.resolve()), "_mtime": mtime}
+    return {
+        "success": True,
+        "content": numbered,
+        "_resolved": str(p.resolve()),
+        "_mtime": mtime,
+    }
 
 
 def _list_dir_sync(path: str, recursive: bool, file_types: list[str] | None) -> dict:
@@ -261,10 +270,17 @@ def _write_file_sync(file_path: str, content: str) -> dict:
     except OSError:
         mtime = 0.0
 
-    return {"success": True, "content": f"Written: {p} ({len(content)} chars)", "_resolved": str(p.resolve()), "_mtime": mtime}
+    return {
+        "success": True,
+        "content": f"Written: {p} ({len(content)} chars)",
+        "_resolved": str(p.resolve()),
+        "_mtime": mtime,
+    }
 
 
-def _edit_file_sync(file_path: str, old_string: str, new_string: str, replace_all: bool) -> dict:
+def _edit_file_sync(
+    file_path: str, old_string: str, new_string: str, replace_all: bool
+) -> dict:
     p = Path(file_path)
     try:
         original = p.read_text(encoding="utf-8")
@@ -275,7 +291,10 @@ def _edit_file_sync(file_path: str, old_string: str, new_string: str, replace_al
     if count == 0:
         return {"success": False, "error": f"old_string not found in {file_path}"}
     if count > 1 and not replace_all:
-        return {"success": False, "error": f"old_string appears {count} times. Set replace_all=True."}
+        return {
+            "success": False,
+            "error": f"old_string appears {count} times. Set replace_all=True.",
+        }
 
     updated = original.replace(old_string, new_string, -1 if replace_all else 1)
 
@@ -305,11 +324,25 @@ def _edit_file_sync(file_path: str, old_string: str, new_string: str, replace_al
 def _subprocess_sync(cmd, shell: bool, timeout_s: float, cwd: str | None) -> dict:
     try:
         result = subprocess.run(
-            cmd, shell=shell, capture_output=True, text=True, timeout=timeout_s, cwd=cwd or None,
+            cmd,
+            shell=shell,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            cwd=cwd or None,
         )
-        return {"stdout": result.stdout or "", "stderr": result.stderr or "", "returncode": result.returncode}
+        return {
+            "stdout": result.stdout or "",
+            "stderr": result.stderr or "",
+            "returncode": result.returncode,
+        }
     except subprocess.TimeoutExpired:
-        return {"stdout": "", "stderr": f"Timed out after {timeout_s}s", "returncode": -1, "timed_out": True}
+        return {
+            "stdout": "",
+            "stderr": f"Timed out after {timeout_s}s",
+            "returncode": -1,
+            "timed_out": True,
+        }
     except FileNotFoundError as e:
         return {"stdout": "", "stderr": str(e), "returncode": -1}
     except Exception as e:
@@ -440,7 +473,6 @@ class CodingToolkit(LionTool):
         threshold = self.notify_threshold
         max_tokens = self.notify_max_tokens
 
-
         def _system_status() -> str | None:
             if not notify:
                 return None
@@ -459,7 +491,9 @@ class CodingToolkit(LionTool):
                 if uid in pile and isinstance(pile[uid], ActionResponse):
                     n_action_results += 1
 
-            parts = [f"context {budget.used // 1000}k/{budget.limit // 1000}k tokens ({budget.usage_pct:.0%})"]
+            parts = [
+                f"context {budget.used // 1000}k/{budget.limit // 1000}k tokens ({budget.usage_pct:.0%})"
+            ]
             parts.append(f"{n_active} messages")
             if n_action_results > 0:
                 parts.append(f"{n_action_results} action results")
@@ -553,7 +587,9 @@ class CodingToolkit(LionTool):
                 guard = _check_read_guard(file_path)
                 if guard:
                     return {"success": False, "error": guard}
-                result = await run_sync(_edit_file_sync, file_path, old_string, new_string, replace_all)
+                result = await run_sync(
+                    _edit_file_sync, file_path, old_string, new_string, replace_all
+                )
                 _track(result)
                 return result
             return {"success": False, "error": f"Unknown action: {action}"}
@@ -580,7 +616,11 @@ class CodingToolkit(LionTool):
                 val = result.get(key, "")
                 if len(val) > max_chars:
                     half = max_chars // 2
-                    result[key] = val[:half] + f"\n\n[...truncated {len(val) - max_chars} chars...]\n\n" + val[-half:]
+                    result[key] = (
+                        val[:half]
+                        + f"\n\n[...truncated {len(val) - max_chars} chars...]\n\n"
+                        + val[-half:]
+                    )
 
             result.setdefault("timed_out", False)
             result["return_code"] = result.pop("returncode", -1)
@@ -609,9 +649,16 @@ class CodingToolkit(LionTool):
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode") == 2:
                     return {"success": False, "error": raw["stderr"].strip()}
-                lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                lines = (
+                    raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                )
                 total = len(lines)
-                return {"success": True, "content": "\n".join(lines[:limit]), "total_matches": total, "shown": min(total, limit)}
+                return {
+                    "success": True,
+                    "content": "\n".join(lines[:limit]),
+                    "total_matches": total,
+                    "shown": min(total, limit),
+                }
             elif action == "find":
                 search_path = path or "."
                 limit = max_results or 100
@@ -619,9 +666,16 @@ class CodingToolkit(LionTool):
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode", 0) != 0 and raw.get("stderr", "").strip():
                     return {"success": False, "error": raw["stderr"].strip()}
-                lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                lines = (
+                    raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                )
                 total = len(lines)
-                return {"success": True, "content": "\n".join(lines[:limit]), "total_found": total, "shown": min(total, limit)}
+                return {
+                    "success": True,
+                    "content": "\n".join(lines[:limit]),
+                    "total_found": total,
+                    "shown": min(total, limit),
+                }
             return {"success": False, "error": f"Unknown action: {action}"}
 
         # -- Context ---------------------------------------------------------
@@ -664,7 +718,9 @@ class CodingToolkit(LionTool):
                         by_type[role] = by_type.get(role, 0) + 1
                         c = msg.content if hasattr(msg, "content") else ""
                         if c:
-                            total_tokens += TokenCalculator.tokenize(str(c) if not isinstance(c, str) else c)
+                            total_tokens += TokenCalculator.tokenize(
+                                str(c) if not isinstance(c, str) else c
+                            )
                 return {
                     "success": True,
                     "active_messages": active_len,
@@ -686,12 +742,20 @@ class CodingToolkit(LionTool):
                         role = msg.role if hasattr(msg, "role") else type(msg).__name__
                         c = ""
                         if hasattr(msg, "content") and msg.content:
-                            raw = str(msg.content) if not isinstance(msg.content, str) else msg.content
+                            raw = (
+                                str(msg.content)
+                                if not isinstance(msg.content, str)
+                                else msg.content
+                            )
                             c = raw[:120].replace("\n", " ")
                             if len(raw) > 120:
                                 c += "..."
                         summaries.append(f"[{i}] {role}: {c}")
-                return {"success": True, "range": f"[{s}:{e}] of {len(progression)}", "messages": summaries}
+                return {
+                    "success": True,
+                    "range": f"[{s}:{e}] of {len(progression)}",
+                    "messages": summaries,
+                }
 
             elif action == "evict":
                 cp = _ensure_current_progression()
@@ -702,26 +766,43 @@ class CodingToolkit(LionTool):
                     return {"success": False, "error": f"Invalid range [{s}:{e})"}
                 uids = [cp[i] for i in range(s, e) if i < len(cp)]
                 cp.exclude(uids)
-                return {"success": True, "removed": len(uids), "active": len(cp), "total": len(msgs.progression)}
+                return {
+                    "success": True,
+                    "removed": len(uids),
+                    "active": len(cp),
+                    "total": len(msgs.progression),
+                }
 
             elif action == "evict_action_results":
                 cp = _ensure_current_progression()
                 keep = keep_last if keep_last is not None else 5
                 ar_uids = [
-                    uid for uid in cp
+                    uid
+                    for uid in cp
                     if uid in pile and isinstance(pile[uid], ActionResponse)
                 ]
                 if len(ar_uids) <= keep:
-                    return {"success": True, "removed": 0, "message": f"Only {len(ar_uids)} action results, keeping all."}
+                    return {
+                        "success": True,
+                        "removed": 0,
+                        "message": f"Only {len(ar_uids)} action results, keeping all.",
+                    }
                 to_evict = ar_uids[:-keep] if keep > 0 else ar_uids
                 cp.exclude(to_evict)
-                return {"success": True, "removed": len(to_evict), "active": len(cp), "total": len(msgs.progression)}
+                return {
+                    "success": True,
+                    "removed": len(to_evict),
+                    "active": len(cp),
+                    "total": len(msgs.progression),
+                }
 
             return {"success": False, "error": f"Unknown action: {action}"}
 
         # -- System notification as built-in post-hook -----------------------
 
-        async def _notify_post(tool_name: str, action: str, args: dict, result: dict) -> dict | None:
+        async def _notify_post(
+            tool_name: str, action: str, args: dict, result: dict
+        ) -> dict | None:
             status = _system_status()
             if status and isinstance(result, dict):
                 result["system"] = status
@@ -742,12 +823,14 @@ class CodingToolkit(LionTool):
 
         tools = []
         for name, func, request_cls in tool_defs:
-            tools.append(Tool(
-                func_callable=func,
-                request_options=request_cls,
-                preprocessor=self._build_preprocessor(name),
-                postprocessor=self._build_postprocessor(name),
-            ))
+            tools.append(
+                Tool(
+                    func_callable=func,
+                    request_options=request_cls,
+                    preprocessor=self._build_preprocessor(name),
+                    postprocessor=self._build_postprocessor(name),
+                )
+            )
         return tools
 
     def to_tool(self) -> Tool:

@@ -39,7 +39,8 @@ async def create_agent(
         A Branch ready to use with tools registered and hooks applied.
     """
     if load_settings:
-        from .settings import apply_hooks_from_settings, load_settings as _load
+        from .settings import apply_hooks_from_settings
+        from .settings import load_settings as _load
 
         settings = _load(project_dir)
         apply_hooks_from_settings(config, settings)
@@ -56,7 +57,9 @@ async def create_agent(
         if config.effort:
             from lionagi.cli._providers import PROVIDER_EFFORT_KWARG
 
-            effort_kwargs = PROVIDER_EFFORT_KWARG.get(provider, {}).get(config.effort, {})
+            effort_kwargs = PROVIDER_EFFORT_KWARG.get(provider, {}).get(
+                config.effort, {}
+            )
 
         chat_model = build_chat_model(config.model, **(effort_kwargs or {}))
         branch_kwargs["chat_model"] = chat_model
@@ -70,9 +73,7 @@ async def create_agent(
             full_prompt = LION_SYSTEM_MESSAGE.strip() + "\n\n" + config.system_prompt
         else:
             full_prompt = config.system_prompt
-        branch.msgs.set_system(
-            branch.msgs.create_system(system=full_prompt)
-        )
+        branch.msgs.set_system(branch.msgs.create_system(system=full_prompt))
 
     _apply_permissions(config)
     _register_tools(branch, config)

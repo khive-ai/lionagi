@@ -156,13 +156,19 @@ class EditorTool(LionTool):
             request = EditorRequest(**request)
         if request.action == EditorAction.write:
             if request.content is None:
-                return EditorResponse(success=False, error="'content' is required for action='write'")
+                return EditorResponse(
+                    success=False, error="'content' is required for action='write'"
+                )
             return await run_sync(_write_sync, request.file_path, request.content)
         if request.action == EditorAction.edit:
             if request.old_string is None:
-                return EditorResponse(success=False, error="'old_string' is required for action='edit'")
+                return EditorResponse(
+                    success=False, error="'old_string' is required for action='edit'"
+                )
             if request.new_string is None:
-                return EditorResponse(success=False, error="'new_string' is required for action='edit'")
+                return EditorResponse(
+                    success=False, error="'new_string' is required for action='edit'"
+                )
             return await run_sync(
                 _edit_sync,
                 request.file_path,

@@ -57,6 +57,7 @@ async def guard_paths(
         config.pre("reader", guard_paths(allowed_paths=["/Users/me/project/"]))
         config.pre("editor", guard_paths(denied_paths=[".env", "credentials"]))
     """
+
     async def _guard(tool_name: str, action: str, args: dict) -> dict | None:
         path = args.get("path") or args.get("file_path") or ""
         if allowed_paths:
@@ -70,14 +71,18 @@ async def guard_paths(
     return _guard
 
 
-async def log_tool_use(tool_name: str, action: str, args: dict, result: dict) -> dict | None:
+async def log_tool_use(
+    tool_name: str, action: str, args: dict, result: dict
+) -> dict | None:
     """Post-hook: log tool usage for observability."""
     success = result.get("success", result.get("return_code") == 0)
     logger.info("tool=%s action=%s success=%s", tool_name, action, success)
     return None
 
 
-async def auto_format_python(tool_name: str, action: str, args: dict, result: dict) -> dict | None:
+async def auto_format_python(
+    tool_name: str, action: str, args: dict, result: dict
+) -> dict | None:
     """Post-hook: run ruff format on edited Python files."""
     if not result.get("success"):
         return None

@@ -34,9 +34,7 @@ class ReaderRequest(BaseModel):
     )
     path: str | None = Field(
         None,
-        description=(
-            "File path, directory path, or URL. Required for all actions."
-        ),
+        description=("File path, directory path, or URL. Required for all actions."),
     )
     offset: int | None = Field(
         None,
@@ -98,7 +96,9 @@ def _read_sync(
         with open(p, "rb") as fbin:
             chunk = fbin.read(8192)
         if b"\x00" in chunk:
-            return ReaderResponse(success=False, error=f"Binary file not supported: {path}")
+            return ReaderResponse(
+                success=False, error=f"Binary file not supported: {path}"
+            )
     except OSError as e:
         return ReaderResponse(success=False, error=f"Cannot open file: {e}")
 
@@ -112,9 +112,7 @@ def _read_sync(
         return ReaderResponse(success=False, error=f"Read error: {e}")
 
     selected = lines[start : start + max_lines]
-    numbered = "".join(
-        f"{start + i + 1}\t{line}" for i, line in enumerate(selected)
-    )
+    numbered = "".join(f"{start + i + 1}\t{line}" for i, line in enumerate(selected))
     return ReaderResponse(success=True, content=numbered)
 
 
@@ -168,7 +166,9 @@ def _open_sync(path: str, cache: dict[str, tuple[str, float]]) -> ReaderResponse
     )
 
 
-def _read_cached(path: str, offset: int, limit: int, cache: dict[str, tuple[str, float]]) -> ReaderResponse | None:
+def _read_cached(
+    path: str, offset: int, limit: int, cache: dict[str, tuple[str, float]]
+) -> ReaderResponse | None:
     """Read from cache if path was previously opened and not expired."""
     if path not in cache:
         return None
@@ -217,10 +217,14 @@ class ReaderTool(LionTool):
             cached = _read_cached(request.path, start, limit, self._cache)
             if cached is not None:
                 return cached
-            return await run_sync(_read_sync, request.path, request.offset, request.limit)
+            return await run_sync(
+                _read_sync, request.path, request.offset, request.limit
+            )
 
         if request.action == ReaderAction.list_dir:
-            return await run_sync(_list_dir_sync, request.path, request.recursive, request.file_types)
+            return await run_sync(
+                _list_dir_sync, request.path, request.recursive, request.file_types
+            )
 
         return ReaderResponse(success=False, error="Unknown action")
 

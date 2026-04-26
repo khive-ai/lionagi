@@ -179,7 +179,9 @@ class ContextTool(LionTool):
                         "message": f"Only {len(action_result_indices)} action results, keeping all.",
                     }
 
-                to_evict = action_result_indices[:-keep] if keep > 0 else action_result_indices
+                to_evict = (
+                    action_result_indices[:-keep] if keep > 0 else action_result_indices
+                )
                 removed = 0
                 for _, uid in to_evict:
                     if uid in pile:

@@ -119,31 +119,44 @@ class PermissionPolicy:
         for pattern in self.deny.get(tool_name, []) + self.deny.get("*", []):
             if _matches(match_str, pattern):
                 return PermissionDecision(
-                    "deny", tool_name, action,
-                    f"denied by rule: {pattern}", pattern,
+                    "deny",
+                    tool_name,
+                    action,
+                    f"denied by rule: {pattern}",
+                    pattern,
                 )
 
         for pattern in self.allow.get(tool_name, []) + self.allow.get("*", []):
             if _matches(match_str, pattern):
                 return PermissionDecision(
-                    "allow", tool_name, action,
-                    f"allowed by rule: {pattern}", pattern,
+                    "allow",
+                    tool_name,
+                    action,
+                    f"allowed by rule: {pattern}",
+                    pattern,
                 )
 
         for pattern in self.escalate.get(tool_name, []) + self.escalate.get("*", []):
             if _matches(match_str, pattern):
                 return PermissionDecision(
-                    "escalate", tool_name, action,
-                    f"escalate by rule: {pattern}", pattern,
+                    "escalate",
+                    tool_name,
+                    action,
+                    f"escalate by rule: {pattern}",
+                    pattern,
                 )
 
-        return PermissionDecision("allow", tool_name, action, "no matching rule, default allow")
+        return PermissionDecision(
+            "allow", tool_name, action, "no matching rule, default allow"
+        )
 
     def to_pre_hook(self) -> Callable:
         """Convert this policy into a Tool preprocessor hook."""
         policy = self
 
-        async def permission_check(tool_name: str, action: str, args: dict) -> dict | None:
+        async def permission_check(
+            tool_name: str, action: str, args: dict
+        ) -> dict | None:
             decision = policy.check(tool_name, action, args)
 
             if decision.behavior == "allow":
@@ -183,4 +196,6 @@ def _build_match_string(tool_name: str, action: str, args: dict) -> str:
 def _matches(text: str, pattern: str) -> bool:
     if pattern == "*":
         return True
-    return fnmatch.fnmatch(text, pattern) or fnmatch.fnmatch(text.lower(), pattern.lower())
+    return fnmatch.fnmatch(text, pattern) or fnmatch.fnmatch(
+        text.lower(), pattern.lower()
+    )

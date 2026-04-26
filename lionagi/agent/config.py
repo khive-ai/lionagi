@@ -115,10 +115,22 @@ class AgentConfig:
             yolo=data.get("yolo", False),
             lion_system=data.get("lion_system", True),
             cwd=data.get("cwd"),
-            extra={k: v for k, v in data.items() if k not in {
-                "name", "model", "effort", "system_prompt", "tools",
-                "permissions", "yolo", "lion_system", "cwd",
-            }},
+            extra={
+                k: v
+                for k, v in data.items()
+                if k
+                not in {
+                    "name",
+                    "model",
+                    "effort",
+                    "system_prompt",
+                    "tools",
+                    "permissions",
+                    "yolo",
+                    "lion_system",
+                    "cwd",
+                }
+            },
         )
 
     def to_yaml(self, path: str | Path) -> None:

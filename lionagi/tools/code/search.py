@@ -101,7 +101,9 @@ def _grep_sync(
     except subprocess.TimeoutExpired:
         return SearchResponse(success=False, error="grep timed out", count=0)
     except FileNotFoundError:
-        return SearchResponse(success=False, error="grep not found on this system", count=0)
+        return SearchResponse(
+            success=False, error="grep not found on this system", count=0
+        )
     except Exception as e:
         return SearchResponse(success=False, error=f"grep error: {e}", count=0)
 
@@ -130,7 +132,9 @@ def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
     except subprocess.TimeoutExpired:
         return SearchResponse(success=False, error="find timed out", count=0)
     except FileNotFoundError:
-        return SearchResponse(success=False, error="find not found on this system", count=0)
+        return SearchResponse(
+            success=False, error="find not found on this system", count=0
+        )
     except Exception as e:
         return SearchResponse(success=False, error=f"find error: {e}", count=0)
 
@@ -156,9 +160,17 @@ class SearchTool(LionTool):
         if isinstance(request, dict):
             request = SearchRequest(**request)
         if request.action == SearchAction.grep:
-            return await run_sync(_grep_sync, request.pattern, request.path, request.include, request.max_results)
+            return await run_sync(
+                _grep_sync,
+                request.pattern,
+                request.path,
+                request.include,
+                request.max_results,
+            )
         if request.action == SearchAction.find:
-            return await run_sync(_find_sync, request.path, request.pattern, request.max_results)
+            return await run_sync(
+                _find_sync, request.path, request.pattern, request.max_results
+            )
         return SearchResponse(success=False, error="Unknown action", count=0)
 
     def to_tool(self) -> Tool:

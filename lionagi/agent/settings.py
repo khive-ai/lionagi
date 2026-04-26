@@ -69,7 +69,9 @@ def load_settings(project_dir: str | Path | None = None) -> dict[str, Any]:
     return merged
 
 
-def apply_hooks_from_settings(config: AgentConfig, settings: dict[str, Any] | None = None) -> AgentConfig:
+def apply_hooks_from_settings(
+    config: AgentConfig, settings: dict[str, Any] | None = None
+) -> AgentConfig:
     """Apply hook configuration from settings dict to an AgentConfig.
 
     Resolves hook specs (shell commands, Python import paths) into callables
@@ -138,13 +140,18 @@ def _make_shell_hook(command_template: str, phase: str, tool_name: str) -> Calla
     Post-hooks: result passed as JSON on stdin. Stdout captured but ignored.
     """
     if phase == "pre":
+
         async def shell_pre_hook(tn: str, action: str, args: dict) -> dict | None:
             cmd = command_template
             for k, v in args.items():
                 cmd = cmd.replace(f"{{{k}}}", str(v))
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True,
-                input=json.dumps(args), timeout=10,
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                input=json.dumps(args),
+                timeout=10,
             )
             if result.returncode != 0:
                 msg = result.stderr.strip() or f"Hook blocked: {command_template}"
@@ -154,13 +161,20 @@ def _make_shell_hook(command_template: str, phase: str, tool_name: str) -> Calla
         return shell_pre_hook
 
     else:
-        async def shell_post_hook(tn: str, action: str, args: dict, result: dict) -> dict | None:
+
+        async def shell_post_hook(
+            tn: str, action: str, args: dict, result: dict
+        ) -> dict | None:
             cmd = command_template
             for k, v in {**args, **result}.items():
                 cmd = cmd.replace(f"{{{k}}}", str(v))
             subprocess.run(
-                cmd, shell=True, capture_output=True, text=True,
-                input=json.dumps(result), timeout=10,
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                input=json.dumps(result),
+                timeout=10,
             )
             return None
 
