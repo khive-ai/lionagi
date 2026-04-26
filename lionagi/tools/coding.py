@@ -7,7 +7,7 @@ import base64
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from pydantic import BaseModel, Field
 
@@ -422,11 +422,58 @@ class CodingToolkit(LionTool):
 
         return chained_post
 
+    notify: bool = True
+    notify_threshold: float = 0.7  # warn when context exceeds this fraction
+    notify_max_tokens: int = 200_000  # assumed context window size
+
     def bind(self, branch: Branch) -> list[Tool]:
         from lionagi.protocols.messages import ActionResponse
 
         file_state: dict[str, float] = {}
+        call_count = [0]
         msgs = branch.msgs
+        notify = self.notify
+        threshold = self.notify_threshold
+        max_tokens = self.notify_max_tokens
+
+        def _system_status() -> str | None:
+            if not notify:
+                return None
+            call_count[0] += 1
+            progression = msgs.progression
+            pile = msgs.messages
+            n_msgs = len(progression)
+            n_files = len(file_state)
+
+            est_tokens = 0
+            n_action_results = 0
+            for uid in progression:
+                if uid in pile:
+                    msg = pile[uid]
+                    if isinstance(msg, ActionResponse):
+                        n_action_results += 1
+                    c = msg.content if hasattr(msg, "content") else ""
+                    if c:
+                        est_tokens += TokenCalculator.tokenize(
+                            str(c) if not isinstance(c, str) else c
+                        )
+
+            usage_pct = est_tokens / max_tokens if max_tokens > 0 else 0
+            parts = [f"context {est_tokens // 1000}k/{max_tokens // 1000}k tokens ({usage_pct:.0%})"]
+            parts.append(f"{n_msgs} messages")
+            if n_action_results > 0:
+                parts.append(f"{n_action_results} action results")
+            if n_files > 0:
+                parts.append(f"{n_files} files tracked")
+
+            status = f"[System: {', '.join(parts)}]"
+
+            if usage_pct >= 0.9:
+                status += " ⚠️ Context nearly full — evict old action results now."
+            elif usage_pct >= threshold:
+                status += " Consider evicting earlier action results to free space."
+
+            return status
 
         def _check_read_guard(path: str) -> str | None:
             resolved = str(Path(path).resolve())
@@ -660,6 +707,17 @@ class CodingToolkit(LionTool):
                 return {"success": True, "removed": removed, "remaining": len(progression)}
 
             return {"success": False, "error": f"Unknown action: {action}"}
+
+        # -- System notification as built-in post-hook -----------------------
+
+        async def _notify_post(tool_name: str, action: str, args: dict, result: dict) -> dict | None:
+            status = _system_status()
+            if status and isinstance(result, dict):
+                result["system"] = status
+            return result
+
+        if notify:
+            self.post("*", _notify_post)
 
         # -- Assemble (hooks wired via Tool's native pre/postprocessor) ------
 
