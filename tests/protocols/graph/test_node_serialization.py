@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import hashlib
-import time
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 
@@ -140,11 +139,12 @@ class TestEdgeCases:
         t = cls()
         t.touch()
         ts1 = t.updated_at
-        # Ensure a tiny time gap so timestamps differ
-        time.sleep(0.01)
+        # Set updated_at to a known past value to guarantee ts2 differs from ts1
+        t.updated_at = "2000-01-01T00:00:00+00:00"
         t.touch()
         ts2 = t.updated_at
-        assert ts2 >= ts1
+        assert ts2 > "2000-01-01T00:00:00+00:00"
+        assert ts2 != "2000-01-01T00:00:00+00:00"
 
     def test_soft_delete_error_message_includes_class_name(self):
         cls = create_node("MySpecialNode", soft_delete=False)
