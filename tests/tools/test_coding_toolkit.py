@@ -42,15 +42,22 @@ def test_bind_returns_7_tools(tmp_path):
 
 def test_bind_all_tools_async(tmp_path):
     _, _, tools = _make_toolkit(tmp_path)
-    non_async = [t.func_callable.__name__ for t in tools
-                 if not asyncio.iscoroutinefunction(t.func_callable)]
+    non_async = [
+        t.func_callable.__name__ for t in tools if not asyncio.iscoroutinefunction(t.func_callable)
+    ]
     assert non_async == [], f"Non-async tools: {non_async}"
 
 
 def test_bind_tool_names(tmp_path):
     _, _, tools = _make_toolkit(tmp_path)
     assert {t.func_callable.__name__ for t in tools} == {
-        "reader", "editor", "bash", "search", "context", "sandbox", "subagent"
+        "reader",
+        "editor",
+        "bash",
+        "search",
+        "context",
+        "sandbox",
+        "subagent",
     }
 
 
@@ -103,9 +110,7 @@ async def test_editor_write_new_file(tmp_path):
 async def test_editor_write_creates_parent_dirs(tmp_path):
     target = tmp_path / "sub" / "deep" / "file.py"
     _, _, tools = _make_toolkit(tmp_path)
-    result = await _tool_fn(tools, "editor")(
-        action="write", file_path=str(target), content="x=1\n"
-    )
+    result = await _tool_fn(tools, "editor")(action="write", file_path=str(target), content="x=1\n")
     assert result["success"] is True and target.exists()
 
 
@@ -118,8 +123,10 @@ async def test_editor_read_guard_blocks_unread_existing_file(tmp_path):
     (tmp_path / "existing.py").write_text("original\n")
     _, _, tools = _make_toolkit(tmp_path)
     result = await _tool_fn(tools, "editor")(
-        action="edit", file_path=str(tmp_path / "existing.py"),
-        old_string="original", new_string="replaced",
+        action="edit",
+        file_path=str(tmp_path / "existing.py"),
+        old_string="original",
+        new_string="replaced",
     )
     assert result["success"] is False
     assert "read" in result["error"].lower()
@@ -135,6 +142,34 @@ async def test_editor_edit_after_read_succeeds(tmp_path):
     )
     assert result["success"] is True
     assert "goodbye" in f.read_text()
+
+
+async def test_editor_relative_write_existing_file_requires_prior_read(tmp_path):
+    f = tmp_path / "existing.py"
+    f.write_text("original\n")
+    _, _, tools = _make_toolkit(tmp_path)
+
+    result = await _tool_fn(tools, "editor")(
+        action="write", file_path="existing.py", content="replaced\n"
+    )
+
+    assert result["success"] is False
+    assert "read" in result["error"].lower()
+    assert f.read_text() == "original\n"
+
+
+async def test_editor_relative_edit_after_read_succeeds(tmp_path):
+    f = tmp_path / "relative.py"
+    f.write_text("hello world\n")
+    _, _, tools = _make_toolkit(tmp_path)
+    await _tool_fn(tools, "reader")(action="read", path="relative.py")
+
+    result = await _tool_fn(tools, "editor")(
+        action="edit", file_path="relative.py", old_string="hello", new_string="goodbye"
+    )
+
+    assert result["success"] is True
+    assert f.read_text() == "goodbye world\n"
 
 
 # ---------------------------------------------------------------------------
@@ -190,3 +225,25 @@ async def test_bash_shell_control_rejected(tmp_path):
     assert "Shell control" in result["stderr"] or "rejected" in result["stderr"]
 
 
+# ---------------------------------------------------------------------------
+# Search: workspace containment
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "action,pattern",
+    [
+        ("grep", "SECRET"),
+        ("find", "*.txt"),
+    ],
+)
+async def test_search_rejects_path_outside_workspace(tmp_path, action, pattern):
+    outside = tmp_path.parent / f"{tmp_path.name}_outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("SECRET\n")
+    _, _, tools = _make_toolkit(tmp_path)
+
+    result = await _tool_fn(tools, "search")(action=action, pattern=pattern, path=str(outside))
+
+    assert result["success"] is False
+    assert "escapes workspace" in result["error"]

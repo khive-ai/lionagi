@@ -106,7 +106,7 @@ async def create_agent(
 
     _apply_permissions(config)
     _register_tools(branch, config)
-    await _load_mcp(branch, config)
+    await _load_mcp(branch, config, trust_project_settings=trust_project_settings)
 
     return branch
 
@@ -130,9 +130,7 @@ def _apply_permissions(config: AgentConfig) -> None:
         return
 
     # Finding 13: insert permission hook into security_pre phase, not pre phase
-    config.hook_handlers.setdefault("security_pre:*", []).insert(
-        0, policy.to_pre_hook()
-    )
+    config.hook_handlers.setdefault("security_pre:*", []).insert(0, policy.to_pre_hook())
 
 
 def _tool_hooks(config: AgentConfig, phase: str, tool_name: str) -> list[Callable]:
@@ -144,7 +142,16 @@ def _tool_hooks(config: AgentConfig, phase: str, tool_name: str) -> list[Callabl
     ]
 
 
-def _chain_pre_hooks(tool_name: str, hooks: list[Callable]) -> Callable | None:
+def _chain_pre_hooks(
+    tool_name: str,
+    security_hooks: list[Callable],
+    user_hooks: list[Callable] | None = None,
+) -> Callable | None:
+    user_hooks = user_hooks or []
+    hooks = [*security_hooks, *user_hooks]
+    if user_hooks:
+        # User pre-hooks may rewrite args; validate the final args too.
+        hooks.extend(security_hooks)
     if not hooks:
         return None
 
@@ -176,11 +183,10 @@ def _chain_post_hooks(tool_name: str, hooks: list[Callable]) -> Callable | None:
 
 def _attach_hooks(tool: Any, config: AgentConfig, canonical_name: str) -> Any:
     """Finding 15: attach security_pre + pre + post hooks to a standalone tool."""
-    pre_hooks = _tool_hooks(config, "security_pre", canonical_name) + _tool_hooks(
-        config, "pre", canonical_name
-    )
+    security_hooks = _tool_hooks(config, "security_pre", canonical_name)
+    user_pre_hooks = _tool_hooks(config, "pre", canonical_name)
     post_hooks = _tool_hooks(config, "post", canonical_name)
-    pre = _chain_pre_hooks(canonical_name, pre_hooks)
+    pre = _chain_pre_hooks(canonical_name, security_hooks, user_pre_hooks)
     post = _chain_post_hooks(canonical_name, post_hooks)
     if pre is not None:
         tool.preprocessor = pre
@@ -249,13 +255,18 @@ def _register_coding_tools(branch: Branch, config: AgentConfig) -> None:
     branch.register_tools(tools)
 
 
-async def _load_mcp(branch: Branch, config: AgentConfig) -> None:
+async def _load_mcp(
+    branch: Branch,
+    config: AgentConfig,
+    *,
+    trust_project_settings: bool = False,
+) -> None:
     """Auto-discover and load MCP tools from .mcp.json files.
 
     Discovery order:
         1. config.mcp_config_path (explicit)
-        2. .lionagi/.mcp.json (project-local)
-        3. cwd/.mcp.json (current directory)
+        2. .lionagi/.mcp.json (project-local, only when trusted)
+        3. cwd/.mcp.json (current directory, only when trusted)
         4. ~/.lionagi/.mcp.json (global)
     """
     from pathlib import Path
@@ -270,11 +281,12 @@ async def _load_mcp(branch: Branch, config: AgentConfig) -> None:
         candidates = []
         cwd = Path(config.cwd) if config.cwd else Path.cwd()
 
-        for parent in [cwd, *cwd.parents]:
-            candidates.append(parent / ".lionagi" / ".mcp.json")
-            candidates.append(parent / ".mcp.json")
-            if (parent / ".lionagi").is_dir():
-                break
+        if trust_project_settings:
+            for parent in [cwd, *cwd.parents]:
+                candidates.append(parent / ".lionagi" / ".mcp.json")
+                candidates.append(parent / ".mcp.json")
+                if (parent / ".lionagi").is_dir():
+                    break
 
         candidates.append(Path.home() / ".lionagi" / ".mcp.json")
 
