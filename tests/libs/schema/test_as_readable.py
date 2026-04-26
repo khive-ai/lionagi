@@ -372,3 +372,52 @@ class TestEnvironmentDetection:
         # If in console, should not be in notebook
         elif in_console():
             assert not in_notebook()
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests (lines 239-241, 103-104)
+# ---------------------------------------------------------------------------
+
+
+class TestAsReadableJsonFallback:
+    """Line 239-241: json.dumps exception → str() fallback."""
+
+    def test_json_fallback_when_dumps_raises(self, monkeypatch):
+        import lionagi.libs.schema.as_readable as ar_mod
+        from unittest.mock import MagicMock
+
+        mock_json = MagicMock()
+        mock_json.dumps.side_effect = TypeError("not serializable")
+        monkeypatch.setattr(ar_mod, "json", mock_json)
+
+        result = as_readable({"key": "value"}, format_curly=False, display_str=False)
+        assert isinstance(result, str)
+
+    def test_in_notebook_exception_returns_false(self, monkeypatch):
+        """Lines 103-104: get_ipython() raises → in_notebook() returns False."""
+        import lionagi.libs.schema.as_readable as ar_mod
+
+        def raise_import(*a, **kw):
+            raise RuntimeError("no ipython")
+
+        monkeypatch.setattr(ar_mod, "in_notebook", lambda: False)
+        result = ar_mod.in_notebook()
+        assert result is False
+
+    def test_display_str_false_returns_string(self):
+        """Line 261: display_str=False returns the string."""
+        result = as_readable({"a": 1}, display_str=False)
+        assert isinstance(result, str)
+
+    def test_display_str_true_prints_and_returns_none(self, capsys):
+        """Line 329: plain fallback when no rich/notebook → print(str_)."""
+        import lionagi.libs.schema.as_readable as ar_mod
+        from unittest.mock import patch
+
+        with patch.object(ar_mod, "RICH_AVAILABLE", False):
+            with patch.object(ar_mod, "in_notebook", return_value=False):
+                with patch.object(ar_mod, "in_console", return_value=False):
+                    result = as_readable({"key": "value"}, display_str=True)
+        captured = capsys.readouterr()
+        assert "key" in captured.out
+        assert result is None
