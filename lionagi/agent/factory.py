@@ -74,10 +74,28 @@ async def create_agent(
             branch.msgs.create_system(system=full_prompt)
         )
 
+    _apply_permissions(config)
     _register_tools(branch, config)
     await _load_mcp(branch, config)
 
     return branch
+
+
+def _apply_permissions(config: AgentConfig) -> None:
+    """Convert permission config into a pre-hook on all tools."""
+    if not config.permissions:
+        return
+
+    from .permissions import PermissionPolicy
+
+    if isinstance(config.permissions, PermissionPolicy):
+        policy = config.permissions
+    elif isinstance(config.permissions, dict):
+        policy = PermissionPolicy.from_dict(config.permissions)
+    else:
+        return
+
+    config.pre("*", policy.to_pre_hook())
 
 
 def _register_tools(branch: Branch, config: AgentConfig) -> None:
