@@ -223,8 +223,8 @@ class SubagentRequest(BaseModel):
         ),
     )
     max_turns: int = Field(
-        default=5,
-        description="Maximum ReAct iterations. Default 5, max 20.",
+        default=20,
+        description="Maximum ReAct iterations. Default 20, max 50.",
     )
     cwd: str | None = Field(
         None,
@@ -1009,7 +1009,7 @@ class CodingToolkit(LionTool):
         async def subagent(
             instruction: str,
             permissions: str = "read_only",
-            max_turns: int = 5,
+            max_turns: int = 20,
             cwd: str = None,
         ) -> dict:
             """Spawn a sub-agent to handle a task independently.
@@ -1027,7 +1027,7 @@ class CodingToolkit(LionTool):
             from lionagi.agent.config import AgentConfig
             from lionagi.agent.permissions import PermissionPolicy
 
-            max_turns = min(max(1, max_turns), 20)
+            max_turns = min(max(1, max_turns), 50)
             sub_cwd = cwd or (str(workspace_root) if workspace_root else None)
 
             perm_map = {
@@ -1070,6 +1070,7 @@ class CodingToolkit(LionTool):
                 result = await sub_branch.operate(
                     instruction=instruction,
                     tools=True,
+                    max_extensions=max_turns,
                 )
 
                 response = result if isinstance(result, str) else str(result)

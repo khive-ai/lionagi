@@ -48,6 +48,7 @@ class AgentConfig:
     permissions: dict[str, Any] = field(default_factory=dict)
     mcp_servers: list[str] | None = None
     mcp_config_path: str | None = None
+    max_extensions: int = 20
     yolo: bool = False
     lion_system: bool = True
     cwd: str | None = None
