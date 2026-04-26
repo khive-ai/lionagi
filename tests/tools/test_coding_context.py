@@ -10,7 +10,6 @@ import pytest
 from lionagi.session.branch import Branch
 from lionagi.tools.coding import CodingToolkit
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -48,7 +47,9 @@ async def test_search_grep_finds_pattern(tmp_path):
 async def test_search_find_finds_files(tmp_path):
     (tmp_path / "alpha.py").write_text("")
     _, _, tools = _make_toolkit(tmp_path)
-    result = await _tool_fn(tools, "search")(action="find", pattern="*.py", path=str(tmp_path))
+    result = await _tool_fn(tools, "search")(
+        action="find", pattern="*.py", path=str(tmp_path)
+    )
     assert result["success"] is True and "alpha.py" in result["content"]
 
 

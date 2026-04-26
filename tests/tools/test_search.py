@@ -8,8 +8,12 @@ import asyncio
 import pytest
 
 from lionagi.protocols.action.tool import Tool
-from lionagi.tools.code.search import SearchAction, SearchRequest, SearchResponse, SearchTool
-
+from lionagi.tools.code.search import (
+    SearchAction,
+    SearchRequest,
+    SearchResponse,
+    SearchTool,
+)
 
 # ---------------------------------------------------------------------------
 # SearchAction enum
@@ -81,11 +85,13 @@ def test_search_response_failure():
 async def test_grep_finds_matching_content(tmp_path):
     (tmp_path / "alpha.py").write_text("def hello():\n    pass\n")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.grep,
-        pattern="hello",
-        path=str(tmp_path),
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.grep,
+            pattern="hello",
+            path=str(tmp_path),
+        )
+    )
     assert resp.success is True
     assert resp.count > 0
     assert "hello" in resp.content
@@ -94,11 +100,13 @@ async def test_grep_finds_matching_content(tmp_path):
 async def test_grep_returns_search_response(tmp_path):
     (tmp_path / "f.py").write_text("content\n")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.grep,
-        pattern="content",
-        path=str(tmp_path),
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.grep,
+            pattern="content",
+            path=str(tmp_path),
+        )
+    )
     assert isinstance(resp, SearchResponse)
 
 
@@ -110,11 +118,13 @@ async def test_grep_returns_search_response(tmp_path):
 async def test_grep_no_matches_returns_success(tmp_path):
     (tmp_path / "f.py").write_text("nothing here\n")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.grep,
-        pattern="XYZZY_NONEXISTENT_9999",
-        path=str(tmp_path),
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.grep,
+            pattern="XYZZY_NONEXISTENT_9999",
+            path=str(tmp_path),
+        )
+    )
     assert resp.success is True
     assert resp.count == 0
 
@@ -129,11 +139,13 @@ async def test_grep_regex_matches_function_defs(tmp_path):
         "def foo():\n    pass\ndef bar(x):\n    return x\n"
     )
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.grep,
-        pattern=r"def\s+\w+",
-        path=str(tmp_path),
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.grep,
+            pattern=r"def\s+\w+",
+            path=str(tmp_path),
+        )
+    )
     assert resp.success is True
     assert resp.count >= 2
     assert "foo" in resp.content
@@ -149,12 +161,14 @@ async def test_grep_include_filter_restricts_to_py(tmp_path):
     (tmp_path / "match.py").write_text("FINDME\n")
     (tmp_path / "ignore.txt").write_text("FINDME\n")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.grep,
-        pattern="FINDME",
-        path=str(tmp_path),
-        include="*.py",
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.grep,
+            pattern="FINDME",
+            path=str(tmp_path),
+            include="*.py",
+        )
+    )
     assert resp.success is True
     assert resp.count > 0
     for line in resp.content.splitlines():
@@ -170,12 +184,14 @@ async def test_grep_max_results_capped(tmp_path):
     for i in range(10):
         (tmp_path / f"f{i}.py").write_text("TOKEN\n")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.grep,
-        pattern="TOKEN",
-        path=str(tmp_path),
-        max_results=3,
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.grep,
+            pattern="TOKEN",
+            path=str(tmp_path),
+            max_results=3,
+        )
+    )
     assert resp.success is True
     assert resp.count <= 3
 
@@ -190,11 +206,13 @@ async def test_find_by_glob_finds_py_files(tmp_path):
     (tmp_path / "beta.py").write_text("")
     (tmp_path / "data.txt").write_text("")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.find,
-        pattern="*.py",
-        path=str(tmp_path),
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.find,
+            pattern="*.py",
+            path=str(tmp_path),
+        )
+    )
     assert resp.success is True
     assert resp.count >= 2
     content_lines = resp.content.splitlines()
@@ -205,11 +223,13 @@ async def test_find_by_glob_finds_py_files(tmp_path):
 async def test_find_no_matches_returns_success(tmp_path):
     (tmp_path / "only.txt").write_text("")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.find,
-        pattern="*.rs",
-        path=str(tmp_path),
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.find,
+            pattern="*.rs",
+            path=str(tmp_path),
+        )
+    )
     assert resp.success is True
     assert resp.count == 0
 
@@ -223,12 +243,14 @@ async def test_find_max_results_capped(tmp_path):
     for i in range(10):
         (tmp_path / f"t{i}.py").write_text("")
     tool = SearchTool()
-    resp = await tool.handle_request(SearchRequest(
-        action=SearchAction.find,
-        pattern="*.py",
-        path=str(tmp_path),
-        max_results=2,
-    ))
+    resp = await tool.handle_request(
+        SearchRequest(
+            action=SearchAction.find,
+            pattern="*.py",
+            path=str(tmp_path),
+            max_results=2,
+        )
+    )
     assert resp.success is True
     assert resp.count <= 2
 
@@ -241,11 +263,13 @@ async def test_find_max_results_capped(tmp_path):
 async def test_dict_input_accepted(tmp_path):
     (tmp_path / "x.py").write_text("hello\n")
     tool = SearchTool()
-    resp = await tool.handle_request({
-        "action": "grep",
-        "pattern": "hello",
-        "path": str(tmp_path),
-    })
+    resp = await tool.handle_request(
+        {
+            "action": "grep",
+            "pattern": "hello",
+            "path": str(tmp_path),
+        }
+    )
     assert resp.success is True
     assert resp.count > 0
 

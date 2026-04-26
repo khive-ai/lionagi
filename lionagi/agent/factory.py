@@ -63,8 +63,8 @@ async def create_agent(
 
     if config.model:
         from lionagi.cli._providers import (
-            PROVIDER_EFFORT_KWARG,
             _CLAUDE_PROVIDER_NAMES,
+            PROVIDER_EFFORT_KWARG,
             parse_model_spec,
         )
 
@@ -130,7 +130,9 @@ def _apply_permissions(config: AgentConfig) -> None:
         return
 
     # Finding 13: insert permission hook into security_pre phase, not pre phase
-    config.hook_handlers.setdefault("security_pre:*", []).insert(0, policy.to_pre_hook())
+    config.hook_handlers.setdefault("security_pre:*", []).insert(
+        0, policy.to_pre_hook()
+    )
 
 
 def _tool_hooks(config: AgentConfig, phase: str, tool_name: str) -> list[Callable]:

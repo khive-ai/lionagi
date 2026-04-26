@@ -297,7 +297,9 @@ def _read_image_sync(path: str, workspace_root: Path) -> dict:
     }
 
 
-def _read_file_sync(path: str, offset: int, max_lines: int, workspace_root: Path) -> dict:
+def _read_file_sync(
+    path: str, offset: int, max_lines: int, workspace_root: Path
+) -> dict:
     # Finding 14: validate path under workspace root
     try:
         p = _resolve_workspace_path(path, workspace_root)
@@ -754,7 +756,9 @@ class CodingToolkit(LionTool):
                 start = max(0, offset or 0)
                 max_lines = limit if (limit and limit > 0) else 2000
                 # Finding 14: pass workspace_root to enforce path containment
-                result = await run_sync(_read_file_sync, path, start, max_lines, workspace_root)
+                result = await run_sync(
+                    _read_file_sync, path, start, max_lines, workspace_root
+                )
                 _track(result)
                 return result
             elif action == "list_dir":
@@ -790,7 +794,9 @@ class CodingToolkit(LionTool):
                     if guard:
                         return {"success": False, "error": guard}
                 # Finding 14: pass workspace_root to enforce path containment
-                result = await run_sync(_write_file_sync, file_path, content, workspace_root)
+                result = await run_sync(
+                    _write_file_sync, file_path, content, workspace_root
+                )
                 _track(result)
                 return result
             elif action == "edit":
@@ -869,7 +875,9 @@ class CodingToolkit(LionTool):
             """
             if action == "grep":
                 try:
-                    search_path = str(_resolve_workspace_path(path or ".", workspace_root))
+                    search_path = str(
+                        _resolve_workspace_path(path or ".", workspace_root)
+                    )
                 except PermissionError as e:
                     return {"success": False, "error": str(e)}
                 limit = max_results or 50
@@ -879,7 +887,9 @@ class CodingToolkit(LionTool):
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode") == 2:
                     return {"success": False, "error": raw["stderr"].strip()}
-                lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                lines = (
+                    raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                )
                 total = len(lines)
                 return {
                     "success": True,
@@ -889,7 +899,9 @@ class CodingToolkit(LionTool):
                 }
             elif action == "find":
                 try:
-                    search_path = str(_resolve_workspace_path(path or ".", workspace_root))
+                    search_path = str(
+                        _resolve_workspace_path(path or ".", workspace_root)
+                    )
                 except PermissionError as e:
                     return {"success": False, "error": str(e)}
                 limit = max_results or 100
@@ -897,7 +909,9 @@ class CodingToolkit(LionTool):
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode", 0) != 0 and raw.get("stderr", "").strip():
                     return {"success": False, "error": raw["stderr"].strip()}
-                lines = raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                lines = (
+                    raw["stdout"].strip().split("\n") if raw["stdout"].strip() else []
+                )
                 total = len(lines)
                 return {
                     "success": True,
@@ -1006,7 +1020,9 @@ class CodingToolkit(LionTool):
                 cp = _ensure_current_progression()
                 keep = keep_last if keep_last is not None else 5
                 ar_uids = [
-                    uid for uid in cp if uid in pile and isinstance(pile[uid], ActionResponse)
+                    uid
+                    for uid in cp
+                    if uid in pile and isinstance(pile[uid], ActionResponse)
                 ]
                 if len(ar_uids) <= keep:
                     return {
@@ -1067,7 +1083,10 @@ class CodingToolkit(LionTool):
                     }
                 repo = str(workspace_root) if workspace_root else None
                 if not repo:
-                    return {"success": False, "error": "No workspace root — cannot create sandbox."}
+                    return {
+                        "success": False,
+                        "error": "No workspace root — cannot create sandbox.",
+                    }
                 try:
                     session = await create_sandbox(repo)
                     _sandbox_session[0] = session
@@ -1083,7 +1102,10 @@ class CodingToolkit(LionTool):
 
             session = _sandbox_session[0]
             if session is None:
-                return {"success": False, "error": "No active sandbox. Create one first."}
+                return {
+                    "success": False,
+                    "error": "No active sandbox. Create one first.",
+                }
 
             if action == "diff":
                 return {"success": True, **(await sandbox_diff(session))}

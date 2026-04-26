@@ -35,12 +35,17 @@ class SandboxSession:
 def _run_git(args: list[str], cwd: str | None = None) -> tuple[str, str, int]:
     result = subprocess.run(
         ["git"] + args,
-        capture_output=True, text=True, timeout=30, cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=cwd,
     )
     return result.stdout.strip(), result.stderr.strip(), result.returncode
 
 
-def _create_worktree_sync(repo_root: str, branch_name: str, base_branch: str) -> SandboxSession:
+def _create_worktree_sync(
+    repo_root: str, branch_name: str, base_branch: str
+) -> SandboxSession:
     """Create a git worktree for isolated work."""
     root = Path(repo_root)
     worktree_dir = root / ".worktrees" / branch_name
@@ -117,10 +122,18 @@ def _cleanup_worktree_sync(session: SandboxSession) -> dict:
 def _merge_sync(session: SandboxSession) -> dict:
     """Merge worktree branch back into base branch."""
     _run_git(["add", "-A"], cwd=session.worktree_path)
-    _run_git(["commit", "-m", f"sandbox: {session.branch_name}"], cwd=session.worktree_path)
+    _run_git(
+        ["commit", "-m", f"sandbox: {session.branch_name}"], cwd=session.worktree_path
+    )
 
     stdout, stderr, rc = _run_git(
-        ["merge", "--no-ff", session.branch_name, "-m", f"Merge sandbox {session.branch_name}"],
+        [
+            "merge",
+            "--no-ff",
+            session.branch_name,
+            "-m",
+            f"Merge sandbox {session.branch_name}",
+        ],
         cwd=session.repo_root,
     )
     if rc != 0:

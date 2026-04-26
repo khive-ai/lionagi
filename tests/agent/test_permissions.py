@@ -34,20 +34,26 @@ def test_deny_all_rejects_any_tool():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("tool,action,args", [
-    ("reader", "read", {"path": "/tmp/x.py"}),
-    ("search", "grep", {"pattern": "def foo", "path": "."}),
-    ("context", "status", {}),
-])
+@pytest.mark.parametrize(
+    "tool,action,args",
+    [
+        ("reader", "read", {"path": "/tmp/x.py"}),
+        ("search", "grep", {"pattern": "def foo", "path": "."}),
+        ("context", "status", {}),
+    ],
+)
 def test_read_only_allows(tool, action, args):
     p = PermissionPolicy.read_only()
     assert p.check(tool, action, args).behavior == "allow"
 
 
-@pytest.mark.parametrize("tool,action,args", [
-    ("editor", "write", {"file_path": "/tmp/x.py"}),
-    ("bash", "run", {"command": "echo hi"}),
-])
+@pytest.mark.parametrize(
+    "tool,action,args",
+    [
+        ("editor", "write", {"file_path": "/tmp/x.py"}),
+        ("bash", "run", {"command": "echo hi"}),
+    ],
+)
 def test_read_only_denies(tool, action, args):
     p = PermissionPolicy.read_only()
     assert p.check(tool, action, args).behavior == "deny"
@@ -58,12 +64,15 @@ def test_read_only_denies(tool, action, args):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cmd,expected", [
-    ("rm /tmp/x", "deny"),
-    ("sudo apt-get install curl", "deny"),
-    ("cargo build", "escalate"),
-    ("uv run pytest", "escalate"),
-])
+@pytest.mark.parametrize(
+    "cmd,expected",
+    [
+        ("rm /tmp/x", "deny"),
+        ("sudo apt-get install curl", "deny"),
+        ("cargo build", "escalate"),
+        ("uv run pytest", "escalate"),
+    ],
+)
 def test_safe_bash_behaviors(cmd, expected):
     p = PermissionPolicy.safe()
     d = p.check("bash", "run", {"command": cmd})
@@ -82,12 +91,16 @@ def test_safe_allows_non_bash():
 
 
 def test_deny_beats_allow_when_both_match():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["git *"]}, deny={"bash": ["git *"]})
+    p = PermissionPolicy(
+        mode="rules", allow={"bash": ["git *"]}, deny={"bash": ["git *"]}
+    )
     assert p.check("bash", "run", {"command": "git status"}).behavior == "deny"
 
 
 def test_allow_beats_escalate():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["cargo *"]}, escalate={"bash": ["*"]})
+    p = PermissionPolicy(
+        mode="rules", allow={"bash": ["cargo *"]}, escalate={"bash": ["*"]}
+    )
     assert p.check("bash", "run", {"command": "cargo build"}).behavior == "allow"
 
 

@@ -10,7 +10,6 @@ import pytest
 from lionagi.protocols.action.tool import Tool
 from lionagi.tools.code.bash import BashRequest, BashResponse, BashTool
 
-
 # ---------------------------------------------------------------------------
 # BashRequest model
 # ---------------------------------------------------------------------------
@@ -136,21 +135,24 @@ async def test_handle_request_and_and_rejected():
     assert resp.return_code == -1
 
 
-@pytest.mark.parametrize("cmd,operator", [
-    ("false || echo pwned", "||"),
-    ("echo `whoami`", "`"),
-    ("echo $(whoami)", "$("),
-    ("cat < /etc/hosts", "<"),
-    ("echo x > /tmp/out", ">"),
-    ("echo a\necho b", "newline"),
-])
+@pytest.mark.parametrize(
+    "cmd,operator",
+    [
+        ("false || echo pwned", "||"),
+        ("echo `whoami`", "`"),
+        ("echo $(whoami)", "$("),
+        ("cat < /etc/hosts", "<"),
+        ("echo x > /tmp/out", ">"),
+        ("echo a\necho b", "newline"),
+    ],
+)
 async def test_handle_request_shell_control_operators_rejected(cmd, operator):
     tool = BashTool()
     resp = await tool.handle_request(BashRequest(command=cmd))
     assert resp.return_code == -1, f"Operator {operator!r} was not rejected"
-    assert "Shell control" in resp.stderr or "trusted shell mode" in resp.stderr, (
-        f"Operator {operator!r} rejection message missing: {resp.stderr}"
-    )
+    assert (
+        "Shell control" in resp.stderr or "trusted shell mode" in resp.stderr
+    ), f"Operator {operator!r} rejection message missing: {resp.stderr}"
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +163,7 @@ async def test_handle_request_shell_control_operators_rejected(cmd, operator):
 async def test_handle_request_output_truncation(tmp_path):
     # Generate a python one-liner that emits well over 100 KB of output
     script = (
-        "python3 -c \"import sys; "
+        'python3 -c "import sys; '
         "sys.stdout.write('A' * 200000); sys.stdout.flush()\""
     )
     tool = BashTool()

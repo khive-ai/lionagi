@@ -9,7 +9,6 @@ from lionagi.agent.config import AgentConfig
 from lionagi.agent.factory import create_agent
 from lionagi.session.branch import Branch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -34,7 +33,15 @@ async def test_create_agent_default_no_coding_tools():
     """Default config with no tools= list should not register coding tools."""
     config = AgentConfig()
     branch = await _make(config)
-    coding_tools = {"reader", "editor", "bash", "search", "context", "sandbox", "subagent"}
+    coding_tools = {
+        "reader",
+        "editor",
+        "bash",
+        "search",
+        "context",
+        "sandbox",
+        "subagent",
+    }
     assert not coding_tools.intersection(branch.acts.registry.keys())
 
 
@@ -66,7 +73,9 @@ async def test_create_agent_coding_all_tools_async():
     config = AgentConfig.coding()
     branch = await _make(config)
     for name, tool in branch.acts.registry.items():
-        assert asyncio.iscoroutinefunction(tool.func_callable), f"Tool '{name}' is not async"
+        assert asyncio.iscoroutinefunction(
+            tool.func_callable
+        ), f"Tool '{name}' is not async"
 
 
 # ---------------------------------------------------------------------------
@@ -161,14 +170,18 @@ async def test_create_agent_load_settings_false_no_side_effects(monkeypatch):
         called.append(True)
         return {}
 
-    monkeypatch.setattr("lionagi.agent.settings.load_settings", fake_load, raising=False)
+    monkeypatch.setattr(
+        "lionagi.agent.settings.load_settings", fake_load, raising=False
+    )
 
     config = AgentConfig()
     await create_agent(config, load_settings=False)
     assert called == [], "load_settings was called despite load_settings=False"
 
 
-async def test_create_agent_does_not_autoload_project_mcp_without_trust(tmp_path, monkeypatch):
+async def test_create_agent_does_not_autoload_project_mcp_without_trust(
+    tmp_path, monkeypatch
+):
     from lionagi.protocols.action.manager import ActionManager
 
     project = tmp_path / "project"
