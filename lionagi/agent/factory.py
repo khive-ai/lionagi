@@ -75,6 +75,7 @@ async def create_agent(
         )
 
     _register_tools(branch, config)
+    await _load_mcp(branch, config)
 
     return branch
 
@@ -123,3 +124,46 @@ def _register_coding_tools(branch: Branch, config: AgentConfig) -> None:
 
     tools = toolkit.bind(branch)
     branch.register_tools(tools)
+
+
+async def _load_mcp(branch: Branch, config: AgentConfig) -> None:
+    """Auto-discover and load MCP tools from .mcp.json files.
+
+    Discovery order:
+        1. config.mcp_config_path (explicit)
+        2. .lionagi/.mcp.json (project-local)
+        3. cwd/.mcp.json (current directory)
+        4. ~/.lionagi/.mcp.json (global)
+    """
+    from pathlib import Path
+
+    mcp_path = None
+
+    if config.mcp_config_path:
+        p = Path(config.mcp_config_path)
+        if p.is_file():
+            mcp_path = str(p)
+    else:
+        candidates = []
+        cwd = Path(config.cwd) if config.cwd else Path.cwd()
+
+        for parent in [cwd, *cwd.parents]:
+            candidates.append(parent / ".lionagi" / ".mcp.json")
+            candidates.append(parent / ".mcp.json")
+            if (parent / ".lionagi").is_dir():
+                break
+
+        candidates.append(Path.home() / ".lionagi" / ".mcp.json")
+
+        for candidate in candidates:
+            if candidate.is_file():
+                mcp_path = str(candidate)
+                break
+
+    if mcp_path is None:
+        return
+
+    await branch.acts.load_mcp_config(
+        mcp_path,
+        server_names=config.mcp_servers,
+    )
