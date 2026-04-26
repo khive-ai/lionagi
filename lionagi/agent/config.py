@@ -69,6 +69,7 @@ class AgentConfig:
     @classmethod
     def coding(
         cls,
+        name: str = "coder",
         model: str | None = None,
         effort: str | None = "high",
         system_prompt: str | None = None,
@@ -77,7 +78,7 @@ class AgentConfig:
     ) -> AgentConfig:
         """Preset for a coding agent with CodingToolkit."""
         return cls(
-            name="coder",
+            name=name,
             model=model,
             effort=effort,
             tools=["coding"],

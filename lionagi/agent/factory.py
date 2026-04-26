@@ -64,13 +64,15 @@ async def create_agent(
     if config.model:
         from lionagi.cli._providers import build_chat_model, parse_model_spec
 
-        provider, model_name = parse_model_spec(config.model)
+        ms = parse_model_spec(config.model)
+        provider = ms.model.split("/")[0] if "/" in ms.model else ms.model
         effort_kwargs = {}
-        if config.effort:
+        if config.effort or ms.effort:
             from lionagi.cli._providers import PROVIDER_EFFORT_KWARG
 
+            effort = config.effort or ms.effort
             effort_kwargs = PROVIDER_EFFORT_KWARG.get(provider, {}).get(
-                config.effort, {}
+                effort, {}
             )
 
         chat_model = build_chat_model(config.model, **(effort_kwargs or {}))
