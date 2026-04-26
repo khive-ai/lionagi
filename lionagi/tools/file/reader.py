@@ -27,7 +27,8 @@ class ReaderRequest(BaseModel):
             "Action to perform. One of:\n"
             "- 'read': Read a text file with line numbers (lightweight, no conversion).\n"
             "- 'open': Convert a document (PDF, PPTX, DOCX, HTML, URL) to text via docling. "
-            "Result is cached by path — subsequent reads use offset/limit on the cached text.\n"
+            "Result is cached by path — chain with read in one turn: "
+            "[open(path='x.pdf'), read(path='x.pdf', offset=0, limit=100)].\n"
             "- 'list_dir': List files in a directory."
         ),
     )
@@ -231,8 +232,12 @@ class ReaderTool(LionTool):
 
                 Use action='read' for text files (lightweight, line numbers).
                 Use action='open' for documents needing conversion (PDF, PPTX, HTML, URL) —
-                result is cached by path for 5 minutes, then use 'read' with offset/limit.
+                result is cached by path, then use 'read' with offset/limit on the same path.
                 Use action='list_dir' for directory listings.
+
+                Tip: you can chain open + read in one turn as sequential actions:
+                [open(path="report.pdf"), read(path="report.pdf", offset=0, limit=100)]
+                The open caches the converted text, the read slices it — one round trip.
                 """
                 return (await self.handle_request(ReaderRequest(**kwargs))).model_dump()
 
