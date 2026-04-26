@@ -12,6 +12,13 @@ from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from ...third_party.codex_models import CodexChunk, CodexCodeRequest, CodexSession
+
+CONTEXT_WINDOWS: dict[str, int] = {
+    "codex-mini": 200_000,
+    "o4-mini": 200_000,
+    "o3": 200_000,
+    "gpt-4.1": 1_047_576,
+}
 from ...third_party.codex_models import log as codex_log
 from ...third_party.codex_models import stream_codex_cli
 from ..cli_endpoint import CLIEndpoint, EndpointConfig

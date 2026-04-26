@@ -273,7 +273,7 @@ class Branch(Element, Relational):
     def token_budget(self):
         """Current token budget: used, limit, remaining, usage_pct.
 
-        Reads from model_registry.yaml for context window limits.
+        Reads context window from the provider's CONTEXT_WINDOWS dict.
         Uses branch.progression (respects evicted messages).
         """
         from lionagi.service.token_budget import get_token_budget

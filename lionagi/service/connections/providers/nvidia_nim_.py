@@ -5,6 +5,14 @@ from lionagi.config import settings
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
+CONTEXT_WINDOWS: dict[str, int] = {
+    "nemotron-ultra": 131_072,
+    "nemotron-super": 131_072,
+    "llama-4-scout": 10_485_760,
+    "llama-4-maverick": 1_048_576,
+    "llama-3": 128_000,
+}
+
 __all__ = (
     "NvidiaNimChatEndpoint",
     "NvidiaNimEmbedEndpoint",

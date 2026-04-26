@@ -13,6 +13,11 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.third_party.pplx_models import PerplexityChatRequest
 
+CONTEXT_WINDOWS: dict[str, int] = {
+    "sonar-pro": 200_000,
+    "sonar": 128_000,
+}
+
 __all__ = (
     "PerplexityChatEndpoint",
     "PERPLEXITY_CHAT_ENDPOINT_CONFIG",
