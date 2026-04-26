@@ -56,6 +56,7 @@ PROVIDER_EFFORT_KWARG: dict[str, str] = {
     "claude_code": "effort",
     "claude": "effort",
     "codex": "reasoning_effort",
+    "pi": "thinking",
 }
 
 # providers that do NOT support effort
@@ -77,6 +78,7 @@ PROVIDER_YOLO_KWARGS: dict[str, dict] = {
     "codex": {"full_auto": True, "skip_git_repo_check": True},
     "gemini_code": {"yolo": True},
     "gemini-code": {"yolo": True},
+    "pi": {"no_tools": False},
 }
 
 PROVIDER_BYPASS_KWARGS: dict[str, dict] = {
@@ -85,12 +87,14 @@ PROVIDER_BYPASS_KWARGS: dict[str, dict] = {
     "codex": {"bypass_approvals": True, "skip_git_repo_check": True},
     "gemini_code": {"yolo": True},
     "gemini-code": {"yolo": True},
+    "pi": {"no_tools": False},
 }
 
 PROVIDER_TO_ALIAS: dict[str, str] = {
     "claude_code": "claude",
     "codex": "codex",
     "gemini_code": "gemini-code",
+    "pi": "pi",
 }
 
 # ── Aliases (bare name → provider/model) ──────────────────────────────────
@@ -104,6 +108,9 @@ BACKENDS: dict[str, str] = {
     "gemini_code": "gemini_code/gemini-3.1-flash-lite-preview",
     "gemini-cli": "gemini_code/gemini-3.1-flash-lite-preview",
     "gemini_cli": "gemini_code/gemini-3.1-flash-lite-preview",
+    "pi": "pi/gemini-2.5-flash",
+    "pi-code": "pi/gemini-2.5-flash",
+    "pi_code": "pi/gemini-2.5-flash",
 }
 
 
@@ -301,7 +308,8 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
     """Add shared CLI flags to any subparser."""
     parser.add_argument("--yolo", action="store_true", help="Auto-approve tool calls.")
     parser.add_argument(
-        "--bypass", action="store_true",
+        "--bypass",
+        action="store_true",
         help="Bypass all codex approvals and sandbox (for cloud/codespace environments).",
     )
     parser.add_argument(

@@ -8,27 +8,28 @@ from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
 
+from lionagi.service.connections.cli_endpoint import CLIEndpoint
+from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
-from ...third_party.codex_models import CodexChunk, CodexCodeRequest, CodexSession
-from ...third_party.codex_models import log as codex_log
-from ...third_party.codex_models import stream_codex_cli
-from ..cli_endpoint import CLIEndpoint, EndpointConfig
+from ...third_party.pi_models import PiChunk, PiCodeRequest, PiSession
+from ...third_party.pi_models import log as pi_log
+from ...third_party.pi_models import stream_pi_cli
 
 _get_config = lambda: EndpointConfig(
-    name="codex_cli",
-    provider="codex",
+    name="pi_cli",
+    provider="pi",
     base_url="internal",
     endpoint="query_cli",
     api_key="dummy-key",
-    request_options=CodexCodeRequest,
-    timeout=18000,  # 30 mins
+    request_options=PiCodeRequest,
+    timeout=18000,
 )
 
 ENDPOINT_CONFIG = _get_config()
 
-_CODEX_HANDLER_PARAMS = (
+_PI_HANDLER_PARAMS = (
     "on_text",
     "on_tool_use",
     "on_tool_result",
@@ -40,39 +41,39 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
     if not isinstance(handlers, dict):
         raise ValueError("Handlers must be a dictionary")
     for k, v in handlers.items():
-        if k not in _CODEX_HANDLER_PARAMS:
+        if k not in _PI_HANDLER_PARAMS:
             raise ValueError(f"Invalid handler key: {k}")
         if not (v is None or callable(v)):
             raise ValueError(f"Handler value must be callable or None, got {type(v)}")
 
 
-class CodexCLIEndpoint(CLIEndpoint):
+class PiCLIEndpoint(CLIEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
         config = config or _get_config()
         super().__init__(config=config, **kwargs)
 
     @property
-    def codex_handlers(self):
-        handlers = {k: None for k in _CODEX_HANDLER_PARAMS}
-        return self.config.kwargs.get("codex_handlers", handlers)
+    def pi_handlers(self):
+        handlers = {k: None for k in _PI_HANDLER_PARAMS}
+        return self.config.kwargs.get("pi_handlers", handlers)
 
-    @codex_handlers.setter
-    def codex_handlers(self, value: dict):
+    @pi_handlers.setter
+    def pi_handlers(self, value: dict):
         _validate_handlers(value)
-        self.config.kwargs["codex_handlers"] = value
+        self.config.kwargs["pi_handlers"] = value
 
     def update_handlers(self, **kwargs):
         _validate_handlers(kwargs)
-        handlers = {**self.codex_handlers, **kwargs}
-        self.codex_handlers = handlers
+        handlers = {**self.pi_handlers, **kwargs}
+        self.pi_handlers = handlers
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages")
         req_dict = {
-            k: v for k, v in req_dict.items() if k in CodexCodeRequest.model_fields
+            k: v for k, v in req_dict.items() if k in PiCodeRequest.model_fields
         }
-        req_obj = CodexCodeRequest(messages=messages, **req_dict)
+        req_obj = PiCodeRequest(messages=messages, **req_dict)
         return {"request": req_obj}, {}
 
     async def stream(
@@ -83,22 +84,23 @@ class CodexCLIEndpoint(CLIEndpoint):
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
-        async with contextlib.aclosing(stream_codex_cli(request_obj)) as gen:
+        session = PiSession()
+        async with contextlib.aclosing(stream_pi_cli(request_obj, session)) as gen:
             async for item in gen:
-                if isinstance(item, CodexSession):
+                if isinstance(item, PiSession):
+                    yield StreamChunk(
+                        type="result",
+                        content=item.result or "",
+                        metadata={"session_id": item.session_id},
+                    )
                     continue
                 if isinstance(item, dict):
-                    typ = item.get("type", "")
-                    if typ == "result":
-                        yield StreamChunk(
-                            type="result",
-                            content=item.get("result", ""),
-                            metadata=item,
-                        )
                     continue
-                if isinstance(item, CodexChunk):
+                if isinstance(item, PiChunk):
                     if item.text is not None:
                         yield StreamChunk(type="text", content=item.text)
+                    if item.thinking is not None:
+                        yield StreamChunk(type="thinking", content=item.thinking)
                     if item.tool_use is not None:
                         tu = item.tool_use
                         yield StreamChunk(
@@ -115,17 +117,6 @@ class CodexCLIEndpoint(CLIEndpoint):
                             tool_output=tr.get("content"),
                             is_error=tr.get("is_error", False),
                         )
-                    if (
-                        item.text is None
-                        and item.tool_use is None
-                        and item.tool_result is None
-                        and item.type == "result"
-                    ):
-                        yield StreamChunk(
-                            type="result",
-                            content=item.raw.get("result", ""),
-                            metadata=item.raw,
-                        )
 
     async def _call(
         self,
@@ -134,11 +125,11 @@ class CodexCLIEndpoint(CLIEndpoint):
         **kwargs,
     ):
         responses = []
-        request: CodexCodeRequest = payload["request"]
-        session: CodexSession = CodexSession()
+        request: PiCodeRequest = payload["request"]
+        session: PiSession = PiSession()
 
         async with contextlib.aclosing(
-            stream_codex_cli(request, session, **self.codex_handlers, **kwargs)
+            stream_pi_cli(request, session, **self.pi_handlers, **kwargs)
         ) as gen:
             async for chunk in gen:
                 if isinstance(chunk, dict):
@@ -146,9 +137,7 @@ class CodexCLIEndpoint(CLIEndpoint):
                         break
                 responses.append(chunk)
 
-        codex_log.info(
-            f"Session {session.session_id} finished with {len(responses)} chunks"
-        )
+        pi_log.info(f"Session finished with {len(responses)} chunks")
         if not session.result:
             texts = [c.text for c in session.chunks if c.text is not None]
             session.result = "\n".join(texts)
