@@ -1,0 +1,192 @@
+# Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for CodingToolkit: search, context management, and file_state tracking."""
+
+import time
+
+import pytest
+
+from lionagi.session.branch import Branch
+from lionagi.tools.coding import CodingToolkit
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_toolkit(tmp_path, notify=False):
+    b = Branch()
+    tk = CodingToolkit(notify=notify, workspace_root=str(tmp_path))
+    tools = tk.bind(b)
+    return b, tk, tools
+
+
+def _tool_fn(tools, name):
+    for t in tools:
+        if t.func_callable.__name__ == name:
+            return t.func_callable
+    raise KeyError(f"tool '{name}' not found")
+
+
+# ---------------------------------------------------------------------------
+# Search: grep and find
+# ---------------------------------------------------------------------------
+
+
+async def test_search_grep_finds_pattern(tmp_path):
+    (tmp_path / "source.py").write_text("def hello():\n    pass\n")
+    _, _, tools = _make_toolkit(tmp_path)
+    result = await _tool_fn(tools, "search")(
+        action="grep", pattern="def hello", path=str(tmp_path)
+    )
+    assert result["success"] is True and "hello" in result["content"]
+    assert result["total_matches"] >= 1
+
+
+async def test_search_find_finds_files(tmp_path):
+    (tmp_path / "alpha.py").write_text("")
+    _, _, tools = _make_toolkit(tmp_path)
+    result = await _tool_fn(tools, "search")(
+        action="find", pattern="*.py", path=str(tmp_path)
+    )
+    assert result["success"] is True and "alpha.py" in result["content"]
+
+
+async def test_search_grep_no_matches(tmp_path):
+    (tmp_path / "empty.py").write_text("nothing here\n")
+    _, _, tools = _make_toolkit(tmp_path)
+    result = await _tool_fn(tools, "search")(
+        action="grep", pattern="XYZNOTFOUND", path=str(tmp_path)
+    )
+    assert result["success"] is True and result["total_matches"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Context: status reports message count
+# ---------------------------------------------------------------------------
+
+
+async def test_context_status_empty_branch(tmp_path):
+    _, _, tools = _make_toolkit(tmp_path)
+    context = _tool_fn(tools, "context")
+    result = await context(action="status")
+    assert result["success"] is True
+    assert result["active_messages"] == 0
+    assert result["total_messages"] == 0
+    assert result["evicted"] == 0
+    assert result["files_tracked"] == 0
+
+
+async def test_context_status_with_system_message(tmp_path):
+    b = Branch()
+    tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
+    tools = tk.bind(b)
+    context = _tool_fn(tools, "context")
+
+    sys_msg = b.msgs.create_system(system="You are a coder.")
+    b.msgs.set_system(sys_msg)
+
+    result = await context(action="status")
+    assert result["active_messages"] == 1
+    assert result["files_tracked"] == 0
+
+
+async def test_context_status_tracks_files_after_read(tmp_path):
+    f = tmp_path / "tracked.py"
+    f.write_text("x = 1\n")
+    b = Branch()
+    tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
+    tools = tk.bind(b)
+    reader = _tool_fn(tools, "reader")
+    context = _tool_fn(tools, "context")
+
+    await reader(action="read", path=str(f))
+    result = await context(action="status")
+    assert result["files_tracked"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Context: evict removes from progression, not pile
+# ---------------------------------------------------------------------------
+
+
+async def test_context_evict_reduces_active_not_total(tmp_path):
+    b = Branch()
+    tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
+    tools = tk.bind(b)
+    context = _tool_fn(tools, "context")
+
+    sys_msg = b.msgs.create_system(system="sys")
+    b.msgs.set_system(sys_msg)
+    b.msgs.add_message(instruction="do something")
+
+    before = await context(action="status")
+    assert before["active_messages"] == 2
+
+    evict_result = await context(action="evict", start=1, end=2)
+    assert evict_result["success"] is True
+    assert evict_result["removed"] == 1
+
+    after = await context(action="status")
+    assert after["active_messages"] == 1
+    assert after["total_messages"] == 2  # pile unchanged
+
+
+async def test_context_evict_invalid_range(tmp_path):
+    _, _, tools = _make_toolkit(tmp_path)
+    context = _tool_fn(tools, "context")
+    result = await context(action="evict", start=5, end=3)
+    assert result["success"] is False
+    assert "Invalid range" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# file_state: mtime tracked after read, checked before edit
+# ---------------------------------------------------------------------------
+
+
+async def test_file_state_mtime_tracked_after_read(tmp_path):
+    f = tmp_path / "tracked.py"
+    f.write_text("original\n")
+    b = Branch()
+    tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
+    tools = tk.bind(b)
+    reader = _tool_fn(tools, "reader")
+    editor = _tool_fn(tools, "editor")
+
+    await reader(action="read", path=str(f))
+
+    # Overwrite externally to advance mtime
+    time.sleep(0.01)
+    f.write_text("changed externally\n")
+
+    # editor should detect stale mtime and reject
+    result = await editor(
+        action="edit",
+        file_path=str(f),
+        old_string="changed externally",
+        new_string="nope",
+    )
+    assert result["success"] is False
+    assert "changed" in result["error"].lower() or "read" in result["error"].lower()
+
+
+async def test_file_state_allows_edit_when_mtime_matches(tmp_path):
+    f = tmp_path / "stable.py"
+    f.write_text("hello world\n")
+    b = Branch()
+    tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
+    tools = tk.bind(b)
+    reader = _tool_fn(tools, "reader")
+    editor = _tool_fn(tools, "editor")
+
+    await reader(action="read", path=str(f))
+    # No external change — mtime should match
+    result = await editor(
+        action="edit",
+        file_path=str(f),
+        old_string="hello",
+        new_string="goodbye",
+    )
+    assert result["success"] is True

@@ -23,7 +23,6 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # 1. Basic coding agent
 # ---------------------------------------------------------------------------
@@ -171,7 +170,9 @@ async def context_management() -> None:
 
     # Evict all but the last 3 ActionResponse messages.
     keep = 3
-    ar_uids = [uid for uid in cp if uid in pile and isinstance(pile[uid], ActionResponse)]
+    ar_uids = [
+        uid for uid in cp if uid in pile and isinstance(pile[uid], ActionResponse)
+    ]
     to_evict = ar_uids[:-keep] if keep > 0 else ar_uids
     cp.exclude(to_evict)
 
@@ -290,9 +291,7 @@ async def hooks_pipeline() -> None:
     import logging
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    await log_tool_use(
-        "bash", "run", {"command": "uv run pytest"}, {"return_code": 0}
-    )
+    await log_tool_use("bash", "run", {"command": "uv run pytest"}, {"return_code": 0})
     print("log_tool_use emitted a log.INFO line (check output above).")
 
 
@@ -515,7 +514,7 @@ async def mcp_integration() -> None:
         mcp_path.write_text(json.dumps(mcp_config))
 
         config = AgentConfig.coding(
-            mcp_servers=["khive"],          # only connect the 'khive' server
+            mcp_servers=["khive"],  # only connect the 'khive' server
             mcp_config_path=str(mcp_path),  # explicit path overrides discovery
         )
 

@@ -603,13 +603,19 @@ class CodingToolkit(LionTool):
 
         Finding 13: security_pre hooks run before user pre hooks.
         """
-        hooks = [
+        security_hooks = [
             # Finding 13: security hooks first, then user hooks
             *self._security_pre_hooks.get("*", []),
             *self._security_pre_hooks.get(tool_name, []),
+        ]
+        user_hooks = [
             *self._pre_hooks.get(tool_name, []),
             *self._pre_hooks.get("*", []),
         ]
+        hooks = [*security_hooks, *user_hooks]
+        if user_hooks:
+            # User pre-hooks may rewrite args; validate the final args too.
+            hooks.extend(security_hooks)
         if not hooks:
             return None
 
@@ -710,11 +716,15 @@ class CodingToolkit(LionTool):
             return status
 
         def _check_read_guard(path: str) -> str | None:
-            resolved = str(Path(path).resolve())
+            try:
+                resolved_path = _resolve_workspace_path(path, workspace_root)
+            except PermissionError as e:
+                return str(e)
+            resolved = str(resolved_path.resolve())
             if resolved not in file_state:
                 return f"Must read file before editing: {path}"
             try:
-                current_mtime = Path(path).stat().st_mtime
+                current_mtime = resolved_path.stat().st_mtime
             except OSError:
                 return None
             if current_mtime != file_state[resolved]:
@@ -775,7 +785,11 @@ class CodingToolkit(LionTool):
             if action == "write":
                 if content is None:
                     return {"success": False, "error": "'content' required for write"}
-                if Path(file_path).exists():
+                try:
+                    target_path = _resolve_workspace_path(file_path, workspace_root)
+                except PermissionError as e:
+                    return {"success": False, "error": str(e)}
+                if target_path.exists():
                     guard = _check_read_guard(file_path)
                     if guard:
                         return {"success": False, "error": guard}
@@ -860,7 +874,12 @@ class CodingToolkit(LionTool):
             Results are capped at max_results to prevent context overflow.
             """
             if action == "grep":
-                search_path = path or "."
+                try:
+                    search_path = str(
+                        _resolve_workspace_path(path or ".", workspace_root)
+                    )
+                except PermissionError as e:
+                    return {"success": False, "error": str(e)}
                 limit = max_results or 50
                 cmd = ["grep", "-rn", "-E", pattern, search_path]
                 if include:
@@ -879,7 +898,12 @@ class CodingToolkit(LionTool):
                     "shown": min(total, limit),
                 }
             elif action == "find":
-                search_path = path or "."
+                try:
+                    search_path = str(
+                        _resolve_workspace_path(path or ".", workspace_root)
+                    )
+                except PermissionError as e:
+                    return {"success": False, "error": str(e)}
                 limit = max_results or 100
                 cmd = ["find", search_path, "-name", pattern]
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
@@ -1053,10 +1077,16 @@ class CodingToolkit(LionTool):
 
             if action == "create":
                 if _sandbox_session[0] is not None:
-                    return {"success": False, "error": "Sandbox already active. Discard or merge first."}
+                    return {
+                        "success": False,
+                        "error": "Sandbox already active. Discard or merge first.",
+                    }
                 repo = str(workspace_root) if workspace_root else None
                 if not repo:
-                    return {"success": False, "error": "No workspace root — cannot create sandbox."}
+                    return {
+                        "success": False,
+                        "error": "No workspace root — cannot create sandbox.",
+                    }
                 try:
                     session = await create_sandbox(repo)
                     _sandbox_session[0] = session
@@ -1072,7 +1102,10 @@ class CodingToolkit(LionTool):
 
             session = _sandbox_session[0]
             if session is None:
-                return {"success": False, "error": "No active sandbox. Create one first."}
+                return {
+                    "success": False,
+                    "error": "No active sandbox. Create one first.",
+                }
 
             if action == "diff":
                 return {"success": True, **(await sandbox_diff(session))}
