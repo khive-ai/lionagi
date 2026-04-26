@@ -45,11 +45,34 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import re
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Finding 2: shell control operators bypass fnmatch allow-rules via suffix injection
+_SHELL_CONTROL = re.compile(r"(;|&&|\|\||\||`|\$\(|[<>]|\n)")
+
+# Finding 10: tool alias → canonical name mapping
+_TOOL_ALIASES = {
+    "bash_tool": "bash",
+    "reader_tool": "reader",
+    "editor_tool": "editor",
+    "search_tool": "search",
+    "context_tool": "context",
+}
+
+
+def _canonical_tool_name(name: str) -> str:
+    lowered = name.lower()
+    return _TOOL_ALIASES.get(lowered, lowered)
+
+
+def _normalize_rules(rules: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {_canonical_tool_name(k): v for k, v in rules.items()}
 
 
 @dataclass
@@ -68,6 +91,12 @@ class PermissionPolicy:
     deny: dict[str, list[str]] = field(default_factory=dict)
     escalate: dict[str, list[str]] = field(default_factory=dict)
     on_escalate: Callable | None = None
+
+    def __post_init__(self) -> None:
+        # Finding 10: normalize all rule keys to canonical tool names at init time
+        self.allow = _normalize_rules(self.allow)
+        self.deny = _normalize_rules(self.deny)
+        self.escalate = _normalize_rules(self.escalate)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PermissionPolicy:
@@ -114,7 +143,13 @@ class PermissionPolicy:
         if self.mode == "deny_all":
             return PermissionDecision("deny", tool_name, action, "mode=deny_all")
 
-        match_str = _build_match_string(tool_name, action, args)
+        # Finding 10: normalize tool name before rule lookup
+        tool_name = _canonical_tool_name(tool_name)
+        # Finding 2: reject shell control operators before pattern matching
+        try:
+            match_str = _build_match_string(tool_name, action, args)
+        except PermissionError as e:
+            return PermissionDecision("deny", tool_name, action, str(e))
 
         for pattern in self.deny.get(tool_name, []) + self.deny.get("*", []):
             if _matches(match_str, pattern):
@@ -146,8 +181,9 @@ class PermissionPolicy:
                     pattern,
                 )
 
+        # Finding 10: default deny instead of default allow in rules mode
         return PermissionDecision(
-            "allow", tool_name, action, "no matching rule, default allow"
+            "deny", tool_name, action, "no matching rule, default deny"
         )
 
     def to_pre_hook(self) -> Callable:
@@ -183,7 +219,13 @@ class PermissionPolicy:
 
 def _build_match_string(tool_name: str, action: str, args: dict) -> str:
     if tool_name == "bash":
-        return args.get("command", "")
+        command = str(args.get("command", ""))
+        # Finding 2: reject shell control operators before fnmatch
+        if _SHELL_CONTROL.search(command):
+            raise PermissionError(
+                f"Shell control operator requires explicit approval: {command!r}"
+            )
+        return command
     if tool_name == "editor":
         return args.get("file_path", "")
     if tool_name == "reader":

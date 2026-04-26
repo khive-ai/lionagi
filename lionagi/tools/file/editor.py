@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
 
@@ -12,6 +13,45 @@ from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
+
+# Finding 6/7: deny access to common secret/credential filenames
+_DENIED_NAMES: frozenset[str] = frozenset(
+    {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
+)
+
+
+def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
+    """Finding 6: resolve path under workspace_root; raise PermissionError if it escapes."""
+    raw = Path(path).expanduser()
+    candidate = raw if raw.is_absolute() else workspace_root / raw
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(workspace_root)
+    except ValueError as e:
+        raise PermissionError(f"Path escapes workspace root: {path!r}") from e
+    if resolved.name in _DENIED_NAMES:
+        raise PermissionError(f"Refusing to access protected path: {resolved.name!r}")
+    return resolved
+
+
+def _resolve_existing_workspace_file(path: str, workspace_root: Path) -> Path:
+    """Finding 7: resolve an existing file; reject symlinks."""
+    p = _resolve_workspace_path(path, workspace_root)
+    if p.is_symlink():
+        raise PermissionError(f"Refusing to edit symlink: {path!r}")
+    if not p.exists() or not p.is_file():
+        raise FileNotFoundError(path)
+    return p
+
+
+def _write_text_no_follow(path: Path, content: str) -> None:
+    """Finding 7: write to an existing file without following symlinks (O_NOFOLLOW)."""
+    flags = os.O_WRONLY | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
 
 
 class EditorAction(str, Enum):
@@ -81,8 +121,12 @@ class EditorResponse(BaseModel):
     )
 
 
-def _write_sync(file_path: str, content: str) -> EditorResponse:
-    p = Path(file_path)
+def _write_sync(file_path: str, content: str, workspace_root: Path) -> EditorResponse:
+    # Finding 6: validate path is within workspace root before writing
+    try:
+        p = _resolve_workspace_path(file_path, workspace_root)
+    except PermissionError as e:
+        return EditorResponse(success=False, error=str(e))
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
@@ -96,12 +140,15 @@ def _edit_sync(
     old_string: str,
     new_string: str,
     replace_all: bool,
+    workspace_root: Path,
 ) -> EditorResponse:
-    p = Path(file_path)
-    if not p.exists():
+    # Finding 6/7: validate path and reject symlinks before reading or writing
+    try:
+        p = _resolve_existing_workspace_file(file_path, workspace_root)
+    except PermissionError as e:
+        return EditorResponse(success=False, error=str(e))
+    except FileNotFoundError:
         return EditorResponse(success=False, error=f"File not found: {file_path}")
-    if not p.is_file():
-        return EditorResponse(success=False, error=f"Path is not a file: {file_path}")
 
     try:
         original = p.read_text(encoding="utf-8")
@@ -126,7 +173,8 @@ def _edit_sync(
     updated = original.replace(old_string, new_string, -1 if replace_all else 1)
 
     try:
-        p.write_text(updated, encoding="utf-8")
+        # Finding 7: write without following symlinks
+        _write_text_no_follow(p, updated)
     except OSError as e:
         return EditorResponse(success=False, error=f"Write error: {e}")
 
@@ -148,8 +196,10 @@ class EditorTool(LionTool):
     is_lion_system_tool = True
     system_tool_name = "editor_tool"
 
-    def __init__(self):
+    def __init__(self, workspace_root: str | Path | None = None):
         self._tool = None
+        # Finding 6: default to CWD when no workspace root is specified
+        self.workspace_root = Path(workspace_root or Path.cwd()).expanduser().resolve()
 
     async def handle_request(self, request: EditorRequest) -> EditorResponse:
         if isinstance(request, dict):
@@ -159,7 +209,9 @@ class EditorTool(LionTool):
                 return EditorResponse(
                     success=False, error="'content' is required for action='write'"
                 )
-            return await run_sync(_write_sync, request.file_path, request.content)
+            return await run_sync(
+                _write_sync, request.file_path, request.content, self.workspace_root
+            )
         if request.action == EditorAction.edit:
             if request.old_string is None:
                 return EditorResponse(
@@ -175,6 +227,7 @@ class EditorTool(LionTool):
                 request.old_string,
                 request.new_string,
                 request.replace_all,
+                self.workspace_root,
             )
         return EditorResponse(success=False, error="Unknown action")
 
@@ -183,13 +236,14 @@ class EditorTool(LionTool):
 
             async def editor_tool(**kwargs):
                 """
-                Write or edit files on disk.
+                Write or edit files on disk within the configured workspace root.
 
                 Use action='write' to create or fully replace a file. Use action='edit'
                 to perform an exact-string replacement — safer than full rewrites for
                 targeted changes. Parent directories are created automatically on write.
                 Edits fail fast if the old_string is ambiguous (multiple matches) unless
-                replace_all=True is set.
+                replace_all=True is set. Paths outside the workspace root and symlinks
+                are rejected.
                 """
                 return (await self.handle_request(EditorRequest(**kwargs))).model_dump()
 

@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import base64
+import contextlib
+import os
+import signal
 import subprocess
+import threading
 from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
@@ -20,6 +24,29 @@ from .base import LionTool
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
+
+
+# ---------------------------------------------------------------------------
+# Workspace path validation (Finding 14)
+# ---------------------------------------------------------------------------
+
+_DENIED_NAMES: frozenset[str] = frozenset(
+    {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
+)
+
+
+def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
+    """Finding 14: resolve path under workspace_root; raise PermissionError if it escapes."""
+    raw = Path(path).expanduser()
+    candidate = raw if raw.is_absolute() else workspace_root / raw
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(workspace_root)
+    except ValueError as e:
+        raise PermissionError(f"Path escapes workspace root: {path!r}") from e
+    if resolved.name in _DENIED_NAMES:
+        raise PermissionError(f"Refusing to access protected path: {resolved.name!r}")
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +216,12 @@ _IMAGE_MEDIA_TYPES = {
 }
 
 
-def _read_image_sync(path: str) -> dict:
-    p = Path(path)
+def _read_image_sync(path: str, workspace_root: Path) -> dict:
+    # Finding 14: validate path before reading image bytes
+    try:
+        p = _resolve_workspace_path(path, workspace_root)
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
     ext = p.suffix.lower()
     media_type = _IMAGE_MEDIA_TYPES.get(ext, "image/png")
     try:
@@ -207,15 +238,20 @@ def _read_image_sync(path: str) -> dict:
     }
 
 
-def _read_file_sync(path: str, offset: int, max_lines: int) -> dict:
-    p = Path(path)
+def _read_file_sync(path: str, offset: int, max_lines: int, workspace_root: Path) -> dict:
+    # Finding 14: validate path under workspace root
+    try:
+        p = _resolve_workspace_path(path, workspace_root)
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
+
     if not p.exists():
         return {"success": False, "error": f"File not found: {path}"}
     if not p.is_file():
         return {"success": False, "error": f"Not a file: {path}"}
 
     if p.suffix.lower() in _IMAGE_EXTENSIONS:
-        return _read_image_sync(path)
+        return _read_image_sync(path, workspace_root)
 
     try:
         with open(p, "rb") as f:
@@ -247,18 +283,31 @@ def _read_file_sync(path: str, offset: int, max_lines: int) -> dict:
     }
 
 
-def _list_dir_sync(path: str, recursive: bool, file_types: list[str] | None) -> dict:
+def _list_dir_sync(
+    path: str, recursive: bool, file_types: list[str] | None, workspace_root: Path
+) -> dict:
+    # Finding 14: validate directory path
+    try:
+        base = _resolve_workspace_path(path, workspace_root)
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
+
     from lionagi.libs.file.process import dir_to_files
 
     try:
-        files = dir_to_files(path, recursive=recursive, file_types=file_types)
+        files = dir_to_files(str(base), recursive=recursive, file_types=file_types)
         return {"success": True, "content": "\n".join(str(f) for f in files)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-def _write_file_sync(file_path: str, content: str) -> dict:
-    p = Path(file_path)
+def _write_file_sync(file_path: str, content: str, workspace_root: Path) -> dict:
+    # Finding 14: validate path before writing
+    try:
+        p = _resolve_workspace_path(file_path, workspace_root)
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
+
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
@@ -279,9 +328,18 @@ def _write_file_sync(file_path: str, content: str) -> dict:
 
 
 def _edit_file_sync(
-    file_path: str, old_string: str, new_string: str, replace_all: bool
+    file_path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool,
+    workspace_root: Path,
 ) -> dict:
-    p = Path(file_path)
+    # Finding 14: validate path before reading or writing
+    try:
+        p = _resolve_workspace_path(file_path, workspace_root)
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
+
     try:
         original = p.read_text(encoding="utf-8")
     except OSError as e:
@@ -321,32 +379,99 @@ def _edit_file_sync(
     }
 
 
+_MAX_OUTPUT_BYTES = 100_000
+
+
+def _drain_stream(stream, buf: bytearray) -> bool:
+    """Finding 5: read stream into buf up to _MAX_OUTPUT_BYTES; return True if truncated.
+
+    Continues reading even after cap to prevent pipe-buffer deadlock.
+    """
+    truncated = False
+    while True:
+        try:
+            chunk = stream.read(8192)
+        except Exception:
+            break
+        if not chunk:
+            break
+        remaining = _MAX_OUTPUT_BYTES - len(buf)
+        if remaining > 0:
+            buf.extend(chunk[:remaining])
+            if len(buf) >= _MAX_OUTPUT_BYTES:
+                truncated = True
+    return truncated
+
+
 def _subprocess_sync(cmd, shell: bool, timeout_s: float, cwd: str | None) -> dict:
+    # Finding 5: use Popen + threads for bounded memory capture and child-group kill
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             shell=shell,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd=cwd or None,
+            start_new_session=True,
         )
-        return {
-            "stdout": result.stdout or "",
-            "stderr": result.stderr or "",
-            "returncode": result.returncode,
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "stdout": "",
-            "stderr": f"Timed out after {timeout_s}s",
-            "returncode": -1,
-            "timed_out": True,
-        }
     except FileNotFoundError as e:
         return {"stdout": "", "stderr": str(e), "returncode": -1}
     except Exception as e:
         return {"stdout": "", "stderr": str(e), "returncode": -1}
+
+    stdout_buf = bytearray()
+    stderr_buf = bytearray()
+    stdout_truncated = [False]
+    stderr_truncated = [False]
+
+    def _drain_out():
+        stdout_truncated[0] = _drain_stream(proc.stdout, stdout_buf)
+
+    def _drain_err():
+        stderr_truncated[0] = _drain_stream(proc.stderr, stderr_buf)
+
+    t_out = threading.Thread(target=_drain_out, daemon=True)
+    t_err = threading.Thread(target=_drain_err, daemon=True)
+    t_out.start()
+    t_err.start()
+
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError, OSError):
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except AttributeError:
+                proc.kill()
+        proc.wait()
+        t_out.join(timeout=1)
+        t_err.join(timeout=1)
+        timed_out = True
+
+    if not timed_out:
+        t_out.join()
+        t_err.join()
+
+    def _decode(buf: bytearray, truncated: bool) -> str:
+        text = bytes(buf).decode("utf-8", errors="replace")
+        if truncated:
+            text += f"\n\n[... truncated at {_MAX_OUTPUT_BYTES} bytes ...]\n"
+        return text
+
+    if timed_out:
+        return {
+            "stdout": _decode(stdout_buf, True),
+            "stderr": f"Timed out after {timeout_s}s",
+            "returncode": -1,
+            "timed_out": True,
+        }
+
+    return {
+        "stdout": _decode(stdout_buf, stdout_truncated[0]),
+        "stderr": _decode(stderr_buf, stderr_truncated[0]),
+        "returncode": proc.returncode,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +517,11 @@ class CodingToolkit(LionTool):
     is_lion_system_tool = True
     system_tool_name = "coding_toolkit"
 
+    def security_pre(self, tool_name: str, handler: Callable) -> CodingToolkit:
+        """Finding 13: register a security hook that runs before user pre-hooks."""
+        self._security_pre_hooks.setdefault(tool_name, []).append(handler)
+        return self
+
     def pre(self, tool_name: str, handler: Callable) -> CodingToolkit:
         self._pre_hooks.setdefault(tool_name, []).append(handler)
         return self
@@ -405,12 +535,14 @@ class CodingToolkit(LionTool):
         return self
 
     def _build_preprocessor(self, tool_name: str) -> Callable | None:
-        """Build a chained preprocessor from registered pre-hooks for this tool.
+        """Build a chained preprocessor from registered hooks for this tool.
 
-        Returns a callable matching Tool.preprocessor signature:
-            preprocessor(args: dict, **kwargs) -> dict
+        Finding 13: security_pre hooks run before user pre hooks.
         """
         hooks = [
+            # Finding 13: security hooks first, then user hooks
+            *self._security_pre_hooks.get("*", []),
+            *self._security_pre_hooks.get(tool_name, []),
             *self._pre_hooks.get(tool_name, []),
             *self._pre_hooks.get("*", []),
         ]
@@ -427,11 +559,7 @@ class CodingToolkit(LionTool):
         return chained_pre
 
     def _build_postprocessor(self, tool_name: str) -> Callable | None:
-        """Build a chained postprocessor from registered post-hooks for this tool.
-
-        Returns a callable matching Tool.postprocessor signature:
-            postprocessor(result: Any, **kwargs) -> Any
-        """
+        """Build a chained postprocessor from registered post-hooks for this tool."""
         hooks = [
             *self._post_hooks.get(tool_name, []),
             *self._post_hooks.get("*", []),
@@ -455,13 +583,17 @@ class CodingToolkit(LionTool):
         notify: bool = True,
         notify_threshold: float = 0.7,
         notify_max_tokens: int = 200_000,
+        workspace_root: str | Path | None = None,
     ):
+        self._security_pre_hooks: dict[str, list[Callable]] = {}  # Finding 13
         self._pre_hooks: dict[str, list[Callable]] = {}
         self._post_hooks: dict[str, list[Callable]] = {}
         self._error_hooks: dict[str, list[Callable]] = {}
         self.notify = notify
         self.notify_threshold = notify_threshold
         self.notify_max_tokens = notify_max_tokens
+        # Finding 14: workspace root for path containment checks
+        self.workspace_root = Path(workspace_root or Path.cwd()).expanduser().resolve()
 
     def bind(self, branch: Branch) -> list[Tool]:
         from lionagi.protocols.messages import ActionResponse
@@ -472,6 +604,8 @@ class CodingToolkit(LionTool):
         notify = self.notify
         threshold = self.notify_threshold
         max_tokens = self.notify_max_tokens
+        # Finding 14: capture workspace root for use in all sync file helpers
+        workspace_root = self.workspace_root
 
         def _system_status() -> str | None:
             if not notify:
@@ -547,11 +681,16 @@ class CodingToolkit(LionTool):
             if action == "read":
                 start = max(0, offset or 0)
                 max_lines = limit if (limit and limit > 0) else 2000
-                result = await run_sync(_read_file_sync, path, start, max_lines)
+                # Finding 14: pass workspace_root to enforce path containment
+                result = await run_sync(
+                    _read_file_sync, path, start, max_lines, workspace_root
+                )
                 _track(result)
                 return result
             elif action == "list_dir":
-                return await run_sync(_list_dir_sync, path, bool(recursive), file_types)
+                return await run_sync(
+                    _list_dir_sync, path, bool(recursive), file_types, workspace_root
+                )
             return {"success": False, "error": f"Unknown action: {action}"}
 
         # -- Editor ----------------------------------------------------------
@@ -576,7 +715,10 @@ class CodingToolkit(LionTool):
                     guard = _check_read_guard(file_path)
                     if guard:
                         return {"success": False, "error": guard}
-                result = await run_sync(_write_file_sync, file_path, content)
+                # Finding 14: pass workspace_root to enforce path containment
+                result = await run_sync(
+                    _write_file_sync, file_path, content, workspace_root
+                )
                 _track(result)
                 return result
             elif action == "edit":
@@ -587,8 +729,14 @@ class CodingToolkit(LionTool):
                 guard = _check_read_guard(file_path)
                 if guard:
                     return {"success": False, "error": guard}
+                # Finding 14: pass workspace_root to enforce path containment
                 result = await run_sync(
-                    _edit_file_sync, file_path, old_string, new_string, replace_all
+                    _edit_file_sync,
+                    file_path,
+                    old_string,
+                    new_string,
+                    replace_all,
+                    workspace_root,
                 )
                 _track(result)
                 return result
@@ -604,23 +752,12 @@ class CodingToolkit(LionTool):
             """Execute a shell command and return stdout, stderr, and return code.
 
             Use for running builds, tests, git commands, and any system operations.
-            Output is truncated if it exceeds 100K characters.
+            Output is truncated if it exceeds 100 KB per stream.
             """
             timeout_ms = max(1, min(timeout or 30000, 300000))
             timeout_s = timeout_ms / 1000.0
 
             result = await run_sync(_subprocess_sync, command, True, timeout_s, cwd)
-
-            max_chars = 100_000
-            for key in ("stdout", "stderr"):
-                val = result.get(key, "")
-                if len(val) > max_chars:
-                    half = max_chars // 2
-                    result[key] = (
-                        val[:half]
-                        + f"\n\n[...truncated {len(val) - max_chars} chars...]\n\n"
-                        + val[-half:]
-                    )
 
             result.setdefault("timed_out", False)
             result["return_code"] = result.pop("returncode", -1)

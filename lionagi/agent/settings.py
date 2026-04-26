@@ -3,34 +3,37 @@
 
 """Load agent settings from .lionagi/settings.yaml — global + project-local merge.
 
-Settings resolution (project-local wins):
-    1. ~/.lionagi/settings.yaml        (global defaults)
-    2. .lionagi/settings.yaml          (project-local overrides)
+Settings resolution (project-local wins, only when trust_project_settings=True):
+    1. ~/.lionagi/settings.yaml        (global defaults, always loaded)
+    2. .lionagi/settings.yaml          (project-local, requires explicit trust)
 
 Hook configuration format::
 
     hooks:
       pre:
         bash:
-          - command: "python ~/.lionagi/hooks/guard.py"
+          - command: ["python", "~/.lionagi/hooks/guard.py"]
           - python: "lionagi.agent.hooks:guard_destructive"
         "*":
-          - python: "my_project.hooks:custom_guard"
+          - python: "lionagi.agent.hooks:custom_guard"
       post:
         editor:
-          - command: "ruff format {file_path}"
+          - command: ["ruff", "format", "{file_path}"]
         "*":
           - python: "lionagi.agent.hooks:log_tool_use"
       on_error:
         "*":
           - python: "lionagi.agent.hooks:error_reporter"
+
+Note: shell hook commands must be argv lists, not shell strings.
+Python hook modules must be in the trusted_hook_modules allowlist.
 """
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -39,9 +42,21 @@ import yaml
 
 from .config import AgentConfig
 
+_DEFAULT_TRUSTED_HOOK_MODULES: frozenset[str] = frozenset({"lionagi.agent.hooks"})
 
-def load_settings(project_dir: str | Path | None = None) -> dict[str, Any]:
-    """Load and merge settings from global + project-local .lionagi/settings.yaml."""
+
+def load_settings(
+    project_dir: str | Path | None = None,
+    *,
+    include_project: bool = True,
+) -> dict[str, Any]:
+    """Load and merge settings from global + project-local .lionagi/settings.yaml.
+
+    Args:
+        project_dir: Project root for settings resolution. Auto-detected if None.
+        include_project: If False, skip project-local settings entirely (safer default
+            for untrusted project directories).
+    """
     merged: dict[str, Any] = {}
 
     global_path = Path.home() / ".lionagi" / "settings.yaml"
@@ -49,6 +64,10 @@ def load_settings(project_dir: str | Path | None = None) -> dict[str, Any]:
         with open(global_path) as f:
             global_settings = yaml.safe_load(f) or {}
         _deep_merge(merged, global_settings)
+
+    # Finding 1: skip project-local settings unless explicitly trusted
+    if not include_project:
+        return merged
 
     if project_dir:
         local_path = Path(project_dir) / ".lionagi" / "settings.yaml"
@@ -70,15 +89,26 @@ def load_settings(project_dir: str | Path | None = None) -> dict[str, Any]:
 
 
 def apply_hooks_from_settings(
-    config: AgentConfig, settings: dict[str, Any] | None = None
+    config: AgentConfig,
+    settings: dict[str, Any] | None = None,
+    *,
+    trusted_hook_modules: set[str] | frozenset[str] | None = None,
 ) -> AgentConfig:
     """Apply hook configuration from settings dict to an AgentConfig.
 
     Resolves hook specs (shell commands, Python import paths) into callables
     and registers them on the config.
+
+    Args:
+        trusted_hook_modules: Python module paths allowed for import-based hooks.
+            Defaults to {"lionagi.agent.hooks"}. Set to a wider set only for
+            explicitly trusted project contexts.
     """
     if settings is None:
         settings = load_settings()
+
+    if trusted_hook_modules is None:
+        trusted_hook_modules = _DEFAULT_TRUSTED_HOOK_MODULES
 
     hooks_config = settings.get("hooks", {})
 
@@ -88,7 +118,7 @@ def apply_hooks_from_settings(
             if not isinstance(hook_specs, list):
                 hook_specs = [hook_specs]
             for spec in hook_specs:
-                handler = _resolve_hook_spec(spec, phase, tool_name)
+                handler = _resolve_hook_spec(spec, phase, tool_name, trusted_hook_modules)
                 if handler is None:
                     continue
                 if phase == "pre":
@@ -101,31 +131,49 @@ def apply_hooks_from_settings(
     return config
 
 
-def _resolve_hook_spec(spec: dict | str, phase: str, tool_name: str) -> Callable | None:
+def _resolve_hook_spec(
+    spec: dict | str,
+    phase: str,
+    tool_name: str,
+    trusted_hook_modules: set[str] | frozenset[str],
+) -> Callable | None:
     """Resolve a hook spec into an async callable.
 
     Spec formats:
-        {"python": "module.path:function_name"}  → import and return
-        {"command": "shell command {file_path}"}  → wrap in shell executor
+        {"python": "module.path:function_name"}  → import and return (allowlisted only)
+        {"command": ["prog", "arg", "{file_path}"]}  → wrap in async argv executor
         "module.path:function_name"               → shorthand for python import
     """
     if isinstance(spec, str):
-        return _import_hook(spec)
+        return _import_hook(spec, trusted_hook_modules=trusted_hook_modules)
 
     if isinstance(spec, dict):
         if "python" in spec:
-            return _import_hook(spec["python"])
+            return _import_hook(spec["python"], trusted_hook_modules=trusted_hook_modules)
         if "command" in spec:
             return _make_shell_hook(spec["command"], phase, tool_name)
 
     return None
 
 
-def _import_hook(import_path: str) -> Callable | None:
-    """Import a hook function from 'module.path:function_name'."""
+def _import_hook(
+    import_path: str,
+    *,
+    trusted_hook_modules: set[str] | frozenset[str],
+) -> Callable | None:
+    """Import a hook function from 'module.path:function_name'.
+
+    Finding 1: only imports from the trusted_hook_modules allowlist.
+    """
     if ":" not in import_path:
         return None
     module_path, _, func_name = import_path.rpartition(":")
+    # Finding 1: reject untrusted module imports
+    if module_path not in trusted_hook_modules:
+        raise PermissionError(
+            f"Untrusted hook module {module_path!r}. "
+            f"Add it to trusted_hook_modules to allow."
+        )
     try:
         module = importlib.import_module(module_path)
         return getattr(module, func_name)
@@ -133,28 +181,58 @@ def _import_hook(import_path: str) -> Callable | None:
         return None
 
 
-def _make_shell_hook(command_template: str, phase: str, tool_name: str) -> Callable:
-    """Create an async hook that runs a shell command.
+def _make_shell_hook(command_template: list[str], phase: str, tool_name: str) -> Callable:
+    """Create an async hook that runs a shell command via argv list (shell=False).
+
+    Finding 11: command_template must be a list of strings (no shell string).
+    Finding 12: uses asyncio.create_subprocess_exec to avoid blocking the event loop.
 
     Pre-hooks: args passed as JSON on stdin. Non-zero exit = PermissionError.
     Post-hooks: result passed as JSON on stdin. Stdout captured but ignored.
     """
+    # Finding 11: reject shell strings, require argv list
+    if not isinstance(command_template, list) or not all(
+        isinstance(x, str) for x in command_template
+    ):
+        raise ValueError(
+            f"Hook command must be an argv list (e.g. ['ruff', 'format', '{{file_path}}']), "
+            f"not a shell string. Got: {command_template!r}"
+        )
+
+    def _render_argv(values: dict[str, Any]) -> list[str]:
+        rendered = []
+        for part in command_template:
+            for key, value in values.items():
+                part = part.replace(f"{{{key}}}", str(value))
+            rendered.append(part)
+        return rendered
+
     if phase == "pre":
 
         async def shell_pre_hook(tn: str, action: str, args: dict) -> dict | None:
-            cmd = command_template
-            for k, v in args.items():
-                cmd = cmd.replace(f"{{{k}}}", str(v))
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                input=json.dumps(args),
-                timeout=10,
-            )
-            if result.returncode != 0:
-                msg = result.stderr.strip() or f"Hook blocked: {command_template}"
+            argv = _render_argv(args)
+            try:
+                # Finding 12: async subprocess instead of blocking subprocess.run()
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=True,
+                )
+                _, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(json.dumps(args).encode()),
+                    timeout=10,
+                )
+            except asyncio.TimeoutError:
+                raise PermissionError(f"Hook timed out: {argv[0]!r}")
+            except Exception as e:
+                raise PermissionError(f"Hook execution error: {e}") from e
+            if proc.returncode != 0:
+                msg = (
+                    stderr_bytes.decode(errors="replace").strip()
+                    or f"Hook blocked: {argv[0]!r}"
+                )
                 raise PermissionError(msg)
             return None
 
@@ -165,17 +243,22 @@ def _make_shell_hook(command_template: str, phase: str, tool_name: str) -> Calla
         async def shell_post_hook(
             tn: str, action: str, args: dict, result: dict
         ) -> dict | None:
-            cmd = command_template
-            for k, v in {**args, **result}.items():
-                cmd = cmd.replace(f"{{{k}}}", str(v))
-            subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                input=json.dumps(result),
-                timeout=10,
-            )
+            argv = _render_argv({**args, **result})
+            try:
+                # Finding 12: async subprocess instead of blocking subprocess.run()
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=True,
+                )
+                await asyncio.wait_for(
+                    proc.communicate(json.dumps(result).encode()),
+                    timeout=10,
+                )
+            except (asyncio.TimeoutError, Exception):
+                pass
             return None
 
         return shell_post_hook

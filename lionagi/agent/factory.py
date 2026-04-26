@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from lionagi.session.branch import Branch
 
@@ -18,6 +19,8 @@ async def create_agent(
     *,
     load_settings: bool = True,
     project_dir: str | None = None,
+    trust_project_settings: bool = False,
+    trusted_hook_modules: set[str] | frozenset[str] | None = None,
 ) -> Branch:
     """Create a fully configured Branch from an AgentConfig.
 
@@ -26,8 +29,12 @@ async def create_agent(
     Args:
         config: Agent configuration.
         load_settings: If True, load hooks from .lionagi/settings.yaml
-            (global + project-local) and apply to config before building.
+            (global always; project-local only when trust_project_settings=True).
         project_dir: Project root for settings resolution. Auto-detected if None.
+        trust_project_settings: If True, load and apply hooks from project-local
+            .lionagi/settings.yaml. Defaults to False (Finding 1: safe default).
+        trusted_hook_modules: Python module paths allowed for import-based hooks.
+            Defaults to {"lionagi.agent.hooks"}.
 
     Usage::
 
@@ -42,8 +49,13 @@ async def create_agent(
         from .settings import apply_hooks_from_settings
         from .settings import load_settings as _load
 
-        settings = _load(project_dir)
-        apply_hooks_from_settings(config, settings)
+        # Finding 1: only load project-local hooks when explicitly trusted
+        settings = _load(project_dir, include_project=trust_project_settings)
+        apply_hooks_from_settings(
+            config,
+            settings,
+            trusted_hook_modules=trusted_hook_modules,
+        )
 
     from lionagi.service.imodel import iModel
 
@@ -83,7 +95,11 @@ async def create_agent(
 
 
 def _apply_permissions(config: AgentConfig) -> None:
-    """Convert permission config into a pre-hook on all tools."""
+    """Convert permission config into a security_pre hook on all tools.
+
+    Finding 13: uses 'security_pre' phase so permission hooks always run
+    before user-defined pre-hooks.
+    """
     if not config.permissions:
         return
 
@@ -96,7 +112,63 @@ def _apply_permissions(config: AgentConfig) -> None:
     else:
         return
 
-    config.pre("*", policy.to_pre_hook())
+    # Finding 13: insert permission hook into security_pre phase, not pre phase
+    config.hook_handlers.setdefault("security_pre:*", []).insert(0, policy.to_pre_hook())
+
+
+def _tool_hooks(config: AgentConfig, phase: str, tool_name: str) -> list[Callable]:
+    """Finding 15: collect hooks for a tool from all relevant phase:name keys."""
+    return [
+        *config.hook_handlers.get(f"{phase}:*", []),
+        *config.hook_handlers.get(f"{phase}:{tool_name}", []),
+        *config.hook_handlers.get(f"{phase}:{tool_name}_tool", []),
+    ]
+
+
+def _chain_pre_hooks(tool_name: str, hooks: list[Callable]) -> Callable | None:
+    if not hooks:
+        return None
+
+    async def chained(args: dict, **_kw) -> dict:
+        for handler in hooks:
+            result = await handler(tool_name, args.get("action", ""), args)
+            if isinstance(result, dict):
+                args = result
+        return args
+
+    return chained
+
+
+def _chain_post_hooks(tool_name: str, hooks: list[Callable]) -> Callable | None:
+    if not hooks:
+        return None
+
+    async def chained(result: Any, **_kw) -> Any:
+        if not isinstance(result, dict):
+            return result
+        for handler in hooks:
+            modified = await handler(tool_name, "", {}, result)
+            if isinstance(modified, dict):
+                result = modified
+        return result
+
+    return chained
+
+
+def _attach_hooks(tool: Any, config: AgentConfig, canonical_name: str) -> Any:
+    """Finding 15: attach security_pre + pre + post hooks to a standalone tool."""
+    pre_hooks = (
+        _tool_hooks(config, "security_pre", canonical_name)
+        + _tool_hooks(config, "pre", canonical_name)
+    )
+    post_hooks = _tool_hooks(config, "post", canonical_name)
+    pre = _chain_pre_hooks(canonical_name, pre_hooks)
+    post = _chain_post_hooks(canonical_name, post_hooks)
+    if pre is not None:
+        tool.preprocessor = pre
+    if post is not None:
+        tool.postprocessor = post
+    return tool
 
 
 def _register_tools(branch: Branch, config: AgentConfig) -> None:
@@ -107,26 +179,37 @@ def _register_tools(branch: Branch, config: AgentConfig) -> None:
         elif tool_spec == "reader":
             from lionagi.tools.file.reader import ReaderTool
 
-            branch.register_tools(ReaderTool().to_tool())
+            # Finding 15: attach config hooks to standalone reader tool
+            tool = _attach_hooks(ReaderTool().to_tool(), config, "reader")
+            branch.register_tools(tool)
         elif tool_spec == "editor":
             from lionagi.tools.file.editor import EditorTool
 
-            branch.register_tools(EditorTool().to_tool())
+            # Finding 15: attach config hooks to standalone editor tool
+            tool = _attach_hooks(EditorTool().to_tool(), config, "editor")
+            branch.register_tools(tool)
         elif tool_spec == "bash":
             from lionagi.tools.code.bash import BashTool
 
-            branch.register_tools(BashTool().to_tool())
+            # Finding 15: attach config hooks to standalone bash tool
+            tool = _attach_hooks(BashTool().to_tool(), config, "bash")
+            branch.register_tools(tool)
         elif tool_spec == "search":
             from lionagi.tools.code.search import SearchTool
 
-            branch.register_tools(SearchTool().to_tool())
+            # Finding 15: attach config hooks to standalone search tool
+            tool = _attach_hooks(SearchTool().to_tool(), config, "search")
+            branch.register_tools(tool)
 
 
 def _register_coding_tools(branch: Branch, config: AgentConfig) -> None:
     """Register CodingToolkit with hooks from config."""
+    from pathlib import Path
+
     from lionagi.tools.coding import CodingToolkit
 
-    toolkit = CodingToolkit()
+    workspace_root = Path(config.cwd) if config.cwd else Path.cwd()
+    toolkit = CodingToolkit(workspace_root=workspace_root)
 
     for key, handlers in config.hook_handlers.items():
         parts = key.split(":", 1)
@@ -134,7 +217,10 @@ def _register_coding_tools(branch: Branch, config: AgentConfig) -> None:
             continue
         phase, tool_name = parts
         for handler in handlers:
-            if phase == "pre":
+            if phase == "security_pre":
+                # Finding 13: wire security_pre hooks into CodingToolkit's dedicated phase
+                toolkit.security_pre(tool_name, handler)
+            elif phase == "pre":
                 toolkit.pre(tool_name, handler)
             elif phase == "post":
                 toolkit.post(tool_name, handler)

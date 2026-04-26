@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import time
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +14,35 @@ from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
+
+# Finding 8/9: deny access to sensitive filenames
+_DENIED_NAMES: frozenset[str] = frozenset(
+    {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
+)
+# Finding 9: allowed document extensions for the 'open' action
+_DOC_EXTENSIONS: frozenset[str] = frozenset(
+    {".pdf", ".pptx", ".docx", ".html", ".htm"}
+)
+# Finding 9: max document size for 'open' (50 MB)
+_MAX_DOC_BYTES = 50 * 1024 * 1024
+# Finding 8: max files returned by list_dir
+_MAX_LIST_FILES = 1_000
+
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+
+def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
+    """Finding 8: resolve path under workspace_root; raise PermissionError if it escapes."""
+    raw = Path(path).expanduser()
+    candidate = raw if raw.is_absolute() else workspace_root / raw
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(workspace_root)
+    except ValueError as e:
+        raise PermissionError(f"Path escapes workspace root: {path!r}") from e
+    if resolved.name in _DENIED_NAMES:
+        raise PermissionError(f"Refusing to access protected path: {resolved.name!r}")
+    return resolved
 
 
 class ReaderAction(str, Enum):
@@ -26,7 +57,7 @@ class ReaderRequest(BaseModel):
         description=(
             "Action to perform. One of:\n"
             "- 'read': Read a text file with line numbers (lightweight, no conversion).\n"
-            "- 'open': Convert a document (PDF, PPTX, DOCX, HTML, URL) to text via docling. "
+            "- 'open': Convert a document (PDF, PPTX, DOCX, HTML) to text via docling. "
             "Result is cached by path — chain with read in one turn: "
             "[open(path='x.pdf'), read(path='x.pdf', offset=0, limit=100)].\n"
             "- 'list_dir': List files in a directory."
@@ -85,8 +116,16 @@ def _read_sync(
     path: str,
     offset: int | None,
     limit: int | None,
+    workspace_root: Path,
 ) -> ReaderResponse:
-    p = Path(path)
+    # Finding 8: validate path before opening
+    try:
+        p = _resolve_workspace_path(path, workspace_root)
+    except PermissionError as e:
+        return ReaderResponse(success=False, error=str(e))
+
+    if p.is_symlink():
+        return ReaderResponse(success=False, error=f"Refusing to read symlink: {path!r}")
     if not p.exists():
         return ReaderResponse(success=False, error=f"File not found: {path}")
     if not p.is_file():
@@ -120,15 +159,26 @@ def _list_dir_sync(
     path: str,
     recursive: bool | None,
     file_types: list[str] | None,
+    workspace_root: Path,
 ) -> ReaderResponse:
+    # Finding 8: validate directory path before listing
+    try:
+        base = _resolve_workspace_path(path, workspace_root)
+    except PermissionError as e:
+        return ReaderResponse(success=False, error=str(e))
+
+    if not base.is_dir():
+        return ReaderResponse(success=False, error=f"Path is not a directory: {path}")
+
     from lionagi.libs.file.process import dir_to_files
 
     try:
+        # Finding 8: cap listing to prevent unbounded output
         files = dir_to_files(
-            path,
+            str(base),
             recursive=bool(recursive),
             file_types=file_types,
-        )
+        )[:_MAX_LIST_FILES]
         content = "\n".join(str(f) for f in files)
     except Exception as e:
         return ReaderResponse(success=False, error=f"List error: {e}")
@@ -136,13 +186,13 @@ def _list_dir_sync(
     return ReaderResponse(success=True, content=content)
 
 
-import time
-
-_CACHE_TTL_SECONDS = 300  # 5 minutes
-
-
-def _open_sync(path: str, cache: dict[str, tuple[str, float]]) -> ReaderResponse:
-    """Convert document via docling, cache result keyed by path."""
+def _open_sync(
+    path: str,
+    cache: dict[str, tuple[str, float]],
+    workspace_root: Path,
+    allowed_url_hosts: frozenset[str],
+) -> ReaderResponse:
+    """Finding 9: validate path/URL before passing to docling."""
     try:
         from docling.document_converter import DocumentConverter
     except ImportError:
@@ -151,9 +201,39 @@ def _open_sync(path: str, cache: dict[str, tuple[str, float]]) -> ReaderResponse
             error="docling not installed. Run: pip install lionagi[reader]",
         )
 
+    # Finding 9: split URL vs local file handling
+    parsed = urlparse(path)
+    if parsed.scheme in ("http", "https", "ftp"):
+        if parsed.scheme != "https" or (parsed.hostname or "") not in allowed_url_hosts:
+            return ReaderResponse(
+                success=False,
+                error=f"URL conversion not allowed: {path!r}. Only configured https hosts.",
+            )
+        validated_path = path
+    else:
+        # local file: validate workspace containment, extension, and size
+        try:
+            p = _resolve_workspace_path(path, workspace_root)
+        except PermissionError as e:
+            return ReaderResponse(success=False, error=str(e))
+        if p.suffix.lower() not in _DOC_EXTENSIONS:
+            return ReaderResponse(
+                success=False,
+                error=f"Unsupported document type for 'open': {p.suffix!r}. "
+                f"Allowed: {sorted(_DOC_EXTENSIONS)}",
+            )
+        try:
+            if p.stat().st_size > _MAX_DOC_BYTES:
+                return ReaderResponse(
+                    success=False, error="Document exceeds 50 MB size limit."
+                )
+        except OSError:
+            pass
+        validated_path = str(p)
+
     try:
         converter = DocumentConverter()
-        result = converter.convert(path)
+        result = converter.convert(validated_path)
         text = result.document.export_to_markdown()
     except Exception as e:
         return ReaderResponse(success=False, error=f"Conversion error: {e}")
@@ -195,10 +275,19 @@ class ReaderTool(LionTool):
     is_lion_system_tool = True
     system_tool_name = "reader_tool"
 
-    def __init__(self, cache_ttl: int = _CACHE_TTL_SECONDS):
+    def __init__(
+        self,
+        cache_ttl: int = _CACHE_TTL_SECONDS,
+        workspace_root: str | Path | None = None,
+        allowed_url_hosts: frozenset[str] | set[str] | None = None,
+    ):
         self._tool = None
         self._cache: dict[str, tuple[str, float]] = {}
         self._cache_ttl = cache_ttl
+        # Finding 8: default to CWD when no workspace root is specified
+        self.workspace_root = Path(workspace_root or Path.cwd()).expanduser().resolve()
+        # Finding 9: no URL hosts allowed by default
+        self._allowed_url_hosts: frozenset[str] = frozenset(allowed_url_hosts or ())
 
     async def handle_request(self, request: ReaderRequest) -> ReaderResponse:
         if isinstance(request, dict):
@@ -209,7 +298,13 @@ class ReaderTool(LionTool):
         _evict_expired(self._cache)
 
         if request.action == ReaderAction.open:
-            return await run_sync(_open_sync, request.path, self._cache)
+            return await run_sync(
+                _open_sync,
+                request.path,
+                self._cache,
+                self.workspace_root,
+                self._allowed_url_hosts,
+            )
 
         if request.action == ReaderAction.read:
             start = max(0, request.offset or 0)
@@ -218,12 +313,20 @@ class ReaderTool(LionTool):
             if cached is not None:
                 return cached
             return await run_sync(
-                _read_sync, request.path, request.offset, request.limit
+                _read_sync,
+                request.path,
+                request.offset,
+                request.limit,
+                self.workspace_root,
             )
 
         if request.action == ReaderAction.list_dir:
             return await run_sync(
-                _list_dir_sync, request.path, request.recursive, request.file_types
+                _list_dir_sync,
+                request.path,
+                request.recursive,
+                request.file_types,
+                self.workspace_root,
             )
 
         return ReaderResponse(success=False, error="Unknown action")
@@ -232,16 +335,19 @@ class ReaderTool(LionTool):
         if self._tool is None:
 
             async def reader_tool(**kwargs):
-                """Read files, convert documents (PDF/PPTX/DOCX/URL via docling), or list directories.
+                """Read files, convert documents (PDF/PPTX/DOCX/HTML via docling), or list directories.
 
                 Use action='read' for text files (lightweight, line numbers).
-                Use action='open' for documents needing conversion (PDF, PPTX, HTML, URL) —
+                Use action='open' for documents needing conversion (PDF, PPTX, HTML) —
                 result is cached by path, then use 'read' with offset/limit on the same path.
                 Use action='list_dir' for directory listings.
 
                 Tip: you can chain open + read in one turn as sequential actions:
                 [open(path="report.pdf"), read(path="report.pdf", offset=0, limit=100)]
                 The open caches the converted text, the read slices it — one round trip.
+
+                All paths are restricted to the configured workspace root. URL conversion
+                requires explicit host allowlisting.
                 """
                 return (await self.handle_request(ReaderRequest(**kwargs))).model_dump()
 
