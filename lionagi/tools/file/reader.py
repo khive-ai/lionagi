@@ -33,6 +33,9 @@ def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
     """Finding 8: resolve path under workspace_root; raise PermissionError if it escapes."""
     raw = Path(path).expanduser()
     candidate = raw if raw.is_absolute() else workspace_root / raw
+    # GAP B: check symlink on candidate BEFORE resolve() follows it
+    if candidate.is_symlink():
+        raise PermissionError(f"Refusing to access symlink: {path!r}")
     resolved = candidate.resolve(strict=False)
     try:
         resolved.relative_to(workspace_root)
