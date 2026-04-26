@@ -488,9 +488,9 @@ async def test_flow_lock_contention_measurement():
 
     assert len(result["completed_operations"]) == num_operations
     # More than 1 task was in-flight at once — proves no serialization
-    assert max_concurrent_observed > 1, (
-        f"Operations ran serially: max concurrent was {max_concurrent_observed}"
-    )
+    assert (
+        max_concurrent_observed > 1
+    ), f"Operations ran serially: max concurrent was {max_concurrent_observed}"
 
 
 @pytest.mark.asyncio

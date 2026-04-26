@@ -24,7 +24,6 @@ from lionagi.service.imodel import iModel
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.session.branch import Branch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -187,9 +186,7 @@ async def test_run_unmatched_tool_result_preserves_error_metadata():
 async def test_run_error_chunk_raises_and_restores_streaming_processor():
     """Error chunk raises RuntimeError; finally block restores streaming_process_func."""
     sentinel = object()
-    model, _ = _make_fake_cli_model(
-        [StreamChunk(type="error", content="boom")]
-    )
+    model, _ = _make_fake_cli_model([StreamChunk(type="error", content="boom")])
     model.streaming_process_func = sentinel
 
     branch = Branch()

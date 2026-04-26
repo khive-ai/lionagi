@@ -124,11 +124,11 @@ import types as _types
 
 from lionagi.service.token_budget import (
     _get_provider_windows,
-    lookup_context_window,
     _longest_prefix_match,
     _provider_cache,
     get_context_window,
     get_token_budget,
+    lookup_context_window,
 )
 
 
@@ -141,7 +141,9 @@ class TestLookupContextWindow:
 
     def test_unknown_model_and_provider_returns_default(self):
         """Completely unknown model + provider returns 128_000."""
-        result = lookup_context_window("totally-made-up-model-xyz", provider="xyz_provider")
+        result = lookup_context_window(
+            "totally-made-up-model-xyz", provider="xyz_provider"
+        )
         assert result == 128_000
 
     def test_unknown_model_no_provider_returns_default(self):
@@ -280,7 +282,9 @@ class TestGetTokenBudget:
 
         branch = Branch()
         before = get_token_budget(branch)
-        branch.msgs.add_message(system="You are a helpful assistant with many things to say.")
+        branch.msgs.add_message(
+            system="You are a helpful assistant with many things to say."
+        )
         after = get_token_budget(branch)
         assert after.used >= before.used
 

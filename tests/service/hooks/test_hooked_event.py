@@ -10,7 +10,6 @@ import pytest
 from lionagi.protocols.types import EventStatus
 from lionagi.service.hooks.hooked_event import HookedEvent
 
-
 # ---------------------------------------------------------------------------
 # Minimal concrete HookedEvent subclasses for testing
 # ---------------------------------------------------------------------------

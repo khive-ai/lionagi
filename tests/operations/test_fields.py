@@ -14,7 +14,6 @@ from lionagi.operations.fields import (
     get_default_field,
 )
 
-
 # ---------------------------------------------------------------------------
 # Instruct.handle — lines 119-137
 # ---------------------------------------------------------------------------
@@ -37,9 +36,7 @@ class TestInstructHandle:
 
     def test_handle_instruct_dict_passed_directly(self):
         """Plain dict passed as instruct is used as-is for overrides."""
-        result = Instruct.handle(
-            instruct={"instruction": "old"}, instruction="new"
-        )
+        result = Instruct.handle(instruct={"instruction": "old"}, instruction="new")
         assert result.instruction == "new"
 
     def test_handle_none_sentinel_values_are_excluded(self):

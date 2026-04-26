@@ -466,8 +466,8 @@ class TestReActWrapper:
         assert result is not None
 
     async def test_react_with_instruct_object(self):
-        from lionagi.operations.ReAct.ReAct import ReAct
         from lionagi.operations.fields import Instruct
+        from lionagi.operations.ReAct.ReAct import ReAct
 
         branch = _make_branch_mock()
         analysis_obj = _make_react_analysis(extension_needed=False)

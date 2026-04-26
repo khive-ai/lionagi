@@ -163,6 +163,7 @@ from lionagi.operations.operate.operate import prepare_operate_kw
 
 def test_prepare_operate_kw_rejects_multiple_response_format_aliases():
     """Cannot specify both response_format and request_model simultaneously."""
+
     class ModelA(BaseModel):
         x: str
 
@@ -228,8 +229,8 @@ async def test_operate_handle_validation_raise_reports_expected_model(monkeypatc
 
 import warnings
 
-from lionagi.models import FieldModel
 from lionagi.ln.types import Spec
+from lionagi.models import FieldModel
 
 
 def test_prepare_operate_kw_deprecated_operative_model_warning():
@@ -374,8 +375,8 @@ async def test_operate_dict_result_with_no_action_requests_returns_result():
     async def fake_middle(b, ins, cctx, pctx, clear, **kw):
         return {"key": "value", "action_requests": None}
 
-    from lionagi.operations.types import ActionParam
     from lionagi.operations.act.act import _get_default_call_params
+    from lionagi.operations.types import ActionParam
 
     chat_param = ChatParam(imodel=branch.chat_model)
     action_param = ActionParam(
@@ -412,8 +413,8 @@ async def test_operate_dict_result_action_requests_dict_path():
             "action_requests": [{"function": "add", "arguments": {"a": 1, "b": 2}}],
         }
 
-    from lionagi.operations.types import ActionParam
     from lionagi.operations.act.act import _get_default_call_params
+    from lionagi.operations.types import ActionParam
 
     chat_param = ChatParam(imodel=branch.chat_model)
     action_param = ActionParam(

@@ -40,7 +40,9 @@ async def test_operation_cancelled_status():
     op._branch = branch
 
     task = asyncio.create_task(op.invoke())
-    await asyncio.wait_for(started.wait(), timeout=2.0)  # Wait for task to actually start
+    await asyncio.wait_for(
+        started.wait(), timeout=2.0
+    )  # Wait for task to actually start
     task.cancel()
 
     with pytest.raises(get_cancelled_exc_class()):

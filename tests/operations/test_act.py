@@ -3,23 +3,22 @@
 
 """Tests for lionagi.operations.act.act — _act, act, prepare_act_kw, strategies."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from lionagi.operations.act.act import (
     _act,
-    act,
-    prepare_act_kw,
     _get_default_call_params,
     _sequential_act,
+    act,
+    prepare_act_kw,
 )
 from lionagi.operations.fields import ActionResponseModel
 from lionagi.operations.types import ActionParam
 from lionagi.protocols.messages import ActionRequest
 from lionagi.session.branch import Branch
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -30,9 +29,11 @@ def _make_branch_with_tool(tool_fn=None):
     """Branch with one registered tool."""
     branch = Branch()
     if tool_fn is None:
+
         def add(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
+
         tool_fn = add
     branch.register_tools([tool_fn])
     return branch
@@ -238,6 +239,8 @@ def test_prepare_act_kw_defaults():
 async def test_sequential_act_single_request():
     """_sequential_act() wraps a non-list request in a list."""
     branch = _make_branch_with_tool()
-    result = await _sequential_act(branch, {"function": "add", "arguments": {"a": 7, "b": 3}})
+    result = await _sequential_act(
+        branch, {"function": "add", "arguments": {"a": 7, "b": 3}}
+    )
     assert len(result) == 1
     assert result[0].output == 10

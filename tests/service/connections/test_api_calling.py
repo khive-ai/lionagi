@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -360,7 +360,9 @@ class TestTokenUsageContentInjection:
 
     def test_dict_content_with_text_key_gets_appended(self, token_endpoint):
         """Dict content with 'text' key has token usage appended to that key (line 91-92)."""
-        api_call = self._make_api_call({"type": "text", "text": "Hello"}, token_endpoint)
+        api_call = self._make_api_call(
+            {"type": "text", "text": "Hello"}, token_endpoint
+        )
         result_content = api_call.payload["messages"][-1]["content"]
         assert isinstance(result_content, dict)
         assert "Estimated Current Token Usage" in result_content["text"]
@@ -450,7 +452,9 @@ class TestRequiredTokensProperty:
             payload={"input": "hello world", "model": "gpt-4"},
             endpoint=token_endpoint,
         )
-        with patch.object(TokenCalculator, "calculate_message_tokens", return_value=7) as mock_calc:
+        with patch.object(
+            TokenCalculator, "calculate_message_tokens", return_value=7
+        ) as mock_calc:
             count = api_call.required_tokens
         assert count == 7
         mock_calc.assert_called_once()
@@ -467,7 +471,9 @@ class TestRequiredTokensProperty:
             payload={"input": ["hello", "world"], "model": "gpt-4"},
             endpoint=token_endpoint,
         )
-        with patch.object(TokenCalculator, "calculate_message_tokens", return_value=5) as mock_calc:
+        with patch.object(
+            TokenCalculator, "calculate_message_tokens", return_value=5
+        ) as mock_calc:
             count = api_call.required_tokens
         assert count == 5
         call_args = mock_calc.call_args[0][0]
@@ -482,11 +488,15 @@ class TestRequiredTokensProperty:
             payload={"input": [msg], "model": "gpt-4"},
             endpoint=token_endpoint,
         )
-        with patch.object(TokenCalculator, "calculate_message_tokens", return_value=4) as mock_calc:
+        with patch.object(
+            TokenCalculator, "calculate_message_tokens", return_value=4
+        ) as mock_calc:
             count = api_call.required_tokens
         assert count == 4
 
-    def test_required_tokens_input_non_string_non_list_returns_none(self, token_endpoint):
+    def test_required_tokens_input_non_string_non_list_returns_none(
+        self, token_endpoint
+    ):
         """Input that is neither str nor list results in None (line 133)."""
         api_call = APICalling(
             payload={"input": 12345, "model": "gpt-4"},
@@ -507,7 +517,9 @@ class TestRequiredTokensProperty:
             payload={"texts": ["text1", "text2"], "model": "text-embedding-3-small"},
             endpoint=embed_endpoint,
         )
-        with patch.object(TokenCalculator, "calculate_embed_token", return_value=8) as mock_calc:
+        with patch.object(
+            TokenCalculator, "calculate_embed_token", return_value=8
+        ) as mock_calc:
             count = api_call.required_tokens
         assert count == 8
         mock_calc.assert_called_once()

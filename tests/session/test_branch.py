@@ -475,9 +475,7 @@ async def test_react_stream_yields_results_from_inner_generator(monkeypatch):
     async def fake_react_stream(*args, **kwargs):
         yield sentinel
 
-    monkeypatch.setattr(
-        "lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream
-    )
+    monkeypatch.setattr("lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream)
 
     results = await _drain(branch.ReActStream({"instruction": "test"}))
     assert results == [sentinel]
@@ -491,9 +489,7 @@ async def test_react_stream_verbose_false_yields_raw_result(monkeypatch):
     async def fake_react_stream(*args, **kwargs):
         yield payload
 
-    monkeypatch.setattr(
-        "lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream
-    )
+    monkeypatch.setattr("lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream)
 
     results = await _drain(branch.ReActStream({"instruction": "q"}, verbose=False))
     assert results == [payload]
@@ -507,17 +503,13 @@ async def test_react_stream_verbose_true_yields_analysis(monkeypatch):
     async def fake_react_stream(*args, **kwargs):
         yield (analysis_obj, "some text output")
 
-    monkeypatch.setattr(
-        "lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream
-    )
+    monkeypatch.setattr("lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream)
     # as_readable needs to exist; stub it out
     monkeypatch.setattr(
         "lionagi.libs.schema.as_readable.as_readable", lambda *a, **kw: None
     )
 
-    results = await _drain(
-        branch.ReActStream({"instruction": "q"}, verbose=True)
-    )
+    results = await _drain(branch.ReActStream({"instruction": "q"}, verbose=True))
     assert results == [analysis_obj]
 
 
@@ -530,9 +522,7 @@ async def test_react_stream_with_interpret_builds_interpret_param(monkeypatch):
         captured_kwargs.append(kwargs)
         yield object()
 
-    monkeypatch.setattr(
-        "lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream
-    )
+    monkeypatch.setattr("lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream)
 
     await _drain(
         branch.ReActStream(
@@ -556,13 +546,9 @@ async def test_react_stream_with_tools_builds_action_param(monkeypatch):
         captured_kwargs.append(kwargs)
         yield object()
 
-    monkeypatch.setattr(
-        "lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream
-    )
+    monkeypatch.setattr("lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream)
 
-    await _drain(
-        branch.ReActStream({"instruction": "q"}, tools=True)
-    )
+    await _drain(branch.ReActStream({"instruction": "q"}, tools=True))
 
     assert captured_kwargs[0].get("action_param") is not None
 
@@ -581,9 +567,7 @@ async def test_react_stream_with_response_format_sets_resp_ctx(monkeypatch):
         captured_kwargs.append(kwargs)
         yield object()
 
-    monkeypatch.setattr(
-        "lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream
-    )
+    monkeypatch.setattr("lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream)
 
     await _drain(
         branch.ReActStream(
@@ -607,9 +591,7 @@ async def test_react_stream_instruct_object_converted_to_dict(monkeypatch):
         captured_instruction.append(kwargs.get("instruction"))
         yield object()
 
-    monkeypatch.setattr(
-        "lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream
-    )
+    monkeypatch.setattr("lionagi.operations.ReAct.ReAct.ReActStream", fake_react_stream)
 
     instruct_obj = Instruct(instruction="from_object", guidance="g")
     await _drain(branch.ReActStream(instruct_obj))
