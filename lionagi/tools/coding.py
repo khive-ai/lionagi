@@ -204,6 +204,32 @@ class ContextRequest(BaseModel):
     )
 
 
+class SandboxAction(str, Enum):
+    create = "create"
+    diff = "diff"
+    commit = "commit"
+    merge = "merge"
+    discard = "discard"
+
+
+class SandboxRequest(BaseModel):
+    action: SandboxAction = Field(
+        ...,
+        description=(
+            "Action to perform. One of:\n"
+            "- 'create': Create an isolated git worktree for safe experimentation.\n"
+            "- 'diff': See what changed in the sandbox vs the base branch.\n"
+            "- 'commit': Commit current changes in the sandbox.\n"
+            "- 'merge': Apply sandbox changes back to the main branch and clean up.\n"
+            "- 'discard': Throw away the sandbox and all changes."
+        ),
+    )
+    message: str | None = Field(
+        None,
+        description="Commit message. Required for 'commit'.",
+    )
+
+
 class SubagentRequest(BaseModel):
     instruction: str = Field(
         ...,
@@ -1004,6 +1030,68 @@ class CodingToolkit(LionTool):
         if notify:
             self.post("*", _notify_post)
 
+        # -- Sandbox ---------------------------------------------------------
+
+        _sandbox_session = [None]  # mutable ref for closure
+
+        async def sandbox(
+            action: str,
+            message: str = None,
+        ) -> dict:
+            """Work in an isolated git worktree — safe experimentation with easy merge/discard.
+
+            Workflow: create → make changes (edit/bash in sandbox dir) → diff → commit → merge or discard.
+            The sandbox is a real git branch. Merge applies your changes; discard throws them away.
+            """
+            from .sandbox import (
+                create_sandbox,
+                sandbox_commit,
+                sandbox_diff,
+                sandbox_discard,
+                sandbox_merge,
+            )
+
+            if action == "create":
+                if _sandbox_session[0] is not None:
+                    return {"success": False, "error": "Sandbox already active. Discard or merge first."}
+                repo = str(workspace_root) if workspace_root else None
+                if not repo:
+                    return {"success": False, "error": "No workspace root — cannot create sandbox."}
+                try:
+                    session = await create_sandbox(repo)
+                    _sandbox_session[0] = session
+                    return {
+                        "success": True,
+                        "worktree": session.worktree_path,
+                        "branch": session.branch_name,
+                        "base": session.base_branch,
+                        "message": f"Sandbox ready at {session.worktree_path}. Edit files there, then use diff/commit/merge.",
+                    }
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+
+            session = _sandbox_session[0]
+            if session is None:
+                return {"success": False, "error": "No active sandbox. Create one first."}
+
+            if action == "diff":
+                return {"success": True, **(await sandbox_diff(session))}
+            elif action == "commit":
+                if not message:
+                    return {"success": False, "error": "'message' required for commit."}
+                return await sandbox_commit(session, message)
+            elif action == "merge":
+                result = await sandbox_merge(session)
+                if result.get("success"):
+                    _sandbox_session[0] = None
+                return result
+            elif action == "discard":
+                result = await sandbox_discard(session)
+                _sandbox_session[0] = None
+                return {"success": True, **result}
+
+            return {"success": False, "error": f"Unknown action: {action}"}
+
         # -- Subagent --------------------------------------------------------
 
         async def subagent(
@@ -1090,6 +1178,7 @@ class CodingToolkit(LionTool):
             ("bash", bash, BashRequest),
             ("search", search, SearchRequest),
             ("context", context, ContextRequest),
+            ("sandbox", sandbox, SandboxRequest),
             ("subagent", subagent, SubagentRequest),
         ]
 
