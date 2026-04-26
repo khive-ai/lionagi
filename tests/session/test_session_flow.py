@@ -866,40 +866,38 @@ class TestSessionFlowAsyncEdgeCases:
     async def test_flow_cancellation_mid_execution(self):
         """Test cancelling flow mid-execution cleans up properly."""
         session = Session()
-        branch = make_mock_branch()
-        session.include_branches(branch)
 
-        # Create slow operations
-        async def slow_invoke(**kwargs):
-            await asyncio.sleep(2)  # Simulate slow operation
-            config = _get_oai_config(
-                name="oai_chat",
-                endpoint="chat/completions",
-                request_options=OpenAIChatCompletionsRequest,
-                kwargs={"model": "gpt-4.1-mini"},
-            )
-            endpoint = Endpoint(config=config)
-            fake_call = APICalling(
-                payload={"model": "gpt-4.1-mini", "messages": []},
-                headers={"Authorization": "Bearer test"},
-                endpoint=endpoint,
-            )
-            fake_call.execution.response = "mocked_response"
-            fake_call.execution.status = EventStatus.COMPLETED
-            return fake_call
+        # Use a simple mock branch so we can intercept chat directly
+        branch = MagicMock()
+        branch.id = "test-branch-cancel-id"
 
-        branch.chat_model.invoke = AsyncMock(side_effect=slow_invoke)
+        started = asyncio.Event()
+
+        async def slow_chat(**kwargs):
+            started.set()
+            await asyncio.sleep(30)  # Never completes on its own
+            return (MagicMock(), MagicMock())
+
+        branch.chat = AsyncMock(side_effect=slow_chat)
+
+        def mock_get_operation(operation: str):
+            if operation == "chat":
+                return branch.chat
+            return None
+
+        branch.get_operation = MagicMock(side_effect=mock_get_operation)
+
+        session.branches.include(branch)
+        session.default_branch = branch
 
         graph, ops = make_simple_graph(3)
 
-        # Start flow and cancel after short delay
         task = asyncio.create_task(session.flow(graph, parallel=True, verbose=False))
 
-        # Cancel after brief delay
-        await asyncio.sleep(0.1)
+        # Wait until at least one operation has entered slow_chat before cancelling
+        await asyncio.wait_for(started.wait(), timeout=5.0)
         task.cancel()
 
-        # Verify cancellation
         with pytest.raises(asyncio.CancelledError):
             await task
 
