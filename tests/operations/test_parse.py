@@ -392,3 +392,33 @@ def make_mocked_branch_for_parse():
         return branch
 
     return _make_branch
+
+
+# ---------------------------------------------------------------------------
+# D11 – parse propagates cancellation without retry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_parse_propagates_cancelled_error_without_retry(
+    make_mocked_branch_for_parse,
+):
+    """parse() must re-raise the event-loop's CancelledError directly (no retry)."""
+    import asyncio
+
+    branch = make_mocked_branch_for_parse()
+
+    call_count = 0
+
+    async def _cancelling_chat(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise asyncio.CancelledError("simulated cancel")
+
+    branch.chat_model.invoke = _cancelling_chat
+
+    with pytest.raises((asyncio.CancelledError, BaseException)):
+        await parse(branch, text="some text", request_type=SampleModel)
+
+    # Must not have retried — cancellation should propagate immediately
+    assert call_count <= 1

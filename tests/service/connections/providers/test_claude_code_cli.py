@@ -59,8 +59,8 @@ class TestHandlerValidation:
             "on_final": lambda x: None,
         }
 
-        # Should not raise
-        _validate_handlers(handlers)
+        result = _validate_handlers(handlers)
+        assert result is None
 
     def test_validate_handlers_invalid_type(self):
         """Test _validate_handlers rejects non-dict input."""
@@ -105,8 +105,8 @@ class TestHandlerValidation:
             "on_tool_use": None,
         }
 
-        # Should not raise
-        _validate_handlers(handlers)
+        result = _validate_handlers(handlers)
+        assert result is None
 
 
 class TestClaudeHandlers:
@@ -443,17 +443,10 @@ class TestCallMethod:
             # Should have called stream twice (initial + auto-finish)
             assert mock_stream.call_count == 2
 
-    @pytest.mark.skip(reason="Complex _call integration - covered by other tests")
-    @pytest.mark.asyncio
-    async def test_call_with_include_summary(self):
-        """Test _call method with cli_include_summary - SKIPPED (complex integration)."""
-        pass
-
-    @pytest.mark.skip(reason="Complex _call integration - covered by other tests")
-    @pytest.mark.asyncio
-    async def test_call_combines_chunk_texts(self):
-        """Test _call combines texts - SKIPPED (complex integration)."""
-        pass
+    # test_call_with_include_summary and test_call_combines_chunk_texts removed.
+    # These were stubs covered by the non-skipped tests above and by
+    # tests/operations/run/test_run.py which exercises the streaming path
+    # end-to-end through the public API.
 
 
 class TestModuleLevelConfig:

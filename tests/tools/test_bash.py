@@ -215,3 +215,37 @@ async def test_to_tool_callable_executes():
     result = await t.func_callable(command="echo from_tool")
     assert result["return_code"] == 0
     assert "from_tool" in result["stdout"]
+
+
+# ---------------------------------------------------------------------------
+# C1: malformed command returns permission error response
+# ---------------------------------------------------------------------------
+
+
+async def test_bash_tool_malformed_command_returns_permission_error_response():
+    tool = BashTool()
+    resp = await tool.handle_request(BashRequest(command="python -c 'unterminated"))
+    assert resp.return_code == -1
+    assert resp.stderr.startswith("Malformed command")
+
+
+# ---------------------------------------------------------------------------
+# C2: Popen failure returns execution error response
+# ---------------------------------------------------------------------------
+
+
+async def test_bash_tool_popen_failure_returns_execution_error(monkeypatch):
+    import subprocess as _subprocess
+
+    import lionagi.tools.code.bash as bash_mod
+
+    def fake_popen(*args, **kwargs):
+        raise OSError("no exec")
+
+    monkeypatch.setattr(bash_mod.subprocess, "Popen", fake_popen)
+
+    tool = BashTool()
+    resp = await tool.handle_request(BashRequest(command="echo hi"))
+    assert resp.return_code == -1
+    assert "Execution error" in resp.stderr
+    assert "no exec" in resp.stderr

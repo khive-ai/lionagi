@@ -13,6 +13,12 @@ from lionagi.libs.schema.as_readable import (
 )
 
 
+def test_as_readable_truncates_nested_structures_without_display():
+    data = {"outer": {"items": list(range(20))}}
+    result = as_readable(data, max_chars=40, display_str=False)
+    assert "[Truncated output]" in result
+
+
 class TestFormatDict:
     """Test cases for format_dict function."""
 
@@ -366,3 +372,55 @@ class TestEnvironmentDetection:
         # If in console, should not be in notebook
         elif in_console():
             assert not in_notebook()
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests (lines 239-241, 103-104)
+# ---------------------------------------------------------------------------
+
+
+class TestAsReadableJsonFallback:
+    """Line 239-241: json.dumps exception → str() fallback."""
+
+    def test_json_fallback_when_dumps_raises(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import lionagi.libs.schema.as_readable as ar_mod
+
+        mock_json = MagicMock()
+        mock_json.dumps.side_effect = TypeError("not serializable")
+        monkeypatch.setattr(ar_mod, "json", mock_json)
+
+        result = as_readable({"key": "value"}, format_curly=False, display_str=False)
+        assert isinstance(result, str)
+
+    def test_in_notebook_exception_returns_false(self, monkeypatch):
+        """Lines 103-104: ImportError for IPython → in_notebook() returns False."""
+        import sys
+
+        import lionagi.libs.schema.as_readable as ar_mod
+
+        # Setting sys.modules['IPython'] = None causes ImportError when
+        # in_notebook() executes: from IPython import get_ipython
+        monkeypatch.setitem(sys.modules, "IPython", None)
+        result = ar_mod.in_notebook()
+        assert result is False
+
+    def test_display_str_false_returns_string(self):
+        """Line 261: display_str=False returns the string."""
+        result = as_readable({"a": 1}, display_str=False)
+        assert isinstance(result, str)
+
+    def test_display_str_true_prints_and_returns_none(self, capsys):
+        """Line 329: plain fallback when no rich/notebook → print(str_)."""
+        from unittest.mock import patch
+
+        import lionagi.libs.schema.as_readable as ar_mod
+
+        with patch.object(ar_mod, "RICH_AVAILABLE", False):
+            with patch.object(ar_mod, "in_notebook", return_value=False):
+                with patch.object(ar_mod, "in_console", return_value=False):
+                    result = as_readable({"key": "value"}, display_str=True)
+        captured = capsys.readouterr()
+        assert "key" in captured.out
+        assert result is None

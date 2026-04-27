@@ -262,3 +262,46 @@ async def test_search_rejects_path_outside_workspace(tmp_path, action, pattern):
 
     assert result["success"] is False
     assert "escapes workspace" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# C5: reader rejects workspace escape
+# ---------------------------------------------------------------------------
+
+
+async def test_coding_toolkit_reader_rejects_workspace_escape(tmp_path):
+    """ReaderTool rejects paths that escape the workspace root."""
+    secret = tmp_path.parent / "secret.txt"
+    secret.write_text("TOP SECRET\n")
+
+    _, _, tools = _make_toolkit(tmp_path)
+    result = await _tool_fn(tools, "reader")(action="read", path=str(secret))
+
+    assert result["success"] is False
+    assert "escape" in result["error"].lower() or "workspace" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# C6: editor reports ambiguous replacement without writing
+# ---------------------------------------------------------------------------
+
+
+async def test_coding_toolkit_editor_reports_ambiguous_replacement_without_writing(
+    tmp_path,
+):
+    """edit with replace_all=False on a file with duplicate old_string returns failure."""
+    target = tmp_path / "dup.py"
+    target.write_text("a\na\n")
+
+    _, _, tools = _make_toolkit(tmp_path)
+    result = await _tool_fn(tools, "editor")(
+        action="edit",
+        file_path=str(target),
+        old_string="a",
+        new_string="b",
+        replace_all=False,
+    )
+
+    assert result["success"] is False
+    # File must be unchanged
+    assert target.read_text() == "a\na\n"

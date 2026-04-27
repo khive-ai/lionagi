@@ -60,18 +60,6 @@ def patch_logger(monkeypatch):
     return calls
 
 
-@pytest.fixture
-def fake_event():
-    """Basic fake event instance."""
-    return FakeEvent()
-
-
-@pytest.fixture
-def fake_event_type():
-    """Basic fake event type."""
-    return FakeEventType
-
-
 class FakeFailAfter:
     """Mock fail_after context manager that immediately raises cancellation."""
 

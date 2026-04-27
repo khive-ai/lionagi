@@ -3,8 +3,6 @@
 
 """Tests for CodingToolkit: search, context management, and file_state tracking."""
 
-import time
-
 import pytest
 
 from lionagi.session.branch import Branch
@@ -157,9 +155,11 @@ async def test_file_state_mtime_tracked_after_read(tmp_path):
 
     await reader(action="read", path=str(f))
 
-    # Overwrite externally to advance mtime
-    time.sleep(0.01)
+    # Overwrite externally; advance mtime explicitly to guarantee it differs
+    import os
+
     f.write_text("changed externally\n")
+    os.utime(f, (f.stat().st_mtime + 1, f.stat().st_mtime + 1))
 
     # editor should detect stale mtime and reject
     result = await editor(

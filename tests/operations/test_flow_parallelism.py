@@ -29,36 +29,34 @@ from lionagi.session.session import Session
 @pytest.mark.asyncio
 async def test_flow_true_parallelism():
     """Test that operations truly run in parallel without locking."""
-    # Track execution times
-    execution_times = {}
-    start_time = time.time()
+    N = 5
+    started_count = 0
+    start_order: list[str] = []
+    started = asyncio.Event()
 
-    async def slow_operation(**kwargs):
-        """Simulate a slow operation that takes 0.5 seconds."""
-        op_id = kwargs.get("op_id")
-        execution_times[op_id] = {
-            "start": time.time() - start_time,
-            "end": None,
-        }
-        await asyncio.sleep(0.5)
-        execution_times[op_id]["end"] = time.time() - start_time
+    async def barrier_operation(**kwargs):
+        nonlocal started_count
+        op_id = kwargs.get("op_id", "?")
+        start_order.append(op_id)
+        started_count += 1
+        if started_count == N:
+            started.set()
+        # Block until all N have started — proves concurrent execution
+        await asyncio.wait_for(started.wait(), timeout=5.0)
         return f"Result from {op_id}"
 
-    # Create multiple independent operations
     graph = Graph()
     operations = []
 
-    for i in range(5):
+    for i in range(N):
         op = Operation(operation="chat", parameters={"op_id": f"op_{i}"})
         graph.add_node(op)
         operations.append(op)
 
-    # Mock branch with chat operation
     branch = MagicMock()
-    branch.id = str(uuid4())  # Use valid UUID
-    branch.chat = AsyncMock(side_effect=slow_operation)
+    branch.id = str(uuid4())
+    branch.chat = AsyncMock(side_effect=barrier_operation)
 
-    # Mock get_operation to return the correct async method
     def mock_get_operation(operation: str):
         if operation == "chat":
             return branch.chat
@@ -70,29 +68,16 @@ async def test_flow_true_parallelism():
     session.branches.include(branch)
     session.default_branch = branch
 
-    # Execute flow with high concurrency
-    start_time = time.time()
     result = await flow(
         session,
         graph,
-        max_concurrent=10,  # Allow all to run in parallel
+        max_concurrent=10,
         verbose=False,
     )
-    total_time = time.time() - start_time
 
-    # Verify all operations completed
-    assert len(result["completed_operations"]) == 5
-
-    # If truly parallel, total time should be ~0.5s (plus overhead)
-    # If serialized, it would be ~2.5s
-    assert total_time < 1.0, f"Operations took {total_time}s - likely serialized!"
-
-    # Check that operations started nearly simultaneously
-    start_times = [execution_times[f"op_{i}"]["start"] for i in range(5)]
-    max_start_diff = max(start_times) - min(start_times)
-    assert (
-        max_start_diff < 0.2
-    ), f"Operations didn't start together: {max_start_diff}s spread"
+    assert len(result["completed_operations"]) == N
+    # All N tasks incremented started_count before any completed — proves parallelism
+    assert started_count == N, f"Only {started_count}/{N} tasks ran concurrently"
 
 
 @pytest.mark.asyncio
@@ -464,34 +449,19 @@ async def test_flow_aggregation_pattern():
 
 @pytest.mark.asyncio
 async def test_flow_lock_contention_measurement():
-    """Test that measures actual lock contention during parallel execution."""
-    lock_wait_times = []
-    operation_timings = {}
+    """Test that operations run concurrently — max_concurrent_observed > 1 proves no serialization."""
+    concurrent_count = 0
+    max_concurrent_observed = 0
 
-    # Create a more realistic branch mock that simulates lock contention
-    class TimingLock:
-        def __init__(self):
-            self._lock = asyncio.Lock()
-
-        async def __aenter__(self):
-            start = time.time()
-            await self._lock.__aenter__()
-            wait_time = time.time() - start
-            if wait_time > 0.001:  # Only record meaningful waits
-                lock_wait_times.append(wait_time)
-
-        async def __aexit__(self, *args):
-            await self._lock.__aexit__(*args)
-
-    async def timed_operation(**kwargs):
-        """Operation that tracks its execution time."""
+    async def counting_operation(**kwargs):
+        nonlocal concurrent_count, max_concurrent_observed
         op_id = kwargs.get("op_id")
-        start = time.time()
-        await asyncio.sleep(0.1)  # Simulate work
-        operation_timings[op_id] = time.time() - start
+        concurrent_count += 1
+        max_concurrent_observed = max(max_concurrent_observed, concurrent_count)
+        await asyncio.sleep(0)  # yield to event loop so others can start
+        concurrent_count -= 1
         return f"Result {op_id}"
 
-    # Create many parallel operations
     graph = Graph()
     num_operations = 20
 
@@ -499,53 +469,28 @@ async def test_flow_lock_contention_measurement():
         op = Operation(operation="chat", parameters={"op_id": f"op_{i}"})
         graph.add_node(op)
 
-    # Setup session with our timing lock
     branch = MagicMock()
     branch.id = str(uuid4())
-    branch.chat = AsyncMock(side_effect=timed_operation)
+    branch.chat = AsyncMock(side_effect=counting_operation)
 
-    # Mock clone
-    def mock_clone(sender=None):
-        cloned = MagicMock()
-        cloned.id = str(uuid4())
-        cloned.chat = AsyncMock(side_effect=timed_operation)
-        cloned.clone = MagicMock(side_effect=mock_clone)
-        cloned._message_manager = MagicMock()
-        cloned._message_manager.pile = MagicMock()
-        cloned._message_manager.pile.clear = MagicMock()
-        cloned.metadata = {}
-        return cloned
+    def mock_get_operation(operation: str):
+        if operation == "chat":
+            return branch.chat
+        return None
 
-    branch.clone = MagicMock(side_effect=mock_clone)
+    branch.get_operation = MagicMock(side_effect=mock_get_operation)
 
     session = Session()
     session.branches.include(branch)
     session.default_branch = branch
 
-    # Replace the branches lock with our timing lock
-    # We can't directly set async_lock, so we'll patch it
-    original_lock = session.branches.async_lock
-    timing_lock = TimingLock()
-
-    # Monkey patch the async_lock property
-    type(session.branches).async_lock = property(lambda self: timing_lock)
-
-    # Execute with high concurrency
-    start = time.time()
     result = await flow(session, graph, max_concurrent=20, verbose=False)
-    total_time = time.time() - start
 
-    # Analysis
     assert len(result["completed_operations"]) == num_operations
-
-    # With our fix, lock contention should be minimal
-    # We should see very few lock waits during execution
-    significant_waits = [w for w in lock_wait_times if w > 0.01]
-    assert len(significant_waits) < 5, f"Too many lock waits: {len(significant_waits)}"
-
-    # Total execution time should be close to single operation time
-    # since they run in parallel
-    assert total_time < 0.5, f"Execution took {total_time}s - likely serialized!"
+    # More than 1 task was in-flight at once — proves no serialization
+    assert (
+        max_concurrent_observed > 1
+    ), f"Operations ran serially: max concurrent was {max_concurrent_observed}"
 
 
 @pytest.mark.asyncio

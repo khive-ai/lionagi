@@ -575,3 +575,59 @@ class TestWithRetryDecorator:
             await func_with_excluded()
 
         assert attempts["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_with_backoff_excluded_exception_does_not_sleep_or_retry(self):
+        from unittest.mock import patch
+
+        import lionagi.service.resilience as resilience_mod
+
+        sleep_calls = []
+
+        async def failing():
+            raise ValueError("excluded")
+
+        async def fake_sleep(secs):
+            sleep_calls.append(secs)
+
+        with patch.object(resilience_mod.anyio, "sleep", fake_sleep):
+            with pytest.raises(ValueError, match="excluded"):
+                await retry_with_backoff(
+                    failing,
+                    exclude_exceptions=(ValueError,),
+                    max_retries=3,
+                    base_delay=1.0,
+                )
+
+        assert len(sleep_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_with_backoff_no_jitter_uses_capped_delay_sequence(self):
+        from unittest.mock import patch
+
+        import lionagi.service.resilience as resilience_mod
+
+        sleep_calls = []
+        call_count = [0]
+
+        async def sometimes_failing():
+            call_count[0] += 1
+            if call_count[0] < 3:
+                raise APIClientError("fail")
+            return "success"
+
+        async def fake_sleep(secs):
+            sleep_calls.append(secs)
+
+        with patch.object(resilience_mod.anyio, "sleep", fake_sleep):
+            result = await retry_with_backoff(
+                sometimes_failing,
+                retry_exceptions=(APIClientError,),
+                base_delay=2.0,
+                backoff_factor=10.0,
+                max_delay=5.0,
+                jitter=False,
+            )
+
+        assert result == "success"
+        assert sleep_calls == [2.0, 5.0]

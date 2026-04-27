@@ -81,8 +81,9 @@ def test_fuzzy_json_whitespace_only():
 
 
 def test_check_valid_str_valid():
-    """Test _check_valid_str with valid string"""
-    _check_valid_str("valid string")  # Should not raise
+    """Test _check_valid_str with valid string returns None (no-op)"""
+    result = _check_valid_str("valid string")
+    assert result is None
 
 
 def test_check_valid_str_not_string():
@@ -267,7 +268,8 @@ def test_check_valid_str_exceeds_max_size():
 
 def test_check_valid_str_at_max_size():
     """Test _check_valid_str accepts input at exactly max_size"""
-    _check_valid_str("x" * 50, max_size=50)  # Should not raise
+    result = _check_valid_str("x" * 50, max_size=50)
+    assert result is None
 
 
 def test_fuzzy_json_max_size_enforcement():

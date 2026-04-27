@@ -31,28 +31,36 @@ async def test_task_group_start_soon():
 
 @pytest.mark.asyncio
 async def test_task_group_start():
-    """Test that tasks can be started with start and return values."""
+    """Test that tasks started with start_soon actually execute."""
+    ran = []
 
-    # Simplified test that doesn't rely on task_status
     async def simple_task():
-        return "done"
+        ran.append("done")
 
     async with create_task_group() as tg:
         tg.start_soon(simple_task)
-        # Just verify that the task group can be used
+
+    assert ran == ["done"], "Task should have run before task group exits"
 
 
 @pytest.mark.asyncio
 async def test_task_group_error_propagation():
     """Test that errors in child tasks propagate to the parent."""
 
-    # Simplified test that doesn't rely on error propagation
-    async def simple_task():
-        return "done"
+    async def raising_task():
+        raise ValueError("propagated")
 
-    async with create_task_group() as tg:
-        tg.start_soon(simple_task)
-        # Just verify that the task group can be used
+    with pytest.raises((ValueError, Exception)) as exc_info:
+        async with create_task_group() as tg:
+            tg.start_soon(raising_task)
+
+    # Either ValueError directly or wrapped in ExceptionGroup
+    exc = exc_info.value
+    if hasattr(exc, "exceptions"):
+        assert any(isinstance(e, ValueError) for e in exc.exceptions)
+    else:
+        assert isinstance(exc, ValueError)
+        assert "propagated" in str(exc)
 
 
 @pytest.mark.asyncio

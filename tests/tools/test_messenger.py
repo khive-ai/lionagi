@@ -92,8 +92,9 @@ class TestLionMessengerBasics:
 
     def test_fire_no_callback_noop(self):
         m = LionMessenger(exchange=Exchange())
-        # Should not raise when no callback registered.
-        m._fire("done", name="x")
+        result = m._fire("done", name="x")
+        assert result is None
+        assert "done" not in m._callbacks
 
 
 class TestMessengerBindSend:

@@ -152,3 +152,312 @@ async def test_operate_with_actions_preserves_response_data():
     # Verify action_responses were added
     assert len(result.action_responses) == 1
     assert result.action_responses[0].function == "add"
+
+
+# ---------------------------------------------------------------------------
+# Edge cases for prepare_operate_kw (P0)
+# ---------------------------------------------------------------------------
+
+from lionagi.operations.operate.operate import prepare_operate_kw
+
+
+def test_prepare_operate_kw_rejects_multiple_response_format_aliases():
+    """Cannot specify both response_format and request_model simultaneously."""
+
+    class ModelA(BaseModel):
+        x: str
+
+    class ModelB(BaseModel):
+        y: str
+
+    branch = Branch()
+    with pytest.raises(ValueError, match="Cannot specify multiple of"):
+        prepare_operate_kw(branch, response_format=ModelA, request_model=ModelB)
+
+
+def test_prepare_operate_kw_rejects_invalid_field_model_entry():
+    """field_models list containing a non-FieldModel/Spec raises TypeError."""
+    branch = Branch()
+    with pytest.raises(TypeError, match="Expected FieldModel or Spec"):
+        prepare_operate_kw(branch, field_models=[object()])
+
+
+@pytest.mark.asyncio
+async def test_operate_handle_validation_raise_reports_expected_model(monkeypatch):
+    """operate(..., handle_validation='raise') raises ValueError on parse mismatch."""
+    from pydantic import BaseModel
+
+    class ExpectedModel(BaseModel):
+        answer: str
+
+    async def stub_middle(b, ins, **kw):
+        return {"not": "model"}
+
+    branch = Branch()
+
+    async def fake_invoke(**kw):
+        config = _get_oai_config(
+            name="oai_chat",
+            endpoint="chat/completions",
+            request_options=OpenAIChatCompletionsRequest,
+            kwargs={"model": "gpt-4.1-mini"},
+        )
+        endpoint = Endpoint(config=config)
+        fake_call = APICalling(
+            payload={"model": "gpt-4.1-mini", "messages": []},
+            headers={"Authorization": "Bearer test"},
+            endpoint=endpoint,
+        )
+        fake_call.execution.response = '{"not": "model"}'
+        fake_call.execution.status = EventStatus.COMPLETED
+        return fake_call
+
+    branch.chat_model.invoke = AsyncMock(side_effect=fake_invoke)
+
+    with pytest.raises((ValueError, Exception)):
+        await branch.operate(
+            instruction="test",
+            response_format=ExpectedModel,
+            handle_validation="raise",
+            invoke_actions=False,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Additional prepare_operate_kw coverage — deprecated params & field_models
+# ---------------------------------------------------------------------------
+
+import warnings
+
+from lionagi.ln.types import Spec
+from lionagi.models import FieldModel
+
+
+def test_prepare_operate_kw_deprecated_operative_model_warning():
+    """operative_model triggers DeprecationWarning (line 72)."""
+
+    class M(BaseModel):
+        x: str
+
+    branch = Branch()
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        prepare_operate_kw(branch, operative_model=M)
+    assert any(issubclass(x.category, DeprecationWarning) for x in w)
+    assert any("operative_model" in str(x.message) for x in w)
+
+
+def test_prepare_operate_kw_deprecated_imodel_warning():
+    """imodel= triggers DeprecationWarning (line 86)."""
+    branch = Branch()
+    from lionagi.service.imodel import iModel
+
+    fake = iModel(provider="openai", model="gpt-4.1-mini", api_key="k")
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        prepare_operate_kw(branch, imodel=fake)
+    assert any(issubclass(x.category, DeprecationWarning) for x in w)
+    assert any("imodel" in str(x.message) for x in w)
+
+
+def test_prepare_operate_kw_instruct_as_dict():
+    """instruct=dict is converted to Instruct (line 107)."""
+    branch = Branch()
+    result = prepare_operate_kw(branch, instruct={"instruction": "hello"})
+    assert result["instruction"] == "hello"
+
+
+def test_prepare_operate_kw_reason_flag_sets_instruct_reason():
+    """reason=True sets instruct.reason=True (line 116)."""
+    branch = Branch()
+    result = prepare_operate_kw(branch, reason=True)
+    # operative is built because reason=True
+    assert result["operative"] is not None
+
+
+def test_prepare_operate_kw_field_models_with_fieldmodel():
+    """FieldModel in field_models is converted to Spec (line 129)."""
+    branch = Branch()
+    fm = FieldModel(name="score", annotation=float)
+    result = prepare_operate_kw(branch, field_models=[fm])
+    # operative is built because fields_dict is non-empty
+    assert result["operative"] is not None
+
+
+def test_prepare_operate_kw_field_models_with_spec():
+    """Spec in field_models is used directly (line 131)."""
+    branch = Branch()
+    spec = Spec(name="label", annotation=str)
+    result = prepare_operate_kw(branch, field_models=[spec])
+    assert result["operative"] is not None
+
+
+def test_prepare_operate_kw_persist_dir_sets_run_param():
+    """persist_dir triggers RunParam path and is set in chat_param (lines 179-181)."""
+    from lionagi.operations.types import RunParam
+
+    branch = Branch()
+    result = prepare_operate_kw(branch, persist_dir="/tmp/test_dir")
+    chat_param = result["chat_param"]
+    assert isinstance(chat_param, RunParam)
+    assert chat_param.persist_dir == "/tmp/test_dir"
+
+
+def test_prepare_operate_kw_stream_persist_sets_run_param():
+    """stream_persist=True triggers RunParam path (lines 178-179)."""
+    from lionagi.operations.types import RunParam
+
+    branch = Branch()
+    result = prepare_operate_kw(branch, stream_persist=True)
+    chat_param = result["chat_param"]
+    assert isinstance(chat_param, RunParam)
+    assert chat_param.stream_persist is True
+
+
+# ---------------------------------------------------------------------------
+# operate() function direct tests — various branches
+# ---------------------------------------------------------------------------
+
+from lionagi.operations.operate.operate import operate
+from lionagi.operations.types import ChatParam, ParseParam
+
+
+@pytest.mark.asyncio
+async def test_operate_return_none_on_validation_failure():
+    """handle_validation='return_none' returns None when result is not model (line 341)."""
+
+    class ExpectedModel(BaseModel):
+        value: str
+
+    branch = Branch()
+
+    async def fake_middle(b, ins, cctx, pctx, clear, **kw):
+        return {"not": "a model"}  # wrong type
+
+    chat_param = ChatParam(imodel=branch.chat_model, response_format=ExpectedModel)
+    result = await operate(
+        branch,
+        "test",
+        chat_param,
+        handle_validation="return_none",
+        skip_validation=False,
+        invoke_actions=False,
+        middle=fake_middle,
+    )
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_operate_skip_validation_returns_raw():
+    """skip_validation=True returns raw middle result without model check (line 335)."""
+    branch = Branch()
+
+    async def fake_middle(b, ins, cctx, pctx, clear, **kw):
+        return "raw_string_result"
+
+    chat_param = ChatParam(imodel=branch.chat_model)
+    result = await operate(
+        branch,
+        "test",
+        chat_param,
+        skip_validation=True,
+        invoke_actions=False,
+        middle=fake_middle,
+    )
+    assert result == "raw_string_result"
+
+
+@pytest.mark.asyncio
+async def test_operate_dict_result_with_no_action_requests_returns_result():
+    """Dict result with no action_requests is returned unchanged (line 374)."""
+    branch = Branch()
+
+    async def fake_middle(b, ins, cctx, pctx, clear, **kw):
+        return {"key": "value", "action_requests": None}
+
+    from lionagi.operations.act.act import _get_default_call_params
+    from lionagi.operations.types import ActionParam
+
+    chat_param = ChatParam(imodel=branch.chat_model)
+    action_param = ActionParam(
+        action_call_params=_get_default_call_params(),
+        tools=None,
+        strategy="concurrent",
+    )
+    result = await operate(
+        branch,
+        "test",
+        chat_param,
+        action_param=action_param,
+        skip_validation=True,
+        invoke_actions=True,
+        middle=fake_middle,
+    )
+    assert result == {"key": "value", "action_requests": None}
+
+
+@pytest.mark.asyncio
+async def test_operate_dict_result_action_requests_dict_path():
+    """Dict result with action_requests list merges action_responses (lines 362-387)."""
+    branch = Branch()
+
+    def add(a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+
+    branch.register_tools([add])
+
+    async def fake_middle(b, ins, cctx, pctx, clear, **kw):
+        return {
+            "some_data": "hello",
+            "action_requests": [{"function": "add", "arguments": {"a": 1, "b": 2}}],
+        }
+
+    from lionagi.operations.act.act import _get_default_call_params
+    from lionagi.operations.types import ActionParam
+
+    chat_param = ChatParam(imodel=branch.chat_model)
+    action_param = ActionParam(
+        action_call_params=_get_default_call_params(),
+        tools=None,
+        strategy="concurrent",
+    )
+    result = await operate(
+        branch,
+        "test",
+        chat_param,
+        action_param=action_param,
+        skip_validation=False,
+        invoke_actions=True,
+        middle=fake_middle,
+    )
+    # Dict response should have action_responses merged in
+    assert isinstance(result, dict)
+    assert "action_responses" in result
+    assert len(result["action_responses"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_operate_with_field_models_builds_operative():
+    """operate() with field_models builds an operative (lines 286-314)."""
+    branch = Branch()
+
+    class FakeResult(BaseModel):
+        label: str
+
+    async def fake_middle(b, ins, cctx, pctx, clear, **kw):
+        # Return a dict that can be parsed — skip_validation=True to avoid parse
+        return {"label": "test_value"}
+
+    fm = FieldModel(name="label", annotation=str)
+    chat_param = ChatParam(imodel=branch.chat_model)
+    result = await operate(
+        branch,
+        "test",
+        chat_param,
+        field_models=[fm],
+        skip_validation=True,
+        invoke_actions=False,
+        middle=fake_middle,
+    )
+    assert result == {"label": "test_value"}

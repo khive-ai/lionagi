@@ -23,24 +23,26 @@ from lionagi.service.third_party.openai_models import OpenAIChatCompletionsReque
 @pytest.mark.asyncio
 async def test_operation_cancelled_status():
     """Test that cancelled operations have EventStatus.CANCELLED."""
-    # Create a mock branch
     branch = MagicMock()
     branch.id = "test-branch-id"
 
-    # Mock method that will be cancelled
+    started = asyncio.Event()
+
     async def slow_method(**kwargs):
-        await asyncio.sleep(10)  # Long running operation
+        started.set()
+        await asyncio.sleep(100)  # Never completes on its own
         return "should_not_reach_here"
 
-    branch.chat = slow_method  # Use real async function, not AsyncMock
+    branch.chat = slow_method
     branch.get_operation = MagicMock(return_value=branch.chat)
 
     op = Operation(operation="chat")
     op._branch = branch
 
-    # Create task and cancel it
     task = asyncio.create_task(op.invoke())
-    await asyncio.sleep(0.01)  # Let it start
+    await asyncio.wait_for(
+        started.wait(), timeout=2.0
+    )  # Wait for task to actually start
     task.cancel()
 
     with pytest.raises(get_cancelled_exc_class()):
@@ -68,14 +70,12 @@ async def test_api_call_cancelled_status():
         endpoint=endpoint,
     )
 
-    # Mock the endpoint's invoke method to simulate a long-running call
     async def slow_invoke(**kwargs):
         await asyncio.sleep(10)
         return {"response": "should_not_reach_here"}
 
     api_call.endpoint.invoke = AsyncMock(side_effect=slow_invoke)
 
-    # Create task and cancel it
     task = asyncio.create_task(api_call.invoke())
     await asyncio.sleep(0.01)  # Let it start
     task.cancel()
@@ -85,12 +85,6 @@ async def test_api_call_cancelled_status():
     except get_cancelled_exc_class():
         pass  # Expected
 
-    # Note: APICalling.invoke() uses get_cancelled_exc_class() from anyio
-    # which might behave slightly differently, but the status should still be set
-    # In practice, the status would be set to CANCELLED when the exception is caught
-
-    # Since we can't easily test the actual APICalling.invoke() method without
-    # a real endpoint, we'll verify the constant exists and is correct
     assert hasattr(EventStatus, "CANCELLED")
     assert EventStatus.CANCELLED == "cancelled"
 
@@ -119,21 +113,23 @@ async def test_cancelled_vs_failed_status():
     assert isinstance(op_failed.execution.error, ValueError)
     assert "This is a failure" in str(op_failed.execution.error)
 
-    # Test cancelled operation - use a fresh branch
+    # Test cancelled operation - use an event to avoid fixed sleeps
     branch_cancelled = MagicMock()
     branch_cancelled.id = "test-branch-id-cancelled"
+    started_cancelled = asyncio.Event()
 
     async def slow_method(**kwargs):
-        await asyncio.sleep(10)
+        started_cancelled.set()
+        await asyncio.sleep(100)
         return "should_not_reach_here"
 
-    branch_cancelled.chat = slow_method  # Use real async function, not AsyncMock
+    branch_cancelled.chat = slow_method
     branch_cancelled.get_operation = MagicMock(return_value=branch_cancelled.chat)
 
     op_cancelled = Operation(operation="chat")
     op_cancelled._branch = branch_cancelled
     task = asyncio.create_task(op_cancelled.invoke())
-    await asyncio.sleep(0.01)  # Let it start
+    await asyncio.wait_for(started_cancelled.wait(), timeout=2.0)
     task.cancel()
 
     try:

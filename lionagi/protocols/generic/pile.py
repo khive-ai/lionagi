@@ -807,9 +807,10 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         if isinstance(key, int | slice):
             try:
                 result_ids = self.progression[key]
-                result_ids = (
-                    [result_ids] if not isinstance(result_ids, list) else result_ids
-                )
+                if isinstance(result_ids, Progression):
+                    result_ids = list(result_ids)
+                elif not isinstance(result_ids, list):
+                    result_ids = [result_ids]
                 result = []
                 for i in result_ids:
                     result.append(self.collections[i])

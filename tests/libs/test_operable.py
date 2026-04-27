@@ -133,15 +133,6 @@ class TestOperable:
         # Verify it's a tuple
         assert isinstance(operable.__op_fields__, tuple)
 
-    def test_create_model_pydantic_not_installed(self):
-        """Test create_model() raises when Pydantic not installed."""
-        spec1 = Spec(str, name="field1")
-        operable = Operable((spec1,))
-
-        # Mock missing import by testing error message format
-        # Actual test will depend on whether Pydantic is installed
-        # This just tests the error handling structure is correct
-
     def test_create_model_unsupported_adapter(self):
         """Test create_model() raises on unsupported adapter."""
         spec1 = Spec(str, name="field1")

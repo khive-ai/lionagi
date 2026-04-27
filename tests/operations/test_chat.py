@@ -364,63 +364,9 @@ class TestActionResponseIntegration:
 class TestStreamModeHandling:
     """Test stream vs invoke selection."""
 
-    @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason="chat() no longer has stream path — streaming moved to run()"
-    )
-    async def test_chat_uses_stream_when_kwarg_set(self, make_mocked_branch_for_chat):
-        """Verify imodel.stream called when stream=True."""
-        branch = make_mocked_branch_for_chat()
-
-        # Mock stream method
-        async def _fake_stream(**kwargs):
-            from lionagi.protocols.generic.event import EventStatus
-            from lionagi.service.connections.api_calling import APICalling
-            from lionagi.service.connections.endpoint import Endpoint
-            from lionagi.service.connections.providers.oai_ import _get_oai_config
-            from lionagi.service.third_party.openai_models import (
-                OpenAIChatCompletionsRequest,
-            )
-
-            config = _get_oai_config(
-                name="oai_chat",
-                endpoint="chat/completions",
-                request_options=OpenAIChatCompletionsRequest,
-                kwargs={"model": "gpt-4.1-mini"},
-            )
-            endpoint = Endpoint(config=config)
-            fake_call = APICalling(
-                payload={"model": "gpt-4.1-mini", "messages": []},
-                headers={"Authorization": "Bearer test"},
-                endpoint=endpoint,
-            )
-            fake_call.execution.response = "Stream response"
-            fake_call.execution.status = EventStatus.COMPLETED
-            return fake_call
-
-        branch.chat_model.stream = AsyncMock(side_effect=_fake_stream)
-
-        chat_ctx = ChatParam(
-            guidance=None,
-            context=None,
-            sender="user",
-            recipient=branch.id,
-            response_format=None,
-            progression=None,
-            tool_schemas=[],
-            images=[],
-            image_detail="auto",
-            plain_content="",
-            include_token_usage_to_model=False,
-            imodel=branch.chat_model,
-            imodel_kw={"stream": True},  # Stream mode
-        )
-
-        result = await chat(branch, "Test", chat_ctx, return_ins_res_message=False)
-
-        # Verify stream was called
-        branch.chat_model.stream.assert_called_once()
-        assert isinstance(result, str)
+    # Removed: test_chat_uses_stream_when_kwarg_set was an xfail stub.
+    # chat() no longer has a streaming path — streaming is now in run().
+    # See tests/operations/run/test_run.py for the new streaming coverage.
 
 
 class TestReturnFormats:

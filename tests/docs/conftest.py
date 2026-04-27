@@ -41,12 +41,3 @@ def mocked_branch_structured():
             "phone": "555-1234",
         },
     )
-
-
-@pytest.fixture
-def mocked_session():
-    """Session with multiple mocked branches."""
-    return LionAGIMockFactory.create_mocked_session(
-        branches=["researcher", "writer", "reviewer"],
-        default_branch_response="mocked session response",
-    )

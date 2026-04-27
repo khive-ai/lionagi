@@ -115,7 +115,7 @@ class Params:
     @classmethod
     def allowed(cls) -> set[str]:
         """Return the keys of the parameters."""
-        if cls._allowed_keys:
+        if "_allowed_keys" in cls.__dict__ and cls.__dict__["_allowed_keys"]:
             return cls._allowed_keys
         cls._allowed_keys = {
             i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")
@@ -198,7 +198,7 @@ class DataClass:
     @classmethod
     def allowed(cls) -> set[str]:
         """Return the keys of the parameters."""
-        if cls._allowed_keys:
+        if "_allowed_keys" in cls.__dict__ and cls.__dict__["_allowed_keys"]:
             return cls._allowed_keys
         cls._allowed_keys = {
             i for i in cls.__dataclass_fields__.keys() if not i.startswith("_")

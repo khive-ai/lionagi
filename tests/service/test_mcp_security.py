@@ -91,11 +91,10 @@ class TestValidateCommand:
     """Test command validation."""
 
     def test_no_allowlist_allows_all(self):
-        """No allowlist means all commands pass."""
+        """No allowlist means all commands return None (permitted)."""
         config = MCPSecurityConfig(command_allowlist=None)
-        # Should not raise
-        _validate_command("anything", config)
-        _validate_command("node", config)
+        assert _validate_command("anything", config) is None
+        assert _validate_command("node", config) is None
 
     def test_allowlist_blocks_unlisted(self):
         """Commands not in allowlist are blocked."""
@@ -104,10 +103,13 @@ class TestValidateCommand:
             _validate_command("bash", config)
 
     def test_allowlist_permits_listed(self):
-        """Commands in allowlist are permitted."""
+        """Commands in allowlist return None; unlisted commands raise."""
         config = MCPSecurityConfig(command_allowlist=frozenset({"node", "python"}))
-        _validate_command("node", config)
-        _validate_command("python", config)
+        assert _validate_command("node", config) is None
+        assert _validate_command("python", config) is None
+        # Unlisted command should be rejected
+        with pytest.raises(ValueError):
+            _validate_command("bash", config)
 
     def test_path_separator_rejected_bare_in_allowlist(self):
         """Path commands rejected even when bare name is in allowlist."""
@@ -122,7 +124,8 @@ class TestValidateCommand:
             _validate_command("/usr/bin/node", config)
 
     def test_no_allowlist_allows_paths(self):
-        """No allowlist means path separators are fine."""
+        """No allowlist means path separators are permitted (returns None)."""
         config = MCPSecurityConfig(command_allowlist=None)
-        # Should not raise
-        _validate_command("/usr/bin/node", config)
+        assert _validate_command("/usr/bin/node", config) is None
+        # Any path-based command is allowed when there is no allowlist
+        assert _validate_command("/bin/sh", config) is None

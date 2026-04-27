@@ -601,3 +601,70 @@ class TestEndpoint:
             restored_endpoint.retry_config.max_retries
             == original_endpoint.retry_config.max_retries
         )
+
+    def test_endpoint_create_payload_filters_non_api_params_without_request_options(
+        self,
+    ):
+        config = EndpointConfig(
+            name="test_chat",
+            provider="test_provider",
+            endpoint="chat/completions",
+            auth_type="bearer",
+            content_type="application/json",
+            api_key="test-key-123",
+        )
+        endpoint = Endpoint(config)
+        assert endpoint.config.request_options is None
+
+        request = {
+            "messages": [{"role": "user", "content": "hi"}],
+            "provider": "openai",
+            "branch": object(),
+            "parse_model": object(),
+            "temperature": 0.2,
+        }
+        payload, headers = endpoint.create_payload(request)
+
+        assert "messages" in payload
+        assert payload["messages"] == [{"role": "user", "content": "hi"}]
+        assert payload.get("temperature") == 0.2
+        assert "provider" not in payload
+        assert "branch" not in payload
+        assert "parse_model" not in payload
+        assert any("application/json" in str(v) for v in headers.values())
+
+    @pytest.mark.asyncio
+    async def test_endpoint_call_composes_retry_then_circuit_without_cache(self):
+        from unittest.mock import patch
+
+        from lionagi.service.resilience import CircuitBreaker, RetryConfig
+
+        retry_config = RetryConfig(max_retries=1)
+        circuit_breaker = CircuitBreaker()
+
+        config = EndpointConfig(
+            name="test_chat",
+            provider="test_provider",
+            endpoint="chat/completions",
+            auth_type="bearer",
+            content_type="application/json",
+            api_key="test-key",
+        )
+        endpoint = Endpoint(
+            config, circuit_breaker=circuit_breaker, retry_config=retry_config
+        )
+
+        async def fake_call(payload, headers, **kwargs):
+            return {"result": "ok"}
+
+        async def fake_execute(func, *args, **kwargs):
+            return await func(*args, **kwargs)
+
+        with patch.object(endpoint, "_call", fake_call):
+            with patch.object(
+                circuit_breaker, "execute", side_effect=fake_execute
+            ) as mock_execute:
+                result = await endpoint.call({"messages": []}, cache_control=False)
+
+        assert result == {"result": "ok"}
+        assert mock_execute.called

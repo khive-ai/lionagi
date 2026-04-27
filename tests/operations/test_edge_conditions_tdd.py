@@ -701,17 +701,17 @@ async def test_behavior_multi_level_conditions():
 # ============================================================================
 
 
-@pytest.mark.skip(reason="Edge condition skipping not fully implemented")
 @pytest.mark.asyncio
 async def test_performance_skip_expensive_operations():
     """
-    PERFORMANCE: Skipped operations should not execute their expensive logic.
+    PERFORMANCE: Operations with a false edge condition should not execute.
+    Uses an event-backed approach — no timing assertions.
     """
     call_count = {"expensive": 0}
 
     async def expensive_operation(**kwargs):
         call_count["expensive"] += 1
-        await asyncio.sleep(0.1)  # Simulate expensive operation
+        # No sleep — we're testing skipping, not timing
 
         # Return proper API call format
         from lionagi.service.connections.api_calling import APICalling

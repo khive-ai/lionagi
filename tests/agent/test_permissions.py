@@ -174,3 +174,27 @@ def test_tool_aliases_normalized_at_init():
     assert "bash" in p.deny and "bash_tool" not in p.deny
     assert "editor" in p.allow and "editor_tool" not in p.allow
     assert "reader" in p.escalate and "reader_tool" not in p.escalate
+
+
+# ---------------------------------------------------------------------------
+# A7: rules mode denies tool with no matching allow entry
+# ---------------------------------------------------------------------------
+
+
+def test_permission_policy_rules_default_denies_unmatched_tool():
+    p = PermissionPolicy(mode="rules", allow={"reader": ["*"]})
+    d = p.check("bash", "run", {"command": "pwd"})
+    assert d.behavior == "deny"
+    assert "no matching rule" in d.reason
+
+
+# ---------------------------------------------------------------------------
+# A8: shell control operator denied even under wildcard allow
+# ---------------------------------------------------------------------------
+
+
+def test_permission_policy_rejects_shell_control_before_wildcard_allow():
+    p = PermissionPolicy(mode="rules", allow={"bash": ["*"]})
+    d = p.check("bash", "run", {"command": "git status && rm -rf /tmp/x"})
+    assert d.behavior == "deny"
+    assert "Shell control operator" in d.reason

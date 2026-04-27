@@ -7,8 +7,11 @@ import pytest
 # 1. Import lionagi
 # ---------------------------------------------------------------------------
 def test_import_lionagi():
-    """Verify that `import lionagi` succeeds without error."""
-    import lionagi  # noqa: F401
+    """Verify that `import lionagi` succeeds and exposes the version."""
+    import lionagi
+
+    assert hasattr(lionagi, "__version__")
+    assert isinstance(lionagi.__version__, str)
 
 
 # ---------------------------------------------------------------------------

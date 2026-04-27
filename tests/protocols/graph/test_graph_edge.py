@@ -4,7 +4,7 @@ from pydantic import ConfigDict
 from lionagi._errors import RelationError
 from lionagi.protocols.types import Edge, EdgeCondition, Graph
 
-from .test_graph_base import create_test_node
+from .helpers import create_test_node
 
 
 class CustomEdgeCondition(EdgeCondition):
@@ -256,3 +256,146 @@ class TestEdgeOperations:
         assert edge.id not in graph.internal_edges
         assert edge.id not in graph.node_edge_mapping[node1.id]["out"]
         assert edge.id not in graph.node_edge_mapping[node2.id]["in"]
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for edge.py lines 97, 101, 107, 132-141
+# ---------------------------------------------------------------------------
+
+from lionagi.protocols.generic.element import Element
+
+
+def _make_nodes():
+    return Element(), Element()
+
+
+class TestEdgeLabelInitCoverage:
+    """Edge.__init__ label-handling paths (lines 97, 101)."""
+
+    def test_string_label_wraps_in_list(self):
+        """Line 97: label='str' → kwargs['label'] = ['str']."""
+        h, t = _make_nodes()
+        e = Edge(h, t, label="important")
+        assert e.label == ["important"]
+
+    def test_invalid_label_raises(self):
+        """Line 101: label=[1, 2] → ValueError."""
+        h, t = _make_nodes()
+        with pytest.raises(
+            ValueError, match="Label must be a string or a list of strings"
+        ):
+            Edge(h, t, label=[1, 2])
+
+    def test_invalid_label_dict_raises(self):
+        """Line 101: label=dict → ValueError."""
+        h, t = _make_nodes()
+        with pytest.raises(
+            ValueError, match="Label must be a string or a list of strings"
+        ):
+            Edge(h, t, label={"a": 1})
+
+
+class TestEdgeSerializerCoverage:
+    """Edge._serialize_id field_serializer (line 107)."""
+
+    def test_model_dump_json_mode_serializes_uuid_as_string(self):
+        """Line 107: field_serializer converts head/tail UUID → str."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        data = e.model_dump(mode="json")
+        assert isinstance(data["head"], str)
+        assert isinstance(data["tail"], str)
+        assert data["head"] == str(e.head)
+        assert data["tail"] == str(e.tail)
+
+
+class TestEdgeLabelSetterCoverage:
+    """Edge.label setter paths (lines 132-141)."""
+
+    def test_set_none_clears_label(self):
+        """Lines 132-134: label=None → properties['label'] = []."""
+        h, t = _make_nodes()
+        e = Edge(h, t, label=["old"])
+        e.label = None
+        assert e.properties["label"] == []
+
+    def test_set_empty_list_clears_label(self):
+        """Lines 132-134: empty list (falsy) → properties['label'] = []."""
+        h, t = _make_nodes()
+        e = Edge(h, t, label=["old"])
+        e.label = []
+        assert e.properties["label"] == []
+
+    def test_set_string_label_wraps(self):
+        """Lines 135-137: str → properties['label'] = [str]."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        e.label = "newtag"
+        assert e.properties["label"] == ["newtag"]
+
+    def test_set_list_of_strings(self):
+        """Lines 138-140: list[str] stored directly."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        e.label = ["a", "b"]
+        assert e.properties["label"] == ["a", "b"]
+
+    def test_set_invalid_label_raises(self):
+        """Line 141: non-string list → ValueError."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        with pytest.raises(
+            ValueError, match="Label must be a string or a list of strings"
+        ):
+            e.label = [1, 2]
+
+    def test_set_mixed_type_list_raises(self):
+        """Line 141: mixed-type list → ValueError."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        with pytest.raises(
+            ValueError, match="Label must be a string or a list of strings"
+        ):
+            e.label = ["valid", 42]
+
+
+class TestEdgeConditionInitCoverage:
+    """Edge.__init__ condition validation (lines 90-93)."""
+
+    def test_invalid_condition_raises(self):
+        """Lines 90-92: condition not a Condition subclass → ValueError."""
+        h, t = _make_nodes()
+        with pytest.raises(ValueError, match="condition must be a Condition subclass"):
+            Edge(h, t, condition="not_a_condition")
+
+    def test_invalid_condition_dict_raises(self):
+        """Lines 90-92: dict condition → ValueError."""
+        h, t = _make_nodes()
+        with pytest.raises(ValueError, match="condition must be a Condition subclass"):
+            Edge(h, t, condition={"apply": "something"})
+
+
+class TestEdgeConditionSetterCoverage:
+    """Edge.condition setter (lines 123-128)."""
+
+    def test_set_valid_condition(self):
+        """Lines 123-128: valid Condition → stored in properties."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        cond = CustomEdgeCondition(source="test")
+        e.condition = cond
+        assert e.condition is cond
+
+    def test_set_none_condition(self):
+        """Lines 123-128: None → properties['condition'] = None."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        e.condition = None
+        assert e.properties["condition"] is None
+
+    def test_set_invalid_condition_raises(self):
+        """Lines 123-124: non-Condition value → ValueError."""
+        h, t = _make_nodes()
+        e = Edge(h, t)
+        with pytest.raises(ValueError, match="condition must be a Condition subclass"):
+            e.condition = "bad_value"
