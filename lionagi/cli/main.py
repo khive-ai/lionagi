@@ -31,7 +31,7 @@ from .team import add_team_subparser, run_team
 
 def _print_playbook_help(name: str) -> int:
     """Print playbook-specific help: description, arguments, and usage."""
-    from .orchestrate import _resolve_playbook_path, _load_flow_spec
+    from .orchestrate import _load_flow_spec, _resolve_playbook_path
 
     path, err = _resolve_playbook_path(name)
     if err is not None:
@@ -63,7 +63,7 @@ def _print_playbook_help(name: str) -> int:
             default_str = f" (default: {default})" if default not in (None, "") else ""
             print(f"  {flag:<24} {help_text}{default_str}")
 
-    print(f"\nRun: li play {name} \"<prompt>\"")
+    print(f'\nRun: li play {name} "<prompt>"')
     return 0
 
 
