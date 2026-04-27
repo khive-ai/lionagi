@@ -79,3 +79,77 @@ CLI has no dedicated unit test suite.
 3. Add/update tests to protect behavior.
 4. Run focused tests first; then `uv run pytest`.
 5. Update docs for user-visible changes.
+
+## Agent Development
+
+Use the `lionagi/agent/` module to build sandboxed, permission-aware coding agents.
+
+**Create a coding agent**
+
+```python
+import asyncio
+from lionagi.agent.config import AgentConfig
+from lionagi.agent.factory import create_agent
+
+async def main():
+    config = AgentConfig.coding()          # file tools + guard hooks + strict path policy
+    agent = await create_agent(config)     # returns a wired Branch
+    reply = await agent.communicate("Refactor auth.py to use async/await throughout.")
+    print(reply)
+
+asyncio.run(main())
+```
+
+**Create a research agent**
+
+```python
+config = AgentConfig.research()            # web + reader tools + log-only policy
+agent = await create_agent(config)
+result = await agent.operate(
+    instruction="Summarize the latest papers on diffusion models.",
+    response_format=Summary,
+)
+```
+
+**Register custom hooks**
+
+```python
+from lionagi.agent.hooks import guard_paths, log_tool_use
+from lionagi.agent.config import AgentConfig
+
+config = AgentConfig.coding()
+config.hooks.append(guard_paths(allowed=["/tmp/sandbox", "./src"]))
+config.hooks.append(log_tool_use(sink="tool_calls.jsonl"))
+agent = await create_agent(config)
+```
+
+**Use Sandbox for isolated edits**
+
+```python
+from lionagi.tools.sandbox import SandboxSession
+
+async with await SandboxSession.create(base_branch="main") as session:
+    # agent edits happen inside the worktree
+    agent = await create_agent(AgentConfig.coding(), cwd=session.path)
+    await agent.communicate("Add type hints to all public functions in auth.py.")
+    print(await session.diff())            # inspect changes before committing
+    await session.commit("feat: add type hints to auth module")
+    await session.merge()                  # fast-forward into main; or session.discard()
+```
+
+**Permission policies**
+
+```python
+from lionagi.agent.permissions import PermissionPolicy
+
+# Allowlist mode: only listed tools may run
+policy = PermissionPolicy(mode="allowlist", tools=["read_file", "list_dir"])
+
+# Confirm mode: prompt before each tool execution
+policy = PermissionPolicy(mode="confirm")
+
+config = AgentConfig.coding()
+config.permission_policy = policy
+```
+
+**Settings** — place `.lionagi/settings.yaml` in the project root to override defaults. Global settings live at `~/.lionagi/settings.yaml`; project settings win on conflict.

@@ -62,6 +62,18 @@ Modules: chat, parse, operate, ReAct, select, interpret, communicate, run, act. 
 - **Utilities** (`ln/`): `alcall()`, `bcall()`, `race()`, `retry()` · `fuzzy_json()` for malformed LLM JSON · `Undefined`/`Unset` sentinels (`is_sentinel()`).
 - **Config** (`config.py`): `AppSettings` from env. Defaults: `LIONAGI_CHAT_PROVIDER=openai`, `LIONAGI_CHAT_MODEL=gpt-4.1-mini`.
 
+### Agent Infrastructure (`lionagi/agent/`)
+
+- **`config.py`** — `AgentConfig` dataclass with presets: `.coding()` (file tools + guard hooks + strict path policy) and `.research()` (web + reader tools + log-only policy).
+- **`factory.py`** — `create_agent()` async factory: wires a `Branch`, registers tools from config, attaches hooks, returns ready-to-use branch.
+- **`permissions.py`** — `PermissionPolicy` with `allowlist` / `denylist` / `confirm` modes. Applied per tool call before execution.
+- **`hooks.py`** — Built-in hooks: `guard_destructive` (blocks rm/drop/truncate), `guard_paths` (restricts file access to allowed roots), `log_tool_use` (structured tool-call logging).
+- **`settings.py`** — Loads `.lionagi/settings.yaml`; merges global (`~/.lionagi/settings.yaml`) with project-level (`.lionagi/settings.yaml`), project wins on conflict.
+
+### Sandbox (`lionagi/tools/sandbox.py`)
+
+`SandboxSession` wraps git worktrees for isolated editing. Lifecycle: `SandboxSession.create(base_branch)` → edit files freely → `session.diff()` (returns unified diff) → `session.commit(msg)` → `session.merge()` (fast-forward into base) or `session.discard()` (deletes worktree, no trace). Safe for speculative or destructive edits — the base branch is never touched until an explicit `merge()`.
+
 ### CLI Architecture (`lionagi/cli/`)
 
 - `cli/agent.py` — `li agent`: one-shot or resumed turn

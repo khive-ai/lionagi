@@ -300,7 +300,50 @@ li o flow -p audit --mode security "the auth service"
 # Sugar
 li play audit --mode security "the auth service"
 li play list                        # list playbooks in ~/.lionagi/playbooks/
+li play audit --help                # show playbook description, args, and usage
 ```
+
+### `li play list`
+
+Lists all installed playbooks in `~/.lionagi/playbooks/`.
+
+```bash
+li play list
+```
+
+```text
+# output:
+audit        Parametric audit pattern              [--mode MODE] [--workers N]
+refactor     Multi-step refactor with review       [--scope SCOPE]
+```
+
+### `li play NAME --help`
+
+Shows the playbook's `description`, its declared arguments with types and defaults, and a
+generated usage line. Does not execute the flow.
+
+```bash
+li play audit --help
+```
+
+```text
+# output:
+audit — Parametric audit pattern
+
+Usage: li play audit [--mode MODE] [--workers N] [--strict] PROMPT
+
+Arguments:
+  --mode MODE    str    default: dry    audit mode: dry | security | dead-code
+  --workers N    int    default: 8
+  --strict       bool   default: false
+
+Prompt template:
+  Run a {mode} audit with {workers} parallel workers. Strict: {strict}.
+
+  Target: {input}
+```
+
+`--help` is checked before any flags are forwarded to `li o flow`, so it never starts execution.
 
 ### Ad-hoc specs (`-f`)
 

@@ -14,6 +14,10 @@ Pass `provider=` to `iModel()`, or let lionagi infer from the model name.
 | Perplexity | `"perplexity"` | `PERPLEXITY_API_KEY` |
 | Groq | `"groq"` | `GROQ_API_KEY` |
 | OpenRouter | `"openrouter"` | `OPENROUTER_API_KEY` |
+| DeepSeek | `"deepseek"` | `DEEPSEEK_API_KEY` |
+
+DeepSeek's `reasoning_effort` field maps lionagi effort levels: `low`/`medium` → `"high"`,
+`xhigh` → `"max"`. DeepSeek native values (`low`, `medium`, `high`, `max`) pass through unchanged.
 
 ```python
 # Explicit provider
@@ -44,11 +48,13 @@ Use with `Branch.run()` or `Branch.operate()`.
 | `"claude_code"` | `claude` | `"claude_code"` |
 | `"codex"` | `codex` | `"codex"` |
 | `"gemini_code"` | `gemini` | `"gemini_code"` |
+| `"pi"` / `"pi_code"` | `pi` | `"pi"` |
 
 CLI endpoints authenticate via their own login, not via env vars:
 
 - `claude_code`: `claude login` (Claude Max subscription) or `ANTHROPIC_API_KEY` (API key)
 - `codex`: `codex login` (requires ChatGPT Plus/Pro — no API key accepted)
+- `pi` / `pi_code`: subprocess-based; uses the local `pi` binary
 
 ```python
 # Claude Code CLI endpoint

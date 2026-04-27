@@ -130,5 +130,117 @@ li agent -r b_abc456 "deepen section 3"             # specific branch
 
 ---
 
+---
+
+## Agent Infrastructure
+
+`AgentConfig` + `create_agent()` — preset configurations for common agent patterns that wire a
+fully configured `Branch` without boilerplate.
+
+```python
+from lionagi.agent import AgentConfig, create_agent
+
+# Preset: coding agent with file tools and a strict system prompt
+config = AgentConfig.coding(model="openai/gpt-4.1", cwd="/Users/me/project")
+
+# Add guardrail hooks
+from lionagi.agent.hooks import guard_destructive, log_tool_use
+config.pre("bash", guard_destructive)
+config.post("*", log_tool_use)
+
+# Create — returns a ready-to-use Branch
+branch = await create_agent(config)
+response = await branch.chat("Fix the import cycle in utils.py")
+```
+
+**Why it exists**: `Branch` is a blank slate. `AgentConfig` captures what tools, permissions, and
+system prompt belong together so that the same agent definition can be reused, tested, and
+serialized to YAML without manually wiring hooks each time.
+
+**Permission system**: rules on `AgentConfig.permissions` express what each tool is allowed to
+do. `mode="rules"` checks allow/deny/escalate lists per tool call before execution. Convenience
+presets: `PermissionPolicy.read_only()`, `PermissionPolicy.safe()`, `PermissionPolicy.deny_all()`.
+
+**Hook system**: pre/post/error hooks attach at the tool phase level. `config.pre("bash", fn)`
+runs `fn(tool_name, action, args)` before the bash tool executes; return a modified `args` dict
+to rewrite the call or raise `PermissionError` to block it. Post-hooks receive the result and
+can mutate it. Built-in hooks live in `lionagi.agent.hooks`.
+
+**Settings loading**: `create_agent()` reads `~/.lionagi/settings.yaml` (global) and optionally
+`.lionagi/settings.yaml` (project-local, only when `trust_project_settings=True`). The YAML can
+declare shell-command hooks and Python-import hooks without writing Python code.
+
+```yaml
+# ~/.lionagi/settings.yaml
+hooks:
+  pre:
+    bash:
+      - python: "lionagi.agent.hooks:guard_destructive"
+  post:
+    "*":
+      - python: "lionagi.agent.hooks:log_tool_use"
+```
+
+**Use when**: you need a repeatable agent configuration — same tools, same guardrails, multiple
+runs. For one-off Python use, wiring a `Branch` directly is fine.
+
+**Don't use** if you're running `li agent` from the CLI — profiles (`~/.lionagi/agents/`) serve
+that role.
+
+→ Full reference: [`AgentConfig` and `create_agent()`](api/agent-config.md)
+
+---
+
+## Sandbox
+
+`SandboxSession` wraps a git worktree for isolated, reversible code changes.
+
+```python
+from lionagi.tools.sandbox import create_sandbox, sandbox_diff, sandbox_commit, sandbox_merge, sandbox_discard
+
+# Create: a new branch + worktree at <repo>/.worktrees/sandbox-<id>/
+session = await create_sandbox(repo_root="/Users/me/project")
+
+# Hand the worktree path to an agent
+branch = await create_agent(AgentConfig.coding(cwd=session.worktree_path))
+await branch.chat("Refactor the auth module")
+
+# Inspect before committing
+diff = await sandbox_diff(session)
+print(diff["stat"])
+
+# Commit inside the sandbox branch
+await sandbox_commit(session, "refactor: split auth into separate module")
+
+# Approve → merge back into the base branch
+await sandbox_merge(session)
+
+# OR reject → delete worktree, no trace left
+await sandbox_discard(session)
+```
+
+**Why worktrees instead of temp dirs**:
+- The agent sees the real repo (same file history, same git objects) — not a copy.
+- Changes become a real git branch: reviewable via `git diff`, mergeable with `git merge --no-ff`.
+- `discard()` removes the branch and worktree atomically — the base branch is never modified.
+
+**Lifecycle**:
+
+```text
+create_sandbox() → [agent edits files] → sandbox_diff()
+    → sandbox_commit() → sandbox_merge()   # accepted
+                       → sandbox_discard() # rejected
+```
+
+`session.is_active` is `True` until `sandbox_merge()` or `sandbox_discard()` completes.
+
+**Use when**: an agent might make destructive or speculative changes you need to review before
+merging. Pair with `AgentConfig.coding(cwd=session.worktree_path)` to confine the agent.
+**Don't use** for read-only analysis — worktrees have overhead; just point the agent at the repo.
+
+→ Full reference: [`SandboxSession`](api/sandbox.md)
+
+---
+
 Next: [CLI reference](cli-reference.md) for full flag tables, or [API reference](api/index.md)
 for the Python SDK surface.
