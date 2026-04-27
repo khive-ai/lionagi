@@ -17,6 +17,7 @@ files inside the worktree branch; those changes never touch the base branch unti
 `sandbox_merge()`. Discarding the sandbox removes the worktree and branch with no trace.
 
 Why worktrees instead of temp dirs:
+
 - The agent sees the real repo (shared git objects, same file history) — not a copy.
 - Changes are a proper git branch: reviewable with `git diff`, mergeable with `git merge --no-ff`.
 - `sandbox_discard()` removes both the worktree and branch atomically.

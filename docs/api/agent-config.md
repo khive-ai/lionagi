@@ -148,6 +148,7 @@ response = await branch.chat("Refactor the auth module")
 ```
 
 **Settings loading order** (project-local wins):
+
 1. `~/.lionagi/settings.yaml` — always loaded when `load_settings=True`
 2. `.lionagi/settings.yaml` — loaded only when `trust_project_settings=True`
 

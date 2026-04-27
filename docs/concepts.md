@@ -220,6 +220,7 @@ await sandbox_discard(session)
 ```
 
 **Why worktrees instead of temp dirs**:
+
 - The agent sees the real repo (same file history, same git objects) — not a copy.
 - Changes become a real git branch: reviewable via `git diff`, mergeable with `git merge --no-ff`.
 - `discard()` removes the branch and worktree atomically — the base branch is never modified.
