@@ -29,6 +29,44 @@ from .skill import run_skill
 from .team import add_team_subparser, run_team
 
 
+def _print_playbook_help(name: str) -> int:
+    """Print playbook-specific help: description, arguments, and usage."""
+    from .orchestrate import _load_flow_spec, _resolve_playbook_path
+
+    path, err = _resolve_playbook_path(name)
+    if err is not None:
+        log_error(err)
+        return 1
+    spec = _load_flow_spec(str(path))
+    if not isinstance(spec, dict):
+        log_error(f"failed to load playbook: {name}")
+        return 1
+
+    desc = spec.get("description", "").strip()
+    args_schema = spec.get("args", {})
+    hint = spec.get("argument-hint", "")
+
+    print(f"Playbook: {name}")
+    if desc:
+        print(f"\n  {desc}\n")
+    print(f"Usage: li play {name} {hint or '[args...] PROMPT'}")
+
+    if isinstance(args_schema, dict) and args_schema:
+        print("\nArguments:")
+        for arg_name, field in args_schema.items():
+            if not isinstance(field, dict):
+                continue
+            flag = f"--{arg_name.replace('_', '-')}"
+            help_text = field.get("help", "")
+            default = field.get("default")
+            type_str = field.get("type", "str")
+            default_str = f" (default: {default})" if default not in (None, "") else ""
+            print(f"  {flag:<24} {help_text}{default_str}")
+
+    print(f'\nRun: li play {name} "<prompt>"')
+    return 0
+
+
 def _handle_play_shortcut(argv: list[str]) -> list[str] | int:
     """Expand `li play` sugar into `li o flow -p NAME ...`.
 
@@ -61,6 +99,8 @@ def _handle_play_shortcut(argv: list[str]) -> list[str] | int:
     if head.startswith("-"):
         log_error("li play NAME must come before flags")
         return 1
+    if "--help" in rest[1:] or "-h" in rest[1:]:
+        return _print_playbook_help(head)
     # Rewrite `play <name> [...]` → `o flow -p <name> [...]`
     return ["o", "flow", "-p", head, *rest[1:]]
 

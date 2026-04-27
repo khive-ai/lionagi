@@ -13,6 +13,13 @@ Orchestrate multi-agent AI workflows from the command line or Python.
 [PyPI](https://pypi.org/project/lionagi/) |
 [Changelog](CHANGELOG.md)
 
+## What's New in 0.23
+
+- **Agent infrastructure** — `AgentConfig` presets (`.coding()`, `.research()`) with built-in permission policies, hooks, and tool registration via `create_agent()`.
+- **Sandbox tool** — `SandboxSession` uses git worktrees for isolated editing: `create()` → edit → `diff()` → `commit()` → `merge()` or `discard()`.
+- **New providers** — DeepSeek (`DEEPSEEK_API_KEY`) and Pi (via [Pi Code CLI](https://pi.ai)) are now supported as CLI agent backends.
+- **Settings merge** — global `~/.lionagi/settings.yaml` and per-project `.lionagi/settings.yaml` are merged automatically at startup.
+
 ## Install
 
 ```bash
@@ -23,6 +30,8 @@ pip install lionagi
 
 - `claude`: install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) → `claude login` (subscription) or `export ANTHROPIC_API_KEY=sk-ant-...` (API key)
 - `codex`: requires ChatGPT Plus/Pro → `npm install -g @openai/codex` → `codex login`
+- `deepseek`: `export DEEPSEEK_API_KEY=sk-...` for DeepSeek models
+- `pi`: install [Pi Code CLI](https://pi.ai) for Pi models
 - Python API (`iModel`, `Branch`): `export OPENAI_API_KEY=sk-...` for gpt-4.1-mini default
 
 ## First Flow
@@ -58,6 +67,8 @@ For multi-agent orchestration without Python, see [CLI Quick Start](docs/getting
 | **team** | Persistent inbox messaging between agents via `li team send/receive`. |
 | **operate** | `branch.operate(instruction=…)` — tool use + structured output + optional streaming. |
 | **persist** | Every run saved to `~/.lionagi/runs/{run_id}/`. Resume with `li agent -r <branch-id>`. |
+| **AgentConfig** | Preset agent configurations (coding, research) with permission policies, hooks, and tool registration. |
+| **Sandbox** | Git worktree isolation for safe experimentation — `SandboxSession.create()` → edit → diff → merge or discard. |
 
 ## CLI — `li`
 
@@ -76,6 +87,7 @@ li team create "review" && li team send "Start analysis" -t <id> --to analyst
 
 # Playbook: parametric flow spec at ~/.lionagi/playbooks/audit.playbook.yaml
 li play audit --mode security "the auth service"
+li play NAME --help                          # Show playbook parameters and usage
 
 # Skill: print a CC-compatible reference body to stdout (for agent context injection)
 li skill commit
