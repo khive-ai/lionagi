@@ -21,11 +21,15 @@ def _strip_sentinels(obj: Any, none_as_sentinel=False, empty_as_sentinel=False) 
         none_as_sentinel=none_as_sentinel,
         empty_as_sentinel=empty_as_sentinel,
     )
-    if isinstance(obj, dict):
-        return {k: _strip_sentinels(v) for k, v in obj.items() if not _is_sential(v)}
-    if isinstance(obj, list):
-        return [_strip_sentinels(v) for v in obj if not _is_sential(v)]
-    return obj
+
+    def _inner(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: _inner(v) for k, v in obj.items() if not _is_sential(v)}
+        if isinstance(obj, list):
+            return [_inner(v) for v in obj if not _is_sential(v)]
+        return obj
+
+    return _inner(obj)
 
 
 def _to_indices(key: IndicesType) -> list[str | int]:
