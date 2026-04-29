@@ -14,11 +14,19 @@ from lionagi.utils import UNDEFINED, copy
 IndicesType = str | int | tuple[str | int, ...]
 
 
+def _strip_sentinels(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _strip_sentinels(v) for k, v in obj.items() if not is_sentinel(v)}
+    if isinstance(obj, list):
+        return [_strip_sentinels(v) for v in obj if not is_sentinel(v)]
+    return obj
+
+
 def _to_indices(key: IndicesType) -> list[str | int]:
     """Normalize a single key or tuple of keys to a list of indices."""
-    if isinstance(key, tuple):
-        return list(key)
-    return [key]
+    if isinstance(key, (str, int)):
+        return [key]
+    return list(key)
 
 
 class Note(BaseModel):
@@ -46,28 +54,20 @@ class Note(BaseModel):
         self, indices: list[str | int] | str | int, /, default: Any = UNDEFINED
     ) -> Any:
         """Get value at path; return default if missing (raise KeyError if no default)."""
-        if isinstance(indices, (str, int)):
-            indices = [indices]
-        return nget(self.content, list(indices), default)
+        return nget(self.content, _to_indices(indices), default)
 
     def set(self, indices: list[str | int] | str | int, value: Any, /) -> None:
         """Deep set value at path; auto-creates intermediate containers."""
-        if isinstance(indices, (str, int)):
-            indices = [indices]
-        nset(self.content, list(indices), value)
+        nset(self.content, _to_indices(indices), value)
 
     def pop(
         self, indices: list[str | int] | str | int, /, default: Any = UNDEFINED
     ) -> Any:
         """Remove and return value at path."""
-        if isinstance(indices, (str, int)):
-            indices = [indices]
-        return npop(self.content, list(indices), default)
+        return npop(self.content, _to_indices(indices), default)
 
     def update(self, indices: list[str | int] | str | int, value: Any, /) -> None:
         """Update nested structure at path (list: extend/append; dict: merge)."""
-        if isinstance(indices, (str, int)):
-            indices = [indices]
         existing = self.get(indices, None)
         if existing is None:
             if not isinstance(value, (list, dict)):
@@ -93,7 +93,7 @@ class Note(BaseModel):
         return flatten(self.content, sep=sep, max_depth=max_depth)
 
     @classmethod
-    def from_flat(cls, data: dict[str, Any], sep: str = "|") -> "Note":
+    def unflatten(cls, data: dict[str, Any], sep: str = "|") -> "Note":
         """Reconstruct Note from a flattened dict."""
         nested = unflatten(data, sep=sep)
         if isinstance(nested, dict):
@@ -103,11 +103,8 @@ class Note(BaseModel):
     # --- serialization ---
 
     def to_dict(self, mode: Literal["python", "json"] = "python") -> dict[str, Any]:
-        """Deep copy of content, UNDEFINED values removed."""
-        out = copy(self.content)
-        for k, v in self.content.items():
-            if is_sentinel(v):
-                out.pop(k)
+        """Deep copy of content, sentinel values removed at all levels."""
+        out = _strip_sentinels(copy(self.content, deep=True))
         if mode == "json":
             return to_dict(
                 out,
