@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
+from functools import partial
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
@@ -14,11 +15,16 @@ from lionagi.utils import UNDEFINED, copy
 IndicesType = str | int | tuple[str | int, ...]
 
 
-def _strip_sentinels(obj: Any) -> Any:
+def _strip_sentinels(obj: Any, none_as_sentinel=False, empty_as_sentinel=False) -> Any:
+    _is_sential = partial(
+        is_sentinel,
+        none_as_sentinel=none_as_sentinel,
+        empty_as_sentinel=empty_as_sentinel,
+    )
     if isinstance(obj, dict):
-        return {k: _strip_sentinels(v) for k, v in obj.items() if not is_sentinel(v)}
+        return {k: _strip_sentinels(v) for k, v in obj.items() if not _is_sential(v)}
     if isinstance(obj, list):
-        return [_strip_sentinels(v) for v in obj if not is_sentinel(v)]
+        return [_strip_sentinels(v) for v in obj if not _is_sential(v)]
     return obj
 
 
@@ -102,9 +108,18 @@ class Note(BaseModel):
 
     # --- serialization ---
 
-    def to_dict(self, mode: Literal["python", "json"] = "python") -> dict[str, Any]:
+    def to_dict(
+        self,
+        mode: Literal["python", "json"] = "python",
+        exclude_none: bool = False,
+        exclude_empty: bool = False,
+    ) -> dict[str, Any]:
         """Deep copy of content, sentinel values removed at all levels."""
-        out = _strip_sentinels(copy(self.content, deep=True))
+        out = _strip_sentinels(
+            copy(self.content, deep=True),
+            none_as_sentinel=exclude_none,
+            empty_as_sentinel=exclude_empty,
+        )
         if mode == "json":
             return to_dict(
                 out,
