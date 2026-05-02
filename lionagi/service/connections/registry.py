@@ -241,6 +241,8 @@ def _import_all_providers():
         "lionagi.providers.groq.audio_transcription.endpoint",
         "lionagi.providers.pi.cli.endpoint",
         "lionagi.providers.openrouter.chat.endpoint",
+        # Agentic
+        "lionagi.providers.ag2.groupchat.endpoint",
     ]
     for mod in _modules:
         try:
