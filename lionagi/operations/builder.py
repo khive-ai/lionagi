@@ -10,6 +10,7 @@ Build → Execute → Expand → Execute → ...
 from enum import Enum
 from typing import Any
 
+from lionagi.models.note import Note
 from lionagi.operations.node import create_operation
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.types import ID
@@ -177,26 +178,26 @@ class OperationGraphBuilder:
             params["expanded_from"] = source_node_id
             params["expansion_strategy"] = strategy.value
 
+            # Build node metadata in one place before creation
+            node_meta = Note(
+                expansion_index=i,
+                expansion_source=source_node_id,
+                expansion_strategy=strategy.value,
+            )
+            if inherit_context:
+                node_meta["inherit_context"] = True
+                if chain_context and strategy == ExpansionStrategy.SEQUENTIAL and i > 0:
+                    # Chain context: inherit from previous expanded operation
+                    node_meta["primary_dependency"] = new_node_ids[i - 1]
+                else:
+                    # Inherit from source node
+                    node_meta["primary_dependency"] = source_node_id
+
             node = create_operation(
                 operation=operation,
                 parameters=params,
-                metadata={
-                    "expansion_index": i,
-                    "expansion_source": source_node_id,
-                    "expansion_strategy": strategy.value,
-                },
+                metadata=node_meta.content,
             )
-
-            # Handle context inheritance for expanded operations
-            if inherit_context:
-                if chain_context and strategy == ExpansionStrategy.SEQUENTIAL and i > 0:
-                    # Chain context: inherit from previous expanded operation
-                    node.metadata["inherit_context"] = True
-                    node.metadata["primary_dependency"] = new_node_ids[i - 1]
-                else:
-                    # Inherit from source node
-                    node.metadata["inherit_context"] = True
-                    node.metadata["primary_dependency"] = source_node_id
 
             self.graph.add_node(node)
             self._operations[node.id] = node
@@ -254,26 +255,24 @@ class OperationGraphBuilder:
             **parameters,
         }
 
+        # Build aggregation metadata in one place before creation
+        agg_meta = Note(aggregation=True)
+        if node_id:
+            agg_meta["reference_id"] = node_id
+        if inherit_context and sources:
+            source_idx = min(inherit_from_source, len(sources) - 1)
+            agg_meta["inherit_context"] = True
+            agg_meta["primary_dependency"] = sources[source_idx]
+            agg_meta["inherit_from_source"] = source_idx
+
         node = create_operation(
             operation=operation,
             parameters=agg_params,
-            metadata={"aggregation": True},
+            metadata=agg_meta.content,
         )
-
-        # Store node reference if provided
-        if node_id:
-            node.metadata["reference_id"] = node_id
 
         if branch:
             node.branch_id = ID.get_id(branch)
-
-        # Store context inheritance for aggregations
-        if inherit_context and sources:
-            node.metadata["inherit_context"] = True
-            # Use the specified source index (bounded by available sources)
-            source_idx = min(inherit_from_source, len(sources) - 1)
-            node.metadata["primary_dependency"] = sources[source_idx]
-            node.metadata["inherit_from_source"] = source_idx
 
         self.graph.add_node(node)
         self._operations[node.id] = node
