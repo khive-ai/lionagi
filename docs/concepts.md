@@ -44,6 +44,30 @@ await session.sync()
 
 ---
 
+## Provider & Endpoint
+
+A provider wraps one LLM/API service. An endpoint is one capability of that provider.
+
+```python
+model = li.iModel(provider="openai", endpoint="chat")
+```
+
+That's all most users need. The directory structure is the capability map:
+
+```text
+lionagi/providers/openai/   → chat, embed, images, audio, response, codex
+lionagi/providers/anthropic/ → chat, response
+lionagi/providers/gemini/    → chat, embed
+```
+
+Providers are registered via `@register` decorator; the registry resolves both
+`iModel(provider="openai")` (single-endpoint shorthand) and
+`iModel(provider="openai", endpoint="embed")` (explicit).
+
+→ Full table: [reference/providers.md](reference/providers.md)
+
+---
+
 ## flow
 
 A DAG of named agent operations. Dependencies are declared explicitly; independent steps

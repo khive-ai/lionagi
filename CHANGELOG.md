@@ -4,6 +4,24 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.23.1] - 2026-05-02
+
+### Added
+
+- **Provider registry architecture** — `EndpointRegistry`, `ProviderConfig`, and `@register` decorator; providers self-register on import, enabling `iModel(provider="openai", endpoint="chat")` lookups
+- **AG2 GroupChat endpoint** — `lionagi.providers.ag2.groupchat`; install with `pip install lionagi[ag2]`
+- **Note model** — `lionagi.models.note.Note` with `deep_update()` for recursive dict merging and nested path access utilities
+
+### Changed
+
+- **Provider modules reorganized** from flat files (`connections/providers/oai_.py`) to `providers/{company}/{endpoint}/` package structure; old import paths still work but are superseded
+- **`CLIEndpoint` renamed to `AgenticEndpoint`** — reflects broader use beyond CLI-only subprocess providers; alias kept for one minor version
+
+### Fixed
+
+- Registry thread-safety — concurrent `iModel` instantiation no longer races on endpoint lookup
+- Endpoint matching for single-endpoint providers — `iModel(provider="pi")` resolves without requiring `endpoint=` kwarg
+
 ## [0.23.0] - 2026-04-27
 
 ### Added

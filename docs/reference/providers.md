@@ -4,20 +4,17 @@
 
 Pass `provider=` to `iModel()`, or let lionagi infer from the model name.
 
-| Provider | `provider=` string | Key env var |
-|----------|-------------------|------------|
-| OpenAI | `"openai"` | `OPENAI_API_KEY` |
-| Anthropic | `"anthropic"` | `ANTHROPIC_API_KEY` |
-| Google Gemini | `"gemini"` | `GOOGLE_API_KEY` |
-| Ollama (local) | `"ollama"` | — (no key needed) |
-| NVIDIA NIM | `"nvidia"` | `NVIDIA_API_KEY` |
-| Perplexity | `"perplexity"` | `PERPLEXITY_API_KEY` |
-| Groq | `"groq"` | `GROQ_API_KEY` |
-| OpenRouter | `"openrouter"` | `OPENROUTER_API_KEY` |
-| DeepSeek | `"deepseek"` | `DEEPSEEK_API_KEY` |
-
-DeepSeek's `reasoning_effort` field maps lionagi effort levels: `low`/`medium` → `"high"`,
-`xhigh` → `"max"`. DeepSeek native values (`low`, `medium`, `high`, `max`) pass through unchanged.
+| Provider | `provider=` string | Aliases | Key env var | Endpoints |
+|----------|-------------------|---------|------------|-----------|
+| OpenAI | `"openai"` | — | `OPENAI_API_KEY` | `chat/completions`, `responses`, `embeddings`, `audio/speech`, `audio/transcriptions`, `images/generations`, `images/edits` |
+| Anthropic | `"anthropic"` | — | `ANTHROPIC_API_KEY` | `messages` |
+| Google Gemini | `"gemini"` | `"gemini-api"` | `GEMINI_API_KEY` | `chat/completions` |
+| Ollama (local) | `"ollama"` | — | — (no key needed) | `chat/completions`, `embeddings`, `generate` |
+| NVIDIA NIM | `"nvidia_nim"` | `"nvidia"`, `"nim"` | `NVIDIA_NIM_API_KEY` | `chat/completions`, `embeddings` |
+| Perplexity | `"perplexity"` | — | `PERPLEXITY_API_KEY` | `chat/completions` |
+| Groq | `"groq"` | — | `GROQ_API_KEY` | `chat/completions`, `audio/transcriptions` |
+| OpenRouter | `"openrouter"` | `"open-router"` | `OPENROUTER_API_KEY` | `chat/completions` |
+| DeepSeek | `"deepseek"` | — | `DEEPSEEK_API_KEY` | `chat/completions` |
 
 ```python
 # Explicit provider
@@ -37,24 +34,21 @@ model = li.iModel(
 )
 ```
 
-## CLI endpoint providers
+DeepSeek's `reasoning_effort` field maps lionagi effort levels: `low`/`medium` → `"high"`,
+`xhigh` → `"max"`. DeepSeek native values (`low`, `medium`, `high`, `max`) pass through unchanged.
+
+## CLI / agentic providers
 
 CLI endpoints spawn subprocess tools instead of calling REST APIs.
-Pass `endpoint=` to select one; `is_cli` is set `True` automatically.
+Pass `provider=` to select one; `is_cli` is set `True` automatically.
 Use with `Branch.run()` or `Branch.operate()`.
 
-| `endpoint=` | CLI tool spawned | `provider=` |
-|-------------|-----------------|------------|
-| `"claude_code"` | `claude` | `"claude_code"` |
-| `"codex"` | `codex` | `"codex"` |
-| `"gemini_code"` | `gemini` | `"gemini_code"` |
-| `"pi"` / `"pi_code"` | `pi` | `"pi"` |
-
-CLI endpoints authenticate via their own login, not via env vars:
-
-- `claude_code`: `claude login` (Claude Max subscription) or `ANTHROPIC_API_KEY` (API key)
-- `codex`: `codex login` (requires ChatGPT Plus/Pro — no API key accepted)
-- `pi` / `pi_code`: subprocess-based; uses the local `pi` binary
+| Provider | `provider=` string | Aliases | CLI tool | Auth |
+|----------|--------------------|---------|----------|------|
+| Claude Code | `"claude_code"` | `"claude-code"`, `"claude"` | `claude` | `claude login` or `ANTHROPIC_API_KEY` |
+| Codex | `"codex"` | `"openai-codex"` | `codex` | `codex login` (ChatGPT Plus/Pro) |
+| Gemini CLI | `"gemini_code"` | `"gemini-code"`, `"gemini_cli"`, `"gemini-cli"` | `gemini` | `gemini auth` |
+| Pi | `"pi"` | `"pi-code"`, `"pi_code"` | `pi` | local `pi` binary |
 
 ```python
 # Claude Code CLI endpoint
@@ -70,15 +64,15 @@ async for msg in branch.run("Refactor this function:", chat_model=claude_model):
 `Branch.operate()` detects `is_cli=True` and routes to `run_and_collect` instead of `communicate`.
 See [operations.md](../api/operations.md#middle-protocol) for routing details.
 
-## Tool / search providers
+## Search and scraping providers
 
 These providers integrate as callable tools via `branch.connect()` — not as chat models.
 
-| Provider | Purpose | Key env var |
-|----------|---------|------------|
-| Exa | Neural search | `EXA_API_KEY` |
-| Firecrawl | Web scraping | `FIRECRAWL_API_KEY` |
-| Tavily | Research search | `TAVILY_API_KEY` |
+| Provider | Purpose | `provider=` string | Key env var | Endpoints |
+|----------|---------|-------------------|------------|-----------|
+| Exa | Neural search | `"exa"` | `EXA_API_KEY` | `search`, `contents` (alias: `get_contents`), `findSimilar` (aliases: `similar`, `find_similar`) |
+| Firecrawl | Web scraping | `"firecrawl"` | `FIRECRAWL_API_KEY` | `v1/scrape` (alias: `scrape`), `v1/map` (alias: `map`), `v1/crawl` (alias: `crawl`) |
+| Tavily | Research search | `"tavily"` | `TAVILY_API_KEY` | `search`, `extract` |
 
 ```python
 branch.connect(provider="exa", endpoint="search", name="search")
@@ -88,6 +82,179 @@ results = await branch.operate(
     tools=["search"],
 )
 ```
+
+## AG2 (multi-agent)
+
+AG2 GroupChat wraps AG2 v0.12's `GroupChat` as a streaming lionagi endpoint.
+Requires the optional `ag2` extra:
+
+```bash
+pip install lionagi[ag2]
+```
+
+| Provider | `provider=` string | Aliases | Endpoint | Type |
+|----------|--------------------|---------|----------|------|
+| AG2 | `"ag2"` | `"autogen"` | `group_chat` (aliases: `groupchat`, `chat`) | `agentic` |
+
+AG2GroupChatEndpoint is stream-only — it yields `StreamChunk` events for each agent turn.
+`_call()` raises `NotImplementedError`; use `branch.run()` or iterate `endpoint.stream()` directly.
+
+```python
+# requires: pip install lionagi[ag2]
+from lionagi.providers.ag2.groupchat.endpoint import AG2GroupChatEndpoint
+
+endpoint = AG2GroupChatEndpoint(
+    agent_configs=[
+        {"name": "coder", "system_message": "Write Python code."},
+        {"name": "reviewer", "system_message": "Review and critique code."},
+    ],
+    llm_config={"model": "gpt-4o-mini"},
+)
+
+async for chunk in endpoint.stream({"prompt": "Build a Fibonacci function"}):
+    print(chunk.content, end="", flush=True)
+```
+
+## Provider folder structure
+
+Each provider is a directory under `lionagi/providers/{company}/`. The subdirectories are
+capabilities — the directory listing is the capability map.
+
+```
+lionagi/providers/
+├── openai/
+│   ├── _config.py          # OpenAIConfigs + CodexConfigs enums
+│   ├── chat/               # chat/completions endpoint
+│   │   ├── endpoint.py
+│   │   └── models.py
+│   ├── codex/              # Codex CLI endpoint
+│   ├── audio/              # speech + transcription
+│   ├── embed/
+│   ├── images/
+│   └── response/           # Responses API
+├── anthropic/
+│   ├── _config.py          # AnthropicConfigs + ClaudeCodeConfigs enums
+│   ├── messages/
+│   └── claude_code/        # CLI endpoint
+├── google/
+│   ├── _config.py          # GeminiChatConfigs + GeminiCodeConfigs enums
+│   ├── chat/
+│   └── gemini_code/        # CLI endpoint
+├── deepseek/
+│   ├── _config.py
+│   └── chat/
+├── ollama/
+│   ├── _config.py
+│   ├── chat/
+│   ├── embed/
+│   └── generate/
+├── nvidia_nim/
+│   ├── _config.py
+│   ├── chat/
+│   └── embed/
+├── perplexity/
+│   ├── _config.py
+│   └── chat/
+├── groq/
+│   ├── _config.py
+│   ├── chat/
+│   └── audio_transcription/
+├── openrouter/
+│   ├── _config.py
+│   └── chat/
+├── exa/
+│   ├── _config.py
+│   ├── search/
+│   ├── contents/
+│   └── find_similar/
+├── firecrawl/
+│   ├── _config.py
+│   ├── scrape/
+│   ├── map/
+│   └── crawl/
+├── tavily/
+│   ├── _config.py
+│   └── search/
+├── pi/
+│   ├── _config.py
+│   └── cli/
+└── ag2/
+    ├── _config.py          # AG2Configs enum
+    └── groupchat/
+```
+
+Each leaf directory contains `endpoint.py` (the `Endpoint` subclass) and `models.py`
+(Pydantic request/response schemas). The `_config.py` at the provider root declares
+one or more `ProviderConfig` enums; each member carries the endpoint path, aliases,
+type, options class, base URL, and auth type.
+
+## Adding a new provider
+
+**Step 1 — create the folder tree**
+
+```
+lionagi/providers/{name}/
+    _config.py
+    {endpoint_type}/
+        endpoint.py
+        models.py
+```
+
+**Step 2 — declare the config enum in `_config.py`**
+
+```python
+from enum import Enum
+from lionagi.service.connections.provider_config import LazyType, ProviderConfig
+from lionagi.service.connections.registry import EndpointType
+
+class MyProviderConfigs(ProviderConfig, Enum):
+    CHAT = (
+        "chat/completions",          # endpoint path
+        ["chat"],                    # aliases
+        EndpointType.API,
+        LazyType("lionagi.providers.myprovider.chat.models:MyChatRequest"),
+        "https://api.myprovider.com/v1",
+        "bearer",                    # auth_type
+    )
+
+MyProviderConfigs._PROVIDER = "myprovider"
+MyProviderConfigs._PROVIDER_ALIASES = ["my-provider"]
+```
+
+**Step 3 — write `endpoint.py` using the `@register` decorator**
+
+```python
+from lionagi.service.connections import Endpoint, EndpointConfig
+from ._config import MyProviderConfigs  # noqa: F401 — side effect: registers
+
+@MyProviderConfigs.CHAT.register
+class MyProviderChatEndpoint(Endpoint):
+    pass  # config is auto-created from _ENDPOINT_META injected by the decorator
+```
+
+**Step 4 — add the import to `registry.py`**
+
+In `lionagi/service/connections/registry.py`, add the module to `_modules` inside
+`_import_all_providers()`:
+
+```python
+def _import_all_providers():
+    import importlib
+
+    _modules: list[str] = [
+        # ... existing entries ...
+        "lionagi.providers.myprovider._config",
+        "lionagi.providers.myprovider.chat.endpoint",
+    ]
+    for mod in _modules:
+        try:
+            importlib.import_module(mod)
+        except ImportError:
+            pass
+```
+
+`EndpointRegistry.match(provider="myprovider", endpoint="chat")` will then find the
+endpoint automatically.
 
 ## Default provider config
 
