@@ -30,20 +30,89 @@ model = li.iModel(
 | `limit_requests` | `int \| None` | `None` | Max requests per rate-limit cycle |
 | `limit_tokens` | `int \| None` | `None` | Max tokens per rate-limit cycle |
 | `concurrency_limit` | `int \| None` | `None` | Max concurrent streams |
+| `streaming_process_func` | `Callable \| None` | `None` | Custom chunk processor for streaming responses |
+| `provider_metadata` | `dict \| None` | `None` | Provider-specific metadata (e.g., CLI session IDs) |
 | `hook_registry` | `HookRegistry \| dict \| None` | `HookRegistry()` | Pre/post invocation hooks |
 | `**kwargs` | — | — | Provider-specific config (e.g., `model="gpt-4o"`, `temperature=0.7`) |
 
 ## Endpoint types
 
-| Value | Transport | Used with |
-|-------|-----------|----------|
-| `"chat"` | REST API | OpenAI, Anthropic, Gemini, Ollama, etc. |
-| `"claude_code"` | CLI subprocess | `Branch.run()` streaming |
-| `"codex"` | CLI subprocess | `Branch.run()` streaming |
-| `"gemini_code"` | CLI subprocess | `Branch.run()` streaming |
+### Chat / LLM
 
-CLI endpoints set `is_cli = True`; `Branch.operate()` routes to `run_and_collect`
+| `provider=` | Default `endpoint=` | Key env var |
+|-------------|---------------------|-------------|
+| `"openai"` | `"chat"` | `OPENAI_API_KEY` |
+| `"anthropic"` | `"chat"` | `ANTHROPIC_API_KEY` |
+| `"gemini"` | `"chat"` | `GOOGLE_API_KEY` |
+| `"ollama"` | `"chat"` | — (local) |
+| `"groq"` | `"chat"` | `GROQ_API_KEY` |
+| `"deepseek"` | `"chat"` | `DEEPSEEK_API_KEY` |
+| `"perplexity"` | `"chat"` | `PERPLEXITY_API_KEY` |
+| `"openrouter"` | `"chat"` | `OPENROUTER_API_KEY` |
+| `"nvidia_nim"` | `"chat"` | `NVIDIA_NIM_API_KEY` |
+
+### Embed
+
+| `provider=` | `endpoint=` | Key env var |
+|-------------|-------------|-------------|
+| `"nvidia_nim"` | `"embed"` | `NVIDIA_NIM_API_KEY` |
+
+`OpenaiEmbedEndpoint` and `NvidiaNimEmbedEndpoint` exist as classes but only
+`nvidia_nim` embed is routed via `match_endpoint()`. Pass an `Endpoint` instance
+directly for the others.
+
+### OpenAI responses API
+
+| `provider=` | `endpoint=` | Notes |
+|-------------|-------------|-------|
+| `"openai"` | `"response"` | Stateful Responses API (`/v1/responses`) |
+
+### CLI / Agentic
+
+| `provider=` | Aliases | Notes |
+|-------------|---------|-------|
+| `"claude_code"` | `"claude"`, `"claude-code"` | Claude Code CLI |
+| `"codex"` | — | OpenAI Codex CLI |
+| `"gemini_code"` | `"gemini-code"`, `"gemini_cli"`, `"gemini-cli"` | Gemini CLI |
+| `"pi"` | `"pi-code"`, `"pi_code"` | Pi CLI |
+| `"ag2"` | — | AG2 GroupChat (stream-only; requires `pip install lionagi[ag2]`) |
+
+CLI endpoints set `is_cli = True`. `Branch.operate()` routes to `run_and_collect`
 instead of `communicate`. See [operations.md#middle-protocol](operations.md#middle-protocol).
+
+### Search
+
+| `provider=` | `endpoint=` | Key env var |
+|-------------|-------------|-------------|
+| `"exa"` | `"search"` | `EXA_API_KEY` |
+| `"tavily"` | `"search"` | `TAVILY_API_KEY` |
+| `"tavily"` | `"extract"` | `TAVILY_API_KEY` |
+
+### Scrape / Crawl
+
+| `provider=` | `endpoint=` | Key env var |
+|-------------|-------------|-------------|
+| `"firecrawl"` | `"scrape"` | `FIRECRAWL_API_KEY` |
+| `"firecrawl"` | `"map"` | `FIRECRAWL_API_KEY` |
+
+### Fallback
+
+Any unrecognized `provider` falls back to an OpenAI-compatible generic chat
+endpoint. Pass `base_url=` to point at your custom host.
+
+## Endpoint matching
+
+```
+iModel(provider="openai", endpoint="chat")
+  → match_endpoint("openai", "chat")
+  → OpenaiChatEndpoint
+```
+
+`match_endpoint()` dispatches on `(provider, endpoint)` string containment:
+- Default `endpoint="chat"` resolves to the provider's chat class.
+- Single-endpoint providers (`claude_code`, `codex`, `gemini_code`, `pi`) ignore
+  the `endpoint` argument and always return their only class.
+- Unrecognized providers fall back to a generic OpenAI-compatible `Endpoint`.
 
 ## Common construction patterns
 
@@ -67,10 +136,34 @@ model = li.iModel(
 )
 
 # NVIDIA NIM
-model = li.iModel(provider="nvidia", model="meta/llama-3.1-70b-instruct")
+model = li.iModel(provider="nvidia_nim", model="meta/llama-3.1-70b-instruct")
 
-# CLI endpoint (streaming — use with Branch.run())
+# DeepSeek
+model = li.iModel(provider="deepseek", model="deepseek-chat")
+
+# OpenAI Responses API
+model = li.iModel(provider="openai", endpoint="response", model="gpt-4o")
+
+# CLI endpoints (stream-only — use with Branch.run())
 model = li.iModel(provider="claude_code", model="sonnet")
+model = li.iModel(provider="codex", model="codex-mini-latest")
+model = li.iModel(provider="gemini_code", model="gemini-2.5-pro")
+model = li.iModel(provider="pi", model="pi")
+
+# Search
+exa   = li.iModel(provider="exa", endpoint="search")
+tvly  = li.iModel(provider="tavily", endpoint="search")
+
+# Scrape / crawl
+crawl = li.iModel(provider="firecrawl", endpoint="scrape")
+cmap  = li.iModel(provider="firecrawl", endpoint="map")
+
+# OpenAI-compatible custom host
+model = li.iModel(
+    provider="my_provider",
+    base_url="https://my-api.example.com/v1",
+    model="my-model",
+)
 ```
 
 ## Public methods
@@ -146,18 +239,27 @@ async with li.iModel(model="gpt-4o") as model:
 ## Provider resolution
 
 Provider is inferred from `model` kwarg when it contains a slash (e.g., `"anthropic/claude-opus-4-7"`).
-Otherwise set `provider` explicitly.
+Otherwise set `provider` explicitly. The `provider` string must match exactly (see aliases in the
+CLI table above for accepted variants).
 
 | `provider` string | API | Key env var |
 |------------------|-----|------------|
-| `openai` | OpenAI | `OPENAI_API_KEY` |
-| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` |
-| `gemini` | Google AI | `GOOGLE_API_KEY` |
-| `ollama` | Ollama local | — (no key needed) |
-| `nvidia` | NVIDIA NIM | `NVIDIA_API_KEY` |
-| `perplexity` | Perplexity | `PERPLEXITY_API_KEY` |
-| `groq` | Groq | `GROQ_API_KEY` |
-| `openrouter` | OpenRouter | `OPENROUTER_API_KEY` |
+| `"openai"` | OpenAI | `OPENAI_API_KEY` |
+| `"anthropic"` | Anthropic | `ANTHROPIC_API_KEY` |
+| `"gemini"` | Google AI (OpenAI-compat) | `GOOGLE_API_KEY` |
+| `"ollama"` | Ollama local | — (no key needed) |
+| `"nvidia_nim"` | NVIDIA NIM | `NVIDIA_NIM_API_KEY` |
+| `"perplexity"` | Perplexity Sonar | `PERPLEXITY_API_KEY` |
+| `"groq"` | Groq | `GROQ_API_KEY` |
+| `"openrouter"` | OpenRouter | `OPENROUTER_API_KEY` |
+| `"deepseek"` | DeepSeek | `DEEPSEEK_API_KEY` |
+| `"exa"` | Exa Search | `EXA_API_KEY` |
+| `"tavily"` | Tavily | `TAVILY_API_KEY` |
+| `"firecrawl"` | Firecrawl | `FIRECRAWL_API_KEY` |
+| `"claude_code"` | Claude Code CLI | — |
+| `"codex"` | OpenAI Codex CLI | — |
+| `"gemini_code"` | Gemini CLI | — |
+| `"pi"` | Pi CLI | — |
 
 ## HookRegistry
 

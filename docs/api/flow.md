@@ -205,4 +205,20 @@ async def analyze(topic: str) -> str:
 asyncio.run(analyze("open-source LLM deployment in regulated industries"))
 ```
 
+## Note context accumulation
+
+Flow operations accumulate cross-node context in a `Note` object passed through
+`session.flow()`. Each operation can read from and write to this shared note.
+
+- `deep_update()` merges nested dicts across operations — keys are merged recursively.
+- List values are **replaced** (last writer wins), not concatenated.
+- `Note` is available as `results.context` after `session.flow()` completes.
+
+```python
+results = await session.flow(builder.get_graph(), parallel=True)
+accumulated = results.context  # Note object with merged state
+```
+
+→ Note API: [note.md](note.md)
+
 Next: [Team messaging](team.md) — inter-branch messaging
