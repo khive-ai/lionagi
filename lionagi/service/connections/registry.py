@@ -111,16 +111,22 @@ class EndpointRegistry:
         """Find and instantiate the best matching endpoint."""
         cls._ensure_loaded()
 
+        first_for_provider = None
         for entry in cls._entries:
             m = entry.meta
             if not (provider == m.provider or provider in m.provider_aliases):
                 continue
+            if first_for_provider is None:
+                first_for_provider = entry
             if (
                 not endpoint
                 or endpoint == m.endpoint
                 or endpoint in m.aliases
             ):
                 return entry.cls(None, **kwargs)
+
+        if first_for_provider is not None:
+            return first_for_provider.cls(None, **kwargs)
 
         from .endpoint import Endpoint, EndpointConfig
 
