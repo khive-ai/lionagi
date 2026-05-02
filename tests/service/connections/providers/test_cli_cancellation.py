@@ -30,11 +30,11 @@ class TestSubprocessSessionIsolation:
     @pytest.mark.asyncio
     async def test_claude_cli_uses_start_new_session(self):
         """Claude CLI subprocess must use start_new_session=True."""
-        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(prompt="test")
 
-        from lionagi.service.third_party.claude_code import _ndjson_from_cli
+        from lionagi.providers.anthropic.claude_code.models import _ndjson_from_cli
 
         with patch(
             "asyncio.create_subprocess_exec", new_callable=AsyncMock
@@ -64,14 +64,14 @@ class TestSubprocessSessionIsolation:
     @pytest.mark.asyncio
     async def test_codex_cli_uses_start_new_session(self):
         """Codex CLI subprocess must use start_new_session=True."""
-        from lionagi.service.third_party.codex_models import CodexCodeRequest
+        from lionagi.providers.openai.codex.models import CodexCodeRequest
 
         request = CodexCodeRequest(prompt="test")
 
-        from lionagi.service.third_party.codex_models import _ndjson_from_cli
+        from lionagi.providers.openai.codex.models import _ndjson_from_cli
 
         with (
-            patch("lionagi.service.third_party.codex_models.CODEX_CLI", "codex"),
+            patch("lionagi.providers.openai.codex.models.CODEX_CLI", "codex"),
             patch(
                 "asyncio.create_subprocess_exec", new_callable=AsyncMock
             ) as mock_exec,
@@ -97,14 +97,14 @@ class TestSubprocessSessionIsolation:
     @pytest.mark.asyncio
     async def test_gemini_cli_uses_start_new_session(self):
         """Gemini CLI subprocess must use start_new_session=True."""
-        from lionagi.service.third_party.gemini_models import GeminiCodeRequest
+        from lionagi.providers.google.gemini_code.models import GeminiCodeRequest
 
         request = GeminiCodeRequest(prompt="test")
 
-        from lionagi.service.third_party.gemini_models import _ndjson_from_cli
+        from lionagi.providers.google.gemini_code.models import _ndjson_from_cli
 
         with (
-            patch("lionagi.service.third_party.gemini_models.GEMINI_CLI", "gemini"),
+            patch("lionagi.providers.google.gemini_code.models.GEMINI_CLI", "gemini"),
             patch(
                 "asyncio.create_subprocess_exec", new_callable=AsyncMock
             ) as mock_exec,
@@ -139,7 +139,7 @@ class TestCancellationSkipsAutoFinish:
     @pytest.mark.asyncio
     async def test_cancelled_error_skips_auto_finish(self):
         """CancelledError during first stream must not spawn a second request."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -153,7 +153,7 @@ class TestCancellationSkipsAutoFinish:
             raise asyncio.CancelledError()
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
             side_effect=cancelling_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -174,7 +174,7 @@ class TestCancellationSkipsAutoFinish:
     @pytest.mark.asyncio
     async def test_keyboard_interrupt_skips_auto_finish(self):
         """KeyboardInterrupt during streaming must not spawn a second request."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -187,7 +187,7 @@ class TestCancellationSkipsAutoFinish:
             raise KeyboardInterrupt()
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
             side_effect=interrupting_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -209,7 +209,7 @@ class TestCancellationSkipsAutoFinish:
         (subprocess exits gracefully), but the Python task is cancelled by the
         executor/timeout. The _cancelled sentinel guard must prevent auto_finish.
         """
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -224,7 +224,7 @@ class TestCancellationSkipsAutoFinish:
             raise asyncio.CancelledError()
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
             side_effect=stream_then_cancel,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -241,10 +241,10 @@ class TestCancellationSkipsAutoFinish:
     @pytest.mark.asyncio
     async def test_normal_completion_still_triggers_auto_finish(self):
         """Normal stream completion should still trigger auto_finish when needed."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
-        from lionagi.service.third_party.claude_code import ClaudeSession
+        from lionagi.providers.anthropic.claude_code.models import ClaudeSession
 
         stream_call_count = 0
         mock_session = MagicMock(spec=ClaudeSession)
@@ -263,7 +263,7 @@ class TestCancellationSkipsAutoFinish:
                 yield mock_session
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
             side_effect=normal_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -299,7 +299,7 @@ class TestNdjsonCleanupPropagation:
     async def test_cancelled_error_not_swallowed_by_finally(self):
         """CancelledError from proc.wait() timeout must propagate, not be caught."""
         # This tests the fix: except asyncio.TimeoutError (not CancelledError)
-        from lionagi.service.third_party.claude_code import (
+        from lionagi.providers.anthropic.claude_code.models import (
             ClaudeCodeRequest,
             _ndjson_from_cli,
         )
@@ -349,7 +349,7 @@ class TestToolAllowlistArgs:
 
     def test_allowed_tools_no_embedded_quotes(self):
         """Tool names in --allowedTools must not have embedded quote chars."""
-        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(
             prompt="test",
@@ -374,7 +374,7 @@ class TestToolAllowlistArgs:
 
     def test_disallowed_tools_no_embedded_quotes(self):
         """Tool names in --disallowedTools must not have embedded quote chars."""
-        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(
             prompt="test",
@@ -394,7 +394,7 @@ class TestToolAllowlistArgs:
 
     def test_mcp_config_no_embedded_quotes(self):
         """--mcp-config path must not have embedded quote chars."""
-        from lionagi.service.third_party.claude_code import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(
             prompt="test",
@@ -421,7 +421,9 @@ class TestSessionIsolation:
         """stream_claude_code_cli must default session to None, not a shared instance."""
         import inspect
 
-        from lionagi.service.third_party.claude_code import stream_claude_code_cli
+        from lionagi.providers.anthropic.claude_code.models import (
+            stream_claude_code_cli,
+        )
 
         sig = inspect.signature(stream_claude_code_cli)
         session_param = sig.parameters["session"]
@@ -442,7 +444,7 @@ class TestEmptyResponsesGuard:
     @pytest.mark.asyncio
     async def test_auto_finish_with_empty_responses(self):
         """auto_finish must not IndexError when no chunks were received."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -451,7 +453,7 @@ class TestEmptyResponsesGuard:
             yield  # make it an async generator
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
             side_effect=empty_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
