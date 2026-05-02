@@ -41,6 +41,13 @@ _SENSITIVE_ENV_PATTERNS = frozenset(
 )
 
 
+__all__ = (
+    "MCPSecurityConfig",
+    "MCPConnectionPool",
+    "create_mcp_tool",
+)
+
+
 @dataclass(frozen=True)
 class MCPSecurityConfig:
     """Security configuration for MCP connection pool.

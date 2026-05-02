@@ -15,35 +15,35 @@ from .header_factory import HeaderFactory
 logger = logging.getLogger(__name__)
 
 
+__all__ = ("Endpoint",)
+
+
 class Endpoint:
     is_cli: ClassVar[bool] = False
 
     def __init__(
         self,
-        config: dict | EndpointConfig,
+        config: dict | EndpointConfig | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         retry_config: RetryConfig | None = None,
         **kwargs,
     ):
-        """
-        Initialize the endpoint.
-
-        This endpoint is designed to be stateless and thread-safe for parallel operations.
-        Each API call will create its own client session to avoid conflicts.
-
-        Args:
-            config: The endpoint configuration.
-            circuit_breaker: Optional circuit breaker for resilience.
-            retry_config: Optional retry configuration for resilience.
-            **kwargs: Additional keyword arguments to update the configuration.
-        """
-        if isinstance(config, dict):
+        if config is None:
+            meta = getattr(type(self), "_ENDPOINT_META", None)
+            if meta is not None:
+                _config = meta.create_config(**kwargs)
+            else:
+                raise ValueError(
+                    "No config provided and no _ENDPOINT_META on class. "
+                    "Either pass a config or use @register_endpoint."
+                )
+        elif isinstance(config, dict):
             _config = EndpointConfig(**config, **kwargs)
         elif isinstance(config, EndpointConfig):
             _config = config.model_copy(deep=True)
             _config.update(**kwargs)
         else:
-            raise ValueError("Config must be a dict or EndpointConfig instance")
+            raise ValueError("Config must be a dict, EndpointConfig, or None")
         self.config = _config
         self.circuit_breaker = circuit_breaker
         self.retry_config = retry_config
