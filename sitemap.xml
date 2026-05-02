@@ -41,6 +41,10 @@
          <lastmod>2026-05-02</lastmod>
     </url>
     <url>
+         <loc>https://lionagi.ai/api/note/</loc>
+         <lastmod>2026-05-02</lastmod>
+    </url>
+    <url>
          <loc>https://lionagi.ai/api/operations/</loc>
          <lastmod>2026-05-02</lastmod>
     </url>
@@ -94,6 +98,10 @@
     </url>
     <url>
          <loc>https://lionagi.ai/migration/0.22.9-to-0.23.0/</loc>
+         <lastmod>2026-05-02</lastmod>
+    </url>
+    <url>
+         <loc>https://lionagi.ai/migration/0.23.0-to-0.23.1/</loc>
          <lastmod>2026-05-02</lastmod>
     </url>
     <url>
