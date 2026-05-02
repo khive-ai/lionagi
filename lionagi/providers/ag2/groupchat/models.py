@@ -82,7 +82,7 @@ class GroupChatSpec(BaseModel):
     name: str = Field(description="GroupChat identifier")
     objective: str = Field(description="What this GroupChat should accomplish")
     agents: list[AgentSpec] = Field(description="Participating agents")
-    max_round: int = Field(default=15, description="Maximum conversation rounds")
+    max_round: int = Field(default=15, gt=0, description="Maximum conversation rounds")
     context: dict[str, Any] = Field(
         default_factory=dict,
         description="Initial context variables shared across agents",
@@ -121,7 +121,7 @@ class AG2GroupChatRequest(BaseModel):
 
     messages: list[dict[str, Any]] = Field(default_factory=list)
     prompt: str = ""
-    max_round: int = 15
+    max_round: int = Field(default=15, gt=0)
     context_variables: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -213,6 +213,12 @@ def build_group_chat(
                             condition=StringLLMCondition(prompt=hc.condition),
                         )
                     ]
+                )
+            else:
+                logger.warning(
+                    "Handoff target %r from agent %r not found in spec — skipped",
+                    hc.target,
+                    agent_spec.name,
                 )
 
     if ordered:
