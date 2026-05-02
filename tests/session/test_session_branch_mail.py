@@ -11,24 +11,44 @@ Test Coverage:
 4. Mail system (send/receive, routing, mailbox management)
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
 from lionagi.protocols.messages import Instruction
+from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.providers.oai_ import _get_oai_config
+from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.imodel import iModel
-from lionagi.service.third_party.openai_models import OpenAIChatCompletionsRequest
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
+
+
+def _get_oai_config(
+    name: str = "openai_chat/completions",
+    endpoint: str = "chat/completions",
+    request_options=None,
+    kwargs: dict | None = None,
+) -> EndpointConfig:
+    return EndpointConfig(
+        name=name,
+        provider="openai",
+        base_url="https://api.openai.com/v1",
+        endpoint=endpoint,
+        api_key="dummy-key-for-testing",
+        request_options=request_options,
+        auth_type="bearer",
+        content_type="application/json",
+        method="POST",
+        requires_tokens=True,
+        kwargs=kwargs or {},
+    )
+
 
 # ============================================================================
 # Test Fixtures and Helpers

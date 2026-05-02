@@ -161,9 +161,7 @@ class TestiModel:
 
         # NOTE: request_options removed due to incorrect role literals in generated models
         # Should return OpenAIChatCompletionsRequest for OpenAI
-        from lionagi.service.third_party.openai_models import (
-            OpenAIChatCompletionsRequest,
-        )
+        from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
 
         assert imodel.request_options == OpenAIChatCompletionsRequest
 

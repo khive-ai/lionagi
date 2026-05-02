@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
-from lionagi.service.connections.mcp.wrapper import MCPConnectionPool, create_mcp_tool
+from lionagi.service.connections.mcp_wrapper import MCPConnectionPool, create_mcp_tool
 
 
 class TestMCPConnectionPoolContextManager:

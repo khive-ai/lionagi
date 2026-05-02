@@ -1,0 +1,164 @@
+# Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
+"""OpenAI Audio endpoints: Text-to-Speech and Speech-to-Text (Whisper).
+
+TTS:  POST https://api.openai.com/v1/audio/speech
+STT:  POST https://api.openai.com/v1/audio/transcriptions
+"""
+
+from __future__ import annotations
+
+import io
+
+from pydantic import BaseModel
+
+from lionagi.service.connections.endpoint import Endpoint
+from lionagi.service.connections.endpoint_config import EndpointConfig
+
+from .._config import OpenAIConfigs
+from .models import AudioSpeechRequest, AudioTranscriptionRequest
+
+__all__ = ("OpenaiAudioSpeechEndpoint", "OpenaiAudioTranscriptionEndpoint")
+
+
+@OpenAIConfigs.AUDIO_SPEECH.register
+class OpenaiAudioSpeechEndpoint(Endpoint):
+    """Text-to-Speech endpoint.  Returns raw audio bytes.
+
+    Usage::
+
+        endpoint = OpenaiAudioSpeechEndpoint()
+        audio_bytes = await endpoint.call({"input": "Hello!", "voice": "nova"})
+    """
+
+    def __init__(self, config: EndpointConfig = None, **kwargs):
+        if config is None:
+            from lionagi.config import settings
+
+            kwargs.setdefault(
+                "api_key", settings.OPENAI_API_KEY or "dummy-key-for-testing"
+            )
+            kwargs.setdefault("timeout", 120)
+            kwargs.setdefault("max_retries", 3)
+        super().__init__(config=config, **kwargs)
+
+    def create_payload(
+        self,
+        request: dict | BaseModel,
+        extra_headers: dict | None = None,
+        **kwargs,
+    ):
+        payload, headers = super().create_payload(request, extra_headers, **kwargs)
+        return payload, headers
+
+    async def _call(self, payload: dict, headers: dict, **kwargs):
+        """Override to return raw bytes instead of parsed JSON."""
+        import aiohttp
+
+        async with self._create_http_session() as session:
+            async with session.request(
+                method=self.config.method,
+                url=self.config.full_url,
+                headers=headers,
+                json=payload,
+                **kwargs,
+            ) as response:
+                if response.status != 200:
+                    error_body = await response.text()
+                    raise aiohttp.ClientResponseError(
+                        request_info=response.request_info,
+                        history=response.history,
+                        status=response.status,
+                        message=f"TTS request failed ({response.status}): {error_body}",
+                        headers=response.headers,
+                    )
+                return await response.read()
+
+
+@OpenAIConfigs.AUDIO_TRANSCRIPTION.register
+class OpenaiAudioTranscriptionEndpoint(Endpoint):
+    """Speech-to-Text endpoint (Whisper).
+
+    The OpenAI transcription API uses multipart/form-data with an audio file.
+    Pass ``file`` as bytes or a file-like object via kwargs; the endpoint will
+    encode the request correctly.
+
+    Usage::
+
+        endpoint = OpenaiAudioTranscriptionEndpoint()
+        with open("audio.mp3", "rb") as f:
+            result = await endpoint.call(
+                {"model": "whisper-1"},
+                file=f.read(),
+                filename="audio.mp3",
+            )
+    """
+
+    def __init__(self, config: EndpointConfig = None, **kwargs):
+        if config is None:
+            from lionagi.config import settings
+
+            kwargs.setdefault(
+                "api_key", settings.OPENAI_API_KEY or "dummy-key-for-testing"
+            )
+            kwargs.setdefault("timeout", 120)
+            kwargs.setdefault("max_retries", 3)
+        super().__init__(config=config, **kwargs)
+
+    def create_payload(
+        self,
+        request: dict | BaseModel,
+        extra_headers: dict | None = None,
+        **kwargs,
+    ):
+        # We only validate the model-level fields; file is handled separately.
+        payload, headers = super().create_payload(request, extra_headers, **kwargs)
+        return payload, headers
+
+    async def _call(self, payload: dict, headers: dict, **kwargs):
+        """Encode audio as multipart/form-data and POST to the transcription endpoint."""
+        import aiohttp
+
+        file_data: bytes | None = kwargs.pop("file", None)
+        filename: str = kwargs.pop("filename", "audio.mp3")
+
+        # Build multipart form
+        form = aiohttp.FormData()
+        for key, value in payload.items():
+            if value is not None:
+                form.add_field(key, str(value))
+
+        if file_data is not None:
+            if isinstance(file_data, (bytes, bytearray)):
+                file_obj = io.BytesIO(file_data)
+            else:
+                file_obj = file_data
+            form.add_field(
+                "file",
+                file_obj,
+                filename=filename,
+                content_type="application/octet-stream",
+            )
+
+        # Remove Content-Type from headers — aiohttp sets it automatically with boundary
+        multipart_headers = {
+            k: v for k, v in headers.items() if k.lower() != "content-type"
+        }
+
+        async with self._create_http_session() as session:
+            async with session.post(
+                url=self.config.full_url,
+                headers=multipart_headers,
+                data=form,
+            ) as response:
+                if response.status != 200:
+                    error_body = await response.text()
+                    raise aiohttp.ClientResponseError(
+                        request_info=response.request_info,
+                        history=response.history,
+                        status=response.status,
+                        message=f"Transcription request failed ({response.status}): {error_body}",
+                        headers=response.headers,
+                    )
+                return await response.json()

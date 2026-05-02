@@ -323,7 +323,7 @@ class ActionManager(Manager):
                 registered_tools.append(tool_name)
         else:
             # Auto-discover tools from the server
-            from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+            from lionagi.service.connections.mcp_wrapper import MCPConnectionPool
 
             # Get client and discover tools
             client = await MCPConnectionPool.get_client(server_config)
@@ -411,7 +411,7 @@ class ActionManager(Manager):
                 server_names=["search", "memory"]
             )
         """
-        from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+        from lionagi.service.connections.mcp_wrapper import MCPConnectionPool
 
         # Load the config file into the connection pool
         MCPConnectionPool.load_config(config_path)
@@ -481,7 +481,7 @@ async def load_mcp_tools(
         )
         branch = Branch(tools=tools)
     """
-    from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+    from lionagi.service.connections.mcp_wrapper import MCPConnectionPool
 
     # Create a temporary ActionManager for tool management
     manager = ActionManager()

@@ -186,14 +186,44 @@ def register_endpoint(
 
 
 def _import_all_providers():
-    """Import all provider modules to trigger registration decorators.
-
-    Populated by the provider reorganization PR — initially empty since
-    existing providers still use the legacy match_endpoint() router.
-    """
+    """Import all provider modules to trigger registration decorators."""
     import importlib
 
-    _modules: list[str] = []
+    _modules = [
+        # OpenAI family
+        "lionagi.providers.openai.chat.endpoint",
+        "lionagi.providers.openai.codex.endpoint",
+        "lionagi.providers.openai.audio.endpoint",
+        "lionagi.providers.openai.images.endpoint",
+        "lionagi.providers.openai.embed.endpoint",
+        "lionagi.providers.openai.response.endpoint",
+        # Anthropic
+        "lionagi.providers.anthropic.messages.endpoint",
+        "lionagi.providers.anthropic.claude_code.endpoint",
+        # Ollama
+        "lionagi.providers.ollama.chat.endpoint",
+        "lionagi.providers.ollama.embed.endpoint",
+        "lionagi.providers.ollama.generate.endpoint",
+        # Search & scraping
+        "lionagi.providers.tavily.search.endpoint",
+        "lionagi.providers.exa.search.endpoint",
+        "lionagi.providers.exa.contents.endpoint",
+        "lionagi.providers.exa.find_similar.endpoint",
+        "lionagi.providers.firecrawl.scrape.endpoint",
+        "lionagi.providers.firecrawl.map.endpoint",
+        "lionagi.providers.firecrawl.crawl.endpoint",
+        # Chat / LLM providers
+        "lionagi.providers.perplexity.chat.endpoint",
+        "lionagi.providers.nvidia_nim.chat.endpoint",
+        "lionagi.providers.nvidia_nim.embed.endpoint",
+        "lionagi.providers.deepseek.chat.endpoint",
+        "lionagi.providers.google.chat.endpoint",
+        "lionagi.providers.google.gemini_code.endpoint",
+        "lionagi.providers.groq.chat.endpoint",
+        "lionagi.providers.groq.audio_transcription.endpoint",
+        "lionagi.providers.pi.cli.endpoint",
+        "lionagi.providers.openrouter.chat.endpoint",
+    ]
     for mod in _modules:
         try:
             importlib.import_module(mod)
