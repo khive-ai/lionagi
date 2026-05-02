@@ -52,7 +52,10 @@ class Note(BaseModel):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__()
-        self.content = kwargs
+        if len(kwargs) == 1 and "content" in kwargs and isinstance(kwargs["content"], dict):
+            self.content = kwargs["content"]
+        else:
+            self.content = kwargs
 
     @field_serializer("content")
     def _serialize_content(self, value: Any) -> dict[str, Any]:

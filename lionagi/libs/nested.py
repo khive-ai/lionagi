@@ -120,12 +120,15 @@ def npop(
                     return default
                 raise KeyError(f"Key not found: {key!r}")
             current = current[key]
-        elif isinstance(current, list) and isinstance(key, int):
-            if key < 0 or key >= len(current):
+        elif isinstance(current, list):
+            if isinstance(key, str) and key.isdigit():
+                key = int(key)
+            if isinstance(key, int) and 0 <= key < len(current):
+                current = current[key]
+            else:
                 if default is not UNDEFINED:
                     return default
                 raise IndexError(f"List index out of range: {key}")
-            current = current[key]
         else:
             if default is not UNDEFINED:
                 return default
@@ -137,6 +140,8 @@ def npop(
                 return current.pop(last, default)
             return current.pop(last)
         elif isinstance(current, list):
+            if isinstance(last, str) and last.isdigit():
+                last = int(last)
             if not isinstance(last, int):
                 raise TypeError("Cannot use non-integer index on a list")
             if last < 0 or last >= len(current):
