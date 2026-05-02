@@ -15,7 +15,6 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
 from .._config import ExaConfigs
-from .models import ExaFindSimilarRequest
 
 __all__ = ("ExaFindSimilarEndpoint",)
 

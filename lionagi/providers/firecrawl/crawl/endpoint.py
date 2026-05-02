@@ -18,7 +18,6 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
 from .._config import FirecrawlConfigs
-from .models import FirecrawlCrawlRequest
 
 __all__ = ("FirecrawlCrawlEndpoint",)
 
