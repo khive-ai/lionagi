@@ -67,14 +67,20 @@ class OllamaChatEndpoint(Endpoint):
     async def call(
         self, request: dict | BaseModel, cache_control: bool = False, **kwargs
     ):
-        payload, _ = self.create_payload(request, **kwargs)
+        payload, headers = self.create_payload(request, **kwargs)
 
         # Check if model exists and pull if needed
-        model = payload["model"]
-        self._check_model(model)
+        model = payload.get("model")
+        if model:
+            self._check_model(model)
 
-        # The parent call method will handle headers internally
-        return await super().call(payload, cache_control=cache_control, **kwargs)
+        # Pass the already-created payload directly to avoid double create_payload
+        return await super().call(
+            payload,
+            cache_control=cache_control,
+            skip_payload_creation=True,
+            **kwargs,
+        )
 
     def _pull_model(self, model: str):
         from tqdm import tqdm

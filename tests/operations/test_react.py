@@ -6,9 +6,9 @@ import pytest
 # We'll import or define the ReActAnalysis class to create a real instance:
 from lionagi.operations.ReAct.utils import ReActAnalysis
 from lionagi.protocols.generic.event import EventStatus
+from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
-from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.imodel import iModel
 
@@ -32,6 +32,8 @@ def _get_oai_config(
         requires_tokens=True,
         kwargs=kwargs or {},
     )
+
+
 from lionagi.session.branch import Branch
 
 

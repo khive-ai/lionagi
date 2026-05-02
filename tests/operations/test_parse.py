@@ -358,14 +358,32 @@ def make_mocked_branch_for_parse():
         from unittest.mock import AsyncMock
 
         from lionagi.protocols.generic.event import EventStatus
+        from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
         from lionagi.service.connections.api_calling import APICalling
         from lionagi.service.connections.endpoint import Endpoint
-        from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
         from lionagi.service.connections.endpoint_config import EndpointConfig
         from lionagi.service.imodel import iModel
 
-        def _get_oai_config(name="openai_chat/completions", endpoint="chat/completions", request_options=None, kwargs=None):
-            return EndpointConfig(name=name, provider="openai", base_url="https://api.openai.com/v1", endpoint=endpoint, api_key="dummy-key-for-testing", request_options=request_options, auth_type="bearer", content_type="application/json", method="POST", requires_tokens=True, kwargs=kwargs or {})
+        def _get_oai_config(
+            name="openai_chat/completions",
+            endpoint="chat/completions",
+            request_options=None,
+            kwargs=None,
+        ):
+            return EndpointConfig(
+                name=name,
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+                endpoint=endpoint,
+                api_key="dummy-key-for-testing",
+                request_options=request_options,
+                auth_type="bearer",
+                content_type="application/json",
+                method="POST",
+                requires_tokens=True,
+                kwargs=kwargs or {},
+            )
+
         from lionagi.session.branch import Branch
 
         branch = Branch(imodel=iModel(provider="openai", model="gpt-4.1-mini"))

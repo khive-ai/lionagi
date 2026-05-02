@@ -421,7 +421,9 @@ class TestSessionIsolation:
         """stream_claude_code_cli must default session to None, not a shared instance."""
         import inspect
 
-        from lionagi.providers.anthropic.claude_code.models import stream_claude_code_cli
+        from lionagi.providers.anthropic.claude_code.models import (
+            stream_claude_code_cli,
+        )
 
         sig = inspect.signature(stream_claude_code_cli)
         session_param = sig.parameters["session"]

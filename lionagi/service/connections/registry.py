@@ -118,11 +118,7 @@ class EndpointRegistry:
                 continue
             if first_for_provider is None:
                 first_for_provider = entry
-            if (
-                not endpoint
-                or endpoint == m.endpoint
-                or endpoint in m.aliases
-            ):
+            if not endpoint or endpoint == m.endpoint or endpoint in m.aliases:
                 return entry.cls(None, **kwargs)
 
         if first_for_provider is not None:

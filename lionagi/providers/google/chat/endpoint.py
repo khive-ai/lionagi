@@ -2,6 +2,12 @@ from lionagi.service.connections.endpoint import Endpoint
 
 from .._config import GeminiConfigs
 
+CONTEXT_WINDOWS: dict[str, int] = {
+    "gemini-2.5-flash": 1_048_576,
+    "gemini-2.5-pro": 1_048_576,
+    "gemini-2.0-flash": 1_048_576,
+}
+
 
 @GeminiConfigs.CHAT.register
 class GeminiChatEndpoint(Endpoint):
@@ -13,4 +19,5 @@ class GeminiChatEndpoint(Endpoint):
                 "api_key", settings.GEMINI_API_KEY or "dummy-key-for-testing"
             )
             kwargs.setdefault("kwargs", {"model": "gemini-2.5-flash"})
+            kwargs.setdefault("requires_tokens", True)
         super().__init__(config, **kwargs)

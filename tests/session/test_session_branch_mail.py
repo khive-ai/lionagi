@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.edge import Edge
@@ -49,6 +48,7 @@ def _get_oai_config(
         requires_tokens=True,
         kwargs=kwargs or {},
     )
+
 
 # ============================================================================
 # Test Fixtures and Helpers

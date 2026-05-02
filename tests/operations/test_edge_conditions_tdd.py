@@ -73,14 +73,31 @@ class AlwaysFalseCondition(EdgeCondition):
 def create_mock_branch(name: str = "TestBranch") -> Branch:
     """Create a Branch with mocked operations for testing."""
     from lionagi.protocols.generic.event import EventStatus
+    from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
     from lionagi.service.connections.api_calling import APICalling
     from lionagi.service.connections.endpoint import Endpoint
-    from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
     from lionagi.service.connections.endpoint_config import EndpointConfig
     from lionagi.service.imodel import iModel
 
-    def _get_oai_config(name="openai_chat/completions", endpoint="chat/completions", request_options=None, kwargs=None):
-        return EndpointConfig(name=name, provider="openai", base_url="https://api.openai.com/v1", endpoint=endpoint, api_key="dummy-key-for-testing", request_options=request_options, auth_type="bearer", content_type="application/json", method="POST", requires_tokens=True, kwargs=kwargs or {})
+    def _get_oai_config(
+        name="openai_chat/completions",
+        endpoint="chat/completions",
+        request_options=None,
+        kwargs=None,
+    ):
+        return EndpointConfig(
+            name=name,
+            provider="openai",
+            base_url="https://api.openai.com/v1",
+            endpoint=endpoint,
+            api_key="dummy-key-for-testing",
+            request_options=request_options,
+            auth_type="bearer",
+            content_type="application/json",
+            method="POST",
+            requires_tokens=True,
+            kwargs=kwargs or {},
+        )
 
     branch = Branch(user="test_user", name=name)
 
@@ -722,8 +739,25 @@ async def test_performance_skip_expensive_operations():
         from lionagi.service.connections.endpoint import Endpoint
         from lionagi.service.connections.endpoint_config import EndpointConfig
 
-        def _get_oai_config(name="openai_chat/completions", endpoint="chat/completions", request_options=None, kwargs=None):
-            return EndpointConfig(name=name, provider="openai", base_url="https://api.openai.com/v1", endpoint=endpoint, api_key="dummy-key-for-testing", request_options=request_options, auth_type="bearer", content_type="application/json", method="POST", requires_tokens=True, kwargs=kwargs or {})
+        def _get_oai_config(
+            name="openai_chat/completions",
+            endpoint="chat/completions",
+            request_options=None,
+            kwargs=None,
+        ):
+            return EndpointConfig(
+                name=name,
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+                endpoint=endpoint,
+                api_key="dummy-key-for-testing",
+                request_options=request_options,
+                auth_type="bearer",
+                content_type="application/json",
+                method="POST",
+                requires_tokens=True,
+                kwargs=kwargs or {},
+            )
 
         config = _get_oai_config(
             name="oai_chat",

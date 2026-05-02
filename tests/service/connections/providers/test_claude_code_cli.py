@@ -50,9 +50,7 @@ class TestHandlerValidation:
 
     def test_validate_handlers_valid_dict(self):
         """Test _validate_handlers accepts valid handler dictionary."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {
             "on_thinking": lambda x: None,
@@ -66,18 +64,14 @@ class TestHandlerValidation:
 
     def test_validate_handlers_invalid_type(self):
         """Test _validate_handlers rejects non-dict input."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         with pytest.raises(ValueError, match="Handlers must be a dictionary"):
             _validate_handlers("not a dict")
 
     def test_validate_handlers_invalid_key(self):
         """Test _validate_handlers rejects invalid handler keys."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {"invalid_handler": lambda x: None}
 
@@ -86,9 +80,7 @@ class TestHandlerValidation:
 
     def test_validate_handlers_invalid_value(self):
         """Test _validate_handlers rejects non-callable values."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {"on_thinking": "not callable"}
 
@@ -97,9 +89,7 @@ class TestHandlerValidation:
 
     def test_validate_handlers_allows_none(self):
         """Test _validate_handlers allows None values."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {
             "on_thinking": None,

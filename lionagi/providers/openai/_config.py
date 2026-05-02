@@ -61,7 +61,7 @@ class OpenAIConfigs(ProviderConfig, Enum):
         "images/edits",
         ["image_edit"],
         EndpointType.API,
-        None,
+        LazyType("lionagi.providers.openai.images.models:ImageEditRequest"),
         "https://api.openai.com/v1",
         "bearer",
     )
@@ -71,6 +71,7 @@ class OpenAIConfigs(ProviderConfig, Enum):
         EndpointType.AGENTIC,
         LazyType("lionagi.providers.openai.codex.models:CodexCodeRequest"),
     )
+
 
 OpenAIConfigs._PROVIDER = "openai"
 OpenAIConfigs._PROVIDER_ALIASES = ["codex"]

@@ -21,4 +21,3 @@ class NvidiaNimChatEndpoint(Endpoint):
             kwargs.setdefault("kwargs", {"model": "meta/llama3-8b-instruct"})
             kwargs.setdefault("requires_tokens", True)
         super().__init__(config, **kwargs)
-

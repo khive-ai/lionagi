@@ -31,6 +31,7 @@ class DeepseekChatEndpoint(Endpoint):
                 "api_key", settings.DEEPSEEK_API_KEY or "dummy-key-for-testing"
             )
             kwargs.setdefault("kwargs", {"model": "deepseek-chat"})
+            kwargs.setdefault("requires_tokens", True)
         super().__init__(config, **kwargs)
 
     def create_payload(

@@ -166,36 +166,50 @@ class Element(BaseModel, Observable):
         dict_["metadata"].update({"lion_class": self.class_name(full=True)})
         return {k: v for k, v in dict_.items() if not_sentinel(v)}
 
-    def to_dict(self, mode: Literal["python", "json", "db"] = "python", **kw) -> dict:
-        """Converts this Element to a dictionary."""
+    def to_dict(
+        self,
+        mode: Literal["python", "json", "db"] = "python",
+        db_metakey: str | None = None,  # default: "node_metadata"
+        **kw,
+    ) -> dict:
+        """Converts this Element to a dictionary.
+        db_metakey: The key to use for the metadata in the database format.
+        default: "node_metadata"
+        """
+        if db_metakey is not None and mode != "db":
+            raise ValueError("db_metakey is only valid when mode is 'db'")
+
         if mode == "python":
             return self._to_dict(**kw)
         if mode == "json":
             return orjson.loads(self.to_json(decode=False, **kw))
         if mode == "db":
             dict_ = orjson.loads(self.to_json(decode=False, **kw))
-            dict_["node_metadata"] = dict_.pop("metadata", {})
+            dict_[db_metakey or "node_metadata"] = dict_.pop("metadata", {})
             return dict_
         raise ValueError(f"Unsupported mode: {mode}")
 
     @classmethod
-    def from_dict(cls, data: dict) -> Element:
+    def from_dict(cls, data: dict, db_metakey: str | None = None) -> Element:
         """Deserializes a dictionary into an Element or subclass of Element.
 
         If `lion_class` in `metadata` refers to a subclass, this method
         is polymorphic, it will attempt to create an instance of that subclass.
         """
+        if db_metakey is not None and db_metakey not in data:
+            raise ValueError(f"Key '{db_metakey}' not found in data")
+
         # Shallow copy to avoid mutating the caller's dict. The nested metadata
         # dict is also copied because we pop from it (lion_class extraction).
         data = dict(data)
 
         # Preprocess database format if needed
-        metadata = {}
-
-        if "node_metadata" in data:
+        metadata = data.pop("metadata", {})
+        if db_metakey is not None:
+            metadata = dict(data.pop(db_metakey))
+        elif "node_metadata" in data:
             metadata = dict(data.pop("node_metadata"))
-        elif "metadata" in data:
-            metadata = dict(data.pop("metadata"))
+
         if "lion_class" in metadata:
             subcls: str = metadata.pop("lion_class")
             if subcls != Element.class_name(full=True):

@@ -35,5 +35,3 @@ class OpenaiChatEndpoint(Endpoint):
                 payload["messages"][0]["role"] = "developer"
 
         return (payload, headers)
-
-

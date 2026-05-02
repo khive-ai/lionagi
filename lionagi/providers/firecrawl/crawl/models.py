@@ -8,7 +8,7 @@ Docs: https://docs.firecrawl.dev/api-reference/endpoint/crawl-post
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from lionagi.providers.firecrawl.models import OutputFormat
+from lionagi.providers.firecrawl.scrape.models import OutputFormat
 
 
 class CrawlScrapeOptions(BaseModel):

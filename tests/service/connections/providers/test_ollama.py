@@ -170,9 +170,7 @@ class TestOllamaModelManagement:
         mock_ollama.pull = MagicMock()
 
         endpoint = OllamaChatEndpoint()
-        with caplog.at_level(
-            "DEBUG", logger="lionagi.providers.ollama.chat.endpoint"
-        ):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
             endpoint._check_model("llama2")
 
         # Verify output shows no pulling occurred
@@ -194,9 +192,7 @@ class TestOllamaModelManagement:
         )
 
         endpoint = OllamaChatEndpoint()
-        with caplog.at_level(
-            "DEBUG", logger="lionagi.providers.ollama.chat.endpoint"
-        ):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
             endpoint._check_model("mistral")
 
         assert "not found locally" in caplog.text
@@ -214,9 +210,7 @@ class TestOllamaModelManagement:
         endpoint = OllamaChatEndpoint()
 
         # Should not raise, but log warning
-        with caplog.at_level(
-            "DEBUG", logger="lionagi.providers.ollama.chat.endpoint"
-        ):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
             endpoint._check_model("llama2")
 
         assert "Connection failed" in caplog.text
@@ -264,9 +258,7 @@ class TestOllamaModelManagement:
         mock_ollama.pull = MagicMock(return_value=iter(progress_data))
 
         endpoint = OllamaChatEndpoint()
-        with caplog.at_level(
-            "DEBUG", logger="lionagi.providers.ollama.chat.endpoint"
-        ):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
             endpoint._pull_model("llama2")
 
         assert "pulling manifest" in caplog.text

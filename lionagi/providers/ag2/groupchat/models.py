@@ -273,20 +273,44 @@ async def stream_group_chat(
 
             if isinstance(event, TextEvent) and on_text:
                 text = getattr(inner, "content", "") if inner is not None else ""
-                sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
+                sender = (
+                    getattr(inner, "sender", "unknown")
+                    if inner is not None
+                    else "unknown"
+                )
                 await _maybe_await(on_text, text, sender)
             elif isinstance(event, ToolCallEvent) and on_tool_use:
-                tool_calls = getattr(inner, "tool_calls", []) if inner is not None else []
+                tool_calls = (
+                    getattr(inner, "tool_calls", []) if inner is not None else []
+                )
                 first = tool_calls[0] if tool_calls else None
-                tool_name = getattr(getattr(first, "function", None), "name", "") if first else ""
-                tool_args = getattr(getattr(first, "function", None), "arguments", None) if first else None
-                sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
+                tool_name = (
+                    getattr(getattr(first, "function", None), "name", "")
+                    if first
+                    else ""
+                )
+                tool_args = (
+                    getattr(getattr(first, "function", None), "arguments", None)
+                    if first
+                    else None
+                )
+                sender = (
+                    getattr(inner, "sender", "unknown")
+                    if inner is not None
+                    else "unknown"
+                )
                 await _maybe_await(on_tool_use, tool_name, sender, tool_args)
             elif isinstance(event, ToolResponseEvent) and on_tool_result:
-                tool_responses = getattr(inner, "tool_responses", []) if inner is not None else []
+                tool_responses = (
+                    getattr(inner, "tool_responses", []) if inner is not None else []
+                )
                 first = tool_responses[0] if tool_responses else None
                 tool_output = getattr(first, "content", None) if first else None
-                sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
+                sender = (
+                    getattr(inner, "sender", "unknown")
+                    if inner is not None
+                    else "unknown"
+                )
                 await _maybe_await(on_tool_result, sender, tool_output)
             elif isinstance(event, SelectSpeakerEvent) and on_speaker:
                 agents = getattr(inner, "agents", []) if inner is not None else []

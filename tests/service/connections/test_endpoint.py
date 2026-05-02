@@ -60,7 +60,9 @@ class TestEndpoint:
 
     def test_endpoint_initialization_invalid_config_type(self):
         """Test endpoint initialization with invalid config type raises ValueError (line 47)."""
-        with pytest.raises(ValueError, match="Config must be a dict, EndpointConfig, or None"):
+        with pytest.raises(
+            ValueError, match="Config must be a dict, EndpointConfig, or None"
+        ):
             Endpoint(config="invalid_config_type")
 
     def test_request_options_setter(self, openai_config):

@@ -26,6 +26,3 @@ class FirecrawlMapRequest(BaseModel):
         default=None,
         description="Maximum number of links to return.",
     )
-
-
-

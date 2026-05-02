@@ -7,7 +7,6 @@ from lionagi.service.connections.provider_config import LazyType, ProviderConfig
 from lionagi.service.connections.registry import EndpointType
 
 
-
 class GeminiConfigs(ProviderConfig, Enum):
     CHAT = (
         "chat/completions",
@@ -24,8 +23,16 @@ class GeminiConfigs(ProviderConfig, Enum):
         LazyType("lionagi.providers.google.gemini_code.models:GeminiCodeRequest"),
     )
 
+
 GeminiConfigs._PROVIDER = "gemini"
-GeminiConfigs._PROVIDER_ALIASES = ["gemini-api", "gemini", "gemini-code",  "gemini_code", "gemini_cli", "gemini-cli"]
+GeminiConfigs._PROVIDER_ALIASES = [
+    "gemini-api",
+    "gemini",
+    "gemini-code",
+    "gemini_code",
+    "gemini_cli",
+    "gemini-cli",
+]
 
 
 __all__ = ("GeminiConfigs",)

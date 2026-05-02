@@ -8,15 +8,15 @@ from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
 
-from .models import PiChunk, PiCodeRequest, PiSession
-from .models import log as pi_log
-from .models import stream_pi_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from .._config import PiConfigs
+from .models import PiChunk, PiCodeRequest, PiSession
+from .models import log as pi_log
+from .models import stream_pi_cli
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "pi": 128_000,

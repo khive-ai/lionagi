@@ -291,9 +291,7 @@ class DependencyAwareExecutor:
                     ):
                         from lionagi.libs.nested import deep_update
 
-                        deep_update(
-                            self.context.content, operation.response["context"]
-                        )
+                        deep_update(self.context.content, operation.response["context"])
 
                     if self.on_progress:
                         self.on_progress(

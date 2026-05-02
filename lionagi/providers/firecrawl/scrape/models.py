@@ -46,4 +46,3 @@ class FirecrawlScrapeRequest(BaseModel):
         default=None,
         description="Timeout in milliseconds for the scrape request.",
     )
-

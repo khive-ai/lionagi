@@ -31,4 +31,5 @@ class PerplexityChatEndpoint(Endpoint):
                 "api_key", settings.PERPLEXITY_API_KEY or "dummy-key-for-testing"
             )
             kwargs.setdefault("kwargs", {"model": "sonar"})
+            kwargs.setdefault("requires_tokens", True)
         super().__init__(config, **kwargs)

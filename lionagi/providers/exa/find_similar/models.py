@@ -8,7 +8,7 @@ Docs: https://docs.exa.ai/reference/find-similar-links
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from lionagi.providers.exa.models import Contents
+from lionagi.providers.exa.search.models import Contents
 
 
 class ExaFindSimilarRequest(BaseModel):
