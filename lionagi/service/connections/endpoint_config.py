@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 B = TypeVar("B", bound=type[BaseModel])
 
+__all__ = ("EndpointConfig",)
+
 
 class EndpointConfig(BaseModel):
     name: str

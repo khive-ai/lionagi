@@ -8,6 +8,9 @@ from pydantic import SecretStr
 AUTH_TYPES = Literal["bearer", "x-api-key", "none"]
 
 
+__all__ = ("HeaderFactory",)
+
+
 class HeaderFactory:
     @staticmethod
     def get_content_type_header(
