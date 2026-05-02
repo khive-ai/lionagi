@@ -112,13 +112,8 @@ xml = [
 ]
 
 ag2 = [
-    "autogen>=0.12.2",
+    "ag2[openai]>=0.12.0",
 ]
-
-autogen = [
-    "lionagi[ag2]"
-]
-
 
 all = [
     "lionagi[reader]",
