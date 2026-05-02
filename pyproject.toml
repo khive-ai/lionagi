@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.23.0"
+version = "0.23.1"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -9,16 +9,16 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "aiocache>=0.12.0",
-    "aiohttp>=3.13.4",
-    "anyio>=4.7.0",
-    "backoff>=2.0.0",
-    "json-repair>=0.40.0",
-    "msgspec>=0.18.0",
+    "aiohttp>=3.13.0",
+    "anyio>=4.10.0",
+    "backoff>=2.1.0",
+    "json-repair>=0.58.0",
+    "msgspec>=0.20.0",
     "pydantic>=2.8.0",
     "pydantic-settings>=2.8.0",
-    "pydapter[pandas]>=1.3.1",
+    "pydapter[pandas]>=1.3.2",
     "python-dotenv>=1.2.2",
-    "tiktoken>=0.9.0",
+    "tiktoken>=0.10.0",
 ]
 license = {file = "LICENSE"}
 classifiers=[
@@ -62,7 +62,7 @@ dev = [
     "trio>=0.30.0",
     "line-profiler>=5.0.0",
     "memory-profiler>=0.61.0",
-    "hypothesis>=6.139.1",
+    "hypothesis>=6.152.2",
     "pyarrow>=21.0.0",
     "pytest-xdist>=3.8.0",
     "pytest-timeout>=2.4.0",
@@ -75,11 +75,11 @@ li = "lionagi.cli.main:main"
 [project.optional-dependencies]
 
 reader = [
-    "docling>=2.15.0",
+    "docling>=2.91.0",
 ]
 
 ollama = [
-    "ollama>=0.4.0",
+    "ollama>=0.6.1",
 ]
 
 mcp = [
@@ -111,6 +111,14 @@ xml = [
     "xmltodict>=0.12.0",
 ]
 
+ag2 = [
+    "autogen>=0.12.2",
+]
+
+autogen = [
+    "lionagi[ag2]"
+]
+
 
 all = [
     "lionagi[reader]",
@@ -121,7 +129,8 @@ all = [
     "lionagi[postgres]",
     "lionagi[graph]",
     "lionagi[sqlite]",
-    "lionagi[xml]"
+    "lionagi[xml]",
+    "lionagi[ag2]"
 ]
 
 

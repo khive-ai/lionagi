@@ -61,6 +61,26 @@ wheels = [
 ]
 
 [[package]]
+name = "ag2"
+version = "0.12.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "fast-depends", extra = ["pydantic"] },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "termcolor" },
+    { name = "tiktoken" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/28/e6/341ec7dc12d4752c59f0cf69e958eebe1df9adf67c347837341d76d13d71/ag2-0.12.2.tar.gz", hash = "sha256:4245ace868991eab93365c8b41a3b63d1be2e5e19a520f1f682168c30e8a4aec", size = 4257523, upload-time = "2026-05-01T00:20:04.469Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/f5/b0d2f787813887d84045e01bf8ceff32f0e1f1f4242186000d1a928cf734/ag2-0.12.2-py3-none-any.whl", hash = "sha256:8e9209723f1c94d913b8560ad0bff7bdc2ec8bc4961d67df3849621cb96ce76b", size = 1259892, upload-time = "2026-05-01T00:20:01.361Z" },
+]
+
+[[package]]
 name = "aiocache"
 version = "0.12.3"
 source = { registry = "https://pypi.org/simple" }
@@ -394,6 +414,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d9/82/4d0603f30c1b4629b1f091bb266b0d7986434891d6940a8c87f8098db24e/authlib-1.7.0.tar.gz", hash = "sha256:b3e326c9aa9cc3ea95fe7d89fd880722d3608da4d00e8a27e061e64b48d801d5", size = 175890, upload-time = "2026-04-18T11:00:28.559Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ca/48/c954218b2a250e23f178f10167c4173fecb5a75d2c206f0a67ba58006c26/authlib-1.7.0-py2.py3-none-any.whl", hash = "sha256:e36817afb02f6f0b6bf55f150782499ddd6ddf44b402bb055d3263cc65ac9ae0", size = 258779, upload-time = "2026-04-18T11:00:26.64Z" },
+]
+
+[[package]]
+name = "autogen"
+version = "0.12.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ag2" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ea/e4/32ff3b88fcc6be660c7b7e4883a05566a1ff02c1421b8c911928e3c31830/autogen-0.12.2.tar.gz", hash = "sha256:f1a79689d38e8d5150662bfd3dad162645e7fadb6f4fdcfad151dfd593efd6b2", size = 49818, upload-time = "2026-05-01T00:20:08.525Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/ed/67298cc0f6ad93b8f273edf21576e5c113967ecacaf5d0e35078ea83d4f7/autogen-0.12.2-py3-none-any.whl", hash = "sha256:0cfe4f496b7688383315bceba43989e7cec4ff055810c6d3ce03deaefc00bbc5", size = 13766, upload-time = "2026-05-01T00:20:07.286Z" },
 ]
 
 [[package]]
@@ -1632,6 +1664,24 @@ wheels = [
 ]
 
 [[package]]
+name = "fast-depends"
+version = "3.0.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/6d/787a21ca8043a8fdb737cf28f645e94a46fc30b44a31de54573299156bad/fast_depends-3.0.8.tar.gz", hash = "sha256:896b16f79a512b6ea1df721b0aa1708a192a06f964be6597e01fcf5412559101", size = 18382, upload-time = "2026-03-02T19:54:28.649Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/1d/e4843e4eeb65f51447b8c22d200d12d8f94f27c97e77bb7162515cc8d61f/fast_depends-3.0.8-py3-none-any.whl", hash = "sha256:4c52c8a3907bca46d43e70e4364d6d016872d9a3aae4bc0c1c85e72e0a6a21c7", size = 25507, upload-time = "2026-03-02T19:54:27.594Z" },
+]
+
+[package.optional-dependencies]
+pydantic = [
+    { name = "pydantic" },
+]
+
+[[package]]
 name = "fastmcp"
 version = "3.2.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2714,7 +2764,7 @@ wheels = [
 
 [[package]]
 name = "lionagi"
-version = "0.23.0"
+version = "0.23.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiocache" },
@@ -2731,8 +2781,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+ag2 = [
+    { name = "autogen" },
+]
 all = [
     { name = "aiosqlite" },
+    { name = "autogen" },
     { name = "datamodel-code-generator" },
     { name = "docling" },
     { name = "fastmcp" },
@@ -2743,6 +2797,9 @@ all = [
     { name = "pydapter", extra = ["postgres"] },
     { name = "rich" },
     { name = "xmltodict" },
+]
+autogen = [
+    { name = "autogen" },
 ]
 graph = [
     { name = "matplotlib" },
@@ -2814,14 +2871,17 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiocache", specifier = ">=0.12.0" },
-    { name = "aiohttp", specifier = ">=3.13.4" },
+    { name = "aiohttp", specifier = ">=3.13.0" },
     { name = "aiosqlite", marker = "extra == 'sqlite'", specifier = ">=0.21.0" },
-    { name = "anyio", specifier = ">=4.7.0" },
-    { name = "backoff", specifier = ">=2.0.0" },
+    { name = "anyio", specifier = ">=4.10.0" },
+    { name = "autogen", marker = "extra == 'ag2'", specifier = ">=0.12.2" },
+    { name = "backoff", specifier = ">=2.1.0" },
     { name = "datamodel-code-generator", marker = "extra == 'schema'", specifier = ">=0.31.2" },
-    { name = "docling", marker = "extra == 'reader'", specifier = ">=2.15.0" },
+    { name = "docling", marker = "extra == 'reader'", specifier = ">=2.91.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.2.0" },
-    { name = "json-repair", specifier = ">=0.40.0" },
+    { name = "json-repair", specifier = ">=0.58.0" },
+    { name = "lionagi", extras = ["ag2"], marker = "extra == 'all'" },
+    { name = "lionagi", extras = ["ag2"], marker = "extra == 'autogen'" },
     { name = "lionagi", extras = ["graph"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["mcp"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["ollama"], marker = "extra == 'all'" },
@@ -2832,25 +2892,25 @@ requires-dist = [
     { name = "lionagi", extras = ["sqlite"], marker = "extra == 'all'" },
     { name = "lionagi", extras = ["xml"], marker = "extra == 'all'" },
     { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.7.0" },
-    { name = "msgspec", specifier = ">=0.18.0" },
+    { name = "msgspec", specifier = ">=0.20.0" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0.0" },
-    { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
+    { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.6.1" },
     { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.3.1" },
+    { name = "pydapter", extras = ["pandas"], specifier = ">=1.3.2" },
     { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
-    { name = "tiktoken", specifier = ">=0.9.0" },
+    { name = "tiktoken", specifier = ">=0.10.0" },
     { name = "xmltodict", marker = "extra == 'xml'", specifier = ">=0.12.0" },
 ]
-provides-extras = ["reader", "ollama", "mcp", "rich", "schema", "postgres", "sqlite", "graph", "xml", "all"]
+provides-extras = ["reader", "ollama", "mcp", "rich", "schema", "postgres", "sqlite", "graph", "xml", "ag2", "autogen", "all"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "black", extras = ["jupyter"], specifier = ">=26.3.1" },
     { name = "furo", specifier = ">=2024.8.6" },
-    { name = "hypothesis", specifier = ">=6.139.1" },
+    { name = "hypothesis", specifier = ">=6.152.2" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipython", specifier = ">=8.31.0" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
@@ -5172,7 +5232,7 @@ wheels = [
 
 [[package]]
 name = "pydapter"
-version = "1.3.1"
+version = "1.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
@@ -5181,9 +5241,9 @@ dependencies = [
     { name = "toml" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/55/06/2b0e28ea2e256ad2ff45a23cbb83722fe67510e6d43a6bc532f7ae8e3fc9/pydapter-1.3.1.tar.gz", hash = "sha256:e5a17ac675c3e5e0b17e3099a13fa5697d79d8a47612a00463d7e0c26ac7802f", size = 389312, upload-time = "2026-04-24T18:16:04.75Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/5c/52a6402ac7e986341d20678eabd0121191df1960fe31ec66080554d991a2/pydapter-1.3.2.tar.gz", hash = "sha256:ebd571532aa37a6ec5edc1a40afffe66bf743f72268a1c2b84d01b30ef9cd278", size = 389501, upload-time = "2026-04-27T15:52:00.065Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/38/f7211245feec6a4820b6f0db1a2a522489094308bc015ddbe3198ebb6b1c/pydapter-1.3.1-py3-none-any.whl", hash = "sha256:640c6ddd24d92c9f61bd4ab3f4d4cf97d79834b3cd6bbdf6325e6c975a906452", size = 107826, upload-time = "2026-04-24T18:16:03.12Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/88/bcc7fd22f4df6fc6c6f351f2c8802a2d33ba697e66f494fcefee7e272392/pydapter-1.3.2-py3-none-any.whl", hash = "sha256:49bb563eae3ae89c57de316afd1bd07c7a7bfcdaee8cdf2b756519a331d1af81", size = 107982, upload-time = "2026-04-27T15:51:58.456Z" },
 ]
 
 [package.optional-dependencies]
@@ -6819,6 +6879,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/46/58/8c37dea7bbf769b20d58e7ace7e5edfe65b849442b00ffcdd56be88697c6/tabulate-0.10.0.tar.gz", hash = "sha256:e2cfde8f79420f6deeffdeda9aaec3b6bc5abce947655d17ac662b126e48a60d", size = 91754, upload-time = "2026-03-04T18:55:34.402Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/99/55/db07de81b5c630da5cbf5c7df646580ca26dfaefa593667fc6f2fe016d2e/tabulate-0.10.0-py3-none-any.whl", hash = "sha256:f0b0622e567335c8fabaaa659f1b33bcb6ddfe2e496071b743aa113f8774f2d3", size = 39814, upload-time = "2026-03-04T18:55:31.284Z" },
+]
+
+[[package]]
+name = "termcolor"
+version = "3.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/79/cf31d7a93a8fdc6aa0fbb665be84426a8c5a557d9240b6239e9e11e35fc5/termcolor-3.3.0.tar.gz", hash = "sha256:348871ca648ec6a9a983a13ab626c0acce02f515b9e1983332b17af7979521c5", size = 14434, upload-time = "2025-12-29T12:55:21.882Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/d1/8bb87d21e9aeb323cc03034f5eaf2c8f69841e40e4853c2627edf8111ed3/termcolor-3.3.0-py3-none-any.whl", hash = "sha256:cf642efadaf0a8ebbbf4bc7a31cec2f9b5f21a9f726f4ccbb08192c9c26f43a5", size = 7734, upload-time = "2025-12-29T12:55:20.718Z" },
 ]
 
 [[package]]
