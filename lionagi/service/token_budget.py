@@ -22,15 +22,15 @@ _provider_cache: dict[str, dict[str, int]] = {}
 
 # Map of known provider names to their module paths
 _PROVIDER_MODULES: dict[str, str] = {
-    "openai": "lionagi.service.connections.providers.oai_",
-    "anthropic": "lionagi.service.connections.providers.anthropic_",
-    "claude_code": "lionagi.service.connections.providers.claude_code_cli",
-    "codex": "lionagi.service.connections.providers.codex_cli",
-    "deepseek": "lionagi.service.connections.providers.deepseek_",
-    "nvidia_nim": "lionagi.service.connections.providers.nvidia_nim_",
-    "perplexity": "lionagi.service.connections.providers.perplexity_",
-    "gemini_code": "lionagi.service.connections.providers.gemini_cli",
-    "pi": "lionagi.service.connections.providers.pi_cli",
+    "openai": "lionagi.providers.openai.chat.endpoint",
+    "anthropic": "lionagi.providers.anthropic.messages.endpoint",
+    "claude_code": "lionagi.providers.anthropic.claude_code.endpoint",
+    "codex": "lionagi.providers.openai.codex.endpoint",
+    "deepseek": "lionagi.providers.deepseek.endpoint",
+    "nvidia_nim": "lionagi.providers.nvidia_nim.endpoint",
+    "perplexity": "lionagi.providers.perplexity.chat.endpoint",
+    "gemini_code": "lionagi.providers.gemini.gemini_code.endpoint",
+    "pi": "lionagi.providers.pi.endpoint",
 }
 
 

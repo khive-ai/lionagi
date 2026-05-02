@@ -8,12 +8,29 @@ from unittest.mock import patch
 import pytest
 
 from lionagi.protocols.generic.event import EventStatus
+from lionagi.providers.openai.chat.endpoint import GeminiChatEndpoint
+from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.connections.match_endpoint import match_endpoint
-from lionagi.service.connections.providers.oai_ import (
-    GeminiChatEndpoint,
-    _get_gemini_config,
-)
 from lionagi.service.imodel import iModel
+
+
+def _get_gemini_config(**overrides) -> EndpointConfig:
+    """Create a Gemini (OpenAI-compatible) chat endpoint config for testing.
+
+    Replacement for the removed _get_gemini_config helper.
+    """
+    defaults = dict(
+        name="gemini_chat/completions",
+        provider="gemini",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        endpoint="chat/completions",
+        api_key="dummy-key-for-testing",
+        auth_type="bearer",
+        content_type="application/json",
+        method="POST",
+    )
+    defaults.update(overrides)
+    return EndpointConfig(**defaults)
 
 
 class TestOpenAIIntegration:

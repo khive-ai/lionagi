@@ -50,6 +50,8 @@ def nget(
         container = get_target_container(data, indices[:-1])
         last = indices[-1]
         if isinstance(container, list):
+            if isinstance(last, str) and last.isdigit():
+                last = int(last)
             if isinstance(last, int) and 0 <= last < len(container):
                 return container[last]
         elif isinstance(container, dict) and last in container:
@@ -194,10 +196,12 @@ def unflatten(data: dict[str, Any], sep: str = "|") -> dict[str, Any]:
 
     def _convert(d: dict) -> dict | list:
         if d and all(k.isdigit() for k in d):
-            return [
-                _convert(d[str(i)]) if isinstance(d[str(i)], dict) else d[str(i)]
-                for i in range(len(d))
-            ]
+            if all(str(i) in d for i in range(len(d))):
+                return [
+                    _convert(d[str(i)]) if isinstance(d[str(i)], dict) else d[str(i)]
+                    for i in range(len(d))
+                ]
+            return {k: _convert(v) if isinstance(v, dict) else v for k, v in d.items()}
         return {k: _convert(v) if isinstance(v, dict) else v for k, v in d.items()}
 
     intermediate: dict[str, Any] = {}

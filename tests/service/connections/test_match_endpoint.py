@@ -214,22 +214,22 @@ class TestMatchEndpoint:
         assert endpoint1.config is not endpoint2.config
 
     def test_match_endpoint_routes_firecrawl_tavily_and_cli_aliases(self):
-        from lionagi.service.connections.providers.codex_cli import CodexCLIEndpoint
-        from lionagi.service.connections.providers.firecrawl_ import (
+        from lionagi.providers.firecrawl.endpoint import (
             FirecrawlMapEndpoint,
             FirecrawlScrapeEndpoint,
         )
-        from lionagi.service.connections.providers.gemini_cli import GeminiCLIEndpoint
-        from lionagi.service.connections.providers.pi_cli import PiCLIEndpoint
-        from lionagi.service.connections.providers.tavily_ import TavilyExtractEndpoint
+        from lionagi.providers.gemini.gemini_code.endpoint import GeminiCLIEndpoint
+        from lionagi.providers.openai.codex.endpoint import CodexCLIEndpoint
+        from lionagi.providers.pi.endpoint import PiCLIEndpoint
+        from lionagi.providers.tavily.endpoint import TavilyExtractEndpoint
 
         cases = [
             ("firecrawl", "map", FirecrawlMapEndpoint),
             ("firecrawl", "scrape", FirecrawlScrapeEndpoint),
             ("tavily", "extract", TavilyExtractEndpoint),
-            ("gemini_cli", "chat", GeminiCLIEndpoint),
-            ("codex", "chat", CodexCLIEndpoint),
-            ("pi", "chat", PiCLIEndpoint),
+            ("gemini_cli", "cli", GeminiCLIEndpoint),
+            ("codex", "cli", CodexCLIEndpoint),
+            ("pi", "cli", PiCLIEndpoint),
         ]
         for provider, endpoint, expected_cls in cases:
             result = match_endpoint(provider=provider, endpoint=endpoint)

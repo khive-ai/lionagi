@@ -8,13 +8,12 @@ import os
 import pytest
 from dotenv import load_dotenv
 
+from lionagi.providers.nvidia_nim.endpoint import NvidiaNimChatEndpoint, NvidiaNimEmbedEndpoint
 from lionagi.service.connections.match_endpoint import match_endpoint
-from lionagi.service.connections.providers.nvidia_nim_ import (
-    NVIDIA_NIM_CHAT_ENDPOINT_CONFIG,
-    NVIDIA_NIM_EMBED_ENDPOINT_CONFIG,
-    NvidiaNimChatEndpoint,
-    NvidiaNimEmbedEndpoint,
-)
+
+# Create config objects using the new endpoint classes (equivalent to old module-level constants)
+NVIDIA_NIM_CHAT_ENDPOINT_CONFIG = NvidiaNimChatEndpoint().config
+NVIDIA_NIM_EMBED_ENDPOINT_CONFIG = NvidiaNimEmbedEndpoint().config
 
 # Load environment variables
 load_dotenv()

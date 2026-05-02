@@ -7,10 +7,7 @@ Coverage-targeted tests for:
   - lionagi/protocols/action/manager.py (82%, ~32 uncovered lines)
 """
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
-import pytest_asyncio
 
 from lionagi.protocols.action.manager import ActionManager
 from lionagi.protocols.action.tool import Tool

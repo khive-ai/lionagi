@@ -72,6 +72,10 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
         prompt = request_obj.prompt or (
             request_obj.messages[-1]["content"] if request_obj.messages else ""
         )
+        if not prompt:
+            raise ValueError(
+                "AG2GroupChatEndpoint requires a non-empty prompt or at least one message."
+            )
 
         agent_configs = kwargs.get("agent_configs", self._agent_configs)
         llm_config = kwargs.get("llm_config", self._llm_config)
@@ -132,6 +136,14 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
 
 
 def _event_to_chunk(event) -> StreamChunk | None:
+    """Convert an AG2 wrapped event to a StreamChunk.
+
+    AG2's @wrap_event decorator produces a two-layer structure:
+      event.type    — the event type string
+      event.content — the inner event with actual data
+
+    All attribute access for payload data must go through event.content.
+    """
     from autogen.events.agent_events import (
         SelectSpeakerEvent,
         TextEvent,
@@ -139,30 +151,52 @@ def _event_to_chunk(event) -> StreamChunk | None:
         ToolResponseEvent,
     )
 
+    inner = getattr(event, "content", None)
+
     if isinstance(event, TextEvent):
+        text = getattr(inner, "content", str(event)) if inner is not None else str(event)
+        sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
         return StreamChunk(
             type="text",
-            content=getattr(event, "content", str(event)),
-            metadata={"agent": getattr(event, "source", "unknown")},
+            content=text,
+            metadata={"agent": sender},
         )
     if isinstance(event, SelectSpeakerEvent):
+        agents = getattr(inner, "agents", []) if inner is not None else []
+        # agents is a list; represent as comma-joined names if possible
+        if agents:
+            names = ", ".join(
+                getattr(a, "name", str(a)) for a in agents
+            )
+        else:
+            names = "?"
         return StreamChunk(
             type="system",
-            content=f"Speaker: {getattr(event, 'selected_agent_name', '?')}",
+            content=f"Speaker candidates: {names}",
             metadata={"event": "speaker_selected"},
         )
     if isinstance(event, ToolCallEvent):
+        tool_calls = getattr(inner, "tool_calls", []) if inner is not None else []
+        first = tool_calls[0] if tool_calls else None
+        tool_name = getattr(getattr(first, "function", None), "name", None) if first else None
+        tool_args = getattr(getattr(first, "function", None), "arguments", None) if first else None
+        sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
         return StreamChunk(
             type="tool_use",
-            tool_name=getattr(event, "tool_name", None),
-            tool_id=getattr(event, "tool_call_id", None),
-            tool_input=getattr(event, "arguments", None),
-            metadata={"agent": getattr(event, "source", "unknown")},
+            tool_name=tool_name,
+            tool_id=None,
+            tool_input=tool_args,
+            metadata={"agent": sender},
         )
     if isinstance(event, ToolResponseEvent):
+        tool_responses = getattr(inner, "tool_responses", []) if inner is not None else []
+        first = tool_responses[0] if tool_responses else None
+        tool_output = getattr(first, "content", None) if first else None
+        tool_id = getattr(first, "tool_call_id", None) if first else None
+        sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
         return StreamChunk(
             type="tool_result",
-            tool_output=getattr(event, "content", None),
-            metadata={"agent": getattr(event, "source", "unknown")},
+            tool_output=tool_output,
+            metadata={"agent": sender, "tool_call_id": tool_id},
         )
     return None

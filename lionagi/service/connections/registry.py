@@ -118,7 +118,7 @@ class EndpointRegistry:
             if (
                 not endpoint
                 or endpoint == m.endpoint
-                or any(a in endpoint for a in (m.endpoint, *m.aliases))
+                or endpoint in m.aliases
             ):
                 return entry.cls(None, **kwargs)
 

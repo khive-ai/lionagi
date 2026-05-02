@@ -283,12 +283,17 @@ class DependencyAwareExecutor:
                     self.results[operation.id] = operation.response
 
                     # Merge any context emitted by the operation into the
-                    # flow-level Note workspace.
+                    # flow-level Note workspace using deep merge to preserve
+                    # nested keys rather than overwriting them wholesale.
                     if (
                         isinstance(operation.response, dict)
                         and "context" in operation.response
                     ):
-                        self.context.content.update(operation.response["context"])
+                        from lionagi.libs.nested import deep_update
+
+                        deep_update(
+                            self.context.content, operation.response["context"]
+                        )
 
                     if self.on_progress:
                         self.on_progress(

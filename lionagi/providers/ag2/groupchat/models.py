@@ -88,8 +88,11 @@ class GroupChatSpec(BaseModel):
         description="Initial context variables shared across agents",
     )
     sandbox: bool = Field(
-        default=True,
-        description="Run in isolated Daytona sandbox",
+        default=False,
+        description=(
+            "Reserved for future Daytona sandbox integration. "
+            "Not yet implemented — has no effect on execution."
+        ),
     )
 
 
@@ -263,43 +266,49 @@ async def stream_group_chat(
 
     try:
         async for event in a_run_group_chat_iter(**kwargs):
+            # AG2's @wrap_event produces a two-layer structure:
+            #   event.type    — event type string
+            #   event.content — inner event with actual payload data
+            inner = getattr(event, "content", None)
+
             if isinstance(event, TextEvent) and on_text:
-                await _maybe_await(
-                    on_text,
-                    getattr(event, "content", ""),
-                    getattr(event, "source", "unknown"),
-                )
+                text = getattr(inner, "content", "") if inner is not None else ""
+                sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
+                await _maybe_await(on_text, text, sender)
             elif isinstance(event, ToolCallEvent) and on_tool_use:
-                await _maybe_await(
-                    on_tool_use,
-                    getattr(event, "tool_name", ""),
-                    getattr(event, "source", "unknown"),
-                    getattr(event, "arguments", None),
-                )
+                tool_calls = getattr(inner, "tool_calls", []) if inner is not None else []
+                first = tool_calls[0] if tool_calls else None
+                tool_name = getattr(getattr(first, "function", None), "name", "") if first else ""
+                tool_args = getattr(getattr(first, "function", None), "arguments", None) if first else None
+                sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
+                await _maybe_await(on_tool_use, tool_name, sender, tool_args)
             elif isinstance(event, ToolResponseEvent) and on_tool_result:
-                await _maybe_await(
-                    on_tool_result,
-                    getattr(event, "source", "unknown"),
-                    getattr(event, "content", None),
-                )
+                tool_responses = getattr(inner, "tool_responses", []) if inner is not None else []
+                first = tool_responses[0] if tool_responses else None
+                tool_output = getattr(first, "content", None) if first else None
+                sender = getattr(inner, "sender", "unknown") if inner is not None else "unknown"
+                await _maybe_await(on_tool_result, sender, tool_output)
             elif isinstance(event, SelectSpeakerEvent) and on_speaker:
-                await _maybe_await(
-                    on_speaker,
-                    getattr(event, "selected_agent_name", "unknown"),
+                agents = getattr(inner, "agents", []) if inner is not None else []
+                first_name = (
+                    getattr(agents[0], "name", str(agents[0])) if agents else "unknown"
                 )
+                await _maybe_await(on_speaker, first_name)
             yield event
     except Exception:
         logger.exception("AG2 GroupChat streaming failed")
+        raise
 
     if on_complete:
         await _maybe_await(on_complete, None)
 
 
 async def _maybe_await(fn: Callable, *args: Any) -> Any:
-    result = fn(*args)
-
     from lionagi.ln.concurrency.utils import is_coro_func
 
-    if is_coro_func(result):
-        return await result
-    return result
+    # Check fn BEFORE calling it. Checking the result (a coroutine object)
+    # with is_coro_func() would always return False — coroutine objects are
+    # not coroutine functions.
+    if is_coro_func(fn):
+        return await fn(*args)
+    return fn(*args)

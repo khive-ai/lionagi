@@ -2,7 +2,7 @@
 
 import pytest
 
-from lionagi.service.connections.mcp.wrapper import (
+from lionagi.service.connections.mcp_wrapper import (
     MCPSecurityConfig,
     _filter_env,
     _validate_command,

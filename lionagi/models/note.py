@@ -95,6 +95,11 @@ class Note(BaseModel):
                 deep_update(existing, value)
             else:
                 raise ValueError("Cannot update a dict with a non-dict value.")
+        else:
+            raise TypeError(
+                f"Cannot update {type(existing).__name__} at {indices!r}; "
+                f"use set() to overwrite"
+            )
 
     # --- flatten / unflatten ---
 
