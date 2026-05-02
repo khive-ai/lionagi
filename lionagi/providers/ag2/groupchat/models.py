@@ -30,7 +30,7 @@ __all__ = [
 class HandoffCondition(BaseModel):
     """When to hand off to another agent.
 
-    Maps to AG2 v0.9::
+    Maps to AG2 v0.12::
 
         OnCondition(
             target=AgentTarget(target_agent),
@@ -47,7 +47,7 @@ class HandoffCondition(BaseModel):
 class AgentSpec(BaseModel):
     """Specification for a single AG2 agent in a GroupChat.
 
-    Maps to AG2 v0.9/v0.12::
+    Maps to AG2 v0.12::
 
         agent = ConversableAgent(name, system_message, llm_config, ...)
         register_function(tool_fn, caller=agent, executor=user_proxy)
@@ -252,6 +252,7 @@ async def stream_group_chat(
     """
     from autogen.agentchat.group.multi_agent_chat import a_run_group_chat_iter
     from autogen.events.agent_events import (
+        GroupChatRunChatEvent,
         SelectSpeakerEvent,
         TextEvent,
         ToolCallEvent,
@@ -259,7 +260,13 @@ async def stream_group_chat(
     )
 
     if yield_on is None:
-        yield_on = [TextEvent, ToolCallEvent, ToolResponseEvent, SelectSpeakerEvent]
+        yield_on = [
+            TextEvent,
+            ToolCallEvent,
+            ToolResponseEvent,
+            SelectSpeakerEvent,
+            GroupChatRunChatEvent,
+        ]
 
     kwargs: dict[str, Any] = dict(
         pattern=pattern,
@@ -318,6 +325,13 @@ async def stream_group_chat(
                     else "unknown"
                 )
                 await _maybe_await(on_tool_result, sender, tool_output)
+            elif isinstance(event, GroupChatRunChatEvent) and on_speaker:
+                speaker = (
+                    getattr(inner, "speaker", "unknown")
+                    if inner is not None
+                    else "unknown"
+                )
+                await _maybe_await(on_speaker, speaker)
             elif isinstance(event, SelectSpeakerEvent) and on_speaker:
                 agents = getattr(inner, "agents", []) if inner is not None else []
                 first_name = (

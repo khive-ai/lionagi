@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 @AG2Configs.GROUP_CHAT.register
 class AG2GroupChatEndpoint(AgenticEndpoint):
-    """Wraps AG2 v0.9 GroupChat as a lionagi endpoint.
+    """Wraps AG2 v0.12 GroupChat as a lionagi endpoint.
 
     Delegates to ``build_group_chat()`` and ``stream_group_chat()``
     for all AG2 logic. Config auto-created from ``_ENDPOINT_META``.
@@ -117,7 +117,7 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
             type="system",
             metadata={
                 "provider": "ag2",
-                "api": "v0.9",
+                "api": "v0.12",
                 "pattern": "DefaultPattern",
                 "agent_count": len(agent_configs),
                 "max_round": request_obj.max_round,
@@ -150,6 +150,7 @@ def _event_to_chunk(event) -> StreamChunk | None:
     All attribute access for payload data must go through event.content.
     """
     from autogen.events.agent_events import (
+        GroupChatRunChatEvent,
         SelectSpeakerEvent,
         TextEvent,
         ToolCallEvent,
@@ -168,9 +169,15 @@ def _event_to_chunk(event) -> StreamChunk | None:
             content=text,
             metadata={"agent": sender},
         )
+    if isinstance(event, GroupChatRunChatEvent):
+        speaker = getattr(inner, "speaker", "unknown") if inner is not None else "unknown"
+        return StreamChunk(
+            type="system",
+            content=f"Speaker: {speaker}",
+            metadata={"event": "speaker_turn", "agent": speaker},
+        )
     if isinstance(event, SelectSpeakerEvent):
         agents = getattr(inner, "agents", []) if inner is not None else []
-        # agents is a list; represent as comma-joined names if possible
         if agents:
             names = ", ".join(getattr(a, "name", str(a)) for a in agents)
         else:
@@ -178,7 +185,7 @@ def _event_to_chunk(event) -> StreamChunk | None:
         return StreamChunk(
             type="system",
             content=f"Speaker candidates: {names}",
-            metadata={"event": "speaker_selected"},
+            metadata={"event": "speaker_candidates"},
         )
     if isinstance(event, ToolCallEvent):
         tool_calls = getattr(inner, "tool_calls", []) if inner is not None else []
