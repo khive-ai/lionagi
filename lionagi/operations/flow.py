@@ -17,6 +17,7 @@ from anyio import get_cancelled_exc_class
 
 from lionagi.ln import AlcallParams
 from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
+from lionagi.models.note import Note
 from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import Event
 from lionagi.protocols.types import EventStatus
@@ -58,7 +59,10 @@ class DependencyAwareExecutor:
         """
         self.session = session
         self.graph = graph
-        self.context = context or {}
+        # Note acts as a typed cognitive workspace for flow-level context that
+        # accumulates across operations.  Callers pass a plain dict; we wrap it
+        # so internal code can use Note's path-indexing and deep-update APIs.
+        self.context: Note = Note(**(context or {}))
         self.max_concurrent = max_concurrent
         self.verbose = verbose
         self._alcall = alcall_params or AlcallParams()
@@ -119,7 +123,9 @@ class DependencyAwareExecutor:
         result = {
             "completed_operations": completed_ops,
             "operation_results": self.results,
-            "final_context": self.context,
+            # Expose the plain dict so callers can use normal dict operations
+            # (e.g. equality checks, key lookups) without Note wrapping.
+            "final_context": self.context.content,
             "skipped_operations": list(self.skipped_operations),
         }
 
@@ -276,12 +282,16 @@ class DependencyAwareExecutor:
                 if operation.execution.status == EventStatus.COMPLETED:
                     self.results[operation.id] = operation.response
 
-                    # Update context if response contains context
+                    # Merge any context emitted by the operation into the
+                    # flow-level Note workspace using deep merge to preserve
+                    # nested keys rather than overwriting them wholesale.
                     if (
                         isinstance(operation.response, dict)
                         and "context" in operation.response
                     ):
-                        self.context.update(operation.response["context"])
+                        from lionagi.libs.nested import deep_update
+
+                        deep_update(self.context.content, operation.response["context"])
 
                     if self.on_progress:
                         self.on_progress(
@@ -361,7 +371,9 @@ class DependencyAwareExecutor:
             ):
                 result_value = to_dict(result_value, recursive=True)
 
-            ctx = {"result": result_value, "context": self.context}
+            # Edge condition `apply()` expects a plain dict with dict.get() semantics,
+            # so expose the Note's content rather than the Note itself.
+            ctx = {"result": result_value, "context": self.context.content}
 
             # Use edge.check_condition() which handles None conditions
             if await edge.check_condition(ctx):
@@ -407,7 +419,9 @@ class DependencyAwareExecutor:
         # Update operation context with predecessors
         predecessors = self.graph.get_predecessors(operation)
         if predecessors:
-            pred_context = {}
+            # Use a Note as a local workspace to accumulate predecessor results
+            # before merging them into the operation's context parameter.
+            pred_ctx = Note()
             for pred in predecessors:
                 # Skip if predecessor was skipped
                 if pred.id in self.skipped_operations:
@@ -419,8 +433,9 @@ class DependencyAwareExecutor:
                         result, (str, int, float, bool)
                     ):
                         result = to_dict(result, recursive=True)
-                    pred_context[f"{str(pred.id)}_result"] = result
+                    pred_ctx[f"{str(pred.id)}_result"] = result
 
+            pred_context = pred_ctx.content
             if "context" not in operation.parameters:
                 operation.parameters["context"] = pred_context
             else:
@@ -435,20 +450,20 @@ class DependencyAwareExecutor:
                         **pred_context,
                     }
 
-        # Add execution context
+        # Add execution context from the flow-level Note workspace
         if self.context:
             if "context" not in operation.parameters:
-                operation.parameters["context"] = self.context.copy()
+                operation.parameters["context"] = self.context.content.copy()
             else:
                 # Handle case where context might be a string
                 existing_context = operation.parameters["context"]
                 if isinstance(existing_context, dict):
-                    existing_context.update(self.context)
+                    existing_context.update(self.context.content)
                 else:
                     # If it's a string or other type, create a new dict
                     operation.parameters["context"] = {
                         "original_context": existing_context,
-                        **self.context,
+                        **self.context.content,
                     }
 
         # Determine and assign branch

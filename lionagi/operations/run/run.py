@@ -11,6 +11,7 @@ import anyio
 from pydantic import JsonValue
 
 from lionagi.ln import acreate_path, json_dumps
+from lionagi.models.note import Note
 from lionagi.protocols.messages import (
     ActionRequest,
     ActionResponse,
@@ -191,9 +192,9 @@ async def run(
         # Flush remaining text — attach APICalling metadata to final response
         if res := _flush_response():
             if api_call_event is not None:
-                call_meta = api_call_event.to_dict()
-                call_meta["execution"].pop("response", None)
-                res.metadata["api_call_meta"] = call_meta
+                call_meta = Note.from_dict(api_call_event.to_dict())
+                call_meta.pop(["execution", "response"], None)
+                res.metadata["api_call_meta"] = call_meta.to_dict()
             yield res
     finally:
         # Restore original streaming func
