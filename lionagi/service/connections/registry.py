@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -72,6 +73,7 @@ class _RegistryEntry:
 class EndpointRegistry:
     _entries: ClassVar[list[_RegistryEntry]] = []
     _loaded: ClassVar[bool] = False
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def register(
@@ -122,7 +124,20 @@ class EndpointRegistry:
                 return entry.cls(None, **kwargs)
 
         if first_for_provider is not None:
-            return first_for_provider.cls(None, **kwargs)
+            # Single-endpoint providers (claude_code, codex, pi, etc.) always
+            # return their only endpoint — iModel defaults endpoint="chat"
+            # which won't alias-match these providers. Multi-endpoint providers
+            # only fall back when endpoint is empty; a non-empty unmatched
+            # endpoint falls through to generic Endpoint.
+            if not endpoint:
+                return first_for_provider.cls(None, **kwargs)
+            prov = first_for_provider.meta.provider
+            n = sum(
+                1 for e in cls._entries
+                if e.meta.provider == prov or prov in e.meta.provider_aliases
+            )
+            if n == 1:
+                return first_for_provider.cls(None, **kwargs)
 
         from .endpoint import Endpoint, EndpointConfig
 
@@ -141,8 +156,11 @@ class EndpointRegistry:
     def _ensure_loaded(cls):
         if cls._loaded:
             return
-        cls._loaded = True
-        _import_all_providers()
+        with cls._lock:
+            if cls._loaded:
+                return
+            _import_all_providers()
+            cls._loaded = True
 
     @classmethod
     def list_providers(cls) -> list[dict[str, Any]]:

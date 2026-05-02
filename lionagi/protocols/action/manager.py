@@ -278,7 +278,7 @@ class ActionManager(Manager):
 
         Example:
             # Auto-discover with Pydantic validation
-            from lionagi.service.third_party.exa_models import ExaSearchRequest
+            from lionagi.providers.exa.search.models import ExaSearchRequest
             tools = await manager.register_mcp_server(
                 {"server": "search"},
                 request_options={"exa_search": ExaSearchRequest}
@@ -465,8 +465,8 @@ async def load_mcp_tools(
     Example:
         # Simple one-liner to get MCP tools
         from lionagi.protocols.action.manager import load_mcp_tools
-        from lionagi.service.third_party.exa_models import ExaSearchRequest
-        from lionagi.service.third_party.pplx_models import PerplexityChatRequest
+        from lionagi.providers.exa.search.models import ExaSearchRequest
+        from lionagi.providers.perplexity.chat.models import PerplexityChatRequest
 
         # Load with Pydantic validation
         tools = await load_mcp_tools(
