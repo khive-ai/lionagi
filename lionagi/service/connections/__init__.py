@@ -8,7 +8,7 @@ from .endpoint import Endpoint
 from .endpoint_config import EndpointConfig
 from .header_factory import HeaderFactory
 from .match_endpoint import match_endpoint
-from .mcp.wrapper import MCPConnectionPool, MCPSecurityConfig, create_mcp_tool
+from .mcp_wrapper import MCPConnectionPool, MCPSecurityConfig, create_mcp_tool
 from .provider_config import LazyType, ProviderConfig
 from .registry import EndpointMeta, EndpointRegistry, EndpointType, register_endpoint
 

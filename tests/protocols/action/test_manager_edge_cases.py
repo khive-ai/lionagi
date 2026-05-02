@@ -253,7 +253,7 @@ class TestActionManagerMCPMethodStubs:
 
         # Mock the MCP connection pool to avoid real MCP dependencies
         with patch(
-            "lionagi.service.connections.mcp.wrapper.MCPConnectionPool"
+            "lionagi.service.connections.mcp_wrapper.MCPConnectionPool"
         ) as mock_pool:
             mock_client = AsyncMock()
             mock_tool = Mock()
@@ -279,7 +279,7 @@ class TestActionManagerMCPMethodStubs:
 
         # Mock the MCP connection pool
         with patch(
-            "lionagi.service.connections.mcp.wrapper.MCPConnectionPool"
+            "lionagi.service.connections.mcp_wrapper.MCPConnectionPool"
         ) as mock_pool:
             mock_pool.load_config = Mock()
             mock_pool._configs = {"test_server": {"command": "python"}}

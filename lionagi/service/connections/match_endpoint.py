@@ -1,9 +1,10 @@
-# Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
+# Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from lionagi.service.connections.endpoint_config import EndpointConfig
-
 from .endpoint import Endpoint
+from .registry import EndpointRegistry
+
+__all__ = ("match_endpoint",)
 
 
 def match_endpoint(
@@ -11,101 +12,9 @@ def match_endpoint(
     endpoint: str,
     **kwargs,
 ) -> Endpoint:
-    if provider == "openai":
-        if "chat" in endpoint:
-            from .providers.oai_ import OpenaiChatEndpoint
+    """Match a provider + endpoint to an Endpoint class.
 
-            return OpenaiChatEndpoint(None, **kwargs)
-        if "response" in endpoint:
-            from .providers.oai_ import OpenaiResponseEndpoint
-
-            return OpenaiResponseEndpoint(None, **kwargs)
-    if provider == "openrouter" and "chat" in endpoint:
-        from .providers.oai_ import OpenrouterChatEndpoint
-
-        return OpenrouterChatEndpoint(None, **kwargs)
-    if provider == "ollama" and "chat" in endpoint:
-        from .providers.ollama_ import OllamaChatEndpoint
-
-        return OllamaChatEndpoint(None, **kwargs)
-    if provider == "exa" and "search" in endpoint:
-        from .providers.exa_ import ExaSearchEndpoint
-
-        return ExaSearchEndpoint(None, **kwargs)
-    if provider == "tavily":
-        if "extract" in endpoint:
-            from .providers.tavily_ import TavilyExtractEndpoint
-
-            return TavilyExtractEndpoint(None, **kwargs)
-        if "search" in endpoint:
-            from .providers.tavily_ import TavilySearchEndpoint
-
-            return TavilySearchEndpoint(None, **kwargs)
-    if provider == "firecrawl":
-        if "map" in endpoint:
-            from .providers.firecrawl_ import FirecrawlMapEndpoint
-
-            return FirecrawlMapEndpoint(None, **kwargs)
-        if "scrape" in endpoint:
-            from .providers.firecrawl_ import FirecrawlScrapeEndpoint
-
-            return FirecrawlScrapeEndpoint(None, **kwargs)
-    if provider == "anthropic" and ("messages" in endpoint or "chat" in endpoint):
-        from .providers.anthropic_ import AnthropicMessagesEndpoint
-
-        return AnthropicMessagesEndpoint(None, **kwargs)
-    if provider == "groq" and "chat" in endpoint:
-        from .providers.oai_ import GroqChatEndpoint
-
-        return GroqChatEndpoint(None, **kwargs)
-    if provider == "perplexity" and "chat" in endpoint:
-        from .providers.perplexity_ import PerplexityChatEndpoint
-
-        return PerplexityChatEndpoint(None, **kwargs)
-    if provider == "nvidia_nim":
-        if "embed" in endpoint:
-            from .providers.nvidia_nim_ import NvidiaNimEmbedEndpoint
-
-            return NvidiaNimEmbedEndpoint(None, **kwargs)
-        if "chat" in endpoint or "completion" in endpoint:
-            from .providers.nvidia_nim_ import NvidiaNimChatEndpoint
-
-            return NvidiaNimChatEndpoint(None, **kwargs)
-    if provider == "deepseek" and "chat" in endpoint:
-        from .providers.oai_ import DeepseekChatEndpoint
-
-        return DeepseekChatEndpoint(None, **kwargs)
-    if provider in {"claude_code", "claude-code", "claude"}:
-        from .providers.claude_code_cli import ClaudeCodeCLIEndpoint
-
-        return ClaudeCodeCLIEndpoint(None, **kwargs)
-    if provider == "gemini" and "chat" in endpoint:
-        from .providers.oai_ import GeminiChatEndpoint
-
-        return GeminiChatEndpoint(None, **kwargs)
-    if provider in {"gemini_code", "gemini-code", "gemini_cli", "gemini-cli"}:
-        from .providers.gemini_cli import GeminiCLIEndpoint
-
-        return GeminiCLIEndpoint(None, **kwargs)
-    if provider == "codex":
-        from .providers.codex_cli import CodexCLIEndpoint
-
-        return CodexCLIEndpoint(None, **kwargs)
-    if provider in {"pi", "pi-code", "pi_code"}:
-        from .providers.pi_cli import PiCLIEndpoint
-
-        return PiCLIEndpoint(None, **kwargs)
-
-    from .providers.oai_ import OpenaiChatEndpoint
-
-    config = EndpointConfig(
-        provider=provider,
-        endpoint=endpoint or "chat/completions",
-        name="openai_compatible_chat",
-        auth_type="bearer",
-        content_type="application/json",
-        method="POST",
-        requires_tokens=True,
-    )
-
-    return Endpoint(config, **kwargs)
+    Delegates to EndpointRegistry which uses @register_endpoint
+    decorators for auto-discovery.
+    """
+    return EndpointRegistry.match(provider, endpoint, **kwargs)

@@ -91,7 +91,7 @@ class Tool(Element):
                 raise ValueError("`mcp_config` must contain exactly one entry.")
             tool_name, config = next(iter(mcp_config.items()))
 
-            from lionagi.service.connections.mcp.wrapper import create_mcp_tool
+            from lionagi.service.connections.mcp_wrapper import create_mcp_tool
 
             func_callable = create_mcp_tool(config, tool_name)
         else:

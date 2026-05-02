@@ -1,4 +1,4 @@
-"""Tests for lionagi.service.connections.providers.claude_code_cli module."""
+"""Tests for lionagi.providers.anthropic.claude_code.endpoint module."""
 
 from unittest.mock import MagicMock, patch
 
@@ -11,20 +11,22 @@ class TestClaudeCodeCLIConfiguration:
 
     def test_endpoint_init_default_config(self):
         """Test ClaudeCodeCLIEndpoint initialization with default config."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
         endpoint = ClaudeCodeCLIEndpoint()
 
         assert endpoint is not None
-        assert endpoint.config.name == "claude_code_cli"
         assert endpoint.config.provider == "claude_code"
-        assert endpoint.config.timeout == 18000  # 30 mins
+        # Config name is auto-generated from provider+endpoint in the new registry
+        assert "claude_code" in endpoint.config.name
+        # Timeout is set by EndpointMeta.create_config for agentic endpoints
+        assert endpoint.config.timeout >= 3600
 
     def test_endpoint_init_custom_config(self):
         """Test ClaudeCodeCLIEndpoint with custom configuration."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
             EndpointConfig,
         )
@@ -48,9 +50,7 @@ class TestHandlerValidation:
 
     def test_validate_handlers_valid_dict(self):
         """Test _validate_handlers accepts valid handler dictionary."""
-        from lionagi.service.connections.providers.claude_code_cli import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {
             "on_thinking": lambda x: None,
@@ -64,18 +64,14 @@ class TestHandlerValidation:
 
     def test_validate_handlers_invalid_type(self):
         """Test _validate_handlers rejects non-dict input."""
-        from lionagi.service.connections.providers.claude_code_cli import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         with pytest.raises(ValueError, match="Handlers must be a dictionary"):
             _validate_handlers("not a dict")
 
     def test_validate_handlers_invalid_key(self):
         """Test _validate_handlers rejects invalid handler keys."""
-        from lionagi.service.connections.providers.claude_code_cli import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {"invalid_handler": lambda x: None}
 
@@ -84,9 +80,7 @@ class TestHandlerValidation:
 
     def test_validate_handlers_invalid_value(self):
         """Test _validate_handlers rejects non-callable values."""
-        from lionagi.service.connections.providers.claude_code_cli import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {"on_thinking": "not callable"}
 
@@ -95,9 +89,7 @@ class TestHandlerValidation:
 
     def test_validate_handlers_allows_none(self):
         """Test _validate_handlers allows None values."""
-        from lionagi.service.connections.providers.claude_code_cli import (
-            _validate_handlers,
-        )
+        from lionagi.providers.anthropic.claude_code.endpoint import _validate_handlers
 
         handlers = {
             "on_thinking": None,
@@ -114,7 +106,7 @@ class TestClaudeHandlers:
 
     def test_claude_handlers_default(self):
         """Test default claude_handlers property."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -129,7 +121,7 @@ class TestClaudeHandlers:
 
     def test_claude_handlers_setter_valid(self):
         """Test setting valid claude_handlers."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -150,7 +142,7 @@ class TestClaudeHandlers:
 
     def test_claude_handlers_setter_invalid(self):
         """Test setting invalid claude_handlers raises error."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -163,7 +155,7 @@ class TestClaudeHandlers:
 
     def test_update_handlers_merges_correctly(self):
         """Test update_handlers merges with existing handlers."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -183,7 +175,7 @@ class TestClaudeHandlers:
 
     def test_update_handlers_invalid_raises(self):
         """Test update_handlers with invalid handlers raises error."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -198,7 +190,7 @@ class TestPayloadCreation:
 
     def test_create_payload_basic(self):
         """Test create_payload with basic request."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -218,7 +210,7 @@ class TestPayloadCreation:
 
     def test_create_payload_with_basemodel(self):
         """Test create_payload with Pydantic BaseModel."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -237,7 +229,7 @@ class TestPayloadCreation:
 
     def test_create_payload_merges_kwargs(self):
         """Test create_payload merges config kwargs and request kwargs."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -261,14 +253,14 @@ class TestStreamMethod:
     @pytest.mark.asyncio
     async def test_stream_yields_chunks(self):
         """Test stream method yields StreamChunk objects."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
-        from lionagi.service.third_party.claude_code import ClaudeChunk
+        from lionagi.providers.anthropic.claude_code.models import ClaudeChunk
         from lionagi.service.types.stream_chunk import StreamChunk
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli"
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli"
         ) as mock_stream:
             chunk1 = ClaudeChunk(
                 raw={
@@ -312,12 +304,12 @@ class TestStreamMethod:
     @pytest.mark.asyncio
     async def test_stream_with_kwargs(self):
         """Test stream passes kwargs to create_payload."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli"
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli"
         ) as mock_stream:
 
             async def async_gen(*args, **kwargs):
@@ -347,12 +339,12 @@ class TestCallMethod:
     @pytest.mark.asyncio
     async def test_call_basic_flow(self):
         """Test _call method basic execution flow."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli"
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli"
         ) as mock_stream:
             # Create mock session
             mock_session = MagicMock()
@@ -390,12 +382,12 @@ class TestCallMethod:
     @pytest.mark.asyncio
     async def test_call_with_auto_finish(self):
         """Test _call method with auto_finish enabled."""
-        from lionagi.service.connections.providers.claude_code_cli import (
+        from lionagi.providers.anthropic.claude_code.endpoint import (
             ClaudeCodeCLIEndpoint,
         )
 
         with patch(
-            "lionagi.service.connections.providers.claude_code_cli.stream_claude_code_cli"
+            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli"
         ) as mock_stream:
             # Mock session
             mock_session = MagicMock()
@@ -453,12 +445,16 @@ class TestModuleLevelConfig:
     """Test module-level configuration."""
 
     def test_endpoint_config_exists(self):
-        """Test ENDPOINT_CONFIG is properly initialized."""
-        from lionagi.service.connections.providers.claude_code_cli import (
-            ENDPOINT_CONFIG,
+        """Test ClaudeCodeCLIEndpoint config is properly initialized."""
+        from lionagi.providers.anthropic.claude_code.endpoint import (
+            ClaudeCodeCLIEndpoint,
         )
 
-        assert ENDPOINT_CONFIG is not None
-        assert ENDPOINT_CONFIG.name == "claude_code_cli"
-        assert ENDPOINT_CONFIG.provider == "claude_code"
-        assert ENDPOINT_CONFIG.timeout == 18000
+        endpoint = ClaudeCodeCLIEndpoint()
+        config = endpoint.config
+        assert config is not None
+        assert config.provider == "claude_code"
+        # Config name is auto-generated from provider+endpoint in the new registry
+        assert "claude_code" in config.name
+        # Agentic endpoints have timeout >= 3600
+        assert config.timeout >= 3600

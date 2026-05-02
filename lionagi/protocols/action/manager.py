@@ -278,7 +278,7 @@ class ActionManager(Manager):
 
         Example:
             # Auto-discover with Pydantic validation
-            from lionagi.service.third_party.exa_models import ExaSearchRequest
+            from lionagi.providers.exa.search.models import ExaSearchRequest
             tools = await manager.register_mcp_server(
                 {"server": "search"},
                 request_options={"exa_search": ExaSearchRequest}
@@ -323,7 +323,7 @@ class ActionManager(Manager):
                 registered_tools.append(tool_name)
         else:
             # Auto-discover tools from the server
-            from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+            from lionagi.service.connections.mcp_wrapper import MCPConnectionPool
 
             # Get client and discover tools
             client = await MCPConnectionPool.get_client(server_config)
@@ -411,7 +411,7 @@ class ActionManager(Manager):
                 server_names=["search", "memory"]
             )
         """
-        from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+        from lionagi.service.connections.mcp_wrapper import MCPConnectionPool
 
         # Load the config file into the connection pool
         MCPConnectionPool.load_config(config_path)
@@ -465,8 +465,8 @@ async def load_mcp_tools(
     Example:
         # Simple one-liner to get MCP tools
         from lionagi.protocols.action.manager import load_mcp_tools
-        from lionagi.service.third_party.exa_models import ExaSearchRequest
-        from lionagi.service.third_party.pplx_models import PerplexityChatRequest
+        from lionagi.providers.exa.search.models import ExaSearchRequest
+        from lionagi.providers.perplexity.chat.models import PerplexityChatRequest
 
         # Load with Pydantic validation
         tools = await load_mcp_tools(
@@ -481,7 +481,7 @@ async def load_mcp_tools(
         )
         branch = Branch(tools=tools)
     """
-    from lionagi.service.connections.mcp.wrapper import MCPConnectionPool
+    from lionagi.service.connections.mcp_wrapper import MCPConnectionPool
 
     # Create a temporary ActionManager for tool management
     manager = ActionManager()

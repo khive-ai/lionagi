@@ -23,11 +23,7 @@ SHOULD-FIX
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
-
-import pytest
 
 from lionagi.cli._logging import _LazyStderrHandler
 from lionagi.cli._providers import _clamp_claude_effort
