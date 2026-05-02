@@ -97,14 +97,14 @@ class TestSubprocessSessionIsolation:
     @pytest.mark.asyncio
     async def test_gemini_cli_uses_start_new_session(self):
         """Gemini CLI subprocess must use start_new_session=True."""
-        from lionagi.providers.gemini.gemini_code.models import GeminiCodeRequest
+        from lionagi.providers.google.gemini_code.models import GeminiCodeRequest
 
         request = GeminiCodeRequest(prompt="test")
 
-        from lionagi.providers.gemini.gemini_code.models import _ndjson_from_cli
+        from lionagi.providers.google.gemini_code.models import _ndjson_from_cli
 
         with (
-            patch("lionagi.providers.gemini.gemini_code.models.GEMINI_CLI", "gemini"),
+            patch("lionagi.providers.google.gemini_code.models.GEMINI_CLI", "gemini"),
             patch(
                 "asyncio.create_subprocess_exec", new_callable=AsyncMock
             ) as mock_exec,

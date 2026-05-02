@@ -11,7 +11,7 @@ from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
-from ._config import OpenRouterConfigs
+from .._config import OpenRouterConfigs
 
 __all__ = ("OpenRouterEndpoint",)
 

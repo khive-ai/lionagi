@@ -264,13 +264,13 @@ class TestCLIProviderRequestModels:
 
     def test_gemini_code_request_import(self):
         """GeminiCodeRequest model should be importable."""
-        from lionagi.providers.gemini.gemini_code.models import GeminiCodeRequest
+        from lionagi.providers.google.gemini_code.models import GeminiCodeRequest
 
         assert GeminiCodeRequest is not None
 
     def test_gemini_code_request_fields(self):
         """GeminiCodeRequest should have documented fields."""
-        from lionagi.providers.gemini.gemini_code.models import GeminiCodeRequest
+        from lionagi.providers.google.gemini_code.models import GeminiCodeRequest
 
         fields = GeminiCodeRequest.model_fields
         for field in (
@@ -287,7 +287,7 @@ class TestCLIProviderRequestModels:
 
     def test_gemini_code_request_as_cmd_args(self):
         """GeminiCodeRequest.as_cmd_args() builds CLI argument list."""
-        from lionagi.providers.gemini.gemini_code.models import GeminiCodeRequest
+        from lionagi.providers.google.gemini_code.models import GeminiCodeRequest
 
         req = GeminiCodeRequest(prompt="analyze")
         args = req.as_cmd_args()
@@ -388,21 +388,21 @@ class TestCLIProviderEndpoints:
 
     def test_gemini_cli_endpoint_import(self):
         """GeminiCLIEndpoint should be importable."""
-        from lionagi.providers.gemini.gemini_code.endpoint import GeminiCLIEndpoint
+        from lionagi.providers.google.gemini_code.endpoint import GeminiCLIEndpoint
 
         assert GeminiCLIEndpoint is not None
 
     def test_gemini_cli_endpoint_constructs(self):
         """GeminiCLIEndpoint constructs with default config."""
-        from lionagi.providers.gemini.gemini_code.endpoint import GeminiCLIEndpoint
+        from lionagi.providers.google.gemini_code.endpoint import GeminiCLIEndpoint
 
         ep = GeminiCLIEndpoint()
-        assert ep.config.provider == "gemini_code"
+        assert ep.config.provider == "gemini"
         assert ep.is_cli is True
 
     def test_gemini_cli_endpoint_handlers(self):
         """GeminiCLIEndpoint exposes gemini_handlers with correct keys."""
-        from lionagi.providers.gemini.gemini_code.endpoint import GeminiCLIEndpoint
+        from lionagi.providers.google.gemini_code.endpoint import GeminiCLIEndpoint
 
         ep = GeminiCLIEndpoint()
         handlers = ep.gemini_handlers
@@ -421,7 +421,7 @@ class TestCLIProviderEndpoints:
         from lionagi.providers.openai.codex.endpoint import CodexCLIEndpoint
 
         ep = CodexCLIEndpoint()
-        assert ep.config.provider == "codex"
+        assert ep.config.provider == "openai"
         assert ep.is_cli is True
 
     def test_codex_cli_endpoint_handlers(self):

@@ -8,21 +8,28 @@ from collections.abc import AsyncIterator, Callable
 
 from pydantic import BaseModel
 
-from lionagi.providers.pi.models import PiChunk, PiCodeRequest, PiSession
-from lionagi.providers.pi.models import log as pi_log
-from lionagi.providers.pi.models import stream_pi_cli
+from lionagi.providers.google.gemini_code.models import (
+    GeminiChunk,
+    GeminiCodeRequest,
+    GeminiSession,
+)
+from lionagi.providers.google.gemini_code.models import log as gemini_log
+from lionagi.providers.google.gemini_code.models import stream_gemini_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
-from ._config import PiConfigs
+from .._config import GeminiConfigs
 
 CONTEXT_WINDOWS: dict[str, int] = {
-    "pi": 128_000,
+    "gemini-2.5": 1_048_576,
+    "gemini-2.0": 1_048_576,
+    "gemini-1.5-pro": 2_097_152,
+    "gemini-1.5-flash": 1_048_576,
 }
 
-_PI_HANDLER_PARAMS = (
+_GEMINI_HANDLER_PARAMS = (
     "on_text",
     "on_tool_use",
     "on_tool_result",
@@ -34,39 +41,36 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
     if not isinstance(handlers, dict):
         raise ValueError("Handlers must be a dictionary")
     for k, v in handlers.items():
-        if k not in _PI_HANDLER_PARAMS:
+        if k not in _GEMINI_HANDLER_PARAMS:
             raise ValueError(f"Invalid handler key: {k}")
         if not (v is None or callable(v)):
             raise ValueError(f"Handler value must be callable or None, got {type(v)}")
 
 
-@PiConfigs.CLI.register
-class PiCLIEndpoint(AgenticEndpoint):
+@GeminiConfigs.CLI.register
+class GeminiCLIEndpoint(AgenticEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
         super().__init__(config=config, **kwargs)
 
     @property
-    def pi_handlers(self):
-        handlers = {k: None for k in _PI_HANDLER_PARAMS}
-        return self.config.kwargs.get("pi_handlers", handlers)
+    def gemini_handlers(self):
+        handlers = {k: None for k in _GEMINI_HANDLER_PARAMS}
+        return self.config.kwargs.get("gemini_handlers", handlers)
 
-    @pi_handlers.setter
-    def pi_handlers(self, value: dict):
+    @gemini_handlers.setter
+    def gemini_handlers(self, value: dict):
         _validate_handlers(value)
-        self.config.kwargs["pi_handlers"] = value
+        self.config.kwargs["gemini_handlers"] = value
 
     def update_handlers(self, **kwargs):
         _validate_handlers(kwargs)
-        handlers = {**self.pi_handlers, **kwargs}
-        self.pi_handlers = handlers
+        handlers = {**self.gemini_handlers, **kwargs}
+        self.gemini_handlers = handlers
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages")
-        req_dict = {
-            k: v for k, v in req_dict.items() if k in PiCodeRequest.model_fields
-        }
-        req_obj = PiCodeRequest(messages=messages, **req_dict)
+        req_obj = GeminiCodeRequest(messages=messages, **req_dict)
         return {"request": req_obj}, {}
 
     async def stream(
@@ -77,23 +81,26 @@ class PiCLIEndpoint(AgenticEndpoint):
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
-        session = PiSession()
-        async with contextlib.aclosing(stream_pi_cli(request_obj, session)) as gen:
+        async with contextlib.aclosing(stream_gemini_cli(request_obj)) as gen:
             async for item in gen:
-                if isinstance(item, PiSession):
-                    yield StreamChunk(
-                        type="result",
-                        content=item.result or "",
-                        metadata={"session_id": item.session_id},
-                    )
+                if isinstance(item, GeminiSession):
                     continue
                 if isinstance(item, dict):
+                    typ = item.get("type", "")
+                    if typ == "result":
+                        yield StreamChunk(
+                            type="result",
+                            content=item.get("result", ""),
+                            metadata=item,
+                        )
                     continue
-                if isinstance(item, PiChunk):
+                if isinstance(item, GeminiChunk):
                     if item.text is not None:
-                        yield StreamChunk(type="text", content=item.text)
-                    if item.thinking is not None:
-                        yield StreamChunk(type="thinking", content=item.thinking)
+                        yield StreamChunk(
+                            type="text",
+                            content=item.text,
+                            is_delta=item.is_delta,
+                        )
                     if item.tool_use is not None:
                         tu = item.tool_use
                         yield StreamChunk(
@@ -110,6 +117,17 @@ class PiCLIEndpoint(AgenticEndpoint):
                             tool_output=tr.get("content"),
                             is_error=tr.get("is_error", False),
                         )
+                    if (
+                        item.text is None
+                        and item.tool_use is None
+                        and item.tool_result is None
+                        and item.type == "result"
+                    ):
+                        yield StreamChunk(
+                            type="result",
+                            content=item.raw.get("result", ""),
+                            metadata=item.raw,
+                        )
 
     async def _call(
         self,
@@ -118,11 +136,11 @@ class PiCLIEndpoint(AgenticEndpoint):
         **kwargs,
     ):
         responses = []
-        request: PiCodeRequest = payload["request"]
-        session: PiSession = PiSession()
+        request: GeminiCodeRequest = payload["request"]
+        session: GeminiSession = GeminiSession()
 
         async with contextlib.aclosing(
-            stream_pi_cli(request, session, **self.pi_handlers, **kwargs)
+            stream_gemini_cli(request, session, **self.gemini_handlers, **kwargs)
         ) as gen:
             async for chunk in gen:
                 if isinstance(chunk, dict):
@@ -130,10 +148,29 @@ class PiCLIEndpoint(AgenticEndpoint):
                         break
                 responses.append(chunk)
 
-        pi_log.info(f"Session finished with {len(responses)} chunks")
-        if not session.result:
-            texts = [c.text for c in session.chunks if c.text is not None]
-            session.result = "\n".join(texts)
+        gemini_log.info(
+            f"Session {session.session_id} finished with {len(responses)} chunks"
+        )
+
+        # Accumulate text from chunks, concatenating delta fragments
+        parts = []
+        current_delta: list[str] = []
+        for i in session.chunks:
+            if i.text is not None:
+                if i.is_delta:
+                    current_delta.append(i.text)
+                else:
+                    if current_delta:
+                        parts.append("".join(current_delta))
+                        current_delta = []
+                    parts.append(i.text)
+        if current_delta:
+            parts.append("".join(current_delta))
+
+        # Use chunk text if available, fall back to session.result
+        if parts:
+            session.result = "\n".join(parts)
+        # else: keep session.result from the "result" event as-is
         if request.cli_include_summary:
             session.populate_summary()
 

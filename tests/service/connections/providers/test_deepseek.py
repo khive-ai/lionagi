@@ -1,7 +1,7 @@
 import pytest
 
-from lionagi.providers.deepseek.endpoint import DeepseekChatEndpoint
-from lionagi.providers.deepseek.models import (
+from lionagi.providers.deepseek.chat.endpoint import DeepseekChatEndpoint
+from lionagi.providers.deepseek.chat.models import (
     DeepseekChatCompletionsRequest,
     normalize_deepseek_usage,
 )

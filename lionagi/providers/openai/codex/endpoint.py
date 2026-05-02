@@ -20,7 +20,7 @@ from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
-from .._config import CodexConfigs
+from .._config import OpenAIConfigs
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "codex-mini": 200_000,
@@ -47,7 +47,7 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
             raise ValueError(f"Handler value must be callable or None, got {type(v)}")
 
 
-@CodexConfigs.CLI.register
+@OpenAIConfigs.CODEX_CLI.register
 class CodexCLIEndpoint(AgenticEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
         super().__init__(config=config, **kwargs)

@@ -13,7 +13,7 @@ class ExaConfigs(ProviderConfig, Enum):
         "search",
         [],
         EndpointType.API,
-        LazyType("lionagi.providers.exa.models:ExaSearchRequest"),
+        LazyType("lionagi.providers.exa.search.models:ExaSearchRequest"),
         "https://api.exa.ai",
         "x-api-key",
     )

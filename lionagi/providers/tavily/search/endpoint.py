@@ -6,7 +6,7 @@ from __future__ import annotations
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
-from ._config import TavilyConfigs
+from .._config import TavilyConfigs
 
 __all__ = ("TavilySearchEndpoint", "TavilyExtractEndpoint")
 

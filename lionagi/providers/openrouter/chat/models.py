@@ -3,6 +3,6 @@
 
 """OpenRouter models — extends OpenAI-compatible request with reasoning control."""
 
-from lionagi.providers.openrouter.endpoint import OpenRouterRequest
+from lionagi.providers.openrouter.chat.endpoint import OpenRouterRequest
 
 __all__ = ("OpenRouterRequest",)

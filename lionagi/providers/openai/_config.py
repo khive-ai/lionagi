@@ -65,68 +65,32 @@ class OpenAIConfigs(ProviderConfig, Enum):
         "https://api.openai.com/v1",
         "bearer",
     )
-
-
-OpenAIConfigs._PROVIDER = "openai"
-OpenAIConfigs._PROVIDER_ALIASES = []
-
-
-class CodexConfigs(ProviderConfig, Enum):
-
-    CLI = (
+    CODEX_CLI = (
         "query_cli",
         ["cli", "code"],
         EndpointType.AGENTIC,
         LazyType("lionagi.providers.openai.codex.models:CodexCodeRequest"),
     )
 
+OpenAIConfigs._PROVIDER = "openai"
+OpenAIConfigs._PROVIDER_ALIASES = ["codex"]
 
-CodexConfigs._PROVIDER = "codex"
-CodexConfigs._PROVIDER_ALIASES = ["openai-codex"]
-
-
-class GroqConfigs(ProviderConfig, Enum):
-
-    CHAT = (
-        "chat/completions",
-        ["chat"],
-        EndpointType.API,
-        LazyType("lionagi.providers.openai.chat.models:OpenAIChatCompletionsRequest"),
-        "https://api.groq.com/openai/v1",
-        "bearer",
-    )
-    AUDIO_TRANSCRIPTION = (
-        "audio/transcriptions",
-        ["whisper", "stt"],
-        EndpointType.API,
-        LazyType("lionagi.providers.openai.audio.models:AudioTranscriptionRequest"),
-        "https://api.groq.com/openai/v1",
-        "bearer",
-    )
-
-
-GroqConfigs._PROVIDER = "groq"
-GroqConfigs._PROVIDER_ALIASES = []
-
-
-class GeminiOAIConfigs(ProviderConfig, Enum):
-
-    CHAT = (
-        "chat/completions",
-        ["chat"],
-        EndpointType.API,
-        LazyType("lionagi.providers.openai.chat.models:OpenAIChatCompletionsRequest"),
-        "https://generativelanguage.googleapis.com/v1beta/openai",
-        "bearer",
-    )
-
-
-GeminiOAIConfigs._PROVIDER = "gemini"
-GeminiOAIConfigs._PROVIDER_ALIASES = ["gemini-api"]
-
-__all__ = (
-    "OpenAIConfigs",
-    "CodexConfigs",
-    "GroqConfigs",
-    "GeminiOAIConfigs",
-)
+CONTEXT_WINDOWS: dict[str, int] = {
+    "gpt-5.5": 1_000_000,
+    "gpt-5.4-mini": 1_000_000,
+    "gpt-5.4": 1_048_576,
+    "gpt-5": 1_000_000,
+    "gpt-4.1-mini": 1_000_000,
+    "gpt-4.1-nano": 1_000_000,
+    "gpt-4.1": 1_000_000,
+    "gpt-4o-mini": 128_000,
+    "gpt-4o": 128_000,
+    "gpt-4-turbo": 128_000,
+    "gpt-4": 128_000,
+    "o4-mini": 200_000,
+    "o3-mini": 200_000,
+    "o3": 200_000,
+    "o1-pro": 200_000,
+    "o1-mini": 128_000,
+    "o1": 200_000,
+}

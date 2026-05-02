@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from lionagi.providers.pi import models as pi_models
-from lionagi.providers.pi.endpoint import PiCLIEndpoint
-from lionagi.providers.pi.models import PiChunk, PiCodeRequest, PiSession
+from lionagi.providers.pi.cli import models as pi_models
+from lionagi.providers.pi.cli.endpoint import PiCLIEndpoint
+from lionagi.providers.pi.cli.models import PiChunk, PiCodeRequest, PiSession
 
 
 def _fixture_events(name: str) -> list[dict]:
@@ -188,7 +188,7 @@ async def test_pi_cli_endpoint_stream_maps_pi_chunks_to_stream_chunks(monkeypatc
         yield PiSession(result="done")
 
     monkeypatch.setattr(
-        "lionagi.providers.pi.endpoint.stream_pi_cli",
+        "lionagi.providers.pi.cli.endpoint.stream_pi_cli",
         fake_stream,
     )
 

@@ -3,14 +3,11 @@
 
 from pydantic import BaseModel
 
-from lionagi.providers.deepseek.models import (
-    DeepseekChatCompletionsRequest,
-    normalize_deepseek_usage,
-)
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
-from ._config import DeepSeekConfigs
+from .._config import DeepSeekConfigs
+from .models import DeepseekChatCompletionsRequest, normalize_deepseek_usage
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-pro": 1_000_000,
