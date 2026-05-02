@@ -397,7 +397,7 @@ class TestCLIProviderEndpoints:
         from lionagi.providers.google.gemini_code.endpoint import GeminiCLIEndpoint
 
         ep = GeminiCLIEndpoint()
-        assert ep.config.provider == "gemini"
+        assert ep.config.provider == "gemini_code"
         assert ep.is_cli is True
 
     def test_gemini_cli_endpoint_handlers(self):
@@ -421,7 +421,7 @@ class TestCLIProviderEndpoints:
         from lionagi.providers.openai.codex.endpoint import CodexCLIEndpoint
 
         ep = CodexCLIEndpoint()
-        assert ep.config.provider == "openai"
+        assert ep.config.provider == "codex"
         assert ep.is_cli is True
 
     def test_codex_cli_endpoint_handlers(self):

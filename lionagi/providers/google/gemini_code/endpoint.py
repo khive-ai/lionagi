@@ -20,7 +20,7 @@ from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
-from .._config import GeminiConfigs
+from .._config import GeminiCodeConfigs
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "gemini-2.5": 1_048_576,
@@ -47,7 +47,7 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
             raise ValueError(f"Handler value must be callable or None, got {type(v)}")
 
 
-@GeminiConfigs.CLI.register
+@GeminiCodeConfigs.CLI.register
 class GeminiCLIEndpoint(AgenticEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
         super().__init__(config=config, **kwargs)

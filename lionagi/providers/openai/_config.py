@@ -65,7 +65,15 @@ class OpenAIConfigs(ProviderConfig, Enum):
         "https://api.openai.com/v1",
         "bearer",
     )
-    CODEX_CLI = (
+
+
+OpenAIConfigs._PROVIDER = "openai"
+OpenAIConfigs._PROVIDER_ALIASES = []
+
+
+class CodexConfigs(ProviderConfig, Enum):
+
+    CLI = (
         "query_cli",
         ["cli", "code"],
         EndpointType.AGENTIC,
@@ -73,8 +81,8 @@ class OpenAIConfigs(ProviderConfig, Enum):
     )
 
 
-OpenAIConfigs._PROVIDER = "openai"
-OpenAIConfigs._PROVIDER_ALIASES = ["codex"]
+CodexConfigs._PROVIDER = "codex"
+CodexConfigs._PROVIDER_ALIASES = ["openai-codex"]
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-5.5": 1_000_000,

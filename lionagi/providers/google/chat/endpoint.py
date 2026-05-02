@@ -1,6 +1,6 @@
 from lionagi.service.connections.endpoint import Endpoint
 
-from .._config import GeminiConfigs
+from .._config import GeminiChatConfigs
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "gemini-2.5-flash": 1_048_576,
@@ -9,7 +9,7 @@ CONTEXT_WINDOWS: dict[str, int] = {
 }
 
 
-@GeminiConfigs.CHAT.register
+@GeminiChatConfigs.CHAT.register
 class GeminiChatEndpoint(Endpoint):
     def __init__(self, config=None, **kwargs):
         if config is None:

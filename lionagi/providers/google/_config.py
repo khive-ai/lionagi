@@ -7,7 +7,7 @@ from lionagi.service.connections.provider_config import LazyType, ProviderConfig
 from lionagi.service.connections.registry import EndpointType
 
 
-class GeminiConfigs(ProviderConfig, Enum):
+class GeminiChatConfigs(ProviderConfig, Enum):
     CHAT = (
         "chat/completions",
         ["chat"],
@@ -16,6 +16,13 @@ class GeminiConfigs(ProviderConfig, Enum):
         "https://generativelanguage.googleapis.com/v1beta/openai",
         "bearer",
     )
+
+
+GeminiChatConfigs._PROVIDER = "gemini"
+GeminiChatConfigs._PROVIDER_ALIASES = ["gemini-api"]
+
+
+class GeminiCodeConfigs(ProviderConfig, Enum):
     CLI = (
         "query_cli",
         ["cli"],
@@ -24,15 +31,8 @@ class GeminiConfigs(ProviderConfig, Enum):
     )
 
 
-GeminiConfigs._PROVIDER = "gemini"
-GeminiConfigs._PROVIDER_ALIASES = [
-    "gemini-api",
-    "gemini",
-    "gemini-code",
-    "gemini_code",
-    "gemini_cli",
-    "gemini-cli",
-]
+GeminiCodeConfigs._PROVIDER = "gemini_code"
+GeminiCodeConfigs._PROVIDER_ALIASES = ["gemini-code", "gemini_cli", "gemini-cli"]
 
 
-__all__ = ("GeminiConfigs",)
+__all__ = ("GeminiChatConfigs", "GeminiCodeConfigs")

@@ -31,6 +31,9 @@ _PROVIDER_MODULES: dict[str, str] = {
     "perplexity": "lionagi.providers.perplexity.chat.endpoint",
     "gemini_code": "lionagi.providers.google.gemini_code.endpoint",
     "pi": "lionagi.providers.pi.cli.endpoint",
+    "groq": "lionagi.providers.groq.chat.endpoint",
+    "gemini": "lionagi.providers.google.chat.endpoint",
+    "openrouter": "lionagi.providers.openrouter.chat.endpoint",
 }
 
 
