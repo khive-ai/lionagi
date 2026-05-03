@@ -16,6 +16,13 @@ class AG2Configs(ProviderConfig, Enum):
         LazyType("lionagi.providers.ag2.groupchat.models:AG2GroupChatRequest"),
     )
 
+    AGENT = (
+        "agent",
+        ["beta", "ask"],
+        EndpointType.AGENTIC,
+        LazyType("lionagi.providers.ag2.agent.models:AG2AgentRequest"),
+    )
+
 
 AG2Configs._PROVIDER = "ag2"
 AG2Configs._PROVIDER_ALIASES = ["autogen"]
