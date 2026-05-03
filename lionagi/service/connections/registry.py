@@ -245,6 +245,7 @@ def _import_all_providers():
         # Agentic
         "lionagi.providers.ag2.groupchat.endpoint",
         "lionagi.providers.ag2.agent.endpoint",
+        "lionagi.providers.ag2.nlip.endpoint",
     ]
     for mod in _modules:
         try:

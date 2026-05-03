@@ -1,0 +1,150 @@
+# Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "AG2NlipRequest",
+    "call_nlip_remote",
+]
+
+
+class AG2NlipRequest(BaseModel):
+    """Request for AG2 NLIP remote endpoint."""
+
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    prompt: str = ""
+
+
+async def call_nlip_remote(
+    url: str,
+    messages: list[dict[str, Any]],
+    agent_name: str = "remote",
+    timeout: float = 60.0,
+    max_retries: int = 3,
+) -> dict[str, Any]:
+    """Call a remote NLIP endpoint using AG2's NlipRemoteAgent.
+
+    Falls back to direct httpx if nlip_sdk is not installed.
+    """
+    try:
+        return await _call_via_ag2(url, messages, agent_name, timeout, max_retries)
+    except ImportError:
+        logger.info("nlip_sdk not installed, using direct HTTP")
+        return await _call_direct(url, messages, timeout, max_retries)
+
+
+async def _call_via_ag2(
+    url: str,
+    messages: list[dict[str, Any]],
+    agent_name: str,
+    timeout: float,
+    max_retries: int,
+) -> dict[str, Any]:
+    """Use AG2's NlipRemoteAgent for NLIP communication."""
+    from autogen.agentchat.contrib.nlip_agent import (
+        NlipRemoteAgent,
+        request_message_to_nlip,
+        response_message_from_nlip,
+    )
+    from autogen.agentchat.remote import RequestMessage
+
+    from nlip_sdk.nlip import NLIP_Message
+
+    import httpx
+
+    request = RequestMessage(messages=messages)
+    nlip_request = request_message_to_nlip(request)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(max_retries):
+            try:
+                response = await client.post(
+                    f"{url.rstrip('/')}/nlip/",
+                    json=nlip_request.model_dump(exclude_none=True),
+                )
+                response.raise_for_status()
+
+                nlip_response = NLIP_Message.model_validate(response.json())
+                response_msg = response_message_from_nlip(nlip_response)
+
+                content = ""
+                if response_msg.messages:
+                    content = response_msg.messages[-1].get("content", "")
+
+                return {
+                    "content": content,
+                    "context": response_msg.context,
+                    "input_required": response_msg.input_required,
+                }
+
+            except httpx.TimeoutException:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning("NLIP timeout (attempt %d/%d)", attempt + 1, max_retries)
+            except httpx.ConnectError:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning("NLIP connect failed (attempt %d/%d)", attempt + 1, max_retries)
+
+    return {"content": "", "context": None, "input_required": None}
+
+
+async def _call_direct(
+    url: str,
+    messages: list[dict[str, Any]],
+    timeout: float,
+    max_retries: int,
+) -> dict[str, Any]:
+    """Direct HTTP fallback when nlip_sdk is not installed.
+
+    Sends the last message as plain text to the NLIP endpoint.
+    """
+    import httpx
+
+    last_content = ""
+    for msg in reversed(messages):
+        content = msg.get("content", "")
+        if content and content != "None":
+            last_content = content
+            break
+
+    payload = {
+        "format": "text",
+        "subformat": "english",
+        "content": last_content,
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(max_retries):
+            try:
+                response = await client.post(
+                    f"{url.rstrip('/')}/nlip/",
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                content = ""
+                if isinstance(data, dict):
+                    content = data.get("content", "")
+                    if isinstance(content, dict):
+                        content = content.get("content", str(content))
+
+                return {"content": content, "context": None, "input_required": None}
+
+            except httpx.TimeoutException:
+                if attempt == max_retries - 1:
+                    raise
+            except httpx.ConnectError:
+                if attempt == max_retries - 1:
+                    raise
+
+    return {"content": "", "context": None, "input_required": None}
