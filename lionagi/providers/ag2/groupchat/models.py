@@ -224,7 +224,7 @@ def build_group_chat(
         agents_by_name[agent_spec.name] = agent
         ordered.append(agent)
 
-    for agent_spec in spec.agents:
+    for idx, agent_spec in enumerate(spec.agents):
         agent = agents_by_name[agent_spec.name]
         for hc in agent_spec.handoffs:
             if hc.target in agents_by_name:
@@ -242,6 +242,14 @@ def build_group_chat(
                     hc.target,
                     agent_spec.name,
                 )
+
+        # Mechanical fallback: each non-terminal agent flows to the next agent
+        # in spec order if no LLM-condition handoff fires.  This guarantees the
+        # pipeline reaches the terminal agent rather than ending early when the
+        # group manager's auto-select picks User (terminate).
+        if idx < len(spec.agents) - 1:
+            next_agent = agents_by_name[spec.agents[idx + 1].name]
+            agent.handoffs.set_after_work(AgentTarget(next_agent))
 
     if ordered:
         ordered[-1].handoffs.set_after_work(TerminateTarget())
