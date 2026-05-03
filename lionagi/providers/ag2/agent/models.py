@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ __all__ = [
 
 class AgentConfig(BaseModel):
     """Declarative config for an AG2 beta Agent."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str = Field(default="agent", description="Agent name")
     prompt: str | list[str] = Field(
@@ -72,6 +75,8 @@ def _build_observers(names: list[str]) -> list:
             from autogen.beta.observer.token_monitor import TokenMonitor
 
             observers.append(TokenMonitor())
+        else:
+            logger.warning("Unknown observer: %r — skipped", name)
     return observers
 
 
@@ -102,6 +107,8 @@ def _build_policies(names: list[str]) -> list:
             from autogen.beta.policies.conversation import ConversationPolicy
 
             policies.append(ConversationPolicy())
+        else:
+            logger.warning("Unknown policy: %r — skipped", name)
     return policies
 
 
@@ -110,10 +117,16 @@ async def run_beta_agent(
     message: str,
     llm_config: Any,
     tool_registry: dict[str, Callable] | None = None,
-) -> AsyncIterator[Any]:
-    """Run an AG2 beta Agent and yield events from its stream."""
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Run an AG2 beta Agent and yield events from its stream.
+
+    Subscribes to the MemoryStream to yield intermediate events
+    (tool calls, model chunks) as they arrive, then yields the
+    final response with optional typed result from response_schema.
+    """
     from autogen.beta.agent import Agent, KnowledgeConfig, TaskConfig
     from autogen.beta.events import ModelResponse
+    from autogen.beta.events.tool_events import ToolCallEvent, ToolCallsEvent, ToolResultEvent
     from autogen.beta.knowledge.memory import MemoryKnowledgeStore
     from autogen.beta.stream import MemoryStream
     from autogen.beta.tools.final import tool as ag2_tool
@@ -126,7 +139,6 @@ async def run_beta_agent(
         "config": llm_config,
     }
 
-    # Tools
     ag2_tools = []
     for tool_name in config.tools:
         if tool_name in tool_registry:
@@ -136,32 +148,96 @@ async def run_beta_agent(
     if ag2_tools:
         agent_kwargs["tools"] = ag2_tools
 
-    # Observers
     observers = _build_observers(config.observers)
     if observers:
         agent_kwargs["observers"] = observers
 
-    # Policies
     policies = _build_policies(config.policies)
     if policies:
         agent_kwargs["assembly"] = policies
 
-    # Knowledge
     if config.knowledge:
         agent_kwargs["knowledge"] = KnowledgeConfig(store=MemoryKnowledgeStore())
 
-    # Subtasks
     if config.enable_subtasks:
         agent_kwargs["tasks"] = TaskConfig()
 
-    # Response schema
     if config.response_schema:
         agent_kwargs["response_schema"] = config.response_schema
 
     agent = Agent(**agent_kwargs)
 
     stream = MemoryStream()
+    event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
-    reply = await agent.ask(message, stream=stream)
+    async def _on_tool_calls(event: ToolCallsEvent) -> None:
+        for call in event.calls:
+            await event_queue.put({
+                "type": "tool_use",
+                "name": call.name,
+                "id": call.id,
+                "arguments": call.arguments,
+            })
 
-    yield {"type": "response", "content": reply.response, "stream": stream}
+    async def _on_tool_result(event: ToolResultEvent) -> None:
+        content = ""
+        if event.result and event.result.parts:
+            from autogen.beta.events.input_events import TextInput
+            content = " ".join(
+                getattr(p, "content", str(p)) for p in event.result.parts
+            )
+        await event_queue.put({
+            "type": "tool_result",
+            "name": event.name,
+            "parent_id": event.parent_id,
+            "content": content,
+        })
+
+    from autogen.beta.events.conditions import TypeCondition
+
+    sub_tools = stream.subscribe(_on_tool_calls, condition=TypeCondition(ToolCallsEvent))
+    sub_results = stream.subscribe(_on_tool_result, condition=TypeCondition(ToolResultEvent))
+
+    async def _run_agent():
+        return await agent.ask(message, stream=stream)
+
+    task = asyncio.create_task(_run_agent())
+
+    try:
+        while not task.done():
+            try:
+                event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                yield event
+            except asyncio.TimeoutError:
+                continue
+
+        while not event_queue.empty():
+            yield event_queue.get_nowait()
+
+        reply = task.result()
+
+        typed_result = None
+        if config.response_schema:
+            try:
+                typed_result = await reply.content(retries=1)
+            except Exception:
+                logger.warning("Schema validation failed, falling back to raw content")
+
+        content = ""
+        if reply.response and reply.response.message:
+            content = getattr(reply.response.message, "content", str(reply.response.message))
+
+        yield {
+            "type": "response",
+            "content": reply.response,
+            "text": content,
+            "typed_result": typed_result,
+            "usage": reply.response.usage if reply.response else None,
+            "stream": stream,
+        }
+
+    finally:
+        stream.unsubscribe(sub_tools)
+        stream.unsubscribe(sub_results)
+        if not task.done():
+            task.cancel()

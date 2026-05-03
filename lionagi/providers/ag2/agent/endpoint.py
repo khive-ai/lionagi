@@ -90,7 +90,6 @@ class AG2BetaEndpoint(AgenticEndpoint):
         if llm_config is None:
             raise ValueError("AG2BetaEndpoint requires llm_config")
 
-        # Convert dict llm_config to AG2 beta ModelConfig
         model_config = _resolve_model_config(llm_config)
 
         yield StreamChunk(
@@ -112,27 +111,39 @@ class AG2BetaEndpoint(AgenticEndpoint):
                 llm_config=model_config,
                 tool_registry=tool_registry,
             ):
-                if event.get("type") == "response":
-                    response = event["content"]
-                    content = ""
-                    if response.message:
-                        content = getattr(response.message, "content", str(response.message))
+                etype = event.get("type")
+
+                if etype == "tool_use":
+                    yield StreamChunk(
+                        type="tool_use",
+                        tool_name=event.get("name"),
+                        tool_id=event.get("id"),
+                        tool_input=event.get("arguments"),
+                        metadata={"agent": agent_config.name},
+                    )
+
+                elif etype == "tool_result":
+                    yield StreamChunk(
+                        type="tool_result",
+                        tool_output=event.get("content"),
+                        metadata={
+                            "agent": agent_config.name,
+                            "tool_name": event.get("name"),
+                        },
+                    )
+
+                elif etype == "response":
+                    content = event.get("text", "")
+                    typed_result = event.get("typed_result")
 
                     yield StreamChunk(
                         type="text",
                         content=content,
-                        metadata={"agent": agent_config.name},
+                        metadata={
+                            "agent": agent_config.name,
+                            "typed_result": typed_result,
+                        },
                     )
-
-                    if response.tool_calls:
-                        for call_event in response.tool_calls.calls:
-                            yield StreamChunk(
-                                type="tool_use",
-                                tool_name=call_event.name,
-                                tool_id=call_event.id,
-                                tool_input=call_event.arguments,
-                                metadata={"agent": agent_config.name},
-                            )
 
         except Exception:
             logger.exception("AG2 beta Agent execution failed")
