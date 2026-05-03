@@ -35,54 +35,58 @@ async def call_nlip_remote(
     Falls back to direct httpx if nlip_sdk is not installed.
     """
     try:
-        return await _call_via_ag2(url, messages, agent_name, timeout, max_retries)
+        return await _call_nlip_sdk(url, messages, timeout, max_retries)
     except ImportError:
         logger.info("nlip_sdk not installed, using direct HTTP")
         return await _call_direct(url, messages, timeout, max_retries)
 
 
-async def _call_via_ag2(
+async def _call_nlip_sdk(
     url: str,
     messages: list[dict[str, Any]],
-    agent_name: str,
     timeout: float,
     max_retries: int,
 ) -> dict[str, Any]:
-    """Use AG2's NlipRemoteAgent for NLIP communication."""
-    from autogen.agentchat.contrib.nlip_agent import (
-        NlipRemoteAgent,
-        request_message_to_nlip,
-        response_message_from_nlip,
-    )
-    from autogen.agentchat.remote import RequestMessage
-
-    from nlip_sdk.nlip import NLIP_Message
+    """Use nlip_sdk for proper NLIP message format."""
+    from nlip_sdk.nlip import NLIP_Factory, NLIP_Message
 
     import httpx
 
-    request = RequestMessage(messages=messages)
-    nlip_request = request_message_to_nlip(request)
+    last_content = ""
+    for msg in reversed(messages):
+        content = msg.get("content", "")
+        if content and content != "None":
+            last_content = content
+            break
+
+    nlip_msg = NLIP_Factory.create_text(last_content, language="english")
+
+    if len(messages) > 1:
+        sanitized = [
+            {"role": m.get("role", "user"), "content": m.get("content", "")}
+            for m in messages
+            if m.get("content")
+        ]
+        if sanitized:
+            nlip_msg.add_json({"messages": sanitized}, label="ag2_chat_history")
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         for attempt in range(max_retries):
             try:
                 response = await client.post(
                     f"{url.rstrip('/')}/nlip/",
-                    json=nlip_request.model_dump(exclude_none=True),
+                    json=nlip_msg.model_dump(exclude_none=True),
                 )
                 response.raise_for_status()
 
-                nlip_response = NLIP_Message.model_validate(response.json())
-                response_msg = response_message_from_nlip(nlip_response)
-
-                content = ""
-                if response_msg.messages:
-                    content = response_msg.messages[-1].get("content", "")
+                data = response.json()
+                nlip_response = NLIP_Message.model_validate(data)
+                content = nlip_response.content if isinstance(nlip_response.content, str) else ""
 
                 return {
                     "content": content,
-                    "context": response_msg.context,
-                    "input_required": response_msg.input_required,
+                    "context": None,
+                    "input_required": None,
                 }
 
             except httpx.TimeoutException:
