@@ -148,11 +148,13 @@ class SandboxManager:
                 system_message=spec.get("system_message", f"You are {spec['name']}."),
                 model=model,
             )
-            configs.append({
-                "name": agent.name,
-                "role": spec.get("role", "remote agent"),
-                "nlip_url": agent.url,
-            })
+            configs.append(
+                {
+                    "name": agent.name,
+                    "role": spec.get("role", "remote agent"),
+                    "nlip_url": agent.url,
+                }
+            )
         return configs
 
     def cleanup(self):

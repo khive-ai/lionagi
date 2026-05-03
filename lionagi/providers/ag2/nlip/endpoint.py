@@ -55,9 +55,7 @@ class AG2NlipEndpoint(AgenticEndpoint):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages", [])
         prompt = req_dict.pop("prompt", "")
-        return {
-            "request": AG2NlipRequest(messages=messages, prompt=prompt)
-        }, {}
+        return {"request": AG2NlipRequest(messages=messages, prompt=prompt)}, {}
 
     async def stream(
         self, request: dict | BaseModel, **kwargs

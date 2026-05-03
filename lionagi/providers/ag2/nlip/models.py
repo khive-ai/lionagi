@@ -48,9 +48,8 @@ async def _call_nlip_sdk(
     max_retries: int,
 ) -> dict[str, Any]:
     """Use nlip_sdk for proper NLIP message format."""
-    from nlip_sdk.nlip import NLIP_Factory, NLIP_Message
-
     import httpx
+    from nlip_sdk.nlip import NLIP_Factory, NLIP_Message
 
     last_content = ""
     for msg in reversed(messages):
@@ -81,7 +80,11 @@ async def _call_nlip_sdk(
 
                 data = response.json()
                 nlip_response = NLIP_Message.model_validate(data)
-                content = nlip_response.content if isinstance(nlip_response.content, str) else ""
+                content = (
+                    nlip_response.content
+                    if isinstance(nlip_response.content, str)
+                    else ""
+                )
 
                 return {
                     "content": content,
@@ -96,7 +99,9 @@ async def _call_nlip_sdk(
             except httpx.ConnectError:
                 if attempt == max_retries - 1:
                     raise
-                logger.warning("NLIP connect failed (attempt %d/%d)", attempt + 1, max_retries)
+                logger.warning(
+                    "NLIP connect failed (attempt %d/%d)", attempt + 1, max_retries
+                )
 
     return {"content": "", "context": None, "input_required": None}
 

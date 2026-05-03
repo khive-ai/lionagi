@@ -57,7 +57,9 @@ class AgentSpec(BaseModel):
 
     name: str = Field(description="Agent name (e.g. 'Researcher', 'Analyst')")
     role: str = Field(description="One-line role description")
-    system_message: str = Field(default="", description="Full system prompt for the agent")
+    system_message: str = Field(
+        default="", description="Full system prompt for the agent"
+    )
     tools: list[str] = Field(
         default_factory=list,
         description="Tool names from the registry this agent can invoke",
@@ -192,7 +194,8 @@ def build_group_chat(
                 )
                 agent = ConversableAgent(
                     name=agent_spec.name,
-                    system_message=agent_spec.system_message or f"You are {agent_spec.name}.",
+                    system_message=agent_spec.system_message
+                    or f"You are {agent_spec.name}.",
                     llm_config=llm_config,
                     human_input_mode="NEVER",
                 )

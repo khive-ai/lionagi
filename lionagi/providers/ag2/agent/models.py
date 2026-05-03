@@ -126,7 +126,11 @@ async def run_beta_agent(
     """
     from autogen.beta.agent import Agent, KnowledgeConfig, TaskConfig
     from autogen.beta.events import ModelResponse
-    from autogen.beta.events.tool_events import ToolCallEvent, ToolCallsEvent, ToolResultEvent
+    from autogen.beta.events.tool_events import (
+        ToolCallEvent,
+        ToolCallsEvent,
+        ToolResultEvent,
+    )
     from autogen.beta.knowledge.memory import MemoryKnowledgeStore
     from autogen.beta.stream import MemoryStream
     from autogen.beta.tools.final import tool as ag2_tool
@@ -143,7 +147,9 @@ async def run_beta_agent(
     for tool_name in config.tools:
         if tool_name in tool_registry:
             fn = tool_registry[tool_name]
-            wrapped = ag2_tool(fn, name=tool_name, description=getattr(fn, "__doc__", "") or tool_name)
+            wrapped = ag2_tool(
+                fn, name=tool_name, description=getattr(fn, "__doc__", "") or tool_name
+            )
             ag2_tools.append(wrapped)
     if ag2_tools:
         agent_kwargs["tools"] = ag2_tools
@@ -172,31 +178,40 @@ async def run_beta_agent(
 
     async def _on_tool_calls(event: ToolCallsEvent) -> None:
         for call in event.calls:
-            await event_queue.put({
-                "type": "tool_use",
-                "name": call.name,
-                "id": call.id,
-                "arguments": call.arguments,
-            })
+            await event_queue.put(
+                {
+                    "type": "tool_use",
+                    "name": call.name,
+                    "id": call.id,
+                    "arguments": call.arguments,
+                }
+            )
 
     async def _on_tool_result(event: ToolResultEvent) -> None:
         content = ""
         if event.result and event.result.parts:
             from autogen.beta.events.input_events import TextInput
+
             content = " ".join(
                 getattr(p, "content", str(p)) for p in event.result.parts
             )
-        await event_queue.put({
-            "type": "tool_result",
-            "name": event.name,
-            "parent_id": event.parent_id,
-            "content": content,
-        })
+        await event_queue.put(
+            {
+                "type": "tool_result",
+                "name": event.name,
+                "parent_id": event.parent_id,
+                "content": content,
+            }
+        )
 
     from autogen.beta.events.conditions import TypeCondition
 
-    sub_tools = stream.subscribe(_on_tool_calls, condition=TypeCondition(ToolCallsEvent))
-    sub_results = stream.subscribe(_on_tool_result, condition=TypeCondition(ToolResultEvent))
+    sub_tools = stream.subscribe(
+        _on_tool_calls, condition=TypeCondition(ToolCallsEvent)
+    )
+    sub_results = stream.subscribe(
+        _on_tool_result, condition=TypeCondition(ToolResultEvent)
+    )
 
     async def _run_agent():
         return await agent.ask(message, stream=stream)
@@ -225,7 +240,9 @@ async def run_beta_agent(
 
         content = ""
         if reply.response and reply.response.message:
-            content = getattr(reply.response.message, "content", str(reply.response.message))
+            content = getattr(
+                reply.response.message, "content", str(reply.response.message)
+            )
 
         yield {
             "type": "response",
