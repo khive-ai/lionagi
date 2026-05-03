@@ -120,7 +120,7 @@ async for chunk in endpoint.stream({"prompt": "Build a Fibonacci function"}):
 Each provider is a directory under `lionagi/providers/{company}/`. The subdirectories are
 capabilities — the directory listing is the capability map.
 
-```
+```text
 lionagi/providers/
 ├── openai/
 │   ├── _config.py          # OpenAIConfigs + CodexConfigs enums
@@ -192,7 +192,7 @@ type, options class, base URL, and auth type.
 
 **Step 1 — create the folder tree**
 
-```
+```text
 lionagi/providers/{name}/
     _config.py
     {endpoint_type}/
