@@ -85,6 +85,7 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
         agent_configs = kwargs.get("agent_configs", self._agent_configs)
         llm_config = kwargs.get("llm_config", self._llm_config)
         tool_registry = kwargs.get("tool_registry", self._tool_registry)
+        code_executor = kwargs.get("code_executor")
 
         spec = GroupChatSpec(
             name="endpoint_chat",
@@ -108,9 +109,7 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
         )
 
         user, pattern, agents_by_name = build_group_chat(
-            spec,
-            llm_config,
-            tool_registry,
+            spec, llm_config, tool_registry, code_executor
         )
 
         yield StreamChunk(
@@ -170,7 +169,9 @@ def _event_to_chunk(event) -> StreamChunk | None:
             metadata={"agent": sender},
         )
     if isinstance(event, GroupChatRunChatEvent):
-        speaker = getattr(inner, "speaker", "unknown") if inner is not None else "unknown"
+        speaker = (
+            getattr(inner, "speaker", "unknown") if inner is not None else "unknown"
+        )
         return StreamChunk(
             type="system",
             content=f"Speaker: {speaker}",
