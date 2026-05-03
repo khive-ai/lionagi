@@ -244,6 +244,8 @@ def _import_all_providers():
         "lionagi.providers.openrouter.chat.endpoint",
         # Agentic
         "lionagi.providers.ag2.groupchat.endpoint",
+        "lionagi.providers.ag2.agent.endpoint",
+        "lionagi.providers.ag2.nlip.endpoint",
     ]
     for mod in _modules:
         try:

@@ -221,7 +221,7 @@ async def test_editor_multiple_matches_succeeds_with_replace_all(tmp_path):
 
 async def test_bash_echo_returns_stdout(tmp_path):
     _, _, tools = _make_toolkit(tmp_path)
-    result = await _tool_fn(tools, "bash")(command="echo hello")
+    result = await _tool_fn(tools, "bash")(command="/bin/echo hello")
     assert result["return_code"] == 0 and "hello" in result["stdout"]
 
 
