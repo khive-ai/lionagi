@@ -57,7 +57,7 @@ class AgentSpec(BaseModel):
 
     name: str = Field(description="Agent name (e.g. 'Researcher', 'Analyst')")
     role: str = Field(description="One-line role description")
-    system_message: str = Field(description="Full system prompt for the agent")
+    system_message: str = Field(default="", description="Full system prompt for the agent")
     tools: list[str] = Field(
         default_factory=list,
         description="Tool names from the registry this agent can invoke",
@@ -65,6 +65,11 @@ class AgentSpec(BaseModel):
     handoffs: list[HandoffCondition] = Field(
         default_factory=list,
         description="Conditions for handing off to other agents",
+    )
+    nlip_url: str | None = Field(
+        default=None,
+        description="If set, this agent is a remote NLIP agent at the given URL. "
+        "system_message and llm_config are ignored — the remote server handles them.",
     )
     state_template: str | None = Field(
         default=None,
@@ -172,29 +177,49 @@ def build_group_chat(
     ordered: list[ConversableAgent] = []
 
     for agent_spec in spec.agents:
-        kwargs: dict[str, Any] = dict(
-            name=agent_spec.name,
-            system_message=agent_spec.system_message,
-            llm_config=llm_config,
-            human_input_mode="NEVER",
-        )
-        if agent_spec.state_template:
-            kwargs["update_agent_state_before_reply"] = [
-                UpdateSystemMessage(agent_spec.state_template),
-            ]
+        if agent_spec.nlip_url:
+            try:
+                from autogen.agentchat.contrib.nlip_agent import NlipRemoteAgent
 
-        agent = ConversableAgent(**kwargs)
-
-        for tool_name in agent_spec.tools:
-            if tool_name in tool_registry:
-                fn = tool_registry[tool_name]
-                desc = getattr(fn, "__doc__", "") or tool_name
-                register_function(
-                    fn,
-                    caller=agent,
-                    executor=user,
-                    description=desc,
+                agent = NlipRemoteAgent(
+                    url=agent_spec.nlip_url,
+                    name=agent_spec.name,
                 )
+            except ImportError:
+                logger.warning(
+                    "nlip_sdk not installed — creating %r as local agent instead",
+                    agent_spec.name,
+                )
+                agent = ConversableAgent(
+                    name=agent_spec.name,
+                    system_message=agent_spec.system_message or f"You are {agent_spec.name}.",
+                    llm_config=llm_config,
+                    human_input_mode="NEVER",
+                )
+        else:
+            kwargs: dict[str, Any] = dict(
+                name=agent_spec.name,
+                system_message=agent_spec.system_message,
+                llm_config=llm_config,
+                human_input_mode="NEVER",
+            )
+            if agent_spec.state_template:
+                kwargs["update_agent_state_before_reply"] = [
+                    UpdateSystemMessage(agent_spec.state_template),
+                ]
+
+            agent = ConversableAgent(**kwargs)
+
+            for tool_name in agent_spec.tools:
+                if tool_name in tool_registry:
+                    fn = tool_registry[tool_name]
+                    desc = getattr(fn, "__doc__", "") or tool_name
+                    register_function(
+                        fn,
+                        caller=agent,
+                        executor=user,
+                        description=desc,
+                    )
 
         agents_by_name[agent_spec.name] = agent
         ordered.append(agent)
