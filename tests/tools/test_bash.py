@@ -67,7 +67,7 @@ def test_bash_response_fields():
 
 async def test_handle_request_echo_returns_stdout():
     tool = BashTool()
-    resp = await tool.handle_request(BashRequest(command="echo hello"))
+    resp = await tool.handle_request(BashRequest(command="/bin/echo hello"))
     assert resp.return_code == 0
     assert "hello" in resp.stdout
     assert resp.timed_out is False
@@ -75,7 +75,7 @@ async def test_handle_request_echo_returns_stdout():
 
 async def test_handle_request_returns_bash_response():
     tool = BashTool()
-    resp = await tool.handle_request(BashRequest(command="echo ok"))
+    resp = await tool.handle_request(BashRequest(command="/bin/echo ok"))
     assert isinstance(resp, BashResponse)
 
 
@@ -88,7 +88,7 @@ async def test_handle_request_non_zero_exit():
 
 async def test_handle_request_dict_input():
     tool = BashTool()
-    resp = await tool.handle_request({"command": "echo dict"})
+    resp = await tool.handle_request({"command": "/bin/echo dict"})
     assert resp.return_code == 0
     assert "dict" in resp.stdout
 
@@ -212,7 +212,7 @@ def test_to_tool_func_callable_is_async():
 async def test_to_tool_callable_executes():
     tool = BashTool()
     t = tool.to_tool()
-    result = await t.func_callable(command="echo from_tool")
+    result = await t.func_callable(command="/bin/echo from_tool")
     assert result["return_code"] == 0
     assert "from_tool" in result["stdout"]
 
@@ -245,7 +245,7 @@ async def test_bash_tool_popen_failure_returns_execution_error(monkeypatch):
     monkeypatch.setattr(bash_mod.subprocess, "Popen", fake_popen)
 
     tool = BashTool()
-    resp = await tool.handle_request(BashRequest(command="echo hi"))
+    resp = await tool.handle_request(BashRequest(command="/bin/echo hi"))
     assert resp.return_code == -1
     assert "Execution error" in resp.stderr
     assert "no exec" in resp.stderr
