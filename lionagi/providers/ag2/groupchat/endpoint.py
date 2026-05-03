@@ -100,6 +100,7 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
                         {"target": h["target"], "condition": h["condition"]}
                         for h in c.get("handoff_conditions", c.get("handoffs", []))
                     ],
+                    "nlip_url": c.get("nlip_url"),
                     "state_template": c.get("state_template"),
                 }
                 for c in agent_configs
