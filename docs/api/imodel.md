@@ -102,13 +102,14 @@ endpoint. Pass `base_url=` to point at your custom host.
 
 ## Endpoint matching
 
-```
+```text
 iModel(provider="openai", endpoint="chat")
   → match_endpoint("openai", "chat")
   → OpenaiChatEndpoint
 ```
 
 `match_endpoint()` dispatches on `(provider, endpoint)` string containment:
+
 - Default `endpoint="chat"` resolves to the provider's chat class.
 - Single-endpoint providers (`claude_code`, `codex`, `gemini_code`, `pi`) ignore
   the `endpoint` argument and always return their only class.
