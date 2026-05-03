@@ -133,7 +133,8 @@ class EndpointRegistry:
                 return first_for_provider.cls(None, **kwargs)
             prov = first_for_provider.meta.provider
             n = sum(
-                1 for e in cls._entries
+                1
+                for e in cls._entries
                 if e.meta.provider == prov or prov in e.meta.provider_aliases
             )
             if n == 1:
