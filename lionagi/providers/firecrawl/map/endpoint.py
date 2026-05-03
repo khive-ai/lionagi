@@ -29,11 +29,16 @@ class FirecrawlMapEndpoint(Endpoint):
     ):
         if self.config.request_options is not None:
             model_cls = self.config.request_options
-            raw = request if isinstance(request, dict) else request.model_dump(exclude_none=True)
+            raw = (
+                request
+                if isinstance(request, dict)
+                else request.model_dump(exclude_none=True)
+            )
             merged = {**self.config.kwargs, **raw, **kwargs}
             obj = model_cls.model_validate(merged)
             payload = obj.model_dump(by_alias=True, exclude_none=True)
             from lionagi.service.connections.header_factory import HeaderFactory
+
             headers = HeaderFactory.get_header(
                 auth_type=self.config.auth_type,
                 content_type=self.config.content_type,

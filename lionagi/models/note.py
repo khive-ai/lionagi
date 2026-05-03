@@ -52,7 +52,11 @@ class Note(BaseModel):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__()
-        if len(kwargs) == 1 and "content" in kwargs and isinstance(kwargs["content"], dict):
+        if (
+            len(kwargs) == 1
+            and "content" in kwargs
+            and isinstance(kwargs["content"], dict)
+        ):
             self.content = kwargs["content"]
         else:
             self.content = kwargs
