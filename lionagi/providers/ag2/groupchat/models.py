@@ -87,13 +87,6 @@ class GroupChatSpec(BaseModel):
         default_factory=dict,
         description="Initial context variables shared across agents",
     )
-    sandbox: bool = Field(
-        default=False,
-        description=(
-            "Reserved for future Daytona sandbox integration. "
-            "Not yet implemented — has no effect on execution."
-        ),
-    )
 
 
 class ResearchPlan(BaseModel):
@@ -147,6 +140,7 @@ def build_group_chat(
     spec: GroupChatSpec,
     llm_config: Any,
     tool_registry: dict[str, Callable] | None = None,
+    code_executor: Any | None = None,
 ):
     """Build AG2 agents and DefaultPattern from a GroupChatSpec.
 
@@ -164,12 +158,15 @@ def build_group_chat(
     from autogen.agentchat.group.patterns import DefaultPattern
 
     tool_registry = tool_registry or {}
+    user_configs = {
+        "name": "User",
+        "human_input_mode": "NEVER",
+        "llm_config": False,
+    }
+    if code_executor:
+        user_configs["code_execution_config"] = {"executor": code_executor}
 
-    user = ConversableAgent(
-        name="User",
-        human_input_mode="NEVER",
-        llm_config=False,
-    )
+    user = ConversableAgent(**user_configs)
 
     agents_by_name: dict[str, ConversableAgent] = {}
     ordered: list[ConversableAgent] = []
