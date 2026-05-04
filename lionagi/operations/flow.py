@@ -650,7 +650,9 @@ class DependencyAwareExecutor:
                 values[field].append(value)
 
         for field in input_fields:
-            if field in self.context.content and field not in values:
+            if field in self.context.content and (
+                field not in values or values[field] is None
+            ):
                 if field in collect_fields:
                     value = self.context.content[field]
                     values[field] = value if isinstance(value, list) else [value]
@@ -673,8 +675,10 @@ class DependencyAwareExecutor:
                 if isinstance(pred.parameters, dict)
                 else []
             )
+            if not output_fields:
+                continue
             for field in input_fields:
-                if field in result and (not output_fields or field in output_fields):
+                if field in result and field in output_fields:
                     set_form_value(field, result[field])
 
         operation.parameters["form_inputs"] = values

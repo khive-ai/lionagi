@@ -24,7 +24,7 @@ from lionagi.protocols.types import (
 
 from .._errors import ItemNotFoundError
 from ..ln import lcall
-from ..protocols.generic import Flow, Progression
+from ..protocols.generic import Flow
 from ..protocols.messages import Message
 from ..service.imodel import iModel
 from .branch import ActionManager, Branch, OperationManager, Tool
@@ -81,6 +81,9 @@ class Session(Node, Relational):
     ):
         self._operation_manager.register(operation, func, update=update)
 
+    def unregister_operation(self, operation: str, func: Callable | None = None) -> bool:
+        return self._operation_manager.unregister(operation, func=func)
+
     def operation(self, name: str = None, *, update: bool = False):
         """
         Decorator to automatically register functions as operations.
@@ -126,8 +129,8 @@ class Session(Node, Relational):
         """Get a branch by its ID or name."""
 
         with contextlib.suppress(ItemNotFoundError, ValueError):
-            id = ID.get_id(branch)
-            return self.branches[id]
+            branch_id = ID.get_id(branch)
+            return self.branches[branch_id]
 
         if isinstance(branch, str):
             if b := self._lookup_branch_by_name(branch):

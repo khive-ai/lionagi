@@ -19,3 +19,18 @@ class OperationManager(Manager):
         if not is_coro_func(func):
             raise ValueError(f"Operation '{operation}' must be an async function.")
         self.registry[operation] = func
+
+    def unregister(self, operation: str, func: Callable | None = None) -> bool:
+        """Remove an operation registration.
+
+        If ``func`` is provided, the registration is removed only when it still
+        points to that callable. This lets temporary owners clean up without
+        deleting a newer registration for the same name.
+        """
+        registered = self.registry.get(operation)
+        if registered is None:
+            return False
+        if func is not None and registered is not func:
+            return False
+        self.registry.pop(operation, None)
+        return True

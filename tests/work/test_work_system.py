@@ -3,10 +3,36 @@
 
 """Tests for the work layer compiling into builder/flow."""
 
+import asyncio
+
 import pytest
 
+from lionagi.operations.builder import OperationGraphBuilder
+from lionagi.session.branch import Branch
 from lionagi.session.session import Session
-from lionagi.work import Form, Report, Worker, WorkerEngine, work, worklink
+from lionagi.work import (
+    Form,
+    Report,
+    Worker,
+    WorkerEngine,
+    parse_assignment,
+    parse_full_assignment,
+    work,
+    worklink,
+)
+
+
+def test_assignment_parser_preserves_colon_fields_without_branch_spacing():
+    assert parse_assignment("url:http -> normalized") == (
+        ["url:http"],
+        ["normalized"],
+    )
+
+    parsed = parse_full_assignment("writer: topic -> draft | api:fast")
+    assert parsed.branch == "writer"
+    assert parsed.inputs == ["topic"]
+    assert parsed.outputs == ["draft"]
+    assert parsed.resource == "api:fast"
 
 
 def test_form_requires_declared_outputs():
@@ -28,6 +54,50 @@ def test_form_partial_output_does_not_mark_filled():
 
     assert form.filled is False
     assert form.missing_outputs() == ["draft"]
+
+
+def test_builder_add_form_keeps_form_metadata_sentinel():
+    builder = OperationGraphBuilder()
+    form = Form(assignment="topic -> answer")
+
+    node_id = builder.add_form(
+        form,
+        operation="complete_form",
+        metadata={"form": False, "custom": "kept"},
+        parameters={"form_inputs": {"topic": "LoRA"}},
+    )
+    node = builder.get_graph().internal_nodes[node_id]
+
+    assert node.metadata["form"] is True
+    assert node.metadata["custom"] == "kept"
+    assert node.parameters["form_inputs"] == {"topic": "LoRA"}
+
+
+@pytest.mark.asyncio
+async def test_prepare_form_inputs_ignores_unscoped_predecessor_keys():
+    session = Session()
+    captured = {}
+
+    @session.operation("seed")
+    async def seed(**kwargs):
+        return {"topic": "from predecessor"}
+
+    @session.operation("capture")
+    async def capture(**kwargs):
+        captured.update(kwargs["form_inputs"])
+        return {"answer": "ok"}
+
+    builder = OperationGraphBuilder()
+    seed_node = builder.add_operation("seed")
+    builder.add_form(
+        Form(assignment="topic -> answer"),
+        operation="capture",
+        depends_on=[seed_node],
+    )
+
+    await session.flow(builder.get_graph(), context={"topic": "from context"})
+
+    assert captured == {"topic": "from context"}
 
 
 def test_report_rejects_duplicate_output_fields():
@@ -111,6 +181,28 @@ def test_report_compiles_field_dependencies_to_builder():
     assert analyst_node in writer_predecessors
 
 
+def test_report_compiles_external_builder_form_dependencies():
+    builder = OperationGraphBuilder()
+    source_node = builder.add_operation(
+        "seed",
+        metadata={"form_output_fields": ["topic"]},
+    )
+    report = Report(
+        assignment="seed -> answer",
+        form_assignments=["topic -> answer"],
+    )
+    report.initialize(seed="value")
+
+    report.to_builder(operation="complete_form", builder=builder)
+    form = report.forms[0]
+    form_node = builder.get_graph().internal_nodes[report.node_by_form_id[str(form.id)]]
+    predecessor_ids = {
+        predecessor.id for predecessor in builder.get_graph().get_predecessors(form_node)
+    }
+
+    assert source_node in predecessor_ids
+
+
 def test_report_same_branch_order_inherits_context():
     report = Report(
         assignment="topic -> article",
@@ -186,6 +278,44 @@ async def test_report_runs_through_session_flow():
     assert "findings:" in deliverable["paper"]
 
 
+def test_report_apply_flow_result_accepts_partial_form_output():
+    report = Report(
+        assignment="topic -> outline",
+        form_assignments=["topic -> outline, draft"],
+    )
+    report.initialize(topic="LoRA")
+    report.to_builder(operation="complete_form")
+    form = report.forms[0]
+    node_id = report.node_by_form_id[str(form.id)]
+
+    report.apply_flow_result(
+        {
+            "operation_results": {node_id: {"outline": "bullets"}},
+            "failed_operations": [],
+            "skipped_operations": [],
+        }
+    )
+
+    assert form.available_data["outline"] == "bullets"
+    assert form.filled is False
+    assert report.progress == (0, 1)
+
+
+def test_worker_metadata_collection_does_not_evaluate_properties():
+    class Pipeline(Worker):
+        @property
+        def exploding_property(self):
+            raise RuntimeError("property should not be evaluated")
+
+        @work("seed -> doubled")
+        async def step(self, seed, **kwargs):
+            return {"doubled": seed * 2}
+
+    worker = Pipeline()
+
+    assert "step" in worker._work_methods
+
+
 @pytest.mark.asyncio
 async def test_worker_engine_executes_waves_via_flow():
     class Pipeline(Worker):
@@ -228,14 +358,50 @@ async def test_worker_engine_requires_session_for_branch_operations():
         await engine.execute()
 
 
-def test_worker_engine_operation_prefix_is_stable_per_worker():
+@pytest.mark.asyncio
+async def test_worker_engine_operation_backed_tasks_use_isolated_branches(monkeypatch):
+    seen_branch_ids = []
+
+    async def fake_chat(self, instruction="", **kwargs):
+        seen_branch_ids.append(self.id)
+        await asyncio.sleep(0)
+        return {"answer": str(self.id)}
+
+    monkeypatch.setattr(Branch, "chat", fake_chat)
+
+    class Pipeline(Worker):
+        @work("prompt -> answer", operation="chat")
+        async def ask(self, **kwargs):
+            raise AssertionError("operation-backed work should delegate")
+
+    session = Session()
+    worker = Pipeline(session=session)
+    engine = WorkerEngine(worker, max_concurrent=2)
+    task_a = await engine.add_task("ask", prompt="a")
+    task_b = await engine.add_task("ask", prompt="b")
+
+    await engine.execute()
+
+    assert task_a.status == "COMPLETED"
+    assert task_b.status == "COMPLETED"
+    assert len(set(seen_branch_ids)) == 2
+    assert session.default_branch.id not in seen_branch_ids
+
+
+@pytest.mark.asyncio
+async def test_worker_engine_unregisters_temporary_operations_after_execute():
     class Pipeline(Worker):
         @work("seed -> doubled")
         async def start(self, seed, **kwargs):
             return {"doubled": seed * 2}
 
-    worker = Pipeline()
+    worker = Pipeline(session=Session())
+    engine = WorkerEngine(worker)
+    await engine.add_task("start", seed=3)
 
-    assert (
-        WorkerEngine(worker)._operation_prefix == WorkerEngine(worker)._operation_prefix
+    await engine.execute()
+
+    assert not any(
+        name.startswith(engine._operation_prefix)
+        for name in worker.session._operation_manager.registry
     )

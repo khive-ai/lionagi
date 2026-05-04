@@ -417,28 +417,33 @@ class OperationGraphBuilder:
         if hasattr(form, "get_inputs"):
             form_inputs = form.get_inputs()
 
-        form_metadata = {
-            "form": True,
+        caller_parameters = dict(parameters or {})
+        caller_parameters.update(operation_params)
+        provided_form_inputs = caller_parameters.pop("form_inputs", None)
+        if provided_form_inputs is not None:
+            if not isinstance(provided_form_inputs, Mapping):
+                raise TypeError("form_inputs must be a mapping when provided")
+            form_inputs.update(provided_form_inputs)
+
+        form_contract = {
             "form_id": str(form.id),
             "form_assignment": getattr(form, "assignment", ""),
-            "form_branch": getattr(form, "branch", None),
-            "form_resource": getattr(form, "resource", None),
             "form_input_fields": input_fields,
             "form_output_fields": output_fields,
+            "form_resource": getattr(form, "resource", None),
             "form_collect_input_fields": collect_input_fields,
+        }
+        form_metadata = {
             **(metadata or {}),
+            "form": True,
+            **form_contract,
+            "form_branch": getattr(form, "branch", None),
         }
         form_parameters = {
-            "form_id": str(form.id),
-            "form_assignment": getattr(form, "assignment", ""),
+            **caller_parameters,
+            **form_contract,
             "form_inputs": form_inputs,
-            "form_input_fields": input_fields,
-            "form_output_fields": output_fields,
-            "form_resource": getattr(form, "resource", None),
-            "form_collect_input_fields": collect_input_fields,
-            **(parameters or {}),
         }
-        form_parameters.update(operation_params)
 
         return self.add_operation(
             operation,

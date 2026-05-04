@@ -57,6 +57,8 @@ class Report(Element):
     _node_by_form_id: dict[str, UUID] = PrivateAttr(default_factory=dict)
     _producer_cache: dict[str, list[Form]] = PrivateAttr(default_factory=dict)
     _producer_cache_fingerprint: tuple | None = PrivateAttr(default=None)
+    _topological_cache: list[Form] = PrivateAttr(default_factory=list)
+    _topological_cache_fingerprint: tuple | None = PrivateAttr(default=None)
 
     def model_post_init(self, _: Any) -> None:
         if self.assignment and not self.input_fields and not self.output_fields:
@@ -85,8 +87,9 @@ class Report(Element):
             raise ValueError(f"Missing required input fields: {missing}")
         self._initial_inputs = dict(inputs)
 
-    def validate(self) -> None:
+    def validate(self, external_input_fields: set[str] | None = None) -> None:
         """Validate field wiring before compiling or executing the report."""
+        external_input_fields = external_input_fields or set()
         producer_by_field = self._producer_map()
 
         for field in self.output_fields:
@@ -94,6 +97,7 @@ class Report(Element):
                 raise ValueError(f"Report output field '{field}' has no producer")
 
         available = set(self._initial_inputs) | set(producer_by_field)
+        available.update(external_input_fields)
         for form in self._topological_forms():
             missing = [field for field in form.input_fields if field not in available]
             if missing:
@@ -103,13 +107,18 @@ class Report(Element):
 
         self._assert_acyclic()
 
-    def resolve_inputs(self, form: Form) -> dict[str, Any]:
+    def resolve_inputs(self, form: Form, *, strict: bool = False) -> dict[str, Any]:
         """Resolve a form's declared inputs from completed producers or initial data."""
         resolved = {}
         for field in form.input_fields:
             value = self._resolved_field_value(field, consumer=form)
             if value is not _MISSING:
                 resolved[field] = value
+        if strict and len(resolved) != len(form.input_fields):
+            missing = [field for field in form.input_fields if field not in resolved]
+            raise ValueError(
+                f"Form '{form.assignment}' has unresolved inputs: {missing}"
+            )
         return resolved
 
     def cross_branch_inputs(self, form: Form) -> dict[str, Any]:
@@ -195,8 +204,9 @@ class Report(Element):
         """
         from lionagi.operations.builder import OperationGraphBuilder
 
-        self.validate()
         builder = builder or OperationGraphBuilder(name=f"Report:{self.id}")
+        external_producers = self._external_form_producers(builder)
+        self.validate(external_input_fields=set(external_producers))
         node_by_form: dict[str, UUID] = {}
 
         for form in self._topological_forms():
@@ -207,11 +217,13 @@ class Report(Element):
                     previous,
                     *(dep for dep in dep_forms if dep is not previous),
                 ]
-            deps = [
+            deps = self._external_dependencies(form, external_producers)
+            deps.extend(
                 node_by_form[str(dep.id)]
                 for dep in dep_forms
                 if str(dep.id) in node_by_form
-            ]
+                and node_by_form[str(dep.id)] not in deps
+            )
             branch_ref = self._resolve_branch_ref(form, branches)
             params = self._operation_parameters(form)
             params["form_collect_input_fields"] = self._collect_input_fields(form)
@@ -266,8 +278,9 @@ class Report(Element):
             if node_id in failed or node_id in skipped:
                 continue
             if node_id in operation_results:
-                form.set_output(operation_results[node_id])
-                self.complete_form(form)
+                form.set_output(operation_results[node_id], partial=True)
+                if form.filled:
+                    self.complete_form(form)
 
     def is_complete(self) -> bool:
         return all(field in self.get_deliverable() for field in self.output_fields)
@@ -318,10 +331,7 @@ class Report(Element):
         return branches.get(form.branch)
 
     def _producer_map(self) -> dict[str, list[Form]]:
-        fingerprint = tuple(
-            (str(form.id), form.branch or "_default", tuple(form.output_fields))
-            for form in self.forms
-        )
+        fingerprint = self._forms_fingerprint(include_inputs=False)
         if fingerprint != self._producer_cache_fingerprint:
             producer_by_field: dict[str, list[Form]] = defaultdict(list)
             for form in self.forms:
@@ -329,8 +339,8 @@ class Report(Element):
                     producer_by_field[field].append(form)
             self._producer_cache = dict(producer_by_field)
             self._producer_cache_fingerprint = fingerprint
+            self._validate_duplicate_outputs(self._producer_cache)
 
-        self._validate_duplicate_outputs(self._producer_cache)
         return self._producer_cache
 
     def _producer_by_field(self) -> dict[str, Form]:
@@ -422,6 +432,47 @@ class Report(Element):
             > 1
         ]
 
+    def _forms_fingerprint(self, *, include_inputs: bool = True) -> tuple:
+        return (
+            self.allow_duplicate_outputs,
+            tuple(
+                (
+                    str(form.id),
+                    form.branch or "_default",
+                    tuple(form.input_fields) if include_inputs else (),
+                    tuple(form.output_fields),
+                )
+                for form in self.forms
+            ),
+        )
+
+    def _external_form_producers(
+        self,
+        builder: OperationGraphBuilder,
+    ) -> dict[str, list[UUID]]:
+        producers: dict[str, list[UUID]] = defaultdict(list)
+        for node in builder.get_graph().internal_nodes:
+            metadata = getattr(node, "metadata", {}) or {}
+            parameters = getattr(node, "parameters", {}) or {}
+            output_fields = metadata.get("form_output_fields")
+            if not output_fields and isinstance(parameters, dict):
+                output_fields = parameters.get("form_output_fields")
+            for field in output_fields or []:
+                producers[field].append(node.id)
+        return dict(producers)
+
+    def _external_dependencies(
+        self,
+        form: Form,
+        external_producers: dict[str, list[UUID]],
+    ) -> list[UUID]:
+        deps: list[UUID] = []
+        for field in form.input_fields:
+            for node_id in external_producers.get(field, []):
+                if node_id not in deps:
+                    deps.append(node_id)
+        return deps
+
     def _previous_same_branch_form(self, form: Form) -> Form | None:
         idx = self.forms.index(form)
         branch = form.branch or "_default"
@@ -434,6 +485,10 @@ class Report(Element):
         self._topological_forms()
 
     def _topological_forms(self) -> list[Form]:
+        fingerprint = self._forms_fingerprint()
+        if fingerprint == self._topological_cache_fingerprint:
+            return list(self._topological_cache)
+
         ordered: list[Form] = []
         visiting: set[str] = set()
         visited: set[str] = set()
@@ -453,7 +508,9 @@ class Report(Element):
 
         for form in self.forms:
             visit(form)
-        return ordered
+        self._topological_cache = ordered
+        self._topological_cache_fingerprint = fingerprint
+        return list(ordered)
 
     def __repr__(self) -> str:
         completed, total = self.progress

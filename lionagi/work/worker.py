@@ -120,22 +120,44 @@ class Worker:
         return None
 
     def _collect_work_metadata(self) -> None:
-        for attr_name in dir(self):
-            if attr_name.startswith("_"):
-                continue
-            attr = getattr(self, attr_name, None)
-            if attr is None:
-                continue
-            if hasattr(attr, "_work_config"):
-                config: WorkConfig = attr._work_config
-                self._work_methods[attr_name] = (attr, config)
-            if hasattr(attr, "_worklink_from") and hasattr(attr, "_worklink_to"):
-                link = WorkLink(
-                    from_=attr._worklink_from,
-                    to_=attr._worklink_to,
-                    handler_name=attr_name,
+        seen: set[str] = set()
+        for cls in type(self).__mro__:
+            for attr_name, descriptor in cls.__dict__.items():
+                if attr_name in seen:
+                    continue
+                seen.add(attr_name)
+                if attr_name.startswith("_"):
+                    continue
+
+                raw = (
+                    descriptor.__func__
+                    if isinstance(descriptor, (classmethod, staticmethod))
+                    else descriptor
                 )
-                self._work_links.append(link)
+                if not (
+                    hasattr(raw, "_work_config")
+                    or (
+                        hasattr(raw, "_worklink_from")
+                        and hasattr(raw, "_worklink_to")
+                    )
+                ):
+                    continue
+
+                attr = (
+                    descriptor.__get__(self, type(self))
+                    if hasattr(descriptor, "__get__")
+                    else descriptor
+                )
+                if hasattr(raw, "_work_config"):
+                    config: WorkConfig = raw._work_config
+                    self._work_methods[attr_name] = (attr, config)
+                if hasattr(raw, "_worklink_from") and hasattr(raw, "_worklink_to"):
+                    link = WorkLink(
+                        from_=raw._worklink_from,
+                        to_=raw._worklink_to,
+                        handler_name=attr_name,
+                    )
+                    self._work_links.append(link)
 
     def get_links_from(self, method_name: str) -> list[WorkLink]:
         return [link for link in self._work_links if link.from_ == method_name]
@@ -215,13 +237,18 @@ def work(
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             self_ref = args[0] if args else None
-            if (
-                config.operation
-                and self_ref is not None
-                and hasattr(self_ref, "branch")
-                and self_ref.branch is not None
-            ):
-                target_branch = self_ref.branch
+            branch_id = kwargs.pop("_lionagi_branch_id", None)
+            target_branch = None
+            if config.operation and self_ref is not None:
+                if (
+                    branch_id is not None
+                    and getattr(self_ref, "session", None) is not None
+                ):
+                    target_branch = self_ref.session.get_branch(branch_id)
+                elif hasattr(self_ref, "branch"):
+                    target_branch = self_ref.branch
+
+            if config.operation and target_branch is not None:
                 meth = target_branch.get_operation(config.operation)
                 if meth is None:
                     raise ValueError(f"Branch has no operation '{config.operation}'")

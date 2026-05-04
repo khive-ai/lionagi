@@ -51,6 +51,7 @@ class WorkerTask:
     max_steps: int = 100
     current_step: int = 0
     history: list[tuple[str, Any]] = field(default_factory=list)
+    branch_id: UUID | None = None
 
 
 class WorkerEngine:
@@ -75,11 +76,8 @@ class WorkerEngine:
         self._task_queue: deque[UUID] = deque()
         self._stopped = False
         self._operation_names: dict[str, str] = {}
-        namespace = getattr(worker, "_operation_namespace", None)
-        if namespace is None:
-            namespace = uuid4().hex
-            worker._operation_namespace = namespace
-        self._operation_prefix = f"_work_{namespace}_"
+        self._registered_operation_funcs: dict[str, Callable] = {}
+        self._operation_prefix = f"_work_{uuid4().hex}_"
 
     async def add_task(
         self,
@@ -108,14 +106,19 @@ class WorkerEngine:
         session = self._ensure_session()
         self._register_worker_operations(session)
 
-        while not self._stopped and self._task_queue:
-            batch = self._drain_pending_batch()
-            if not batch:
-                break
-            await self._execute_batch(session, batch)
+        try:
+            while not self._stopped and self._task_queue:
+                batch = self._drain_pending_batch()
+                if not batch:
+                    break
+                await self._execute_batch(session, batch)
+        finally:
+            self._unregister_worker_operations(session)
 
     async def stop(self) -> None:
         self._stopped = True
+        if self.worker.session is not None:
+            self._unregister_worker_operations(self.worker.session)
         await self._stop_worker()
 
     async def cancel_task(self, task_id: UUID) -> bool:
@@ -180,8 +183,20 @@ class WorkerEngine:
                 with fail_after(config.timeout):
                     return await method(**kwargs)
 
-            session.register_operation(operation_name, invoke_work_method, update=True)
+            session.register_operation(operation_name, invoke_work_method, update=False)
             self._operation_names[method_name] = operation_name
+            self._registered_operation_funcs[operation_name] = invoke_work_method
+
+    def _unregister_worker_operations(self, session: Session) -> None:
+        for operation_name, func in list(self._registered_operation_funcs.items()):
+            if hasattr(session, "unregister_operation"):
+                session.unregister_operation(operation_name, func=func)
+                continue
+            registry = getattr(getattr(session, "_operation_manager", None), "registry", {})
+            if registry.get(operation_name) is func:
+                registry.pop(operation_name, None)
+        self._registered_operation_funcs.clear()
+        self._operation_names.clear()
 
     def _drain_pending_batch(self) -> list[UUID]:
         batch = []
@@ -206,10 +221,14 @@ class WorkerEngine:
             task.status = PROCESSING
             task.current_step += 1
             operation_name = self._operation_names[task.function]
+            call_kwargs = self._call_kwargs_for_task(task)
+            branch = self._branch_for_task(session, task)
+            if task.branch_id is not None:
+                call_kwargs["_lionagi_branch_id"] = str(task.branch_id)
             node_id = builder.add_operation(
                 operation_name,
-                branch=self.worker.branch,
-                parameters=self._call_kwargs_for_task(task),
+                branch=branch,
+                parameters=call_kwargs,
                 metadata={
                     "worker_task_id": str(task.id),
                     "worker_function": task.function,
@@ -266,6 +285,27 @@ class WorkerEngine:
                             input_name, form.available_data[input_name]
                         )
         return call_kwargs
+
+    def _branch_for_task(self, session: Session, task: WorkerTask):
+        _, config = self.worker._work_methods[task.function]
+        branch = self.worker.branch
+        if not config.operation:
+            return branch
+
+        if task.branch_id is not None:
+            try:
+                return session.get_branch(task.branch_id)
+            except Exception:
+                task.branch_id = None
+
+        base_branch = branch or session.default_branch
+        if hasattr(base_branch, "clone"):
+            branch = base_branch.clone(sender=session.id)
+            session.include_branches(branch)
+        else:
+            branch = base_branch
+        task.branch_id = getattr(branch, "id", None)
+        return branch
 
     async def _complete_task_step(self, task: WorkerTask, result: Any) -> None:
         task.history.append((task.function, result))

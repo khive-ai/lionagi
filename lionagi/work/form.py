@@ -14,6 +14,7 @@ operation graphs, and ``Session.flow()`` executes those graphs.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +23,8 @@ from pydantic import Field
 from lionagi.protocols.generic.element import Element
 
 __all__ = ("Form", "ParsedAssignment", "parse_assignment", "parse_full_assignment")
+
+_BRANCH_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 
 
 @dataclass
@@ -78,7 +81,11 @@ def parse_full_assignment(assignment: str) -> ParsedAssignment:
     if ":" in raw:
         colon_idx = raw.find(":")
         arrow_idx = raw.find("->")
-        if arrow_idx == -1 or colon_idx < arrow_idx:
+        if (
+            (arrow_idx == -1 or colon_idx < arrow_idx)
+            and raw[colon_idx + 1 : colon_idx + 2].isspace()
+            and _BRANCH_NAME_RE.fullmatch(raw[:colon_idx].strip())
+        ):
             branch_part, raw = raw.split(":", 1)
             branch = branch_part.strip()
             raw = raw.strip()
@@ -176,13 +183,15 @@ class Form(Element):
         if output is None:
             return data
 
+        dumped = None
         for field in self.output_fields:
             if isinstance(output, dict) and field in output:
                 data[field] = output[field]
             elif hasattr(output, field):
                 data[field] = getattr(output, field)
             elif hasattr(output, "model_dump"):
-                dumped = output.model_dump()
+                if dumped is None:
+                    dumped = output.model_dump()
                 if field in dumped:
                     data[field] = dumped[field]
         return data
@@ -208,10 +217,11 @@ class Form(Element):
             ValueError: If required output fields are missing.
         """
         output_data = self.extract_output_data(output)
+        available = {**self.available_data, **output_data}
         missing = [
             field
             for field in self.output_fields
-            if field not in output_data and field not in self.available_data
+            if field not in available or available[field] is None
         ]
         if missing and not partial:
             raise ValueError(
@@ -220,7 +230,7 @@ class Form(Element):
 
         self.output = output
         self.available_data.update(output_data)
-        self.filled = not self.missing_outputs()
+        self.filled = not missing
 
     def get_output_data(self) -> dict[str, Any]:
         """Return declared outputs currently stored on the form."""
