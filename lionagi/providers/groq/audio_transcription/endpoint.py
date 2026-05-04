@@ -23,6 +23,8 @@ class GroqAudioTranscriptionEndpoint(Endpoint):
             )
     """
 
+    transport_arg_keys = ("file", "filename")
+
     def __init__(self, config=None, **kwargs):
         if config is None:
             from lionagi.config import settings

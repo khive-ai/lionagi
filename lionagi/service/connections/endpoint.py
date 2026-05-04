@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import json
 import logging
 from typing import ClassVar
 
 from pydantic import BaseModel
 
 from lionagi.service.resilience import CircuitBreaker, RetryConfig, retry_with_backoff
+from lionagi.service.types.stream_chunk import StreamChunk
 
 from .endpoint_config import EndpointConfig
 from .header_factory import HeaderFactory
@@ -20,6 +22,7 @@ __all__ = ("Endpoint",)
 
 class Endpoint:
     is_cli: ClassVar[bool] = False
+    transport_arg_keys: ClassVar[tuple[str, ...]] = ()
 
     def __init__(
         self,
@@ -372,7 +375,106 @@ class Endpoint:
 
                 async for line in response.content:
                     if line:
-                        yield line.decode("utf-8")
+                        text = line.decode("utf-8").strip()
+                        if not text:
+                            continue
+                        yield self._line_to_stream_chunk(text)
+
+    def _line_to_stream_chunk(self, line: str) -> StreamChunk:
+        """Convert a generic HTTP stream line into the StreamChunk contract."""
+        data = line
+        if line.startswith("data:"):
+            data = line.removeprefix("data:").strip()
+
+        if data == "[DONE]":
+            return StreamChunk(type="result", metadata={"done": True})
+
+        try:
+            event = json.loads(data)
+        except json.JSONDecodeError:
+            return StreamChunk(
+                type="text",
+                content=data,
+                is_delta=True,
+                metadata={"raw": line},
+            )
+
+        if not isinstance(event, dict):
+            return StreamChunk(
+                type="text",
+                content=str(event),
+                is_delta=True,
+                metadata={"raw": event},
+            )
+
+        chunk = self._event_to_stream_chunk(event)
+        if chunk is not None:
+            return chunk
+        return StreamChunk(type="system", metadata={"raw": event})
+
+    def _event_to_stream_chunk(self, event: dict) -> StreamChunk | None:
+        """Best-effort conversion for OpenAI-compatible and SSE JSON events."""
+        typ = event.get("type")
+        if typ in {"error", "response.error"}:
+            err = event.get("error", event)
+            return StreamChunk(
+                type="error",
+                content=str(err),
+                is_error=True,
+                metadata={"raw": event},
+            )
+
+        if typ in {"response.output_text.delta", "response.refusal.delta"}:
+            return StreamChunk(
+                type="text",
+                content=event.get("delta", ""),
+                is_delta=True,
+                metadata={"raw": event},
+            )
+        if typ == "response.completed":
+            return StreamChunk(type="result", metadata={"raw": event})
+
+        if typ == "content_block_delta":
+            delta = event.get("delta", {})
+            if delta.get("type") in {"text_delta", "thinking_delta"}:
+                chunk_type = (
+                    "thinking" if delta.get("type") == "thinking_delta" else "text"
+                )
+                return StreamChunk(
+                    type=chunk_type,
+                    content=delta.get("text") or delta.get("thinking", ""),
+                    is_delta=True,
+                    metadata={"raw": event},
+                )
+
+        choices = event.get("choices")
+        if isinstance(choices, list) and choices:
+            choice = choices[0] or {}
+            delta = choice.get("delta") or choice.get("message") or {}
+            if isinstance(delta, dict):
+                content = delta.get("content")
+                if content:
+                    return StreamChunk(
+                        type="text",
+                        content=content,
+                        is_delta=True,
+                        metadata={"raw": event},
+                    )
+                tool_calls = delta.get("tool_calls")
+                if isinstance(tool_calls, list) and tool_calls:
+                    call = tool_calls[0] or {}
+                    function = call.get("function") or {}
+                    return StreamChunk(
+                        type="tool_use",
+                        tool_name=function.get("name"),
+                        tool_id=call.get("id"),
+                        tool_input={"arguments": function.get("arguments")},
+                        is_delta=True,
+                        metadata={"raw": event},
+                    )
+            return StreamChunk(type="system", metadata={"raw": event})
+
+        return None
 
     def to_dict(self):
         return {

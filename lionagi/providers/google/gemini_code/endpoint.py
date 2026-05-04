@@ -12,9 +12,9 @@ from lionagi.providers.google.gemini_code.models import (
     GeminiChunk,
     GeminiCodeRequest,
     GeminiSession,
+    stream_gemini_cli,
 )
 from lionagi.providers.google.gemini_code.models import log as gemini_log
-from lionagi.providers.google.gemini_code.models import stream_gemini_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
@@ -50,17 +50,26 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 @GeminiCodeConfigs.CLI.register
 class GeminiCLIEndpoint(AgenticEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
+        handlers = kwargs.pop("gemini_handlers", None)
         super().__init__(config=config, **kwargs)
+        config_handlers = self.config.kwargs.pop("gemini_handlers", None)
+        self._gemini_handlers = {k: None for k in _GEMINI_HANDLER_PARAMS}
+        if config_handlers is not None:
+            _validate_handlers(config_handlers)
+            self._gemini_handlers.update(config_handlers)
+        if handlers is not None:
+            _validate_handlers(handlers)
+            self._gemini_handlers.update(handlers)
 
     @property
     def gemini_handlers(self):
-        handlers = {k: None for k in _GEMINI_HANDLER_PARAMS}
-        return self.config.kwargs.get("gemini_handlers", handlers)
+        return self._gemini_handlers
 
     @gemini_handlers.setter
     def gemini_handlers(self, value: dict):
         _validate_handlers(value)
-        self.config.kwargs["gemini_handlers"] = value
+        self._gemini_handlers = {k: None for k in _GEMINI_HANDLER_PARAMS}
+        self._gemini_handlers.update(value)
 
     def update_handlers(self, **kwargs):
         _validate_handlers(kwargs)
@@ -69,7 +78,7 @@ class GeminiCLIEndpoint(AgenticEndpoint):
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages")
+        messages = req_dict.pop("messages", [])
         req_obj = GeminiCodeRequest(messages=messages, **req_dict)
         return {"request": req_obj}, {}
 

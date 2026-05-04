@@ -12,9 +12,9 @@ from lionagi.providers.anthropic.claude_code.models import (
     ClaudeChunk,
     ClaudeCodeRequest,
     ClaudeSession,
+    stream_claude_code_cli,
 )
 from lionagi.providers.anthropic.claude_code.models import log as cc_log
-from lionagi.providers.anthropic.claude_code.models import stream_claude_code_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
@@ -56,17 +56,26 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 @ClaudeCodeConfigs.CLI.register
 class ClaudeCodeCLIEndpoint(AgenticEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
+        handlers = kwargs.pop("claude_handlers", None)
         super().__init__(config=config, **kwargs)
+        config_handlers = self.config.kwargs.pop("claude_handlers", None)
+        self._claude_handlers = {k: None for k in _CLAUDE_HANDLER_PARAMS}
+        if config_handlers is not None:
+            _validate_handlers(config_handlers)
+            self._claude_handlers.update(config_handlers)
+        if handlers is not None:
+            _validate_handlers(handlers)
+            self._claude_handlers.update(handlers)
 
     @property
     def claude_handlers(self):
-        handlers = {k: None for k in _CLAUDE_HANDLER_PARAMS}
-        return self.config.kwargs.get("claude_handlers", handlers)
+        return self._claude_handlers
 
     @claude_handlers.setter
     def claude_handlers(self, value: dict):
         _validate_handlers(value)
-        self.config.kwargs["claude_handlers"] = value
+        self._claude_handlers = {k: None for k in _CLAUDE_HANDLER_PARAMS}
+        self._claude_handlers.update(value)
 
     def update_handlers(self, **kwargs):
         _validate_handlers(kwargs)
@@ -75,7 +84,7 @@ class ClaudeCodeCLIEndpoint(AgenticEndpoint):
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages")
+        messages = req_dict.pop("messages", [])
         req_dict = {
             k: v for k, v in req_dict.items() if k in ClaudeCodeRequest.model_fields
         }

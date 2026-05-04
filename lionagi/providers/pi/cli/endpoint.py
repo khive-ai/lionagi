@@ -14,9 +14,8 @@ from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from .._config import PiConfigs
-from .models import PiChunk, PiCodeRequest, PiSession
+from .models import PiChunk, PiCodeRequest, PiSession, stream_pi_cli
 from .models import log as pi_log
-from .models import stream_pi_cli
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "pi": 128_000,
@@ -43,17 +42,26 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 @PiConfigs.CLI.register
 class PiCLIEndpoint(AgenticEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
+        handlers = kwargs.pop("pi_handlers", None)
         super().__init__(config=config, **kwargs)
+        config_handlers = self.config.kwargs.pop("pi_handlers", None)
+        self._pi_handlers = {k: None for k in _PI_HANDLER_PARAMS}
+        if config_handlers is not None:
+            _validate_handlers(config_handlers)
+            self._pi_handlers.update(config_handlers)
+        if handlers is not None:
+            _validate_handlers(handlers)
+            self._pi_handlers.update(handlers)
 
     @property
     def pi_handlers(self):
-        handlers = {k: None for k in _PI_HANDLER_PARAMS}
-        return self.config.kwargs.get("pi_handlers", handlers)
+        return self._pi_handlers
 
     @pi_handlers.setter
     def pi_handlers(self, value: dict):
         _validate_handlers(value)
-        self.config.kwargs["pi_handlers"] = value
+        self._pi_handlers = {k: None for k in _PI_HANDLER_PARAMS}
+        self._pi_handlers.update(value)
 
     def update_handlers(self, **kwargs):
         _validate_handlers(kwargs)
@@ -62,7 +70,7 @@ class PiCLIEndpoint(AgenticEndpoint):
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages")
+        messages = req_dict.pop("messages", [])
         req_dict = {
             k: v for k, v in req_dict.items() if k in PiCodeRequest.model_fields
         }

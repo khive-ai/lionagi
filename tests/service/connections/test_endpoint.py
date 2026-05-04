@@ -9,6 +9,7 @@ import pytest
 
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
+from lionagi.service.types.stream_chunk import StreamChunk
 
 
 class TestEndpoint:
@@ -143,7 +144,7 @@ class TestEndpoint:
         ):
             # Simulate multiple concurrent requests
             tasks = []
-            for i in range(3):
+            for _ in range(3):
                 task = asyncio.create_task(endpoint._create_http_session())
                 tasks.append(task)
 
@@ -531,11 +532,11 @@ class TestEndpoint:
             async for chunk in endpoint.stream(request):
                 chunks.append(chunk)
 
-            # Should get 3 non-empty lines (empty line filtered by if line:)
+            # Should get 3 non-empty lines converted to StreamChunk objects.
             assert len(chunks) == 3
-            assert chunks[0] == "line1\n"
-            assert chunks[1] == "line2\n"
-            assert chunks[2] == "line3\n"
+            assert all(isinstance(chunk, StreamChunk) for chunk in chunks)
+            assert [chunk.type for chunk in chunks] == ["text", "text", "text"]
+            assert [chunk.content for chunk in chunks] == ["line1", "line2", "line3"]
 
     @pytest.mark.asyncio
     async def test_stream_with_extra_headers(self, openai_config):

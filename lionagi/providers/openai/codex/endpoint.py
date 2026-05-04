@@ -12,9 +12,9 @@ from lionagi.providers.openai.codex.models import (
     CodexChunk,
     CodexCodeRequest,
     CodexSession,
+    stream_codex_cli,
 )
 from lionagi.providers.openai.codex.models import log as codex_log
-from lionagi.providers.openai.codex.models import stream_codex_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
@@ -50,17 +50,26 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 @CodexConfigs.CLI.register
 class CodexCLIEndpoint(AgenticEndpoint):
     def __init__(self, config: EndpointConfig = None, **kwargs):
+        handlers = kwargs.pop("codex_handlers", None)
         super().__init__(config=config, **kwargs)
+        config_handlers = self.config.kwargs.pop("codex_handlers", None)
+        self._codex_handlers = {k: None for k in _CODEX_HANDLER_PARAMS}
+        if config_handlers is not None:
+            _validate_handlers(config_handlers)
+            self._codex_handlers.update(config_handlers)
+        if handlers is not None:
+            _validate_handlers(handlers)
+            self._codex_handlers.update(handlers)
 
     @property
     def codex_handlers(self):
-        handlers = {k: None for k in _CODEX_HANDLER_PARAMS}
-        return self.config.kwargs.get("codex_handlers", handlers)
+        return self._codex_handlers
 
     @codex_handlers.setter
     def codex_handlers(self, value: dict):
         _validate_handlers(value)
-        self.config.kwargs["codex_handlers"] = value
+        self._codex_handlers = {k: None for k in _CODEX_HANDLER_PARAMS}
+        self._codex_handlers.update(value)
 
     def update_handlers(self, **kwargs):
         _validate_handlers(kwargs)
@@ -69,7 +78,7 @@ class CodexCLIEndpoint(AgenticEndpoint):
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages")
+        messages = req_dict.pop("messages", [])
         req_dict = {
             k: v for k, v in req_dict.items() if k in CodexCodeRequest.model_fields
         }

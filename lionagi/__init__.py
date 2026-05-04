@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from .models.field_model import FieldModel
     from .models.operable_model import OperableModel
     from .operations.builder import OperationGraphBuilder as Builder
+    from .operations.builder import ResultCondition
     from .operations.node import Operation
     from .protocols.action.manager import load_mcp_tools
     from .protocols.types import Edge, Element, Event, Graph, Node, Pile, Progression
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from .service.imodel import iModel
     from .session.branch import Branch
     from .session.session import Session
+    from .work import Form, Report, WorkConfig, Worker, WorkerEngine, WorkLink
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -34,7 +36,14 @@ _LAZY_MAP: dict[str, tuple[str, str | None]] = {
     "Branch": ("session.branch", "Branch"),
     "iModel": ("service.imodel", "iModel"),
     "Builder": ("operations.builder", "OperationGraphBuilder"),
+    "ResultCondition": ("operations.builder", "ResultCondition"),
     "Operation": ("operations.node", "Operation"),
+    "Form": ("work.form", "Form"),
+    "Report": ("work.report", "Report"),
+    "WorkConfig": ("work.worker", "WorkConfig"),
+    "WorkLink": ("work.worker", "WorkLink"),
+    "Worker": ("work.worker", "Worker"),
+    "WorkerEngine": ("work.engine", "WorkerEngine"),
     "load_mcp_tools": ("protocols.action.manager", "load_mcp_tools"),
     "FieldModel": ("models.field_model", "FieldModel"),
     "OperableModel": ("models.operable_model", "OperableModel"),
@@ -83,6 +92,7 @@ __all__ = (
     "Event",
     "Field",
     "FieldModel",
+    "Form",
     "Graph",
     "HookRegistry",
     "HookedEvent",
@@ -93,10 +103,16 @@ __all__ = (
     "Params",
     "Pile",
     "Progression",
+    "Report",
+    "ResultCondition",
     "Session",
     "Spec",
     "Undefined",
     "Unset",
+    "WorkConfig",
+    "WorkLink",
+    "Worker",
+    "WorkerEngine",
     "alcall",
     "iModel",
     "json_dumps",

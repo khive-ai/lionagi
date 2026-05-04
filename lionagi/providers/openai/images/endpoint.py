@@ -11,13 +11,10 @@ from __future__ import annotations
 
 import io
 
-from pydantic import BaseModel
-
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
 from .._config import OpenAIConfigs
-from .models import ImageEditRequest, ImageGenerationRequest
 
 __all__ = ("OpenaiImageGenerationEndpoint", "OpenaiImageEditEndpoint")
 
@@ -62,6 +59,8 @@ class OpenaiImageEditEndpoint(Endpoint):
                 image_filename="image.png",
             )
     """
+
+    transport_arg_keys = ("image", "image_filename", "mask", "mask_filename")
 
     def __init__(self, config: EndpointConfig = None, **kwargs):
         if config is None:
