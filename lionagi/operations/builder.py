@@ -389,6 +389,81 @@ class OperationGraphBuilder:
 
         return node.id
 
+    def add_form(
+        self,
+        form: Any,
+        *,
+        operation: str = "operate",
+        depends_on: Sequence[Any] | Any | None = None,
+        inherit_context: bool = False,
+        branch=None,
+        metadata: dict[str, Any] | None = None,
+        parameters: Mapping[str, Any] | None = None,
+        **operation_params,
+    ) -> UUID:
+        """Add a work Form as an operation node.
+
+        Forms are I/O contracts, not execution units. This helper stores the
+        contract on operation metadata and parameters so ``Session.flow()`` can
+        inject named form inputs from initial context and predecessor results.
+        """
+        input_fields = list(getattr(form, "input_fields", []) or [])
+        output_fields = list(getattr(form, "output_fields", []) or [])
+        form_inputs = {}
+        if hasattr(form, "get_inputs"):
+            form_inputs = form.get_inputs()
+
+        form_metadata = {
+            "form": True,
+            "form_id": str(form.id),
+            "form_assignment": getattr(form, "assignment", ""),
+            "form_branch": getattr(form, "branch", None),
+            "form_resource": getattr(form, "resource", None),
+            "form_input_fields": input_fields,
+            "form_output_fields": output_fields,
+            **(metadata or {}),
+        }
+        form_parameters = {
+            "form_id": str(form.id),
+            "form_assignment": getattr(form, "assignment", ""),
+            "form_inputs": form_inputs,
+            "form_input_fields": input_fields,
+            "form_output_fields": output_fields,
+            "form_resource": getattr(form, "resource", None),
+            **(parameters or {}),
+        }
+        form_parameters.update(operation_params)
+
+        return self.add_operation(
+            operation,
+            depends_on=depends_on,
+            inherit_context=inherit_context,
+            branch=branch,
+            metadata=form_metadata,
+            parameters=form_parameters,
+        )
+
+    def add_report(
+        self,
+        report: Any,
+        *,
+        operation: str = "operate",
+        branches: Mapping[str, Any] | None = None,
+        parameter_factory=None,
+    ) -> dict[str, UUID]:
+        """Compile a work Report into this builder.
+
+        Returns:
+            Mapping of report form ID strings to operation node IDs.
+        """
+        report.to_builder(
+            operation=operation,
+            builder=self,
+            branches=branches,
+            parameter_factory=parameter_factory,
+        )
+        return report.node_by_form_id
+
     def mark_executed(self, node_ids: Sequence[Any]):
         """Mark nodes as completed for subsequent resume-style flow runs.
 

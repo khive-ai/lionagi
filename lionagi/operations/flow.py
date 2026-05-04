@@ -198,6 +198,7 @@ class DependencyAwareExecutor:
 
                 # Store in our operation branches map
                 self.operation_branches[operation.id] = branch_clone
+                branch_clone._operation_manager = self.session._operation_manager
 
                 # Add to session branches collection directly
                 # Check if this is a real branch (not a mock)
@@ -505,6 +506,9 @@ class DependencyAwareExecutor:
                 operation
             )
 
+        if operation.metadata.get("form"):
+            self._prepare_form_inputs(operation, predecessors)
+
         # Add execution context from the flow-level Note workspace
         if self.context:
             if "context" not in operation.parameters:
@@ -623,6 +627,45 @@ class DependencyAwareExecutor:
                 }
             )
         return inputs
+
+    def _prepare_form_inputs(
+        self,
+        operation: Operation,
+        predecessors: list[Operation],
+    ) -> None:
+        """Inject named form inputs from flow context and predecessor outputs."""
+        input_fields = operation.metadata.get("form_input_fields") or (
+            operation.parameters.get("form_input_fields", [])
+        )
+        values = dict(operation.parameters.get("form_inputs") or {})
+
+        for field in input_fields:
+            if field in self.context.content:
+                values.setdefault(field, self.context.content[field])
+
+        for pred in predecessors:
+            if pred.id in self.skipped_operations:
+                continue
+            result = self.results.get(pred.id)
+            if result is None:
+                continue
+            if not isinstance(result, (str, int, float, bool)):
+                result = to_dict(result, recursive=True)
+            if not isinstance(result, dict):
+                continue
+
+            output_fields = pred.metadata.get("form_output_fields") or (
+                pred.parameters.get("form_output_fields", [])
+                if isinstance(pred.parameters, dict)
+                else []
+            )
+            for field in input_fields:
+                if field in result and (not output_fields or field in output_fields):
+                    values[field] = result[field]
+
+        operation.parameters["form_inputs"] = values
+        for field, value in values.items():
+            operation.parameters.setdefault(field, value)
 
     def _validate_edge_conditions(self):
         """Validate that all edge conditions are properly configured."""
