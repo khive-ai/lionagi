@@ -10,7 +10,7 @@ from models.py, converts AG2 events to StreamChunk.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from copy import deepcopy
 from typing import Any
 
@@ -25,6 +25,18 @@ from .._config import AG2Configs
 logger = logging.getLogger(__name__)
 
 
+def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
+    from .models import AG2_HANDLER_PARAMS
+
+    if not isinstance(handlers, dict):
+        raise ValueError("Handlers must be a dictionary")
+    for k, v in handlers.items():
+        if k not in AG2_HANDLER_PARAMS:
+            raise ValueError(f"Invalid handler key: {k}")
+        if not (v is None or callable(v)):
+            raise ValueError(f"Handler value must be callable or None, got {type(v)}")
+
+
 @AG2Configs.GROUP_CHAT.register
 class AG2GroupChatEndpoint(AgenticEndpoint):
     """Wraps AG2 v0.12 GroupChat as a lionagi endpoint.
@@ -36,19 +48,44 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
     DEFAULT_CONCURRENCY_LIMIT = 1
     DEFAULT_QUEUE_CAPACITY = 3
 
+    from .models import AG2_HANDLER_PARAMS
+
+    transport_arg_keys = AG2_HANDLER_PARAMS + (
+        "agent_configs",
+        "llm_config",
+        "tool_registry",
+        "code_executor",
+    )
+
     # Keys consumed by this endpoint — must not leak into EndpointConfig.kwargs
     _AG2_KEYS = frozenset(
-        {"agent_configs", "llm_config", "tool_registry", "code_executor"}
+        {
+            "agent_configs",
+            "llm_config",
+            "tool_registry",
+            "code_executor",
+            "ag2_handlers",
+        }
     )
 
     def __init__(self, config: EndpointConfig | None = None, **kwargs):
         # Pop AG2-specific kwargs before they reach EndpointConfig
         ag2_kw = {k: kwargs.pop(k) for k in list(kwargs) if k in self._AG2_KEYS}
         super().__init__(config=config, **kwargs)
+        config_ag2_kw = {
+            k: self.config.kwargs.pop(k)
+            for k in list(self.config.kwargs)
+            if k in self._AG2_KEYS
+        }
+        ag2_kw = {**config_ag2_kw, **ag2_kw}
         self._agent_configs: list[dict[str, Any]] = ag2_kw.get("agent_configs", [])
-        self._llm_config: dict[str, Any] = ag2_kw.get("llm_config", {})
+        self._llm_config: Any = ag2_kw.get("llm_config", False)
         self._tool_registry: dict[str, Any] = ag2_kw.get("tool_registry", {})
         self._code_executor: Any = ag2_kw.get("code_executor")
+        self._ag2_handlers = {k: None for k in self.AG2_HANDLER_PARAMS}
+        if handlers := ag2_kw.get("ag2_handlers"):
+            _validate_handlers(handlers)
+            self._ag2_handlers.update(handlers)
 
     def copy_runtime_state_to(self, other):
         if isinstance(other, AG2GroupChatEndpoint):
@@ -56,6 +93,39 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
             other._llm_config = _copy_runtime_value(self._llm_config)
             other._tool_registry = _copy_runtime_value(self._tool_registry)
             other._code_executor = self._code_executor
+            other.ag2_handlers = self.ag2_handlers.copy()
+
+    @property
+    def ag2_handlers(self):
+        return self._ag2_handlers
+
+    @ag2_handlers.setter
+    def ag2_handlers(self, value: dict):
+        _validate_handlers(value)
+        self._ag2_handlers = {k: None for k in self.AG2_HANDLER_PARAMS}
+        self._ag2_handlers.update(value)
+
+    def update_handlers(self, **kwargs):
+        _validate_handlers(kwargs)
+        handlers = {**self.ag2_handlers, **kwargs}
+        self.ag2_handlers = handlers
+
+    def _runtime_handlers(self, kwargs: dict) -> dict:
+        handlers = self.ag2_handlers.copy()
+        call_handlers = {
+            k: kwargs.pop(k) for k in list(kwargs) if k in self.AG2_HANDLER_PARAMS
+        }
+        if call_handlers:
+            _validate_handlers(call_handlers)
+            handlers.update(call_handlers)
+        return {k: v for k, v in handlers.items() if v is not None}
+
+    def _runtime_config(self, kwargs: dict) -> dict:
+        return {
+            k: kwargs.pop(k)
+            for k in list(kwargs)
+            if k in {"agent_configs", "llm_config", "tool_registry", "code_executor"}
+        }
 
     async def _call(self, payload, headers, **kwargs):
         """Collect all stream events and return a structured transcript dict.
@@ -135,64 +205,45 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
         from .models import AG2GroupChatRequest
 
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages", [])
-        prompt = req_dict.pop("prompt", "")
-        max_round = req_dict.pop("max_round", 15)
-        ctx = req_dict.pop("context_variables", {})
-        return {
-            "request": AG2GroupChatRequest(
-                messages=messages,
-                prompt=prompt,
-                max_round=max_round,
-                context_variables=ctx,
-            )
-        }, {}
+        req_obj = AG2GroupChatRequest.model_validate(req_dict)
+        return {"request": req_obj}, {}
 
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
-        from .models import GroupChatSpec, build_group_chat, stream_group_chat
+        from .models import AG2GroupChatRequest, build_group_chat, stream_group_chat
+
+        handlers = self._runtime_handlers(kwargs)
+        runtime = self._runtime_config(kwargs)
 
         if isinstance(request, dict) and "request" in request:
             request_obj = request["request"]
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
+        if isinstance(request_obj, dict):
+            request_obj = AG2GroupChatRequest.model_validate(request_obj)
 
-        prompt = request_obj.prompt or (
-            request_obj.messages[-1]["content"] if request_obj.messages else ""
-        )
-        if not prompt:
+        run_messages = request_obj.run_messages()
+        if not request_obj.prompt and not request_obj.messages:
             raise ValueError(
                 "AG2GroupChatEndpoint requires a non-empty prompt or at least one message."
             )
 
-        agent_configs = kwargs.get("agent_configs", self._agent_configs)
-        llm_config = kwargs.get("llm_config", self._llm_config)
-        tool_registry = kwargs.get("tool_registry", self._tool_registry)
-        code_executor = kwargs.get("code_executor", self._code_executor)
-
-        spec = GroupChatSpec(
-            name="endpoint_chat",
-            objective=prompt,
-            agents=[
-                {
-                    "name": c["name"],
-                    "role": c.get("role", ""),
-                    "system_message": c.get("system_message", ""),
-                    "tools": c.get("tools", []),
-                    "handoffs": [
-                        {"target": h["target"], "condition": h["condition"]}
-                        for h in c.get("handoff_conditions", c.get("handoffs", []))
-                    ],
-                    "nlip_url": c.get("nlip_url"),
-                    "state_template": c.get("state_template"),
-                }
-                for c in agent_configs
-            ],
-            context=request_obj.context_variables,
-            max_round=request_obj.max_round,
+        agent_configs = runtime.get("agent_configs", self._agent_configs)
+        llm_config = (
+            runtime["llm_config"]
+            if "llm_config" in runtime
+            else (
+                request_obj.llm_config
+                if request_obj.llm_config is not None
+                else self._llm_config
+            )
         )
+        tool_registry = runtime.get("tool_registry", self._tool_registry)
+        code_executor = runtime.get("code_executor", self._code_executor)
+
+        spec = request_obj.to_group_chat_spec(agent_configs=agent_configs)
 
         user, pattern, agents_by_name = build_group_chat(
             spec, llm_config, tool_registry, code_executor
@@ -203,16 +254,22 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
             metadata={
                 "provider": "ag2",
                 "api": "v0.12",
-                "pattern": "DefaultPattern",
-                "agent_count": len(agent_configs),
+                "pattern": spec.pattern,
+                "agent_count": len(spec.agents),
                 "max_round": request_obj.max_round,
+                "user_agent": getattr(user, "name", None),
             },
         )
 
         async for event in stream_group_chat(
             pattern=pattern,
-            prompt=prompt,
+            prompt=run_messages,
             max_rounds=request_obj.max_round,
+            safeguard_policy=request_obj.safeguard_policy,
+            safeguard_llm_config=request_obj.safeguard_llm_config,
+            mask_llm_config=request_obj.mask_llm_config,
+            yield_on=request_obj.yield_on,
+            **handlers,
         ):
             chunk = _event_to_chunk(event)
             if chunk:
@@ -235,8 +292,11 @@ def _event_to_chunk(event) -> StreamChunk | None:
     All attribute access for payload data must go through event.content.
     """
     from autogen.events.agent_events import (
+        ErrorEvent,
         GroupChatRunChatEvent,
+        RunCompletionEvent,
         SelectSpeakerEvent,
+        TerminationEvent,
         TextEvent,
         ToolCallEvent,
         ToolResponseEvent,
@@ -305,6 +365,34 @@ def _event_to_chunk(event) -> StreamChunk | None:
             type="tool_result",
             tool_output=tool_output,
             metadata={"agent": sender, "tool_call_id": tool_id},
+        )
+    if isinstance(event, RunCompletionEvent):
+        summary = getattr(inner, "summary", None) if inner is not None else None
+        last_speaker = (
+            getattr(inner, "last_speaker", None) if inner is not None else None
+        )
+        return StreamChunk(
+            type="result",
+            content=summary or "GroupChat complete",
+            metadata={
+                "event": "run_completion",
+                "last_speaker": last_speaker,
+                "cost": getattr(inner, "cost", None) if inner is not None else None,
+            },
+        )
+    if isinstance(event, TerminationEvent):
+        return StreamChunk(
+            type="system",
+            content=getattr(inner, "reason", None) if inner is not None else None,
+            metadata={"event": "termination"},
+        )
+    if isinstance(event, ErrorEvent):
+        error = getattr(inner, "error", None) if inner is not None else None
+        return StreamChunk(
+            type="result",
+            content=str(error) if error is not None else "AG2 GroupChat error",
+            metadata={"event": "error"},
+            is_error=True,
         )
     return None
 

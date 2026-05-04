@@ -12,9 +12,9 @@ from lionagi.providers.openai.codex.models import (
     CodexChunk,
     CodexCodeRequest,
     CodexSession,
-    stream_codex_cli,
 )
 from lionagi.providers.openai.codex.models import log as codex_log
+from lionagi.providers.openai.codex.models import stream_codex_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk

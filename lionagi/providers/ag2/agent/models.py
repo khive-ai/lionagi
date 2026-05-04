@@ -8,7 +8,7 @@ import logging
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,27 @@ class AG2AgentRequest(BaseModel):
     messages: list[dict[str, Any]] = Field(default_factory=list)
     prompt: str = ""
     agent_config: AgentConfig | None = None
+
+    @model_validator(mode="after")
+    def _derive_prompt(self):
+        if not self.prompt and self.messages:
+            content = self.messages[-1].get("content", "")
+            self.prompt = _content_to_text(content)
+        return self
+
+
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [_content_to_text(i) for i in content]
+        return "\n".join(i for i in parts if i)
+    if isinstance(content, dict):
+        if "text" in content:
+            return _content_to_text(content["text"])
+        if "content" in content:
+            return _content_to_text(content["content"])
+    return str(content) if content is not None else ""
 
 
 def _build_observers(names: list[str]) -> list:
@@ -125,12 +146,7 @@ async def run_beta_agent(
     final response with optional typed result from response_schema.
     """
     from autogen.beta.agent import Agent, KnowledgeConfig, TaskConfig
-    from autogen.beta.events import ModelResponse
-    from autogen.beta.events.tool_events import (
-        ToolCallEvent,
-        ToolCallsEvent,
-        ToolResultEvent,
-    )
+    from autogen.beta.events.tool_events import ToolCallsEvent, ToolResultEvent
     from autogen.beta.knowledge.memory import MemoryKnowledgeStore
     from autogen.beta.stream import MemoryStream
     from autogen.beta.tools.final import tool as ag2_tool
@@ -190,8 +206,6 @@ async def run_beta_agent(
     async def _on_tool_result(event: ToolResultEvent) -> None:
         content = ""
         if event.result and event.result.parts:
-            from autogen.beta.events.input_events import TextInput
-
             content = " ".join(
                 getattr(p, "content", str(p)) for p in event.result.parts
             )

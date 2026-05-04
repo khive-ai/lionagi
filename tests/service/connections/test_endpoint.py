@@ -547,7 +547,7 @@ class TestEndpoint:
 
         async def mock_content_iter():
             yield b"event: response.output_text.delta\n"
-            yield b'id: evt_1\n'
+            yield b"id: evt_1\n"
             yield b'data: {"type":"response.output_text.delta","delta":"hi"}\n\n'
             yield b": keepalive\n\n"
             yield b"data: [DONE]\n\n"

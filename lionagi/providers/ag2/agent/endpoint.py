@@ -36,6 +36,8 @@ class AG2BetaEndpoint(AgenticEndpoint):
     DEFAULT_CONCURRENCY_LIMIT = 1
     DEFAULT_QUEUE_CAPACITY = 3
 
+    transport_arg_keys = ("agent_config", "llm_config", "tool_registry")
+
     # Keys consumed by this endpoint — must not leak into EndpointConfig.kwargs
     _AG2_KEYS = frozenset({"agent_config", "llm_config", "tool_registry"})
 
@@ -43,6 +45,12 @@ class AG2BetaEndpoint(AgenticEndpoint):
         # Pop AG2-specific kwargs before they reach EndpointConfig
         ag2_kw = {k: kwargs.pop(k) for k in list(kwargs) if k in self._AG2_KEYS}
         super().__init__(config=config, **kwargs)
+        config_ag2_kw = {
+            k: self.config.kwargs.pop(k)
+            for k in list(self.config.kwargs)
+            if k in self._AG2_KEYS
+        }
+        ag2_kw = {**config_ag2_kw, **ag2_kw}
         self._agent_config: dict[str, Any] = ag2_kw.get("agent_config", {})
         self._llm_config: Any = ag2_kw.get("llm_config", None)
         self._tool_registry: dict[str, Any] = ag2_kw.get("tool_registry", {})
@@ -127,27 +135,23 @@ class AG2BetaEndpoint(AgenticEndpoint):
         from .models import AG2AgentRequest
 
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages", [])
-        prompt = req_dict.pop("prompt", "")
-        agent_config = req_dict.pop("agent_config", None)
-        return {
-            "request": AG2AgentRequest(
-                messages=messages,
-                prompt=prompt,
-                agent_config=agent_config,
-            )
-        }, {}
+        req_dict = {
+            k: v for k, v in req_dict.items() if k in AG2AgentRequest.model_fields
+        }
+        return {"request": AG2AgentRequest.model_validate(req_dict)}, {}
 
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
-        from .models import AgentConfig, run_beta_agent
+        from .models import AG2AgentRequest, AgentConfig, run_beta_agent
 
         if isinstance(request, dict) and "request" in request:
             request_obj = request["request"]
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
+        if isinstance(request_obj, dict):
+            request_obj = AG2AgentRequest.model_validate(request_obj)
 
         prompt = request_obj.prompt or (
             request_obj.messages[-1]["content"] if request_obj.messages else ""
@@ -238,8 +242,15 @@ def _resolve_model_config(llm_config: Any) -> Any:
     if not isinstance(llm_config, dict):
         return llm_config
 
-    api_type = llm_config.get("api_type", "openai")
-    model = llm_config.get("model", "gpt-4o-mini")
+    api_type = llm_config.get("api_type")
+    model = llm_config.get("model")
+    if not api_type:
+        raise ValueError(
+            "AG2BetaEndpoint llm_config dict requires explicit 'api_type'."
+        )
+    if not model:
+        raise ValueError("AG2BetaEndpoint llm_config dict requires explicit 'model'.")
+
     api_key = llm_config.get("api_key")
     temperature = llm_config.get("temperature")
 
