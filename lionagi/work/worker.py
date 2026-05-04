@@ -136,10 +136,7 @@ class Worker:
                 )
                 if not (
                     hasattr(raw, "_work_config")
-                    or (
-                        hasattr(raw, "_worklink_from")
-                        and hasattr(raw, "_worklink_to")
-                    )
+                    or (hasattr(raw, "_worklink_from") and hasattr(raw, "_worklink_to"))
                 ):
                     continue
 

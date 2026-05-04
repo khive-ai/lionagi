@@ -81,7 +81,9 @@ class Session(Node, Relational):
     ):
         self._operation_manager.register(operation, func, update=update)
 
-    def unregister_operation(self, operation: str, func: Callable | None = None) -> bool:
+    def unregister_operation(
+        self, operation: str, func: Callable | None = None
+    ) -> bool:
         return self._operation_manager.unregister(operation, func=func)
 
     def operation(self, name: str = None, *, update: bool = False):

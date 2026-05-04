@@ -15,9 +15,10 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from pydantic import Field, PrivateAttr
+from pydantic import Field, PrivateAttr, SkipValidation, field_validator
 
 from lionagi.protocols.generic.element import Element
+from lionagi.protocols.generic.pile import Pile
 
 from .form import Form, parse_assignment
 
@@ -29,6 +30,43 @@ if TYPE_CHECKING:
 __all__ = ("Report",)
 
 _MISSING = object()
+
+
+def _coerce_form_item(item: Any) -> Form:
+    if isinstance(item, Form):
+        return item
+    if isinstance(item, dict):
+        return Form.from_dict(item)
+    return item
+
+
+def _forms_pile(value: Any = None) -> Pile[Form]:
+    if value is None:
+        return Pile(item_type={Form}, strict_type=False)
+    if isinstance(value, Pile):
+        return Pile(
+            collections=list(value),
+            item_type={Form},
+            strict_type=False,
+        )
+    if isinstance(value, dict) and "collections" in value:
+        collections = value.get("collections") or []
+        if isinstance(collections, dict):
+            collections = list(collections.values())
+        order = value.get("order", value.get("progression"))
+        return Pile(
+            collections=[_coerce_form_item(item) for item in collections],
+            item_type={Form},
+            order=order,
+            strict_type=False,
+        )
+
+    collections = list(value) if isinstance(value, (list, tuple)) else [value]
+    return Pile(
+        collections=[_coerce_form_item(item) for item in collections],
+        item_type={Form},
+        strict_type=False,
+    )
 
 
 class Report(Element):
@@ -43,7 +81,7 @@ class Report(Element):
     form_assignments: list[str] = Field(default_factory=list)
     input_fields: list[str] = Field(default_factory=list)
     output_fields: list[str] = Field(default_factory=list)
-    forms: list[Form] = Field(default_factory=list)
+    forms: SkipValidation[Pile[Form]] = Field(default_factory=_forms_pile)
     allow_duplicate_outputs: bool = Field(
         default=False,
         description=(
@@ -59,6 +97,11 @@ class Report(Element):
     _producer_cache_fingerprint: tuple | None = PrivateAttr(default=None)
     _topological_cache: list[Form] = PrivateAttr(default_factory=list)
     _topological_cache_fingerprint: tuple | None = PrivateAttr(default=None)
+
+    @field_validator("forms", mode="before")
+    @classmethod
+    def _validate_forms(cls, value: Any) -> Pile[Form]:
+        return _forms_pile(value)
 
     def model_post_init(self, _: Any) -> None:
         if self.assignment and not self.input_fields and not self.output_fields:
@@ -221,8 +264,7 @@ class Report(Element):
             deps.extend(
                 node_by_form[str(dep.id)]
                 for dep in dep_forms
-                if str(dep.id) in node_by_form
-                and node_by_form[str(dep.id)] not in deps
+                if str(dep.id) in node_by_form and node_by_form[str(dep.id)] not in deps
             )
             branch_ref = self._resolve_branch_ref(form, branches)
             params = self._operation_parameters(form)
@@ -422,14 +464,7 @@ class Report(Element):
         return [
             field
             for field in form.input_fields
-            if len(
-                [
-                    producer
-                    for producer in producer_map.get(field, [])
-                    if producer is not form
-                ]
-            )
-            > 1
+            if sum(1 for p in producer_map.get(field, []) if p is not form) > 1
         ]
 
     def _forms_fingerprint(self, *, include_inputs: bool = True) -> tuple:
@@ -474,9 +509,10 @@ class Report(Element):
         return deps
 
     def _previous_same_branch_form(self, form: Form) -> Form | None:
-        idx = self.forms.index(form)
+        forms = list(self.forms)
+        idx = forms.index(form)
         branch = form.branch or "_default"
-        for prior in reversed(self.forms[:idx]):
+        for prior in reversed(forms[:idx]):
             if (prior.branch or "_default") == branch:
                 return prior
         return None

@@ -407,19 +407,13 @@ class OperationGraphBuilder:
         contract on operation metadata and parameters so ``Session.flow()`` can
         inject named form inputs from initial context and predecessor results.
         """
-        input_fields = list(getattr(form, "input_fields", []) or [])
-        output_fields = list(getattr(form, "output_fields", []) or [])
-        collect_input_fields = list(
-            (parameters or {}).get("form_collect_input_fields", [])
-            or operation_params.get("form_collect_input_fields", [])
-        )
-        form_inputs = {}
-        if hasattr(form, "get_inputs"):
-            form_inputs = form.get_inputs()
-
         caller_parameters = dict(parameters or {})
         caller_parameters.update(operation_params)
         provided_form_inputs = caller_parameters.pop("form_inputs", None)
+
+        form_inputs = {}
+        if hasattr(form, "get_inputs"):
+            form_inputs = form.get_inputs()
         if provided_form_inputs is not None:
             if not isinstance(provided_form_inputs, Mapping):
                 raise TypeError("form_inputs must be a mapping when provided")
@@ -428,11 +422,14 @@ class OperationGraphBuilder:
         form_contract = {
             "form_id": str(form.id),
             "form_assignment": getattr(form, "assignment", ""),
-            "form_input_fields": input_fields,
-            "form_output_fields": output_fields,
+            "form_input_fields": list(getattr(form, "input_fields", []) or []),
+            "form_output_fields": list(getattr(form, "output_fields", []) or []),
             "form_resource": getattr(form, "resource", None),
-            "form_collect_input_fields": collect_input_fields,
+            "form_collect_input_fields": [],
         }
+        for key in form_contract:
+            if key in caller_parameters:
+                form_contract[key] = caller_parameters[key]
         form_metadata = {
             **(metadata or {}),
             "form": True,

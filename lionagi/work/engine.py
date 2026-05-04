@@ -192,7 +192,9 @@ class WorkerEngine:
             if hasattr(session, "unregister_operation"):
                 session.unregister_operation(operation_name, func=func)
                 continue
-            registry = getattr(getattr(session, "_operation_manager", None), "registry", {})
+            registry = getattr(
+                getattr(session, "_operation_manager", None), "registry", {}
+            )
             if registry.get(operation_name) is func:
                 registry.pop(operation_name, None)
         self._registered_operation_funcs.clear()
@@ -296,6 +298,11 @@ class WorkerEngine:
             try:
                 return session.get_branch(task.branch_id)
             except Exception:
+                logger.warning(
+                    "Branch %s not found for task %s; allocating a new branch",
+                    task.branch_id,
+                    task.id,
+                )
                 task.branch_id = None
 
         base_branch = branch or session.default_branch

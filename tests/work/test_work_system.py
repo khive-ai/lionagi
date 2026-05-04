@@ -8,6 +8,7 @@ import asyncio
 import pytest
 
 from lionagi.operations.builder import OperationGraphBuilder
+from lionagi.protocols.generic.pile import Pile
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 from lionagi.work import (
@@ -115,6 +116,23 @@ def test_report_rejects_duplicate_output_fields():
         report.validate()
 
 
+def test_report_forms_are_typed_pile_and_accept_form_dicts():
+    first = Form(assignment="topic -> findings")
+    report = Report(
+        assignment="topic -> paper",
+        forms=[first.to_dict()],
+        form_assignments=["findings -> paper"],
+    )
+
+    assert isinstance(report.forms, Pile)
+    assert report.forms.item_type == {Form}
+    assert [form.assignment for form in report.forms] == [
+        "topic -> findings",
+        "findings -> paper",
+    ]
+    assert isinstance(report.forms[0], Form)
+
+
 @pytest.mark.asyncio
 async def test_report_collects_duplicate_outputs_when_allowed():
     session = Session()
@@ -197,7 +215,8 @@ def test_report_compiles_external_builder_form_dependencies():
     form = report.forms[0]
     form_node = builder.get_graph().internal_nodes[report.node_by_form_id[str(form.id)]]
     predecessor_ids = {
-        predecessor.id for predecessor in builder.get_graph().get_predecessors(form_node)
+        predecessor.id
+        for predecessor in builder.get_graph().get_predecessors(form_node)
     }
 
     assert source_node in predecessor_ids
