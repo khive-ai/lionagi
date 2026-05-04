@@ -45,6 +45,41 @@ def test_report_rejects_duplicate_output_fields():
         report.validate()
 
 
+@pytest.mark.asyncio
+async def test_report_collects_duplicate_outputs_when_allowed():
+    session = Session()
+    seen_findings = None
+
+    @session.operation("complete_form")
+    async def complete_form(**kwargs):
+        nonlocal seen_findings
+        assignment = kwargs["form_assignment"]
+        inputs = kwargs.get("form_inputs") or {}
+        if assignment.startswith("researcher_a"):
+            return {"findings": "a"}
+        if assignment.startswith("researcher_b"):
+            return {"findings": "b"}
+
+        seen_findings = inputs["findings"]
+        return {"summary": ",".join(sorted(inputs["findings"]))}
+
+    report = Report(
+        assignment="topic -> summary",
+        allow_duplicate_outputs=True,
+        form_assignments=[
+            "researcher_a: topic -> findings",
+            "researcher_b: topic -> findings",
+            "writer: findings -> summary",
+        ],
+    )
+    report.initialize(topic="LoRA")
+
+    await report.run(session, operation="complete_form", max_concurrent=2)
+
+    assert sorted(seen_findings) == ["a", "b"]
+    assert report.get_deliverable() == {"summary": "a,b"}
+
+
 def test_report_compiles_field_dependencies_to_builder():
     report = Report(
         assignment="topic -> paper",
@@ -70,7 +105,8 @@ def test_report_compiles_field_dependencies_to_builder():
     analyst_node = node_by_form[str(form_by_output["analysis"].id)]
 
     writer_predecessors = {
-        predecessor.id for predecessor in graph.get_predecessors(graph.internal_nodes[writer_node])
+        predecessor.id
+        for predecessor in graph.get_predecessors(graph.internal_nodes[writer_node])
     }
     assert analyst_node in writer_predecessors
 
@@ -87,12 +123,36 @@ def test_report_same_branch_order_inherits_context():
 
     builder = report.to_builder(operation="complete_form")
     node_by_form = report.node_by_form_id
-    article_form = next(form for form in report.forms if "article" in form.output_fields)
+    article_form = next(
+        form for form in report.forms if "article" in form.output_fields
+    )
     article_node = builder.get_graph().internal_nodes[
         node_by_form[str(article_form.id)]
     ]
 
     assert article_node.metadata["inherit_context"] is True
+
+
+@pytest.mark.asyncio
+async def test_form_inputs_do_not_shadow_operation_parameters():
+    session = Session()
+    captured = {}
+
+    @session.operation("capture")
+    async def capture(**kwargs):
+        captured.update(kwargs)
+        return {"result": kwargs["form_inputs"]["instruction"]}
+
+    report = Report(
+        assignment="instruction -> result",
+        form_assignments=["worker: instruction -> result"],
+    )
+    report.initialize(instruction="user instruction")
+
+    await report.run(session, operation="capture")
+
+    assert captured["instruction"] == "worker: instruction -> result"
+    assert captured["form_inputs"] == {"instruction": "user instruction"}
 
 
 @pytest.mark.asyncio
@@ -151,3 +211,31 @@ async def test_worker_engine_executes_waves_via_flow():
     assert task.result == {"done": 7}
     assert [name for name, _ in task.history] == ["start", "finish"]
     assert engine.status_counts() == {"COMPLETED": 1}
+
+
+@pytest.mark.asyncio
+async def test_worker_engine_requires_session_for_branch_operations():
+    class Pipeline(Worker):
+        @work("prompt -> answer", operation="operate")
+        async def ask(self, **kwargs):
+            raise AssertionError("operation-backed work should delegate")
+
+    worker = Pipeline()
+    engine = WorkerEngine(worker)
+    await engine.add_task("ask", prompt="hi")
+
+    with pytest.raises(ValueError, match="requires an explicit Session"):
+        await engine.execute()
+
+
+def test_worker_engine_operation_prefix_is_stable_per_worker():
+    class Pipeline(Worker):
+        @work("seed -> doubled")
+        async def start(self, seed, **kwargs):
+            return {"doubled": seed * 2}
+
+    worker = Pipeline()
+
+    assert (
+        WorkerEngine(worker)._operation_prefix == WorkerEngine(worker)._operation_prefix
+    )

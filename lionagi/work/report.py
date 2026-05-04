@@ -179,8 +179,9 @@ class Report(Element):
         operation: str = "operate",
         builder: OperationGraphBuilder | None = None,
         branches: Mapping[str, Branch | UUID | str] | None = None,
-        parameter_factory: Callable[[Form, dict[str, Any]], dict[str, Any]]
-        | None = None,
+        parameter_factory: (
+            Callable[[Form, dict[str, Any]], dict[str, Any]] | None
+        ) = None,
     ) -> OperationGraphBuilder:
         """Compile this report into an ``OperationGraphBuilder``.
 

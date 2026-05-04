@@ -224,9 +224,7 @@ def work(
                 target_branch = self_ref.branch
                 meth = target_branch.get_operation(config.operation)
                 if meth is None:
-                    raise ValueError(
-                        f"Branch has no operation '{config.operation}'"
-                    )
+                    raise ValueError(f"Branch has no operation '{config.operation}'")
 
                 instruction = kwargs.pop("instruction", None)
                 if instruction is None and len(args) > 1:
