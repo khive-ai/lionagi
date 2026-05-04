@@ -138,14 +138,10 @@ class TestEdgeCasesAndErrors:
     async def test_flow_with_operation_error(self):
         """Test flow handles operation errors gracefully.
 
-        Note: The current implementation marks operations as completed
-        even when they fail, but records the error in the operation result.
+        Failed operations are reported separately from completed operations.
         """
         session = Session()
         branch = make_mock_branch("ErrorBranch")
-
-        # Override the invoke method on the chat_model to raise an error
-        original_invoke = branch.chat_model.invoke
 
         async def failing_invoke(**kwargs):
             raise ValueError("Simulated operation failure")
@@ -161,8 +157,8 @@ class TestEdgeCasesAndErrors:
 
         result = await session.flow(graph, parallel=False, verbose=False)
 
-        # Operation is marked as completed
-        assert op.id in result["completed_operations"]
+        assert op.id not in result["completed_operations"]
+        assert op.id in result["failed_operations"]
         # Error should be recorded in the operation execution
         assert op.execution.error is not None
         assert "Simulated operation failure" in str(op.execution.error)
@@ -215,8 +211,9 @@ class TestEdgeCasesAndErrors:
             graph, context={"initial": "context"}, parallel=False
         )
 
-        # op2 should have inherited context from op1
-        assert op2.parameters.get("context") is not None
+        # Invocation context is prepared per run and does not mutate the graph spec.
+        assert op2.parameters.get("context") is None
+        assert result["final_context"]["initial"] == "context"
 
     @pytest.mark.asyncio
     async def test_flow_context_isolation_between_branches(self):
@@ -446,7 +443,7 @@ class TestSessionFlowIntegration:
         # Build graph using builder
         builder = OperationGraphBuilder("TestWorkflow")
         op1 = builder.add_operation("process_data", branch=branch1)
-        op2 = builder.add_operation("validate_data", branch=branch2, depends_on=[op1])
+        builder.add_operation("validate_data", branch=branch2, depends_on=[op1])
 
         result = await session.flow(builder.get_graph(), parallel=False, verbose=False)
 
@@ -456,8 +453,8 @@ class TestSessionFlowIntegration:
     async def test_session_resilience_to_branch_errors(self):
         """Test session continues operation despite individual branch errors.
 
-        Note: The current implementation marks operations as completed
-        even when they fail, but records the error.
+        Failed operations are reported separately while successful parallel
+        operations still complete.
         """
         session = Session()
 
@@ -493,9 +490,10 @@ class TestSessionFlowIntegration:
 
         result = await session.flow(graph, parallel=True, verbose=False)
 
-        # Both operations complete (success and failure both marked as completed)
+        # Success and failure are reported in separate terminal status lists.
         assert op_working.id in result["completed_operations"]
-        assert op_failing.id in result["completed_operations"]
+        assert op_failing.id not in result["completed_operations"]
+        assert op_failing.id in result["failed_operations"]
 
         # Verify results exist for both
         assert op_working.id in result["operation_results"]
@@ -629,9 +627,10 @@ class TestSessionFlowAsyncEdgeCases:
 
         result = await session.flow(graph, parallel=True, verbose=False)
 
-        # Both operations complete (success and failure)
+        # Success and failure are reported separately.
         assert op_working.id in result["completed_operations"]
-        assert op_failing.id in result["completed_operations"]
+        assert op_failing.id not in result["completed_operations"]
+        assert op_failing.id in result["failed_operations"]
 
         # Working operation should have no error
         assert op_working.execution.error is None
@@ -685,8 +684,8 @@ class TestSessionFlowAsyncEdgeCases:
 
         result = await session.flow(graph, parallel=False, verbose=False)
 
-        # All operations should complete
-        assert len(result["completed_operations"]) == 3
+        assert result["completed_operations"] == [op1.id, op3.id]
+        assert result["failed_operations"] == [op2.id]
         # Verify first and third succeeded
         assert op1.execution.error is None
         assert op3.execution.error is None

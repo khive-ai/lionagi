@@ -12,7 +12,6 @@ These tests ensure that:
 """
 
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -254,6 +253,9 @@ async def test_flow_dynamic_branch_allocation():
     """Test that branches are pre-allocated correctly for all operations."""
     branch_creation_count = 0
 
+    async def mock_operate(**kwargs):
+        return "result"
+
     def counting_clone(sender=None):
         """Count branch clones."""
         nonlocal branch_creation_count
@@ -268,6 +270,15 @@ async def test_flow_dynamic_branch_allocation():
         new_branch._message_manager = MagicMock()
         new_branch._message_manager.pile = MagicMock()
         new_branch._message_manager.pile.clear = MagicMock()
+        new_branch.metadata = {}
+        new_branch.operate = AsyncMock(side_effect=mock_operate)
+
+        def cloned_get_operation(operation: str):
+            if operation == "operate":
+                return new_branch.operate
+            return None
+
+        new_branch.get_operation = MagicMock(side_effect=cloned_get_operation)
         return new_branch
 
     # Create a complex graph
@@ -306,10 +317,14 @@ async def test_flow_dynamic_branch_allocation():
         side_effect=lambda sender=None: counting_clone(sender)
     )
 
-    async def mock_operate(**kwargs):
-        return "result"
-
     default_branch.operate = AsyncMock(side_effect=mock_operate)
+
+    def default_get_operation(operation: str):
+        if operation == "operate":
+            return default_branch.operate
+        return None
+
+    default_branch.get_operation = MagicMock(side_effect=default_get_operation)
 
     session = Session()
     session.default_branch = default_branch
@@ -416,7 +431,7 @@ async def test_flow_aggregation_pattern():
     graph2 = Graph()
     research_nodes = []
 
-    for i, instruct in enumerate(instruct_model):
+    for instruct in instruct_model:
         node = Operation(
             operation="operate",
             parameters=instruct.to_dict(),  # Put instruct fields in parameters

@@ -16,6 +16,8 @@ from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.imodel import iModel
+from lionagi.session.branch import Branch
+from lionagi.session.session import Session
 
 
 def _get_oai_config(
@@ -37,10 +39,6 @@ def _get_oai_config(
         requires_tokens=True,
         kwargs=kwargs or {},
     )
-
-
-from lionagi.session.branch import Branch
-from lionagi.session.session import Session
 
 
 # Test Fixtures
@@ -351,10 +349,11 @@ async def test_flow_context_propagation():
     initial_context = {"global_key": "global_value"}
     result = await flow(session, graph, context=initial_context, parallel=False)
 
-    # Verify context propagation
+    # Verify flow context is preserved and operation specs are restored after
+    # per-invocation context injection.
     assert "global_key" in result["final_context"]
-    # The operation should have received context from predecessor
-    assert op_b.parameters.get("context") is not None
+    assert op_b.id in result["completed_operations"]
+    assert op_b.parameters == {"instruction": "Use previous result"}
 
 
 # Test blocked nodes with unsatisfied conditions
@@ -465,6 +464,8 @@ async def test_flow_operation_error_handling():
 
     branch.chat = AsyncMock(side_effect=failing_chat)
     branch.get_operation = MagicMock(return_value=branch.chat)
+    branch.clone = MagicMock(return_value=branch)
+    branch.metadata = {}
 
     # Execute flow - it should handle the error
     session = Session()
@@ -473,18 +474,15 @@ async def test_flow_operation_error_handling():
 
     result = await flow(session, graph, parallel=False, verbose=False)
 
-    # The failed operation should still be marked as completed
-    assert op_fail.id in result["completed_operations"]
-    # Check that error was recorded in results (in case flow overrides execution status)
+    # Failed operations are reported separately from completed operations.
+    assert op_fail.id not in result["completed_operations"]
+    assert op_fail.id in result["failed_operations"]
+    # Check that error was recorded in results.
     failed_result = result["operation_results"][op_fail.id]
-    if isinstance(failed_result, dict) and "error" in failed_result:
-        assert failed_result["error"] == "Simulated operation failure"
-    # Check that some error indication exists in the operation
-    assert op_fail.execution.error is not None or (
-        isinstance(failed_result, dict) and "error" in failed_result
-    )
-    # In the current implementation, errors don't stop dependent operations
-    # The next operation will still execute (receiving error result as predecessor result)
+    assert failed_result["error"] == "Simulated operation failure"
+    assert op_fail.execution.error is not None
+    # Errors do not stop dependent operations; the next operation receives the
+    # predecessor error result in its invocation context.
     assert op_next.id in result["completed_operations"]
 
 
@@ -569,16 +567,41 @@ async def test_flow_max_concurrent_limit():
 
 
 def test_cleanup_flow_results_filters_results_and_completed_operations():
-    """cleanup_flow_results keeps only requested operation IDs."""
+    """cleanup_flow_results keeps requested IDs across result/status fields."""
     from lionagi.operations.flow import cleanup_flow_results
 
     result = {
-        "operation_results": {"a": 1, "b": 2},
+        "operation_results": {"a": 1, "b": 2, "c": 3, "d": 4},
         "completed_operations": ["a", "b"],
+        "failed_operations": ["c"],
+        "skipped_operations": ["d"],
+        "cancelled_operations": [],
     }
-    out = cleanup_flow_results(result, keep_only=["b"])
-    assert out["operation_results"] == {"b": 2}
+    out = cleanup_flow_results(result, keep_only=["b", "c"])
+    assert out["operation_results"] == {"b": 2, "c": 3}
     assert out["completed_operations"] == ["b"]
+    assert out["failed_operations"] == ["c"]
+    assert out["skipped_operations"] == []
+    assert out["cancelled_operations"] == []
+
+
+def test_cleanup_flow_results_clears_all_terminal_lists():
+    """cleanup_flow_results clears summaries with payloads when no keep list is used."""
+    from lionagi.operations.flow import cleanup_flow_results
+
+    result = {
+        "operation_results": {"a": 1},
+        "completed_operations": ["a"],
+        "failed_operations": ["b"],
+        "skipped_operations": ["c"],
+        "cancelled_operations": ["d"],
+    }
+    out = cleanup_flow_results(result)
+    assert out["operation_results"] == {}
+    assert out["completed_operations"] == []
+    assert out["failed_operations"] == []
+    assert out["skipped_operations"] == []
+    assert out["cancelled_operations"] == []
 
 
 def test_cleanup_flow_results_non_dict_returned_unchanged():
@@ -591,17 +614,12 @@ def test_cleanup_flow_results_non_dict_returned_unchanged():
 
 @pytest.mark.asyncio
 async def test_flow_rejects_non_edge_condition_object_via_public_flow():
-    """flow raises TypeError when an edge has a Condition that is not EdgeCondition."""
+    """flow raises TypeError when an edge condition is not a Condition."""
     from lionagi.operations.flow import flow
     from lionagi.operations.node import Operation
-    from lionagi.protocols._concepts import Condition
     from lionagi.protocols.graph.edge import Edge
     from lionagi.protocols.graph.graph import Graph
     from lionagi.session.session import Session
-
-    class _RawCondition(Condition):
-        async def apply(self, *args, **kwargs):
-            return True
 
     op1 = Operation(operation="chat", parameters={"instruction": "q1"})
     op2 = Operation(operation="chat", parameters={"instruction": "q2"})
@@ -610,7 +628,8 @@ async def test_flow_rejects_non_edge_condition_object_via_public_flow():
     graph.add_node(op1)
     graph.add_node(op2)
 
-    bad_edge = Edge(head=op1.id, tail=op2.id, condition=_RawCondition())
+    bad_edge = Edge(head=op1.id, tail=op2.id)
+    bad_edge.properties["condition"] = object()
     graph.add_edge(bad_edge)
 
     session = Session()

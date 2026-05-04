@@ -14,7 +14,7 @@ These tests ensure complex patterns work correctly:
 import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -100,7 +100,7 @@ async def test_dynamic_fanout_pattern():
         return MockClaudeCode(name=f"{subdir}_{model}")
 
     # Setup orchestrator
-    orc_cc = create_cc(
+    _orc_cc = create_cc(
         subdir="orchestrator",
         model="sonnet",
         verbose_output=True,
@@ -207,10 +207,10 @@ async def test_dynamic_fanout_pattern():
 
     # Phase 2: Add research operations based on results
     research_nodes = []
-    for i, instruct_model in enumerate(instruct_model):
+    for i, instruct in enumerate(instruct_model):
         # Mock researcher branch
         researcher_branch = MagicMock()
-        researcher_branch.id = f"researcher_{i}"
+        researcher_branch.id = str(uuid4())
 
         def make_research(idx):
             async def research(**kwargs):
@@ -223,30 +223,50 @@ async def test_dynamic_fanout_pattern():
 
         researcher_branch.operate = AsyncMock(side_effect=make_research(i))
 
+        def researcher_get_operation(operation: str, branch=researcher_branch):
+            if operation == "operate":
+                return branch.operate
+            return None
+
+        researcher_branch.get_operation = MagicMock(
+            side_effect=researcher_get_operation
+        )
+
         # Mock clone for researcher branch
-        def researcher_clone(sender=None):
+        def researcher_clone(sender=None, idx=i):
             cloned = MagicMock()
-            cloned.id = f"cloned_{researcher_branch.id}"
-            cloned.operate = AsyncMock(side_effect=make_research(i))
+            cloned.id = str(uuid4())
+            cloned.operate = AsyncMock(side_effect=make_research(idx))
             cloned.clone = MagicMock(side_effect=researcher_clone)
             cloned._message_manager = MagicMock()
             cloned._message_manager.pile = MagicMock()
             cloned._message_manager.pile.clear = MagicMock()
             cloned.metadata = {}
+
+            def cloned_researcher_get_operation(operation: str):
+                if operation == "operate":
+                    return cloned.operate
+                return None
+
+            cloned.get_operation = MagicMock(
+                side_effect=cloned_researcher_get_operation
+            )
             return cloned
 
         researcher_branch.clone = MagicMock(side_effect=researcher_clone)
         researcher_branch._message_manager = MagicMock()
         researcher_branch._message_manager.pile = MagicMock()
 
-        session.branches.include(researcher_branch)
+        researcher_id = UUID(researcher_branch.id)
+        session.branches.collections[researcher_id] = researcher_branch
+        session.branches.progression.append(researcher_id)
 
         # Add operation with specific branch
         node = builder.add_operation(
             "operate",
             depends_on=[root],
-            branch_id=f"researcher_{i}",
-            **instruct_model.to_dict(),
+            branch=researcher_branch,
+            **instruct.to_dict(),
         )
         research_nodes.append(node)
 
@@ -381,6 +401,8 @@ async def test_context_inheritance_pattern():
 
     # Analyze context propagation
     assert len(context_trace) == 4
+    assert child2 in result["completed_operations"]
+    assert grandchild in result["completed_operations"]
 
     # Debug: print what we got
     for trace in context_trace:
@@ -448,6 +470,13 @@ async def test_branch_pool_efficiency():
     default_branch._message_manager.pile.__iter__ = MagicMock(return_value=iter([]))
     default_branch.metadata = {}
 
+    def default_get_operation(operation: str):
+        if operation == "operate":
+            return default_branch.operate
+        return None
+
+    default_branch.get_operation = MagicMock(side_effect=default_get_operation)
+
     # Track clones
     clone_count = 0
 
@@ -462,6 +491,13 @@ async def test_branch_pool_efficiency():
         new_branch._message_manager.pile = MagicMock()
         new_branch._message_manager.pile.clear = MagicMock()
         new_branch.metadata = {}
+
+        def cloned_get_operation(operation: str):
+            if operation == "operate":
+                return new_branch.operate
+            return None
+
+        new_branch.get_operation = MagicMock(side_effect=cloned_get_operation)
         return new_branch
 
     default_branch.clone = MagicMock(side_effect=clone_branch)
@@ -471,7 +507,7 @@ async def test_branch_pool_efficiency():
 
     # We can't replace the async_lock, so let's measure clone count instead
     # With pre-allocation, all branches should be created upfront
-    initial_clone_count = clone_count
+    _initial_clone_count = clone_count
 
     # Execute flow
     result = await flow(session, builder.get_graph(), max_concurrent=10)
@@ -483,6 +519,7 @@ async def test_branch_pool_efficiency():
     # All branches should be created during pre-allocation
     # No additional clones should happen during execution
     assert clone_count > 0, "No branches were cloned"
+    assert clone_count >= _initial_clone_count
 
     # Branches should be pre-allocated for operations that need them
     # With our dependency tree, many operations will need new branches
@@ -592,6 +629,7 @@ async def test_mixed_operation_types():
     # Verify all operations executed
     assert len(result["completed_operations"]) == 4
     assert len(operation_log) == 4
+    assert op4 in result["completed_operations"]
 
     # Verify operation types
     op_types = [log["type"] for log in operation_log]

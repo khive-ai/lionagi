@@ -15,12 +15,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lionagi.operations.builder import OperationGraphBuilder
 from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import EventStatus
 from lionagi.protocols.graph.edge import Edge
 from lionagi.protocols.graph.graph import Graph
-from lionagi.protocols.messages import Instruction
 from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
@@ -198,8 +196,9 @@ class TestBasicFlowExecution:
 
         # Verify context propagation
         assert "global_key" in result["final_context"]
-        # op2 should have received context from op1
-        assert op2.parameters.get("context") is not None
+        # Operation specs are restored after per-invocation context injection.
+        assert op2.parameters == {"instruction": "Task 2"}
+        assert op2.id in result["completed_operations"]
 
     @pytest.mark.asyncio
     async def test_flow_with_empty_graph(self):
