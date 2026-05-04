@@ -90,7 +90,8 @@ results = await session.flow(
     parallel=True,
     max_concurrent=5,
 )
-# results: dict[node_id, Any]
+# results["operation_results"]: dict[node_id, Any]
+# results["final_context"]: merged flow context
 ```
 
 | Param | Type | Default | Notes |
@@ -102,7 +103,7 @@ results = await session.flow(
 | `verbose` | `bool` | `False` | Print progress |
 | `default_branch` | `Branch \| ID.Ref \| None` | `None` | Branch for unassigned nodes |
 
-Returns: `dict[str, Any]` — keyed by node ID.
+Returns: `dict[str, Any]` with operation result, terminal status, and context fields.
 
 For building `graph`, see [flow.md](flow.md).
 

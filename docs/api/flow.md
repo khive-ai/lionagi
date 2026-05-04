@@ -53,25 +53,31 @@ builder = Builder(name="MyGraph")
 ```python
 node_id = builder.add_operation(
     operation="communicate",
-    node_id=None,              # optional reference label
+    node_id=None,              # optional reference label; prefer ref=
+    ref=None,                  # stable label for lookup/dependencies
     depends_on=None,           # list of node_ids this depends on
+    after=None,                # alias for depends_on
     inherit_context=False,     # inherit conversation history from dependency
     branch=None,               # assign to a specific Branch
+    auto_link=False,           # attach from current leaves when explicit
     instruction="...",         # passed to branch.operate() or branch.communicate()
     **parameters,              # any Branch operation kwargs
 )
 ```
 
-Returns: `str` — node ID used in `depends_on` lists.
+Returns: `UUID` — node ID used in `depends_on` lists.
 
 `operation` must be the name of a `Branch` method: `"communicate"`, `"operate"`, `"ReAct"`, `"parse"`, etc.
+
+Repeated `add_operation()` calls are independent by default. Use `depends_on=[n1]`,
+`after=n1`, `builder.then(n1, ...)`, or `auto_link=True` when you want ordering.
 
 ### `add_aggregation()`
 
 ```python
 agg_id = builder.add_aggregation(
     operation="communicate",
-    source_node_ids=[n1, n2, n3],  # defaults to current graph heads
+    source_node_ids=[n1, n2, n3],  # defaults to current builder leaves
     inherit_context=False,
     inherit_from_source=0,
     instruction="Synthesize the above findings.",
@@ -79,6 +85,8 @@ agg_id = builder.add_aggregation(
 ```
 
 Adds a node that depends on multiple sources — useful for fan-in synthesis.
+The operation receives `aggregation_inputs`, a list of source IDs, statuses, and
+results, plus `aggregation_sources` and `aggregation_count` in its parameters.
 
 ### `expand_from_result()`
 
@@ -88,6 +96,7 @@ new_ids = builder.expand_from_result(
     source_node_id=n1,
     operation="communicate",
     strategy=ExpansionStrategy.CONCURRENT,
+    chunk_size=None,           # required for chunked strategies
     inherit_context=False,
     instruction="Analyze this item: {item}",
 )
@@ -101,8 +110,8 @@ Expands the graph dynamically after partial execution — useful for iterative p
 |-------|---------|
 | `CONCURRENT` | All expanded nodes run in parallel |
 | `SEQUENTIAL` | Expanded nodes chain one after another |
-| `SEQUENTIAL_CONCURRENT_CHUNK` | Sequential chunks, concurrent within each chunk |
-| `CONCURRENT_SEQUENTIAL_CHUNK` | Concurrent chunks, sequential within each chunk |
+| `SEQUENTIAL_CONCURRENT_CHUNK` | Sequential chunks, concurrent within each chunk; requires `chunk_size` |
+| `CONCURRENT_SEQUENTIAL_CHUNK` | Concurrent chunks, sequential within each chunk; requires `chunk_size` |
 
 ### Other builder methods
 
@@ -112,6 +121,8 @@ ids = builder.add_conditional_branch(
     condition_check_op="communicate",
     true_op="communicate",
     false_op="communicate",
+    condition_key="answer",
+    condition_value="YES",
     instruction="Is this claim factual? Answer YES or NO.",
 )
 # ids: {"check": id, "true": id, "false": id}
@@ -132,6 +143,11 @@ state = builder.visualize_state()
 # get the Graph object for session.flow()
 graph = builder.get_graph()
 ```
+
+Conditional branches use real edge conditions. Without `condition_key`, the true
+edge follows a truthy check result and the false edge follows a non-truthy result.
+For custom logic, pass `true_condition=` and `false_condition=` objects that
+implement `async apply(context) -> bool`.
 
 ## Execution via `Session.flow()`
 
@@ -212,11 +228,11 @@ Flow operations accumulate cross-node context in a `Note` object passed through
 
 - `deep_update()` merges nested dicts across operations — keys are merged recursively.
 - List values are **replaced** (last writer wins), not concatenated.
-- `Note` is available as `results.context` after `session.flow()` completes.
+- The final plain dict is available as `results["final_context"]`.
 
 ```python
 results = await session.flow(builder.get_graph(), parallel=True)
-accumulated = results.context  # Note object with merged state
+accumulated = results["final_context"]
 ```
 
 → Note API: [note.md](note.md)
