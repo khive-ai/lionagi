@@ -10,6 +10,7 @@ using Events for synchronization and CapacityLimiter for concurrency control.
 
 import logging
 import os
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -20,7 +21,7 @@ from lionagi.ln.concurrency import CapacityLimiter, ConcurrencyEvent
 from lionagi.models.note import Note
 from lionagi.operations.node import Operation
 from lionagi.protocols.generic.event import Event
-from lionagi.protocols.types import EventStatus
+from lionagi.protocols.types import ID, Condition, EventStatus
 from lionagi.utils import to_dict
 
 if TYPE_CHECKING:
@@ -73,7 +74,9 @@ class DependencyAwareExecutor:
         self.results = {}
         self.completion_events = {}  # operation_id -> Event
         self.operation_branches = {}  # operation_id -> Branch
-        self.skipped_operations = set()  # Track skipped operations
+        self.failed_operations = set()
+        self.skipped_operations = set()
+        self.cancelled_operations = set()
         self._op_start_times = {}  # operation_id -> monotonic start time
 
         # Initialize completion events for all operations
@@ -82,11 +85,19 @@ class DependencyAwareExecutor:
             if isinstance(node, Operation):
                 self.completion_events[node.id] = ConcurrencyEvent()
 
-                # If operation is already completed, mark it and store results
-                if node.execution.status == EventStatus.COMPLETED:
+                # Resume mode: terminal operations are treated as already done
+                # and their completion events must be set for dependents.
+                if node.execution.status in Event._TERMINAL_STATUSES:
                     self.completion_events[node.id].set()
-                    if hasattr(node, "response"):
+                    if node.execution.status == EventStatus.COMPLETED:
                         self.results[node.id] = node.response
+                    elif node.execution.status == EventStatus.FAILED:
+                        self.failed_operations.add(node.id)
+                        self.results[node.id] = {"error": str(node.execution.error)}
+                    elif node.execution.status == EventStatus.SKIPPED:
+                        self.skipped_operations.add(node.id)
+                    elif node.execution.status == EventStatus.CANCELLED:
+                        self.cancelled_operations.add(node.id)
 
     async def execute(self) -> dict[str, Any]:
         """Execute the operation graph."""
@@ -113,20 +124,28 @@ class DependencyAwareExecutor:
         ]
         await self._alcall(nodes, self._execute_operation, limiter=limiter)
 
-        # Return results - only include actually completed operations
+        operations = [
+            n for n in self.graph.internal_nodes.values() if isinstance(n, Operation)
+        ]
         completed_ops = [
-            op_id
-            for op_id in self.results.keys()
-            if op_id not in self.skipped_operations
+            op.id for op in operations if op.execution.status == EventStatus.COMPLETED
+        ]
+        failed_ops = [
+            op.id for op in operations if op.execution.status == EventStatus.FAILED
+        ]
+        cancelled_ops = [
+            op.id for op in operations if op.execution.status == EventStatus.CANCELLED
         ]
 
         result = {
             "completed_operations": completed_ops,
+            "failed_operations": failed_ops,
             "operation_results": self.results,
             # Expose the plain dict so callers can use normal dict operations
             # (e.g. equality checks, key lookups) without Note wrapping.
             "final_context": self.context.content,
             "skipped_operations": list(self.skipped_operations),
+            "cancelled_operations": cancelled_ops,
         }
 
         # Validate results before returning
@@ -143,19 +162,19 @@ class DependencyAwareExecutor:
             if not isinstance(node, Operation):
                 continue
 
-            # Skip if operation already has a branch_id
+            if node.execution.status in Event._TERMINAL_STATUSES:
+                continue
+
+            # Operations pinned to a branch must resolve to a session branch.
+            # Falling back silently makes graph intent hard to debug.
             if node.branch_id:
                 try:
-                    # Ensure the branch exists in our local map
-                    branch = self.session.branches[node.branch_id]
+                    branch = self._get_session_branch(node.branch_id)
                     self.operation_branches[node.id] = branch
                 except Exception:
-                    logger.debug(
-                        "Branch %s not found in session for node %s; "
-                        "will be assigned during execution.",
-                        node.branch_id,
-                        node.id,
-                    )
+                    raise ValueError(
+                        f"Branch {node.branch_id} not found for operation {node.id}"
+                    ) from None
                 continue
 
             # Check if operation needs a new branch
@@ -171,8 +190,11 @@ class DependencyAwareExecutor:
             # For context inheritance, we need to create placeholder branches
             # that will be updated once dependencies complete
             for operation in operations_needing_branches:
-                # Create a fresh branch for now
-                branch_clone = self.session.default_branch.clone(sender=self.session.id)
+                # Create a fresh branch from the executor default. A caller-
+                # supplied default_branch must apply to preallocated child
+                # branches too, not just root operations.
+                base_branch = self._default_branch or self.session.default_branch
+                branch_clone = base_branch.clone(sender=self.session.id)
 
                 # Store in our operation branches map
                 self.operation_branches[operation.id] = branch_clone
@@ -222,9 +244,19 @@ class DependencyAwareExecutor:
                     operation.execution.status.value,
                     str(operation.id)[:8],
                 )
-            # Ensure results are available for dependencies
-            if operation.id not in self.results and operation.response is not None:
+            # Ensure resumed terminal states are represented in the result maps.
+            if operation.execution.status == EventStatus.COMPLETED:
                 self.results[operation.id] = operation.response
+            elif operation.execution.status == EventStatus.FAILED:
+                self.failed_operations.add(operation.id)
+                self.results.setdefault(
+                    operation.id,
+                    {"error": str(operation.execution.error)},
+                )
+            elif operation.execution.status == EventStatus.SKIPPED:
+                self.skipped_operations.add(operation.id)
+            elif operation.execution.status == EventStatus.CANCELLED:
+                self.cancelled_operations.add(operation.id)
             # Signal completion for any waiting operations
             self.completion_events[operation.id].set()
             return
@@ -253,76 +285,98 @@ class DependencyAwareExecutor:
 
             # Acquire capacity to limit concurrency
             async with limiter:
-                # Prepare operation context
-                self._prepare_operation(operation)
-
-                ref_id = operation.metadata.get("reference_id", str(operation.id)[:8])
-                branch = self.operation_branches.get(
-                    operation.id, self.session.default_branch
-                )
-                branch_name = getattr(branch, "name", None) or ref_id
-
-                import time as _time
-
-                self._op_start_times[operation.id] = _time.monotonic()
-
-                if self.on_progress:
-                    self.on_progress(str(operation.id), branch_name, "started", 0)
-                if self.verbose:
-                    logger.debug("Executing operation: %s", ref_id)
-
-                operation._branch = branch
-                await operation.invoke()
-
-                elapsed = _time.monotonic() - self._op_start_times.get(
-                    operation.id, _time.monotonic()
+                original_parameters = (
+                    deepcopy(operation.parameters)
+                    if isinstance(operation.parameters, dict)
+                    else operation.parameters
                 )
 
-                # Store results based on status (set by Event.invoke())
-                if operation.execution.status == EventStatus.COMPLETED:
-                    self.results[operation.id] = operation.response
+                try:
+                    # Prepare operation context just for this invocation. The
+                    # original parameters are restored before returning so a
+                    # graph spec does not accumulate stale context between runs.
+                    self._prepare_operation(operation)
 
-                    # Merge any context emitted by the operation into the
-                    # flow-level Note workspace using deep merge to preserve
-                    # nested keys rather than overwriting them wholesale.
-                    if (
-                        isinstance(operation.response, dict)
-                        and "context" in operation.response
-                    ):
-                        from lionagi.libs.nested import deep_update
+                    ref_id = operation.metadata.get(
+                        "reference_id", str(operation.id)[:8]
+                    )
+                    branch = self.operation_branches.get(
+                        operation.id,
+                        self._default_branch or self.session.default_branch,
+                    )
+                    branch_name = getattr(branch, "name", None) or ref_id
 
-                        deep_update(self.context.content, operation.response["context"])
+                    import time as _time
+
+                    self._op_start_times[operation.id] = _time.monotonic()
 
                     if self.on_progress:
-                        self.on_progress(
-                            str(operation.id), branch_name, "completed", elapsed
-                        )
+                        self.on_progress(str(operation.id), branch_name, "started", 0)
                     if self.verbose:
-                        logger.debug("Completed operation: %s (%.1fs)", ref_id, elapsed)
+                        logger.debug("Executing operation: %s", ref_id)
 
-                elif operation.execution.status == EventStatus.FAILED:
-                    self.results[operation.id] = {
-                        "error": str(operation.execution.error)
-                    }
-                    if self.on_progress:
-                        self.on_progress(
-                            str(operation.id), branch_name, "failed", elapsed
-                        )
-                    if self.verbose:
-                        logger.error(
-                            "Operation %s failed (%.1fs): %s",
-                            ref_id,
-                            elapsed,
-                            operation.execution.error,
-                        )
+                    operation._branch = branch
+                    await operation.invoke()
+
+                    elapsed = _time.monotonic() - self._op_start_times.get(
+                        operation.id, _time.monotonic()
+                    )
+
+                    # Store results based on status (set by Event.invoke()).
+                    if operation.execution.status == EventStatus.COMPLETED:
+                        self.results[operation.id] = operation.response
+
+                        # Merge any context emitted by the operation into the
+                        # flow-level Note workspace using deep merge to preserve
+                        # nested keys rather than overwriting them wholesale.
+                        if (
+                            isinstance(operation.response, dict)
+                            and "context" in operation.response
+                        ):
+                            from lionagi.libs.nested import deep_update
+
+                            deep_update(
+                                self.context.content, operation.response["context"]
+                            )
+
+                        if self.on_progress:
+                            self.on_progress(
+                                str(operation.id), branch_name, "completed", elapsed
+                            )
+                        if self.verbose:
+                            logger.debug(
+                                "Completed operation: %s (%.1fs)", ref_id, elapsed
+                            )
+
+                    elif operation.execution.status == EventStatus.FAILED:
+                        self.failed_operations.add(operation.id)
+                        self.results[operation.id] = {
+                            "error": str(operation.execution.error)
+                        }
+                        if self.on_progress:
+                            self.on_progress(
+                                str(operation.id), branch_name, "failed", elapsed
+                            )
+                        if self.verbose:
+                            logger.error(
+                                "Operation %s failed (%.1fs): %s",
+                                ref_id,
+                                elapsed,
+                                operation.execution.error,
+                            )
+                finally:
+                    if isinstance(original_parameters, dict):
+                        operation.parameters = original_parameters
 
         except (get_cancelled_exc_class(), KeyboardInterrupt, SystemExit):
             # Event.invoke() already set CANCELLED status — just propagate
+            self.cancelled_operations.add(operation.id)
             self.completion_events[operation.id].set()
             raise
 
         except Exception as e:
             # Event.invoke() already set FAILED status and re-raised
+            self.failed_operations.add(operation.id)
             if operation.id not in self.results:
                 self.results[operation.id] = {"error": str(e)}
 
@@ -394,14 +448,10 @@ class DependencyAwareExecutor:
                     len(sources),
                 )
 
-            # Wait for ALL sources (sources are now strings from builder.py)
-            for source_id_str in sources:
-                # Convert string back to UUID for lookup
-                # Check all operations to find matching ID
-                for op_id in self.completion_events.keys():
-                    if str(op_id) == source_id_str:
-                        await self.completion_events[op_id].wait()
-                        break
+            for source_ref in sources:
+                source_id = self._coerce_operation_id(source_ref)
+                if source_id in self.completion_events:
+                    await self.completion_events[source_id].wait()
 
         # Regular dependency checking
         predecessors = self.graph.get_predecessors(operation)
@@ -450,6 +500,11 @@ class DependencyAwareExecutor:
                         **pred_context,
                     }
 
+        if operation.metadata.get("aggregation"):
+            operation.parameters["aggregation_inputs"] = self._aggregation_inputs(
+                operation
+            )
+
         # Add execution context from the flow-level Note workspace
         if self.context:
             if "context" not in operation.parameters:
@@ -486,7 +541,8 @@ class DependencyAwareExecutor:
                 if primary_dep_id and primary_dep_id in self.results:
                     # Find the primary dependency's branch
                     primary_branch = self.operation_branches.get(
-                        primary_dep_id, self.session.default_branch
+                        primary_dep_id,
+                        self._default_branch or self.session.default_branch,
                     )
 
                     # Copy the messages from primary branch to this branch
@@ -525,17 +581,57 @@ class DependencyAwareExecutor:
             return self._default_branch
         return self.session.default_branch
 
+    def _coerce_operation_id(self, value: Any) -> UUID | Any:
+        """Return a UUID for operation-like references when possible."""
+        try:
+            return ID.get_id(value)
+        except Exception:
+            return value
+
+    def _get_session_branch(self, branch_id: Any) -> "Branch":
+        """Resolve a branch from the session, tolerating string/UUID key drift."""
+        try:
+            return self.session.branches[branch_id]
+        except Exception:
+            for branch in self.session.branches:
+                if str(getattr(branch, "id", None)) == str(branch_id):
+                    return branch
+            raise
+
+    def _aggregation_inputs(self, operation: Operation) -> list[dict[str, Any]]:
+        """Build stable aggregation inputs from completed predecessor results."""
+        sources = operation.parameters.get("aggregation_sources") or [
+            pred.id for pred in self.graph.get_predecessors(operation)
+        ]
+        inputs = []
+        for source_ref in sources:
+            source_id = self._coerce_operation_id(source_ref)
+            status = None
+            if source_id in self.graph.internal_nodes:
+                node = self.graph.internal_nodes[source_id]
+                status = getattr(getattr(node, "execution", None), "status", None)
+            result = self.results.get(source_id)
+            if result is not None and not isinstance(result, (str, int, float, bool)):
+                result = to_dict(result, recursive=True)
+            inputs.append(
+                {
+                    "id": str(source_id),
+                    "status": (
+                        status.value if isinstance(status, EventStatus) else status
+                    ),
+                    "result": result,
+                }
+            )
+        return inputs
+
     def _validate_edge_conditions(self):
         """Validate that all edge conditions are properly configured."""
         for edge in self.graph.internal_edges.values():
             if edge.condition is not None:
-                # Ensure condition is an EdgeCondition instance
-                from lionagi.protocols.graph.edge import EdgeCondition
-
-                if not isinstance(edge.condition, EdgeCondition):
+                if not isinstance(edge.condition, Condition):
                     raise TypeError(
                         f"Edge {edge.id} has invalid condition type: {type(edge.condition)}. "
-                        "Must be EdgeCondition or None."
+                        "Must be Condition or None."
                     )
 
                 # Ensure condition has apply method
@@ -548,13 +644,28 @@ class DependencyAwareExecutor:
         """Validate execution results for consistency."""
         completed = set(results.get("completed_operations", []))
         skipped = set(results.get("skipped_operations", []))
+        failed = set(results.get("failed_operations", []))
+        cancelled = set(results.get("cancelled_operations", []))
 
-        # Check for operations in both lists
-        overlap = completed & skipped
-        if overlap:
+        terminal_sets = {
+            "completed": completed,
+            "skipped": skipped,
+            "failed": failed,
+            "cancelled": cancelled,
+        }
+
+        # Check for operations in more than one terminal status list.
+        overlaps = []
+        labels = list(terminal_sets)
+        for i, left_label in enumerate(labels):
+            for right_label in labels[i + 1 :]:
+                overlap = terminal_sets[left_label] & terminal_sets[right_label]
+                if overlap:
+                    overlaps.append((left_label, right_label, overlap))
+        if overlaps:
             raise RuntimeError(
-                f"Operations {overlap} appear in both completed and skipped lists! "
-                "This indicates a bug in edge condition handling."
+                f"Operations {overlaps} appear in multiple terminal status lists! "
+                "This indicates a bug in flow result accounting."
             )
 
         # Verify skipped operations have proper status
@@ -637,76 +748,29 @@ def cleanup_flow_results(
     if not isinstance(result, dict) or "operation_results" not in result:
         return result
 
-    # If keep_only is specified, only keep those results
+    terminal_lists = (
+        "completed_operations",
+        "failed_operations",
+        "skipped_operations",
+        "cancelled_operations",
+    )
+
+    # If keep_only is specified, keep matching operation payloads and terminal
+    # status entries together so callers do not see contradictory summaries.
     if keep_only is not None:
+        keep = set(keep_only)
         filtered_results = {
             op_id: res
             for op_id, res in result["operation_results"].items()
-            if op_id in keep_only
+            if op_id in keep
         }
         result["operation_results"] = filtered_results
-        # Update completed_operations to match
-        result["completed_operations"] = [
-            op_id
-            for op_id in result.get("completed_operations", [])
-            if op_id in keep_only
-        ]
+        for key in terminal_lists:
+            result[key] = [op_id for op_id in result.get(key, []) if op_id in keep]
     else:
         # Clear all results to free memory
         result["operation_results"] = {}
-        result["completed_operations"] = []
-
-    return result
-
-
-async def flow_with_cleanup(
-    session: "Session",
-    graph: "Graph",
-    context: dict[str, Any] | None = None,
-    parallel: bool = True,
-    max_concurrent: int = 5,
-    verbose: bool = False,
-    branch: "Branch" = None,
-    alcall_params: AlcallParams | None = None,
-    cleanup_results: bool = True,
-    keep_only: list[str] = None,
-) -> dict[str, Any]:
-    """
-    Execute flow with automatic cleanup to prevent memory accumulation.
-
-    Args:
-        session: Session instance for branch management
-        graph: Operation graph to execute
-        context: Initial context data
-        parallel: Execute independent operations in parallel
-        max_concurrent: Max concurrent operations (1 if not parallel)
-        verbose: Enable verbose logging
-        branch: Default branch for operations
-        alcall_params: Parameters for async parallel call execution
-        cleanup_results: Whether to clean up operation results after execution
-        keep_only: List of operation IDs to keep results for (if cleanup_results=True)
-
-    Returns:
-        Execution results (potentially with cleaned up memory footprint)
-    """
-    # Execute the flow normally
-    result = await flow(
-        session=session,
-        graph=graph,
-        context=context,
-        parallel=parallel,
-        max_concurrent=max_concurrent,
-        verbose=verbose,
-        branch=branch,
-        alcall_params=alcall_params,
-    )
-
-    # Clean up session memory
-    if hasattr(session, "cleanup_memory"):
-        session.cleanup_memory()
-
-    # Clean up results if requested
-    if cleanup_results:
-        result = cleanup_flow_results(result, keep_only=keep_only)
+        for key in terminal_lists:
+            result[key] = []
 
     return result
