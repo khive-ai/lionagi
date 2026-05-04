@@ -147,7 +147,8 @@ graph = builder.get_graph()
 Conditional branches use real edge conditions. Without `condition_key`, the true
 edge follows a truthy check result and the false edge follows a non-truthy result.
 For custom logic, pass `true_condition=` and `false_condition=` objects that
-implement `async apply(context) -> bool`.
+implement `async apply(context) -> bool`; `lionagi.ResultCondition` covers common
+truthy and equality checks against predecessor results.
 
 ## Execution via `Session.flow()`
 

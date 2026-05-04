@@ -91,12 +91,12 @@ class TestObservability:
         from lionagi.protocols.generic import DataLoggerConfig
 
         config = DataLoggerConfig(
-            persist_dir="/tmp/test_logs",
+            persist_dir="test_logs",
             capacity=500,
             extension=".json",
             auto_save_on_exit=False,
         )
-        assert config.persist_dir == "/tmp/test_logs"
+        assert config.persist_dir == "test_logs"
         assert config.capacity == 500
         assert config.extension == ".json"
         assert config.auto_save_on_exit is False
@@ -107,7 +107,7 @@ class TestObservability:
         from lionagi.protocols.generic import DataLoggerConfig
 
         config = DataLoggerConfig(
-            persist_dir="/tmp/test_logs",
+            persist_dir="test_logs",
             capacity=100,
             auto_save_on_exit=False,
         )
@@ -271,14 +271,15 @@ class TestFlowComposition:
         assert isinstance(graph, Graph)
 
     def test_builder_sequential_operations(self):
-        """Multiple add_operation calls create sequential dependencies."""
+        """Sequential dependencies are explicit in Builder graphs."""
         from lionagi import Builder
 
         builder = Builder()
         id1 = builder.add_operation("communicate", instruction="Step 1")
-        id2 = builder.add_operation("communicate", instruction="Step 2")
+        id2 = builder.add_operation(
+            "communicate", instruction="Step 2", depends_on=[id1]
+        )
         graph = builder.get_graph()
-        # The graph should have nodes and edges
         assert id1 != id2
         assert len(graph.internal_edges) > 0
 
