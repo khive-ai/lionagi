@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from copy import deepcopy
 from typing import Any
 
 from pydantic import BaseModel
@@ -48,6 +49,13 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
         self._llm_config: dict[str, Any] = ag2_kw.get("llm_config", {})
         self._tool_registry: dict[str, Any] = ag2_kw.get("tool_registry", {})
         self._code_executor: Any = ag2_kw.get("code_executor")
+
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, AG2GroupChatEndpoint):
+            other._agent_configs = _copy_runtime_value(self._agent_configs)
+            other._llm_config = _copy_runtime_value(self._llm_config)
+            other._tool_registry = _copy_runtime_value(self._tool_registry)
+            other._code_executor = self._code_executor
 
     async def _call(self, payload, headers, **kwargs):
         """Collect all stream events and return a structured transcript dict.
@@ -299,3 +307,10 @@ def _event_to_chunk(event) -> StreamChunk | None:
             metadata={"agent": sender, "tool_call_id": tool_id},
         )
     return None
+
+
+def _copy_runtime_value(value):
+    try:
+        return deepcopy(value)
+    except Exception:
+        return value

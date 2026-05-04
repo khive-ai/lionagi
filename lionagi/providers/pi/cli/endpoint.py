@@ -14,9 +14,8 @@ from lionagi.service.types.stream_chunk import StreamChunk
 from lionagi.utils import to_dict
 
 from .._config import PiConfigs
-from .models import PiChunk, PiCodeRequest, PiSession
+from .models import PiChunk, PiCodeRequest, PiSession, stream_pi_cli
 from .models import log as pi_log
-from .models import stream_pi_cli
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "pi": 128_000,
@@ -42,6 +41,8 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 
 @PiConfigs.CLI.register
 class PiCLIEndpoint(AgenticEndpoint):
+    transport_arg_keys = _PI_HANDLER_PARAMS
+
     def __init__(self, config: EndpointConfig = None, **kwargs):
         handlers = kwargs.pop("pi_handlers", None)
         super().__init__(config=config, **kwargs)
@@ -69,6 +70,20 @@ class PiCLIEndpoint(AgenticEndpoint):
         handlers = {**self.pi_handlers, **kwargs}
         self.pi_handlers = handlers
 
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, PiCLIEndpoint):
+            other.pi_handlers = self.pi_handlers.copy()
+
+    def _runtime_handlers(self, kwargs: dict) -> dict:
+        handlers = self.pi_handlers.copy()
+        call_handlers = {
+            k: kwargs.pop(k) for k in list(kwargs) if k in _PI_HANDLER_PARAMS
+        }
+        if call_handlers:
+            _validate_handlers(call_handlers)
+            handlers.update(call_handlers)
+        return {k: v for k, v in handlers.items() if v is not None}
+
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages", [])
@@ -81,13 +96,16 @@ class PiCLIEndpoint(AgenticEndpoint):
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
+        handlers = self._runtime_handlers(kwargs)
         if isinstance(request, dict) and "request" in request:
             request_obj = request["request"]
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
         session = PiSession()
-        async with contextlib.aclosing(stream_pi_cli(request_obj, session)) as gen:
+        async with contextlib.aclosing(
+            stream_pi_cli(request_obj, session, **handlers)
+        ) as gen:
             async for item in gen:
                 if isinstance(item, PiSession):
                     yield StreamChunk(
@@ -129,9 +147,10 @@ class PiCLIEndpoint(AgenticEndpoint):
         responses = []
         request: PiCodeRequest = payload["request"]
         session: PiSession = PiSession()
+        handlers = self._runtime_handlers(kwargs)
 
         async with contextlib.aclosing(
-            stream_pi_cli(request, session, **self.pi_handlers, **kwargs)
+            stream_pi_cli(request, session, **handlers)
         ) as gen:
             async for chunk in gen:
                 if isinstance(chunk, dict):

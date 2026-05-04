@@ -539,6 +539,37 @@ class TestEndpoint:
             assert [chunk.content for chunk in chunks] == ["line1", "line2", "line3"]
 
     @pytest.mark.asyncio
+    async def test_stream_aiohttp_ignores_sse_control_lines(self, openai_config):
+        endpoint = Endpoint(config=openai_config)
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+
+        async def mock_content_iter():
+            yield b"event: response.output_text.delta\n"
+            yield b'id: evt_1\n'
+            yield b'data: {"type":"response.output_text.delta","delta":"hi"}\n\n'
+            yield b": keepalive\n\n"
+            yield b"data: [DONE]\n\n"
+
+        mock_response.content = mock_content_iter()
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock()
+
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
+        mock_session.request = MagicMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock()
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            request = {"messages": [{"role": "user", "content": "test"}]}
+            chunks = [chunk async for chunk in endpoint.stream(request)]
+
+        assert [chunk.type for chunk in chunks] == ["text", "result"]
+        assert chunks[0].content == "hi"
+        assert chunks[1].metadata == {"done": True}
+
+    @pytest.mark.asyncio
     async def test_stream_with_extra_headers(self, openai_config):
         """Test stream with extra_headers (lines 343-351)."""
         endpoint = Endpoint(config=openai_config)

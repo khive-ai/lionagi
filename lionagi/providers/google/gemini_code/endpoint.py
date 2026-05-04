@@ -12,9 +12,9 @@ from lionagi.providers.google.gemini_code.models import (
     GeminiChunk,
     GeminiCodeRequest,
     GeminiSession,
+    stream_gemini_cli,
 )
 from lionagi.providers.google.gemini_code.models import log as gemini_log
-from lionagi.providers.google.gemini_code.models import stream_gemini_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
@@ -49,6 +49,8 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 
 @GeminiCodeConfigs.CLI.register
 class GeminiCLIEndpoint(AgenticEndpoint):
+    transport_arg_keys = _GEMINI_HANDLER_PARAMS
+
     def __init__(self, config: EndpointConfig = None, **kwargs):
         handlers = kwargs.pop("gemini_handlers", None)
         super().__init__(config=config, **kwargs)
@@ -76,6 +78,20 @@ class GeminiCLIEndpoint(AgenticEndpoint):
         handlers = {**self.gemini_handlers, **kwargs}
         self.gemini_handlers = handlers
 
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, GeminiCLIEndpoint):
+            other.gemini_handlers = self.gemini_handlers.copy()
+
+    def _runtime_handlers(self, kwargs: dict) -> dict:
+        handlers = self.gemini_handlers.copy()
+        call_handlers = {
+            k: kwargs.pop(k) for k in list(kwargs) if k in _GEMINI_HANDLER_PARAMS
+        }
+        if call_handlers:
+            _validate_handlers(call_handlers)
+            handlers.update(call_handlers)
+        return {k: v for k, v in handlers.items() if v is not None}
+
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages", [])
@@ -85,12 +101,15 @@ class GeminiCLIEndpoint(AgenticEndpoint):
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
+        handlers = self._runtime_handlers(kwargs)
         if isinstance(request, dict) and "request" in request:
             request_obj = request["request"]
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
-        async with contextlib.aclosing(stream_gemini_cli(request_obj)) as gen:
+        async with contextlib.aclosing(
+            stream_gemini_cli(request_obj, **handlers)
+        ) as gen:
             async for item in gen:
                 if isinstance(item, GeminiSession):
                     continue
@@ -147,9 +166,10 @@ class GeminiCLIEndpoint(AgenticEndpoint):
         responses = []
         request: GeminiCodeRequest = payload["request"]
         session: GeminiSession = GeminiSession()
+        handlers = self._runtime_handlers(kwargs)
 
         async with contextlib.aclosing(
-            stream_gemini_cli(request, session, **self.gemini_handlers, **kwargs)
+            stream_gemini_cli(request, session, **handlers)
         ) as gen:
             async for chunk in gen:
                 if isinstance(chunk, dict):

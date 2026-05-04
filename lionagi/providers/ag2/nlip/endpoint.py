@@ -48,6 +48,13 @@ class AG2NlipEndpoint(AgenticEndpoint):
         self._max_retries: int = nlip_kw.get("max_retries", 3)
         self._agent_name: str = nlip_kw.get("agent_name", "remote")
 
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, AG2NlipEndpoint):
+            other._url = self._url
+            other._timeout = self._timeout
+            other._max_retries = self._max_retries
+            other._agent_name = self._agent_name
+
     async def _call(self, payload, headers, **kwargs):
         """Call the remote NLIP server and return a structured result dict.
 

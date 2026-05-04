@@ -12,9 +12,9 @@ from lionagi.providers.anthropic.claude_code.models import (
     ClaudeChunk,
     ClaudeCodeRequest,
     ClaudeSession,
+    stream_claude_code_cli,
 )
 from lionagi.providers.anthropic.claude_code.models import log as cc_log
-from lionagi.providers.anthropic.claude_code.models import stream_claude_code_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
@@ -55,6 +55,8 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 
 @ClaudeCodeConfigs.CLI.register
 class ClaudeCodeCLIEndpoint(AgenticEndpoint):
+    transport_arg_keys = _CLAUDE_HANDLER_PARAMS
+
     def __init__(self, config: EndpointConfig = None, **kwargs):
         handlers = kwargs.pop("claude_handlers", None)
         super().__init__(config=config, **kwargs)
@@ -82,6 +84,20 @@ class ClaudeCodeCLIEndpoint(AgenticEndpoint):
         handlers = {**self.claude_handlers, **kwargs}
         self.claude_handlers = handlers
 
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, ClaudeCodeCLIEndpoint):
+            other.claude_handlers = self.claude_handlers.copy()
+
+    def _runtime_handlers(self, kwargs: dict) -> dict:
+        handlers = self.claude_handlers.copy()
+        call_handlers = {
+            k: kwargs.pop(k) for k in list(kwargs) if k in _CLAUDE_HANDLER_PARAMS
+        }
+        if call_handlers:
+            _validate_handlers(call_handlers)
+            handlers.update(call_handlers)
+        return {k: v for k, v in handlers.items() if v is not None}
+
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
         messages = req_dict.pop("messages", [])
@@ -94,12 +110,15 @@ class ClaudeCodeCLIEndpoint(AgenticEndpoint):
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
+        handlers = self._runtime_handlers(kwargs)
         if isinstance(request, dict) and "request" in request:
             request_obj = request["request"]
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
-        async with contextlib.aclosing(stream_claude_code_cli(request_obj)) as gen:
+        async with contextlib.aclosing(
+            stream_claude_code_cli(request_obj, **handlers)
+        ) as gen:
             async for item in gen:
                 if isinstance(item, ClaudeSession):
                     continue
@@ -174,13 +193,12 @@ class ClaudeCodeCLIEndpoint(AgenticEndpoint):
         session: ClaudeSession = ClaudeSession()
         system: dict = None
         _cancelled = False
+        handlers = self._runtime_handlers(kwargs)
 
         # 1. stream the Claude Code response
         try:
             async with contextlib.aclosing(
-                stream_claude_code_cli(
-                    request, session, **self.claude_handlers, **kwargs
-                )
+                stream_claude_code_cli(request, session, **handlers)
             ) as gen:
                 async for chunk in gen:
                     if isinstance(chunk, dict):
@@ -206,9 +224,7 @@ class ClaudeCodeCLIEndpoint(AgenticEndpoint):
             if system:
                 req2.resume = system.get("session_id") if system else None
 
-            async with contextlib.aclosing(
-                stream_claude_code_cli(req2, session, **kwargs)
-            ) as gen2:
+            async with contextlib.aclosing(stream_claude_code_cli(req2, session)) as gen2:
                 async for chunk in gen2:
                     responses.append(chunk)
                     if isinstance(chunk, ClaudeSession):

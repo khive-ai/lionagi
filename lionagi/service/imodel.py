@@ -475,6 +475,7 @@ class iModel:  # noqa: N801
             circuit_breaker=self.endpoint.circuit_breaker,
             retry_config=self.endpoint.retry_config,
         )
+        self.endpoint.copy_runtime_state_to(new_endpoint)
         if (
             share_session
             and isinstance(new_endpoint, CLIEndpoint)

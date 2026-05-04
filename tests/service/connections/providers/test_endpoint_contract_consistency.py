@@ -2,6 +2,7 @@ from lionagi.providers.anthropic.claude_code.endpoint import ClaudeCodeCLIEndpoi
 from lionagi.providers.google.gemini_code.endpoint import GeminiCLIEndpoint
 from lionagi.providers.openai.codex.endpoint import CodexCLIEndpoint
 from lionagi.providers.pi.cli.endpoint import PiCLIEndpoint
+from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.connections.registry import EndpointRegistry
@@ -79,6 +80,73 @@ def test_openai_embed_and_response_payloads_filter_internal_kwargs():
         {"model": "gpt-5", "input": "hello", "branch": "drop"}
     )
     assert payload == {"model": "gpt-5", "input": "hello"}
+
+
+def test_openai_response_payload_keeps_current_api_fields_and_prompt_only():
+    response = EndpointRegistry.match("openai", "response")
+
+    payload, _ = response.create_payload(
+        {
+            "model": "gpt-5",
+            "input": "hello",
+            "service_tier": "flex",
+            "stream_options": {"include_usage": True},
+            "prompt_cache_key": "cache-key",
+            "branch": "drop",
+        }
+    )
+    assert payload == {
+        "model": "gpt-5",
+        "input": "hello",
+        "service_tier": "flex",
+        "stream_options": {"include_usage": True},
+        "prompt_cache_key": "cache-key",
+    }
+
+    prompt_payload, _ = response.create_payload(
+        {"model": "gpt-5", "prompt": {"id": "pmpt_123"}}
+    )
+    assert prompt_payload == {"model": "gpt-5", "prompt": {"id": "pmpt_123"}}
+
+
+def test_imodel_copy_preserves_endpoint_runtime_handlers():
+    model = iModel(provider="codex", codex_handlers={"on_text": _noop})
+    copied = model.copy()
+
+    assert copied.endpoint.codex_handlers["on_text"] is _noop
+    assert "codex_handlers" not in copied.endpoint.config.kwargs
+
+    api_call = model.create_api_calling(prompt="hello", on_text=_noop)
+    assert api_call.call_kwargs == {"on_text": _noop}
+
+
+def test_api_calling_call_kwargs_are_copyable_but_not_serialized():
+    endpoint = Endpoint(
+        EndpointConfig(
+            name="test",
+            provider="test",
+            base_url="https://example.test",
+            endpoint="chat",
+            api_key="dummy-key-test",
+        )
+    )
+    api_call = APICalling(
+        payload={"model": "test"},
+        endpoint=endpoint,
+        call_kwargs={"file": b"audio"},
+    )
+
+    assert "call_kwargs" not in api_call.model_dump()
+    assert api_call.as_fresh_event().call_kwargs == {"file": b"audio"}
+
+
+def test_public_lionagi_star_import_does_not_reference_missing_exports():
+    import lionagi
+
+    namespace = {name: getattr(lionagi, name) for name in lionagi.__all__}
+
+    assert "Session" in namespace
+    assert "ResultCondition" not in lionagi.__all__
 
 
 def test_base_http_stream_lines_convert_to_stream_chunks():

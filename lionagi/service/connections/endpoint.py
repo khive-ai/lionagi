@@ -66,6 +66,9 @@ class Endpoint:
             **self.config.client_kwargs,
         )
 
+    def copy_runtime_state_to(self, other: "Endpoint") -> None:
+        """Copy non-serialized runtime state to a same-type endpoint clone."""
+
     @property
     def request_options(self):
         return self.config.request_options
@@ -373,12 +376,76 @@ class Endpoint:
                         headers=response.headers,
                     )
 
-                async for line in response.content:
-                    if line:
-                        text = line.decode("utf-8").strip()
-                        if not text:
-                            continue
-                        yield self._line_to_stream_chunk(text)
+                pending = ""
+                event_data: list[str] = []
+                async for raw in response.content:
+                    if not raw:
+                        continue
+                    pending += raw.decode("utf-8")
+                    while "\n" in pending:
+                        line, pending = pending.split("\n", 1)
+                        chunk = self._stream_line_to_chunk(line, event_data)
+                        if chunk is not None:
+                            yield chunk
+
+                if pending:
+                    chunk = self._stream_line_to_chunk(pending, event_data)
+                    if chunk is not None:
+                        yield chunk
+                if event_data:
+                    yield self._line_to_stream_chunk("\n".join(event_data))
+
+    def _stream_line_to_chunk(
+        self,
+        line: str,
+        event_data: list[str],
+    ) -> StreamChunk | None:
+        """Parse one HTTP stream line, handling SSE framing when present."""
+        text = line.rstrip("\r")
+        stripped = text.strip()
+
+        if not stripped:
+            if not event_data:
+                return None
+            data = "\n".join(event_data)
+            event_data.clear()
+            return self._line_to_stream_chunk(data)
+
+        if stripped.startswith(":"):
+            return None
+
+        if stripped.startswith(("event:", "id:", "retry:")):
+            return None
+
+        if stripped.startswith("data:"):
+            data = stripped.removeprefix("data:")
+            if data.startswith(" "):
+                data = data[1:]
+            if event_data and self._looks_like_complete_stream_data(event_data):
+                previous = "\n".join(event_data)
+                event_data.clear()
+                event_data.append(data)
+                return self._line_to_stream_chunk(previous)
+            event_data.append(data)
+            return None
+
+        if event_data:
+            data = "\n".join(event_data)
+            event_data.clear()
+            return self._line_to_stream_chunk(data)
+
+        return self._line_to_stream_chunk(stripped)
+
+    @staticmethod
+    def _looks_like_complete_stream_data(data_lines: list[str]) -> bool:
+        data = "\n".join(data_lines).strip()
+        if data == "[DONE]":
+            return True
+        try:
+            json.loads(data)
+        except json.JSONDecodeError:
+            return False
+        return True
 
     def _line_to_stream_chunk(self, line: str) -> StreamChunk:
         """Convert a generic HTTP stream line into the StreamChunk contract."""

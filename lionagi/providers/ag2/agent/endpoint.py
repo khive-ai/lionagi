@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from copy import deepcopy
 from typing import Any
 
 from pydantic import BaseModel
@@ -45,6 +46,12 @@ class AG2BetaEndpoint(AgenticEndpoint):
         self._agent_config: dict[str, Any] = ag2_kw.get("agent_config", {})
         self._llm_config: Any = ag2_kw.get("llm_config", None)
         self._tool_registry: dict[str, Any] = ag2_kw.get("tool_registry", {})
+
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, AG2BetaEndpoint):
+            other._agent_config = _copy_runtime_value(self._agent_config)
+            other._llm_config = _copy_runtime_value(self._llm_config)
+            other._tool_registry = _copy_runtime_value(self._tool_registry)
 
     async def _call(self, payload, headers, **kwargs):
         """Collect all stream events and return a structured result dict.
@@ -266,3 +273,10 @@ def _resolve_model_config(llm_config: Any) -> Any:
         return OllamaConfig(**kwargs)
 
     raise ValueError(f"Unknown api_type: {api_type}")
+
+
+def _copy_runtime_value(value):
+    try:
+        return deepcopy(value)
+    except Exception:
+        return value
