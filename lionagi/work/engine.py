@@ -75,7 +75,11 @@ class WorkerEngine:
         self._task_queue: deque[UUID] = deque()
         self._stopped = False
         self._operation_names: dict[str, str] = {}
-        self._operation_prefix = f"_work_{id(worker):x}_"
+        namespace = getattr(worker, "_operation_namespace", None)
+        if namespace is None:
+            namespace = uuid4().hex
+            worker._operation_namespace = namespace
+        self._operation_prefix = f"_work_{namespace}_"
 
     async def add_task(
         self,
@@ -124,11 +128,19 @@ class WorkerEngine:
     def _ensure_session(self) -> Session:
         if self.worker.session is not None:
             return self.worker.session
+        if self._uses_branch_operations():
+            raise ValueError(
+                "WorkerEngine requires an explicit Session when any @work "
+                "method declares operation=..."
+            )
 
         from lionagi.session.session import Session
 
         self.worker.session = Session()
         return self.worker.session
+
+    def _uses_branch_operations(self) -> bool:
+        return any(config.operation for _, config in self.worker._work_methods.values())
 
     async def _start_worker(self) -> None:
         """Start the Worker lifecycle without reserving ``start`` as a work name."""

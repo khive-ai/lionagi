@@ -409,6 +409,10 @@ class OperationGraphBuilder:
         """
         input_fields = list(getattr(form, "input_fields", []) or [])
         output_fields = list(getattr(form, "output_fields", []) or [])
+        collect_input_fields = list(
+            (parameters or {}).get("form_collect_input_fields", [])
+            or operation_params.get("form_collect_input_fields", [])
+        )
         form_inputs = {}
         if hasattr(form, "get_inputs"):
             form_inputs = form.get_inputs()
@@ -421,6 +425,7 @@ class OperationGraphBuilder:
             "form_resource": getattr(form, "resource", None),
             "form_input_fields": input_fields,
             "form_output_fields": output_fields,
+            "form_collect_input_fields": collect_input_fields,
             **(metadata or {}),
         }
         form_parameters = {
@@ -430,6 +435,7 @@ class OperationGraphBuilder:
             "form_input_fields": input_fields,
             "form_output_fields": output_fields,
             "form_resource": getattr(form, "resource", None),
+            "form_collect_input_fields": collect_input_fields,
             **(parameters or {}),
         }
         form_parameters.update(operation_params)

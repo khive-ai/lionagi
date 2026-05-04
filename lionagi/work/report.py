@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
 __all__ = ("Report",)
 
+_MISSING = object()
+
 
 class Report(Element):
     """Artifact state for a multi-form workflow.
@@ -42,10 +44,19 @@ class Report(Element):
     input_fields: list[str] = Field(default_factory=list)
     output_fields: list[str] = Field(default_factory=list)
     forms: list[Form] = Field(default_factory=list)
+    allow_duplicate_outputs: bool = Field(
+        default=False,
+        description=(
+            "Allow multiple forms to produce the same output field. Consumers "
+            "of duplicate fields receive a list in form_inputs."
+        ),
+    )
 
     _completed_ids: set[str] = PrivateAttr(default_factory=set)
     _initial_inputs: dict[str, Any] = PrivateAttr(default_factory=dict)
     _node_by_form_id: dict[str, UUID] = PrivateAttr(default_factory=dict)
+    _producer_cache: dict[str, list[Form]] = PrivateAttr(default_factory=dict)
+    _producer_cache_fingerprint: tuple | None = PrivateAttr(default=None)
 
     def model_post_init(self, _: Any) -> None:
         if self.assignment and not self.input_fields and not self.output_fields:
@@ -76,7 +87,7 @@ class Report(Element):
 
     def validate(self) -> None:
         """Validate field wiring before compiling or executing the report."""
-        producer_by_field = self._producer_by_field()
+        producer_by_field = self._producer_map()
 
         for field in self.output_fields:
             if field not in self._initial_inputs and field not in producer_by_field:
@@ -96,29 +107,22 @@ class Report(Element):
         """Resolve a form's declared inputs from completed producers or initial data."""
         resolved = {}
         for field in form.input_fields:
-            producer = self._find_completed_producer(field)
-            if producer is not None:
-                data = producer.get_output_data()
-                if field in data:
-                    resolved[field] = data[field]
-            elif field in self._initial_inputs:
-                resolved[field] = self._initial_inputs[field]
+            value = self._resolved_field_value(field, consumer=form)
+            if value is not _MISSING:
+                resolved[field] = value
         return resolved
 
     def cross_branch_inputs(self, form: Form) -> dict[str, Any]:
         """Resolve only declared inputs produced by other branches or initial input."""
-        my_branch = form.branch or "_default"
         cross = {}
         for field in form.input_fields:
-            producer = self._find_completed_producer(field)
-            if producer is not None:
-                producer_branch = producer.branch or "_default"
-                if producer_branch != my_branch:
-                    data = producer.get_output_data()
-                    if field in data:
-                        cross[field] = data[field]
-            elif field in self._initial_inputs:
-                cross[field] = self._initial_inputs[field]
+            value = self._resolved_field_value(
+                field,
+                consumer=form,
+                cross_branch_only=True,
+            )
+            if value is not _MISSING:
+                cross[field] = value
         return cross
 
     def next_forms(self) -> list[Form]:
@@ -155,11 +159,12 @@ class Report(Element):
         if form not in self.forms:
             raise ValueError("Form does not belong to this report")
 
-        producer_by_field = self._producer_by_field()
+        producer_by_field = self._producer_map()
         deps: list[Form] = []
         for field in form.input_fields:
-            producer = producer_by_field.get(field)
-            if producer is not None and producer is not form and producer not in deps:
+            for producer in producer_by_field.get(field, []):
+                if producer is form or producer in deps:
+                    continue
                 deps.append(producer)
 
         if include_branch_order:
@@ -208,6 +213,7 @@ class Report(Element):
             ]
             branch_ref = self._resolve_branch_ref(form, branches)
             params = self._operation_parameters(form)
+            params["form_collect_input_fields"] = self._collect_input_fields(form)
             if parameter_factory is not None:
                 params = parameter_factory(form, params)
 
@@ -268,13 +274,9 @@ class Report(Element):
     def get_deliverable(self) -> dict[str, Any]:
         result = {}
         for field in self.output_fields:
-            producer = self._find_completed_producer(field)
-            if producer is not None:
-                data = producer.get_output_data()
-                if field in data:
-                    result[field] = data[field]
-            elif field in self._initial_inputs:
-                result[field] = self._initial_inputs[field]
+            value = self._resolved_field_value(field)
+            if value is not _MISSING:
+                result[field] = value
         return result
 
     @property
@@ -314,30 +316,110 @@ class Report(Element):
             return None
         return branches.get(form.branch)
 
+    def _producer_map(self) -> dict[str, list[Form]]:
+        fingerprint = tuple(
+            (str(form.id), form.branch or "_default", tuple(form.output_fields))
+            for form in self.forms
+        )
+        if fingerprint != self._producer_cache_fingerprint:
+            producer_by_field: dict[str, list[Form]] = defaultdict(list)
+            for form in self.forms:
+                for field in form.output_fields:
+                    producer_by_field[field].append(form)
+            self._producer_cache = dict(producer_by_field)
+            self._producer_cache_fingerprint = fingerprint
+
+        self._validate_duplicate_outputs(self._producer_cache)
+        return self._producer_cache
+
     def _producer_by_field(self) -> dict[str, Form]:
-        producer_by_field = {}
-        duplicate_fields = defaultdict(list)
-        for form in self.forms:
-            for field in form.output_fields:
-                if field in producer_by_field:
-                    duplicate_fields[field].extend(
-                        [producer_by_field[field].assignment, form.assignment]
-                    )
-                else:
-                    producer_by_field[field] = form
+        return {
+            field: producers[0]
+            for field, producers in self._producer_map().items()
+            if producers
+        }
+
+    def _validate_duplicate_outputs(
+        self,
+        producer_by_field: dict[str, list[Form]],
+    ) -> None:
+        if self.allow_duplicate_outputs:
+            return
+        duplicate_fields = {}
+        for field, producers in producer_by_field.items():
+            if len(producers) > 1:
+                duplicate_fields[field] = sorted(
+                    {producer.assignment for producer in producers}
+                )
         if duplicate_fields:
-            details = {
-                field: sorted(set(assignments))
-                for field, assignments in duplicate_fields.items()
-            }
-            raise ValueError(f"Duplicate form output fields: {details}")
-        return producer_by_field
+            raise ValueError(
+                "Duplicate form output fields: "
+                f"{duplicate_fields}. Set allow_duplicate_outputs=True to "
+                "collect duplicate producer values."
+            )
+
+    def _completed_producers_for_field(
+        self,
+        field: str,
+        *,
+        consumer: Form | None = None,
+        cross_branch_only: bool = False,
+    ) -> tuple[list[Form], list[Form]]:
+        producers = []
+        for form in self._producer_map().get(field, []):
+            if form is consumer:
+                continue
+            if cross_branch_only and consumer is not None:
+                if (form.branch or "_default") == (consumer.branch or "_default"):
+                    continue
+            producers.append(form)
+        completed = [
+            producer
+            for producer in producers
+            if str(producer.id) in self._completed_ids
+            and field in producer.get_output_data()
+        ]
+        return producers, completed
+
+    def _resolved_field_value(
+        self,
+        field: str,
+        *,
+        consumer: Form | None = None,
+        cross_branch_only: bool = False,
+    ) -> Any:
+        producers, completed = self._completed_producers_for_field(
+            field,
+            consumer=consumer,
+            cross_branch_only=cross_branch_only,
+        )
+        if producers:
+            if len(completed) != len(producers):
+                return _MISSING
+            values = [producer.get_output_data()[field] for producer in completed]
+            return values[0] if len(values) == 1 else values
+        if field in self._initial_inputs:
+            return self._initial_inputs[field]
+        return _MISSING
 
     def _find_completed_producer(self, field: str) -> Form | None:
-        producer = self._producer_by_field().get(field)
-        if producer is not None and str(producer.id) in self._completed_ids:
-            return producer
-        return None
+        _, completed = self._completed_producers_for_field(field)
+        return completed[0] if len(completed) == 1 else None
+
+    def _collect_input_fields(self, form: Form) -> list[str]:
+        producer_map = self._producer_map()
+        return [
+            field
+            for field in form.input_fields
+            if len(
+                [
+                    producer
+                    for producer in producer_map.get(field, [])
+                    if producer is not form
+                ]
+            )
+            > 1
+        ]
 
     def _previous_same_branch_form(self, form: Form) -> Form | None:
         idx = self.forms.index(form)

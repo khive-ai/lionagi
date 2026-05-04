@@ -44,7 +44,7 @@ import functools
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
     from lionagi.session.branch import Branch
@@ -109,6 +109,7 @@ class Worker:
         self.forms: dict[str | UUID, Form] = {}
         self._work_methods: dict[str, tuple[Callable, WorkConfig]] = {}
         self._work_links: list[WorkLink] = []
+        self._operation_namespace = uuid4().hex
         self._stopped = False
         self._collect_work_metadata()
 
@@ -220,8 +221,8 @@ def work(
                 and hasattr(self_ref, "branch")
                 and self_ref.branch is not None
             ):
-                branch = self_ref.branch
-                meth = branch.get_operation(config.operation)
+                target_branch = self_ref.branch
+                meth = target_branch.get_operation(config.operation)
                 if meth is None:
                     raise ValueError(
                         f"Branch has no operation '{config.operation}'"

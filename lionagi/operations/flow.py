@@ -196,26 +196,14 @@ class DependencyAwareExecutor:
                 base_branch = self._default_branch or self.session.default_branch
                 branch_clone = base_branch.clone(sender=self.session.id)
 
-                # Store in our operation branches map
+                # Store in our operation branches map and include it through
+                # Session so branch wiring matches normal session branches.
                 self.operation_branches[operation.id] = branch_clone
-                branch_clone._operation_manager = self.session._operation_manager
-
-                # Add to session branches collection directly
-                # Check if this is a real branch (not a mock)
                 try:
-                    # Try to validate the ID
-                    if hasattr(branch_clone, "id"):
-                        branch_id = branch_clone.id
-                        # Only add to collections if it's a valid ID
-                        if isinstance(branch_id, (str, UUID)) or (
-                            hasattr(branch_id, "__str__")
-                            and not hasattr(branch_id, "_mock_name")
-                        ):
-                            self.session.branches.collections[branch_id] = branch_clone
-                            self.session.branches.progression.append(branch_id)
+                    self.session.include_branches(branch_clone)
                 except Exception:
                     logger.debug(
-                        "Skipping branch clone registration: validation failed "
+                        "Skipping branch clone registration: include failed "
                         "(likely a mock object in test context)."
                     )
 
@@ -633,15 +621,41 @@ class DependencyAwareExecutor:
         operation: Operation,
         predecessors: list[Operation],
     ) -> None:
-        """Inject named form inputs from flow context and predecessor outputs."""
+        """Inject form inputs under ``form_inputs`` only.
+
+        Form field names are user-controlled and can collide with branch
+        operation parameters such as ``instruction`` or ``context``. Keep them
+        namespaced so the operation contract stays unambiguous.
+        """
         input_fields = operation.metadata.get("form_input_fields") or (
             operation.parameters.get("form_input_fields", [])
         )
+        collect_fields = set(
+            operation.metadata.get("form_collect_input_fields")
+            or operation.parameters.get("form_collect_input_fields", [])
+        )
         values = dict(operation.parameters.get("form_inputs") or {})
 
+        def set_form_value(field: str, value: Any) -> None:
+            if field not in collect_fields:
+                values[field] = value
+                return
+            if field not in values or values[field] is None:
+                values[field] = []
+            elif not isinstance(values[field], list):
+                values[field] = [values[field]]
+            if isinstance(value, list):
+                values[field].extend(value)
+            else:
+                values[field].append(value)
+
         for field in input_fields:
-            if field in self.context.content:
-                values.setdefault(field, self.context.content[field])
+            if field in self.context.content and field not in values:
+                if field in collect_fields:
+                    value = self.context.content[field]
+                    values[field] = value if isinstance(value, list) else [value]
+                else:
+                    values[field] = self.context.content[field]
 
         for pred in predecessors:
             if pred.id in self.skipped_operations:
@@ -661,11 +675,9 @@ class DependencyAwareExecutor:
             )
             for field in input_fields:
                 if field in result and (not output_fields or field in output_fields):
-                    values[field] = result[field]
+                    set_form_value(field, result[field])
 
         operation.parameters["form_inputs"] = values
-        for field, value in values.items():
-            operation.parameters.setdefault(field, value)
 
     def _validate_edge_conditions(self):
         """Validate that all edge conditions are properly configured."""
