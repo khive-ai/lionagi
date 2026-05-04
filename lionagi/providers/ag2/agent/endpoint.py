@@ -35,16 +35,86 @@ class AG2BetaEndpoint(AgenticEndpoint):
     DEFAULT_CONCURRENCY_LIMIT = 1
     DEFAULT_QUEUE_CAPACITY = 3
 
+    # Keys consumed by this endpoint — must not leak into EndpointConfig.kwargs
+    _AG2_KEYS = frozenset({"agent_config", "llm_config", "tool_registry"})
+
     def __init__(self, config: EndpointConfig | None = None, **kwargs):
+        # Pop AG2-specific kwargs before they reach EndpointConfig
+        ag2_kw = {k: kwargs.pop(k) for k in list(kwargs) if k in self._AG2_KEYS}
         super().__init__(config=config, **kwargs)
-        self._agent_config: dict[str, Any] = kwargs.get("agent_config", {})
-        self._llm_config: Any = kwargs.get("llm_config", None)
-        self._tool_registry: dict[str, Any] = kwargs.get("tool_registry", {})
+        self._agent_config: dict[str, Any] = ag2_kw.get("agent_config", {})
+        self._llm_config: Any = ag2_kw.get("llm_config", None)
+        self._tool_registry: dict[str, Any] = ag2_kw.get("tool_registry", {})
 
     async def _call(self, payload, headers, **kwargs):
-        raise NotImplementedError(
-            "AG2 beta Agent is stream-only. Use stream() to iterate events."
-        )
+        """Collect all stream events and return a structured result dict.
+
+        Accumulates every StreamChunk from stream() into a rich result dict
+        mirroring the claude_code / codex pattern:
+          {
+            "result":       str  — final text from the agent response,
+            "transcript":   list — ordered list of all events,
+            "tool_calls":   list — tool_use entries (name + args),
+            "tool_results": list — tool_result entries (output),
+          }
+        """
+        transcript: list[dict] = []
+        text_parts: list[str] = []
+        tool_calls: list[dict] = []
+        tool_results: list[dict] = []
+
+        async for chunk in self.stream(payload, **kwargs):
+            agent = (chunk.metadata or {}).get("agent", "unknown")
+
+            if chunk.type == "text":
+                if chunk.content:
+                    text_parts.append(chunk.content)
+                entry: dict = {"type": "text", "agent": agent}
+                if chunk.content:
+                    entry["content"] = chunk.content
+                typed_result = (chunk.metadata or {}).get("typed_result")
+                if typed_result is not None:
+                    entry["typed_result"] = typed_result
+                transcript.append(entry)
+
+            elif chunk.type == "tool_use":
+                entry = {
+                    "type": "tool_use",
+                    "agent": agent,
+                    "name": chunk.tool_name,
+                    "id": chunk.tool_id,
+                    "args": chunk.tool_input,
+                }
+                tool_calls.append(entry)
+                transcript.append(entry)
+
+            elif chunk.type == "tool_result":
+                entry = {
+                    "type": "tool_result",
+                    "agent": agent,
+                    "output": chunk.tool_output,
+                    "tool_name": (chunk.metadata or {}).get("tool_name"),
+                }
+                tool_results.append(entry)
+                transcript.append(entry)
+
+            elif chunk.type == "system":
+                entry = {"type": "system"}
+                if chunk.content:
+                    entry["content"] = chunk.content
+                meta = chunk.metadata or {}
+                if meta:
+                    entry["metadata"] = meta
+                transcript.append(entry)
+
+            # "result" chunk is the terminal sentinel — skip it; we build our own
+
+        return {
+            "result": "\n".join(text_parts),
+            "transcript": transcript,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+        }
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         from .models import AG2AgentRequest
@@ -64,7 +134,7 @@ class AG2BetaEndpoint(AgenticEndpoint):
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
-        from .models import AG2AgentRequest, AgentConfig, run_beta_agent
+        from .models import AgentConfig, run_beta_agent
 
         if isinstance(request, dict) and "request" in request:
             request_obj = request["request"]

@@ -35,16 +35,93 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
     DEFAULT_CONCURRENCY_LIMIT = 1
     DEFAULT_QUEUE_CAPACITY = 3
 
+    # Keys consumed by this endpoint — must not leak into EndpointConfig.kwargs
+    _AG2_KEYS = frozenset(
+        {"agent_configs", "llm_config", "tool_registry", "code_executor"}
+    )
+
     def __init__(self, config: EndpointConfig | None = None, **kwargs):
+        # Pop AG2-specific kwargs before they reach EndpointConfig
+        ag2_kw = {k: kwargs.pop(k) for k in list(kwargs) if k in self._AG2_KEYS}
         super().__init__(config=config, **kwargs)
-        self._agent_configs: list[dict[str, Any]] = kwargs.get("agent_configs", [])
-        self._llm_config: dict[str, Any] = kwargs.get("llm_config", {})
-        self._tool_registry: dict[str, Any] = kwargs.get("tool_registry", {})
+        self._agent_configs: list[dict[str, Any]] = ag2_kw.get("agent_configs", [])
+        self._llm_config: dict[str, Any] = ag2_kw.get("llm_config", {})
+        self._tool_registry: dict[str, Any] = ag2_kw.get("tool_registry", {})
+        self._code_executor: Any = ag2_kw.get("code_executor")
 
     async def _call(self, payload, headers, **kwargs):
-        raise NotImplementedError(
-            "AG2 GroupChat is stream-only. Use stream() to iterate events."
-        )
+        """Collect all stream events and return a structured transcript dict.
+
+        Accumulates every StreamChunk from stream() into a rich result dict
+        mirroring the claude_code / codex pattern:
+          {
+            "result":       str  — final concatenated text from all agents,
+            "transcript":   list — ordered list of all events (text, tool_use,
+                                   tool_result, system),
+            "agents":       list — unique agent names that produced output,
+            "tool_calls":   list — tool_use entries (name + args),
+            "tool_results": list — tool_result entries (output),
+          }
+        """
+        transcript: list[dict] = []
+        text_parts: list[str] = []
+        agents: list[str] = []
+        tool_calls: list[dict] = []
+        tool_results: list[dict] = []
+
+        async for chunk in self.stream(payload, **kwargs):
+            agent = (chunk.metadata or {}).get("agent", "unknown")
+
+            if chunk.type == "text":
+                if chunk.content:
+                    text_parts.append(chunk.content)
+                    if agent and agent not in agents:
+                        agents.append(agent)
+                    transcript.append(
+                        {"agent": agent, "type": "text", "content": chunk.content}
+                    )
+
+            elif chunk.type == "tool_use":
+                entry = {
+                    "agent": agent,
+                    "type": "tool_use",
+                    "name": chunk.tool_name,
+                    "args": chunk.tool_input,
+                }
+                tool_calls.append(entry)
+                transcript.append(entry)
+
+            elif chunk.type == "tool_result":
+                entry = {
+                    "agent": agent,
+                    "type": "tool_result",
+                    "output": chunk.tool_output,
+                    "tool_call_id": (chunk.metadata or {}).get("tool_call_id"),
+                }
+                tool_results.append(entry)
+                transcript.append(entry)
+
+            elif chunk.type == "system":
+                # Speaker-turn and candidate events carry agent metadata
+                entry: dict = {"type": "system"}
+                if chunk.content:
+                    entry["content"] = chunk.content
+                meta = chunk.metadata or {}
+                if meta:
+                    entry["metadata"] = meta
+                if agent and agent != "unknown" and agent not in agents:
+                    agents.append(agent)
+                transcript.append(entry)
+
+            # "result" chunk is the terminal sentinel — skip it; we build our own
+
+        return {
+            "result": "\n".join(text_parts),
+            "transcript": transcript,
+            "agents": agents,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+        }
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         from .models import AG2GroupChatRequest
@@ -85,7 +162,7 @@ class AG2GroupChatEndpoint(AgenticEndpoint):
         agent_configs = kwargs.get("agent_configs", self._agent_configs)
         llm_config = kwargs.get("llm_config", self._llm_config)
         tool_registry = kwargs.get("tool_registry", self._tool_registry)
-        code_executor = kwargs.get("code_executor")
+        code_executor = kwargs.get("code_executor", self._code_executor)
 
         spec = GroupChatSpec(
             name="endpoint_chat",
