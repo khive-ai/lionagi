@@ -12,9 +12,9 @@ from lionagi.providers.google.gemini_code.models import (
     GeminiChunk,
     GeminiCodeRequest,
     GeminiSession,
-    stream_gemini_cli,
 )
 from lionagi.providers.google.gemini_code.models import log as gemini_log
+from lionagi.providers.google.gemini_code.models import stream_gemini_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk

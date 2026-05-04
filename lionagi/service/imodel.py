@@ -263,9 +263,7 @@ class iModel:  # noqa: N801
 
         transport_arg_keys = getattr(self.endpoint, "transport_arg_keys", ())
         call_kwargs = {
-            k: kwargs.pop(k)
-            for k in list(kwargs)
-            if k in transport_arg_keys
+            k: kwargs.pop(k) for k in list(kwargs) if k in transport_arg_keys
         }
 
         # The new Endpoint.create_payload returns (payload, headers)

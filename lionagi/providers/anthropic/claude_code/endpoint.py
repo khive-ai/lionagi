@@ -12,9 +12,9 @@ from lionagi.providers.anthropic.claude_code.models import (
     ClaudeChunk,
     ClaudeCodeRequest,
     ClaudeSession,
-    stream_claude_code_cli,
 )
 from lionagi.providers.anthropic.claude_code.models import log as cc_log
+from lionagi.providers.anthropic.claude_code.models import stream_claude_code_cli
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.types.stream_chunk import StreamChunk
