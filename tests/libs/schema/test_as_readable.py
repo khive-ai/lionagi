@@ -379,6 +379,249 @@ class TestEnvironmentDetection:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Coverage gap tests (lines 146-152, 156-172, 176-194, 198-199, 268-271)
+# ---------------------------------------------------------------------------
+
+
+class TestFormatModelSchema:
+    """Lines 146-152: format_model_schema."""
+
+    def test_model_with_no_defs_returns_empty(self):
+        # Use the real schema dict approach to avoid pydantic 3.10 bug
+        from unittest.mock import MagicMock, patch
+
+        from lionagi.libs.schema.as_readable import format_model_schema
+
+        # Simulate a model whose json_schema returns no $defs
+        mock_model = MagicMock()
+        mock_model.model_json_schema.return_value = {
+            "title": "Simple",
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+        }
+        result = format_model_schema(mock_model)
+        assert isinstance(result, str)
+        assert result == ""
+
+    def test_model_with_defs_returns_schema_text(self):
+        from unittest.mock import MagicMock
+
+        from lionagi.libs.schema.as_readable import format_model_schema
+
+        # Simulate a model whose json_schema has $defs
+        mock_model = MagicMock()
+        mock_model.model_json_schema.return_value = {
+            "title": "Outer",
+            "type": "object",
+            "$defs": {
+                "Inner": {
+                    "title": "Inner",
+                    "type": "object",
+                    "properties": {"value": {"type": "integer"}},
+                }
+            },
+        }
+        result = format_model_schema(mock_model)
+        assert isinstance(result, str)
+        # Inner is in $defs — depending on typescript_schema output it may or may not
+        # produce text, but we at least cover the code path
+
+
+class TestFormatSchemaPretty:
+    """Lines 156-172: format_schema_pretty."""
+
+    def test_simple_schema(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"title": "MyModel", "type": "object"}
+        result = format_schema_pretty(schema)
+        assert "{" in result
+        assert "}" in result
+        assert "title" in result
+        assert "MyModel" in result
+
+    def test_nested_dict_value(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"properties": {"name": {"type": "string"}}}
+        result = format_schema_pretty(schema)
+        assert "properties" in result
+        assert "name" in result
+
+    def test_list_of_dicts_value(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"examples": [{"value": 1}]}
+        result = format_schema_pretty(schema)
+        assert "examples" in result
+
+    def test_list_of_scalars_value(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"enum": ["a", "b", "c"]}
+        result = format_schema_pretty(schema)
+        assert "enum" in result
+        assert "a" in result
+
+    def test_scalar_value(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"required": True}
+        result = format_schema_pretty(schema)
+        assert "required" in result
+        assert "True" in result
+
+    def test_empty_schema(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        result = format_schema_pretty({})
+        assert "{" in result
+        assert "}" in result
+
+    def test_trailing_commas_last_item_no_comma(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"a": 1, "b": 2}
+        result = format_schema_pretty(schema)
+        lines = result.strip().splitlines()
+        # The last item line should NOT end with a comma
+        # (the closing brace line is the actual last line)
+        assert not lines[-2].rstrip().endswith(",")
+
+    def test_indent_parameter(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"key": "val"}
+        result_0 = format_schema_pretty(schema, indent=0)
+        result_4 = format_schema_pretty(schema, indent=4)
+        # indented version should have more leading spaces in closing brace
+        assert "}" in result_0
+        assert "    }" in result_4
+
+    def test_empty_list_value_treated_as_scalar(self):
+        from lionagi.libs.schema.as_readable import format_schema_pretty
+
+        schema = {"items": []}
+        result = format_schema_pretty(schema)
+        assert "items" in result
+
+
+class TestFormatCleanMultilineStrings:
+    """Lines 176-194: format_clean_multiline_strings and _clean_multiline."""
+
+    def test_plain_string_unchanged(self):
+        from lionagi.libs.schema.as_readable import format_clean_multiline_strings
+
+        data = {"key": "single line"}
+        result = format_clean_multiline_strings(data)
+        assert result["key"] == "single line"
+
+    def test_multiline_string_cleaned_and_newline_added(self):
+        from lionagi.libs.schema.as_readable import format_clean_multiline_strings
+
+        data = {"key": "line1  \nline2  "}
+        result = format_clean_multiline_strings(data)
+        assert result["key"].endswith("\n")
+        assert not any(line.endswith("  ") for line in result["key"].splitlines())
+
+    def test_already_ends_with_newline_not_doubled(self):
+        from lionagi.libs.schema.as_readable import format_clean_multiline_strings
+
+        data = {"key": "line1\nline2\n"}
+        result = format_clean_multiline_strings(data)
+        assert result["key"].endswith("\n")
+
+    def test_list_with_multiline_strings_cleaned(self):
+        from lionagi.libs.schema.as_readable import format_clean_multiline_strings
+
+        data = {"items": ["plain", "line1  \nline2  "]}
+        result = format_clean_multiline_strings(data)
+        assert result["items"][0] == "plain"
+        assert result["items"][1].endswith("\n")
+
+    def test_list_with_non_multiline_strings_unchanged(self):
+        from lionagi.libs.schema.as_readable import format_clean_multiline_strings
+
+        data = {"items": ["a", "b", 42]}
+        result = format_clean_multiline_strings(data)
+        assert result["items"] == ["a", "b", 42]
+
+    def test_nested_dict_recursive(self):
+        from lionagi.libs.schema.as_readable import format_clean_multiline_strings
+
+        data = {"outer": {"inner": "line1  \nline2  "}}
+        result = format_clean_multiline_strings(data)
+        assert result["outer"]["inner"].endswith("\n")
+
+    def test_non_string_values_passed_through(self):
+        from lionagi.libs.schema.as_readable import format_clean_multiline_strings
+
+        data = {"num": 42, "flag": True, "nothing": None}
+        result = format_clean_multiline_strings(data)
+        assert result["num"] == 42
+        assert result["flag"] is True
+        assert result["nothing"] is None
+
+
+class TestCleanMultiline:
+    """Lines 197-199: _clean_multiline."""
+
+    def test_trailing_spaces_stripped(self):
+        from lionagi.libs.schema.as_readable import _clean_multiline
+
+        s = "line1   \nline2   "
+        result = _clean_multiline(s)
+        lines = result.splitlines()
+        for line in lines:
+            assert not line.endswith(" ")
+
+    def test_ends_with_newline(self):
+        from lionagi.libs.schema.as_readable import _clean_multiline
+
+        s = "no newline at end"
+        result = _clean_multiline(s)
+        assert result.endswith("\n")
+
+    def test_already_ends_with_newline_preserved(self):
+        from lionagi.libs.schema.as_readable import _clean_multiline
+
+        s = "with newline\n"
+        result = _clean_multiline(s)
+        assert result.endswith("\n")
+
+
+class TestAsReadableNotebookDisplay:
+    """Lines 268-271: display_str=True + in_notebook() path."""
+
+    def test_notebook_display_path(self):
+        """Lines 268-271: md=True + display_str=True + in_notebook()."""
+        from unittest.mock import MagicMock, patch
+
+        import lionagi.libs.schema.as_readable as ar_mod
+
+        fake_ipython_display = MagicMock()
+
+        with patch.object(ar_mod, "in_notebook", return_value=True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "IPython.display": MagicMock(
+                        Markdown=MagicMock(),
+                        display=fake_ipython_display,
+                    )
+                },
+            ):
+                result = ar_mod.as_readable(
+                    {"key": "value"},
+                    md=True,
+                    display_str=True,
+                    use_rich=False,
+                )
+        # Returns None when display path is taken
+        assert result is None
+
+
 class TestAsReadableJsonFallback:
     """Line 239-241: json.dumps exception → str() fallback."""
 

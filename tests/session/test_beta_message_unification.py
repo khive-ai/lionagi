@@ -1,7 +1,7 @@
 # Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from lionagi.beta.resource.flow import Flow
+from lionagi.protocols.generic.flow import Flow
 from lionagi.beta.session.session import Session
 from lionagi.protocols.messages import Message
 

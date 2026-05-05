@@ -175,3 +175,4 @@ cython_debug/
 
 performance_results.json
 coverage.json
+cov_final.json

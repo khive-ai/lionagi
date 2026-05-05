@@ -157,8 +157,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         # Legacy registry
         LION_CLASS_REGISTRY[cls.class_name(full=True)] = cls
 
-        # Beta registries
-        config = cls.get_config()
+        # Beta registries — only activate for new-style NodeConfig
+        config = cls.node_config
+        if config is None or not isinstance(config, NodeConfig):
+            return
 
         if config.polymorphic:
             registry_key = (
@@ -264,7 +266,12 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         content_serializer: Callable[[Any], Any] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        config = self.get_config()
+        config = self.node_config
+        if config is None or not isinstance(config, NodeConfig):
+            return super().to_dict(
+                mode=mode, created_at_format=created_at_format, meta_key=meta_key, **kwargs
+            )
+
         content_type = (
             config.content_type
             if not config.is_sentinel_field("content_type")
@@ -323,7 +330,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         **kwargs: Any,
     ) -> Node:
         data = data.copy()
-        config = cls.get_config()
+        config = cls.node_config
+        if config is None or not isinstance(config, NodeConfig):
+            return cls.model_validate(data, **kwargs)
+
 
         if from_row and config.flatten_content and "content" not in data:
             content_type = (
@@ -386,7 +396,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             return
 
         if config.track_updated_at:
-            ts = now_utc()
+            ts = datetime.now(tz=timezone.utc).isoformat()
             if self._has_real_field("updated_at"):
                 self.updated_at = ts
             else:
@@ -418,7 +428,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
                 "Enable with NodeConfig(soft_delete=True)."
             )
 
-        ts = now_utc()
+        ts = datetime.now(tz=timezone.utc).isoformat()
 
         if self._has_real_field("is_deleted"):
             self.is_deleted = True

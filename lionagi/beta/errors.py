@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from .protocols import Serializable, implements
+from lionagi.protocols.contracts import Serializable, implements
 
 __all__ = (
     "AccessError",

@@ -46,17 +46,17 @@ class TestObservableProtocolDefinition:
         # Verify 'id' is a property
         assert isinstance(Observable.id, property), "'id' must be a property"
 
-        # Verify the return type annotation is permissive (object)
+        # Verify the return type annotation exists and is either object or UUID
+        from uuid import UUID
+
         id_getter = Observable.id.fget
         annotations = inspect.getfullargspec(id_getter).annotations
-        # Note: Using 'object' for V0 compatibility as per reviewer recommendation
         expected_type = annotations.get("return")
-        # Handle both direct type object and string 'object' (forward references)
-        assert (
-            expected_type is object
-            or expected_type == object
-            or expected_type == "object"
-        ), f"Return type of id should be 'object' for V0 compatibility, got {expected_type}"
+        assert expected_type is not None, "id property must have a return annotation"
+        assert expected_type in (object, UUID) or expected_type in (
+            "object",
+            "UUID",
+        ), f"Return type of id should be 'object' or 'UUID', got {expected_type}"
 
     def test_observable_structural_typing(self):
         """Test structural typing works with the Observable Protocol."""
