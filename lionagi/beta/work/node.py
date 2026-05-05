@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, PrivateAttr
 
-from lionagi.beta.core.base.event import Event
+from lionagi.protocols.generic.event import Event
 from lionagi.beta.core.base.node import Node
 from lionagi.beta.session.context import RequestContext
 

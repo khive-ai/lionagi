@@ -11,7 +11,7 @@ from typing_extensions import Self
 from lionagi._errors import ConfigurationError, NotFoundError, QueueFullError, ValidationError
 from lionagi.ln import concurrency
 
-from .event import Event, EventStatus
+from lionagi.protocols.generic.event import Event, EventStatus
 from .flow import Flow
 from .pile import Pile
 from lionagi.protocols.generic.progression import Progression

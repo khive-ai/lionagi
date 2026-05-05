@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
-from lionagi.beta.core.base.element import Element
+from lionagi.protocols.generic.element import Element
 
 __all__ = ("Form", "ParsedAssignment", "parse_assignment", "parse_full_assignment")
 

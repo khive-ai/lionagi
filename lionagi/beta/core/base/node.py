@@ -30,7 +30,7 @@ from lionagi.ln._hash import compute_hash
 from lionagi.ln._json_dump import json_dumps
 from lionagi.ln._utils import now_utc
 
-from .element import Element
+from lionagi.protocols.generic.element import Element
 
 # --- Registries ---
 # NODE_REGISTRY: Polymorphic lookup by class name (full or short)

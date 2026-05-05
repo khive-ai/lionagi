@@ -31,7 +31,7 @@ from lionagi.ln.concurrency import (
     get_cancelled_exc_class,
 )
 
-from .element import LN_ELEMENT_FIELDS, Element
+from lionagi.protocols.generic.element import LN_ELEMENT_FIELDS, Element
 
 __all__ = (
     "Event",

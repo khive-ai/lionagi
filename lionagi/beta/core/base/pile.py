@@ -25,7 +25,7 @@ from lionagi.ln._utils import extract_types, load_type_from_string, synchronized
 from lionagi.ln.concurrency import Lock as AsyncLock
 from lionagi.ln.types._sentinel import Unset, UnsetType, is_unset
 
-from .element import Element
+from lionagi.protocols.generic.element import Element
 from lionagi.protocols.generic.progression import Progression
 
 __all__ = ("Pile",)
@@ -461,7 +461,7 @@ class Pile(Element, Generic[T]):
         item_meta_key: str | UnsetType = Unset,
         **kwargs: Any,
     ) -> Pile[T]:
-        from .element import Element
+        from lionagi.protocols.generic.element import Element
 
         data = data.copy()
 

@@ -6,10 +6,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy as _copy
+import math
 from enum import Enum as _Enum
 from typing import Any, ClassVar
 
-from pydantic import Field, PrivateAttr, field_serializer
+from pydantic import Field, PrivateAttr, field_serializer, field_validator
 
 from lionagi import ln
 from lionagi.ln.concurrency._compat import ExceptionGroup  # noqa: A004
@@ -261,7 +262,21 @@ class Event(Element):
     """
 
     execution: Execution = Field(default_factory=Execution)
+    timeout: float | None = Field(None, exclude=True)
     streaming: bool = Field(False, exclude=True)
+
+    @field_validator("timeout")
+    @classmethod
+    def _validate_timeout(cls, v: Any) -> float | None:
+        if v is None:
+            return None
+        if not isinstance(v, (int, float)):
+            raise ValueError(f"timeout must be a number, got {type(v)}")
+        if not math.isfinite(v):
+            raise ValueError(f"timeout must be finite, got {v}")
+        if v <= 0:
+            raise ValueError(f"timeout must be positive, got {v}")
+        return float(v)
 
     # Lazily-created asyncio.Event signalled on terminal status transitions.
     _completion_event: asyncio.Event | None = PrivateAttr(default=None)

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import Self, override
 
-from lionagi.beta.core.base.event import Event
+from lionagi.protocols.generic.event import Event
 from lionagi.beta.core.base.processor import Executor, Processor
 from lionagi.beta.resource.backend import Calling
 from lionagi.ln.concurrency import current_time as _now

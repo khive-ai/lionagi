@@ -74,10 +74,10 @@ from lionagi.beta.resource.service import Normalized, ResourceMeta, Service, res
 # These are accessed via __getattr__ to keep core import startup minimal.
 
 _LAZY: dict[str, tuple[str, str]] = {
-    "Element": ("lionagi.beta.core.base.element", "Element"),
-    "Event": ("lionagi.beta.core.base.event", "Event"),
-    "EventStatus": ("lionagi.beta.core.base.event", "EventStatus"),
-    "Execution": ("lionagi.beta.core.base.event", "Execution"),
+    "Element": ("lionagi.protocols.generic.element", "Element"),
+    "Event": ("lionagi.protocols.generic.event", "Event"),
+    "EventStatus": ("lionagi.protocols.generic.event", "EventStatus"),
+    "Execution": ("lionagi.protocols.generic.event", "Execution"),
     "Pile": ("lionagi.beta.core.base.pile", "Pile"),
     "Progression": ("lionagi.beta.core.base.progression", "Progression"),
     "Node": ("lionagi.beta.core.base.node", "Node"),

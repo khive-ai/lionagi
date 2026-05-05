@@ -16,9 +16,9 @@ from lionagi._errors import NotFoundError
 from lionagi.beta.protocols import Containable, Deserializable, Serializable, implements
 from lionagi.ln._utils import synchronized
 
-from .element import Element
-from .node import Node
-from .pile import Pile
+from lionagi.protocols.generic.element import Element
+from lionagi.beta.core.base.node import Node
+from lionagi.beta.core.base.pile import Pile
 
 __all__ = ("Edge", "EdgeCondition", "Graph")
 

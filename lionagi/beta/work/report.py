@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import Field, PrivateAttr, SkipValidation, field_validator
 
-from lionagi.beta.core.base.element import Element
+from lionagi.protocols.generic.element import Element
 from lionagi.beta.core.base.pile import Pile
 
 from .form import Form, parse_assignment

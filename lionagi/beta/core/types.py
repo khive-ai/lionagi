@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import msgspec
 from pydantic import Field, field_serializer, field_validator
 
-from lionagi.beta.core.base.element import Element
+from lionagi.protocols.generic.element import Element
 
 __all__ = (
     "Capability",

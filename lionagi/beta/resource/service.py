@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import PrivateAttr, model_validator
 
-from lionagi.beta.core.base.element import Element
+from lionagi.protocols.generic.element import Element
 from lionagi.beta.core.base.pile import Pile
 from lionagi._errors import ExistsError, NotFoundError
 from lionagi.ln.types import Operable

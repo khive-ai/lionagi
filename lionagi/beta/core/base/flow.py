@@ -14,8 +14,8 @@ from lionagi._errors import ExistsError, NotFoundError
 from lionagi.beta.protocols import Serializable, implements
 from lionagi.ln._utils import extract_types, synchronized
 
-from .element import Element
-from .pile import Pile
+from lionagi.protocols.generic.element import Element
+from lionagi.beta.core.base.pile import Pile
 from lionagi.protocols.generic.progression import Progression
 
 __all__ = ("Flow",)

@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import Field, PrivateAttr, field_serializer, field_validator
 
-from lionagi.beta.core.base.element import Element
+from lionagi.protocols.generic.element import Element
 from lionagi.beta.core.base.processor import Executor
 from lionagi._errors import ConfigurationError, ExecutionError
 from lionagi.beta.protocols import Invocable, implements
@@ -496,7 +496,7 @@ class iModel(Element):  # noqa: N801
         if not isinstance(v, dict):
             raise ValueError("backend must be a dict or ResourceBackend instance")
 
-        from lionagi.beta.core.base.element import Element
+        from lionagi.protocols.generic.element import Element
 
         backend = Element.from_dict(v)
 

@@ -15,12 +15,14 @@ from lionagi._class_registry import get_class
 from lionagi.ln._json_dump import get_orjson_default, json_dumps
 from lionagi.ln._utils import now_utc
 from lionagi.ln.types import not_sentinel
+from lionagi.ln.types._sentinel import Unset, UnsetType, is_unset
 from lionagi.utils import import_module, to_dict
 
 from .._concepts import Collective, Observable, Ordering
 
 __all__ = (
     "Element",
+    "LN_ELEMENT_FIELDS",
     "validate_order",
 )
 
@@ -163,68 +165,144 @@ class Element(BaseModel, Observable):
     def _to_dict(self, **kw) -> dict:
         """kw for model_dump."""
         dict_ = self.model_dump(**kw)
-        dict_["metadata"].update({"lion_class": self.class_name(full=True)})
+        cls_name = self.class_name(full=True)
+        # Write both lion_class (production convention) and kron_class (beta convention)
+        # so serialized dicts are readable by both sides during the convergence period.
+        # Guard: metadata may be excluded when kw contains exclude={"metadata"}.
+        if "metadata" in dict_:
+            dict_["metadata"].update({"lion_class": cls_name, "kron_class": cls_name})
         return {k: v for k, v in dict_.items() if not_sentinel(v)}
 
-    def to_dict(self, mode: Literal["python", "json", "db"] = "python", **kw) -> dict:
-        """Converts this Element to a dictionary."""
+    def to_dict(
+        self,
+        mode: Literal["python", "json", "db"] = "python",
+        created_at_format: (
+            Literal["datetime", "isoformat", "timestamp"] | UnsetType
+        ) = Unset,
+        meta_key: str | UnsetType = Unset,
+        **kw,
+    ) -> dict:
+        """Converts this Element to a dictionary.
+
+        Args:
+            mode: Serialization mode: 'python' (default), 'json', or 'db'.
+            created_at_format: How to serialize created_at. Accepts
+                'timestamp' (float), 'isoformat' (ISO 8601 string), or
+                'datetime' (Python datetime object, python/db modes only).
+                Defaults to leaving created_at as the stored float.
+            meta_key: When set, renames the 'metadata' key in the output dict.
+                Useful for DB serialization (e.g. meta_key='node_metadata').
+        """
         if mode == "python":
-            return self._to_dict(**kw)
-        if mode == "json":
-            return orjson.loads(self.to_json(decode=False, **kw))
-        if mode == "db":
-            dict_ = orjson.loads(self.to_json(decode=False, **kw))
-            dict_["node_metadata"] = dict_.pop("metadata", {})
-            return dict_
-        raise ValueError(f"Unsupported mode: {mode}")
+            data = self._to_dict(**kw)
+        elif mode == "json":
+            data = orjson.loads(self.to_json(decode=False, **kw))
+        elif mode == "db":
+            data = orjson.loads(self.to_json(decode=False, **kw))
+            if is_unset(meta_key):
+                meta_key = "node_metadata"
+        else:
+            raise ValueError(f"Unsupported mode: {mode}")
+
+        # Apply created_at transformation when explicitly requested
+        if not is_unset(created_at_format) and "created_at" in data:
+            raw = data["created_at"]
+            # raw is a float (from model_dump) or a float-string (after JSON round-trip)
+            ts: float = float(raw) if not isinstance(raw, float) else raw
+            if created_at_format == "timestamp":
+                data["created_at"] = ts
+            elif created_at_format == "isoformat":
+                data["created_at"] = dt.datetime.fromtimestamp(
+                    ts, tz=dt.timezone.utc
+                ).isoformat()
+            elif created_at_format == "datetime":
+                if mode == "json":
+                    raise ValueError(
+                        "created_at_format='datetime' not valid for mode='json'. "
+                        "Use 'isoformat' or 'timestamp' for JSON serialization."
+                    )
+                data["created_at"] = dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc)
+
+        # Apply metadata key renaming when requested
+        if not is_unset(meta_key) and "metadata" in data:
+            data[meta_key] = data.pop("metadata")
+
+        return data
 
     @classmethod
-    def from_dict(cls, data: dict) -> Element:
+    def from_dict(
+        cls,
+        data: dict,
+        meta_key: str | UnsetType = Unset,
+        **kwargs,
+    ) -> Element:
         """Deserializes a dictionary into an Element or subclass of Element.
 
-        If `lion_class` in `metadata` refers to a subclass, this method
-        is polymorphic, it will attempt to create an instance of that subclass.
+        If `lion_class` or `kron_class` in `metadata` refers to a subclass,
+        this method is polymorphic and will attempt to create an instance of
+        that subclass.
+
+        Args:
+            data: Dictionary representation of the Element.
+            meta_key: When set, reads metadata from this key instead of
+                'metadata' (e.g. meta_key='node_metadata' for DB rows).
         """
         # Shallow copy to avoid mutating the caller's dict. The nested metadata
         # dict is also copied because we pop from it (lion_class extraction).
         data = dict(data)
 
+        # Support alternate metadata key (e.g. 'node_metadata' from DB rows)
+        if not is_unset(meta_key) and meta_key in data:
+            data["metadata"] = data.pop(meta_key)
+
         # Preprocess database format if needed
         metadata = {}
 
-        if "node_metadata" in data:
+        if "node_metadata" in data and "metadata" not in data:
             metadata = dict(data.pop("node_metadata"))
         elif "metadata" in data:
             metadata = dict(data.pop("metadata"))
-        if "lion_class" in metadata:
-            subcls: str = metadata.pop("lion_class")
-            if subcls != Element.class_name(full=True):
-                try:
-                    # Try full qualified name first (LION_CLASS_REGISTRY is
-                    # populated with full-qualified names at import time).
-                    # Fall back to short name for classes registered before the
-                    # full-name convention was adopted.
-                    try:
-                        subcls_type: type[Element] = get_class(subcls)
-                    except (KeyError, ValueError):
-                        subcls_type = get_class(subcls.split(".")[-1])
-                    # Delegate when there is a custom from_dict OR when the
-                    # concrete type differs from cls (so model_validate uses the
-                    # right schema). Restore metadata before the recursive call
-                    # so the delegate sees a self-consistent dict.
-                    if hasattr(subcls_type, "from_dict") and (
-                        subcls_type.from_dict.__func__ != cls.from_dict.__func__
-                        or subcls_type is not cls
-                    ):
-                        data["metadata"] = metadata
-                        return subcls_type.from_dict(data)
 
-                except (KeyError, ValueError, ImportError, AttributeError, TypeError):
-                    mod, imp = subcls.rsplit(".", 1)
+        # Support both lion_class (production) and kron_class (beta) conventions
+        subcls_name: str | None = None
+        if "lion_class" in metadata:
+            subcls_name = metadata.pop("lion_class")
+            # Also remove kron_class if present to avoid duplication
+            metadata.pop("kron_class", None)
+        elif "kron_class" in metadata:
+            subcls_name = metadata.pop("kron_class")
+
+        if subcls_name and subcls_name != cls.class_name(full=True):
+            try:
+                # Try full qualified name first (LION_CLASS_REGISTRY is
+                # populated with full-qualified names at import time).
+                # Fall back to short name for classes registered before the
+                # full-name convention was adopted.
+                try:
+                    subcls_type: type[Element] = get_class(subcls_name)
+                except (KeyError, ValueError):
+                    subcls_type = get_class(subcls_name.split(".")[-1])
+                # Delegate when there is a custom from_dict OR when the
+                # concrete type differs from cls (so model_validate uses the
+                # right schema). Restore metadata before the recursive call
+                # so the delegate sees a self-consistent dict.
+                if hasattr(subcls_type, "from_dict") and (
+                    subcls_type.from_dict.__func__ != cls.from_dict.__func__
+                    or subcls_type is not cls
+                ):
+                    data["metadata"] = metadata
+                    return subcls_type.from_dict(data, **kwargs)
+
+            except (KeyError, ValueError, ImportError, AttributeError, TypeError):
+                try:
+                    mod, imp = subcls_name.rsplit(".", 1)
                     subcls_type = import_module(mod, import_name=imp)
                     data["metadata"] = metadata
                     if hasattr(subcls_type, "from_dict") and (subcls_type is not cls):
-                        return subcls_type.from_dict(data)
+                        return subcls_type.from_dict(data, **kwargs)
+                except Exception:
+                    pass
+
         data["metadata"] = metadata
         return cls.model_validate(data)
 
@@ -239,6 +317,10 @@ class Element(BaseModel, Observable):
         """Deserializes a JSON string into an Element or subclass of Element."""
         return cls.from_dict(orjson.loads(json_str))
 
+    # Alias for beta compatibility: beta code uses cls.kron_class(full=True)
+    # whereas production uses cls.class_name(full=True). Both return the same value.
+    kron_class = class_name
+
 
 DEFAULT_ELEMENT_SERIALIZER = get_orjson_default(
     order=[Element, BaseModel],
@@ -247,6 +329,10 @@ DEFAULT_ELEMENT_SERIALIZER = get_orjson_default(
         BaseModel: lambda o: o.model_dump(mode="json"),
     },
 )
+
+# Field list exported for beta compatibility (event.py uses LN_ELEMENT_FIELDS to
+# exclude base fields when cloning events via as_fresh_event).
+LN_ELEMENT_FIELDS: list[str] = list(Element.model_fields.keys())
 
 
 def validate_order(order: Any) -> list[UUID]:
