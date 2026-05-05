@@ -6,8 +6,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from lionagi.beta.resource.pile import Pile
-from lionagi.ln.types._sentinel import Undefined, UndefinedType, is_sentinel
+from lionagi.ln.types import Undefined, UndefinedType, is_sentinel
+from lionagi.protocols.types import Pile
 
 from .imodel import iModel
 
@@ -30,7 +30,7 @@ class ResourceRegistry:
             old_uid = self._name_index[model.name]
             self._pile.remove(old_uid)
 
-        self._pile.add(model)
+        self._pile.include(model)
         self._name_index[model.name] = model.id
 
         return model.id

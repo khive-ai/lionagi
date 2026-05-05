@@ -31,9 +31,7 @@ if TYPE_CHECKING:
 
     from lionagi.beta.resource.imodel import iModel
     from lionagi.beta.session.context import RequestContext
-    from lionagi.beta.session.session import Branch
-
-    Session = Any  # Session not yet migrated to beta
+    from lionagi.beta.session.session import Branch, Session
 
 __all__ = ("GenerateParams", "generate", "handle_return")
 

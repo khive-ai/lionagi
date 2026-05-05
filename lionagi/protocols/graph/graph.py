@@ -601,8 +601,20 @@ class Graph(Element, Relational, Generic[T]):
         new_edges.insert(0, link)
         return new_edges
 
+    def get_node_edges(
+        self,
+        node: Any,
+        /,
+        direction: Literal["both", "in", "out"] = "both",
+    ) -> list[Edge]:
+        """Get edges connected to node by direction. Alias for find_node_edge."""
+        return list(self.find_node_edge(node, direction=direction))
+
     def __contains__(self, item: object) -> bool:
         return item in self.internal_nodes or item in self.internal_edges
+
+    def __len__(self) -> int:
+        return len(self.internal_nodes)
 
 
 # File: lionagi/protocols/graph/graph.py

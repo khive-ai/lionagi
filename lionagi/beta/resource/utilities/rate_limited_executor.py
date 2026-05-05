@@ -14,14 +14,14 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import Self, override
 
-from lionagi.beta.resource.backend import Calling
-from lionagi.beta.resource.processor import Executor, Processor
-from lionagi.ln.concurrency import current_time as _now
+from ..backend import Calling
+from ..processor import Executor, Processor
+from lionagi.ln.concurrency import current_time
 from lionagi.protocols.generic.event import Event
 from lionagi.service.rate_limiter import TokenBucket
 
 if TYPE_CHECKING:
-    from lionagi.beta.resource.pile import Pile
+    from lionagi.protocols.types import Pile
 
 __all__ = ("RateLimitedExecutor", "RateLimitedProcessor")
 
@@ -90,7 +90,7 @@ class RateLimitedProcessor(Processor):
 
     async def _maybe_replenish(self) -> None:
         """Replenish rate limit buckets if enough time has passed."""
-        now = _now()
+        now = current_time()
         if now - self._last_replenish < self.replenishment_interval:
             return
 
@@ -138,7 +138,7 @@ class RateLimitedProcessor(Processor):
             max_queue_size=max_queue_size,
             max_denial_tracking=max_denial_tracking,
         )
-        self._last_replenish = _now()
+        self._last_replenish = current_time()
         return self
 
     @override

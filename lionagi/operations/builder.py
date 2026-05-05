@@ -12,7 +12,7 @@ from typing import Any
 
 from lionagi.models.note import Note
 from lionagi.operations.node import create_operation
-from lionagi.protocols.graph.edge import Edge
+from lionagi.protocols.graph.graph import Edge
 from lionagi.protocols.types import ID
 
 __all__ = (

@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, JsonValue, field_validator
 
 from lionagi.ln._to_list import to_list
 from lionagi.ln.fuzzy import extract_json, to_dict
-from lionagi.ln.types import HashableModel
+from lionagi.models import HashableModel
 
 __all__ = (
     "Action",

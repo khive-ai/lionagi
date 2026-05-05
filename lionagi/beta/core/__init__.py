@@ -73,44 +73,7 @@ from lionagi.beta.core.wrappers import BaseOp
 from lionagi.beta.resource.service import Normalized, ResourceMeta, Service, resource
 from lionagi.protocols.generic.eventbus import EventBus, Handler
 
-# --- Base primitives (lazy) ---
-# These are accessed via __getattr__ to keep core import startup minimal.
-
-_LAZY: dict[str, tuple[str, str]] = {
-    "Element": ("lionagi.protocols.generic.element", "Element"),
-    "Event": ("lionagi.protocols.generic.event", "Event"),
-    "EventStatus": ("lionagi.protocols.generic.event", "EventStatus"),
-    "Execution": ("lionagi.protocols.generic.event", "Execution"),
-    "Pile": ("lionagi.beta.resource.pile", "Pile"),
-    "Progression": ("lionagi.protocols.generic.progression", "Progression"),
-    "Node": ("lionagi.beta.resource.node", "Node"),
-    "Edge": ("lionagi.beta.resource.graph", "Edge"),
-    "EdgeCondition": ("lionagi.beta.resource.graph", "EdgeCondition"),
-    "Graph": ("lionagi.beta.resource.graph", "Graph"),
-    # Execution model aliases.
-    "EventQueue": ("lionagi.beta.resource.processor", "Processor"),
-    "EventTracker": ("lionagi.beta.resource.processor", "Executor"),
-}
-
-_LOADED: dict[str, object] = {}
-
-
-def __getattr__(name: str) -> object:
-    if name in _LOADED:
-        return _LOADED[name]
-    if name in _LAZY:
-        from importlib import import_module
-
-        module_path, attr = _LAZY[name]
-        mod = import_module(module_path)
-        val = getattr(mod, attr)
-        _LOADED[name] = val
-        return val
-    raise AttributeError(f"module 'lionagi.beta.core' has no attribute {name!r}")
-
-
 __all__ = [
-    # Substrate (always available)
     "Principal",
     "Capability",
     "Observation",
@@ -138,17 +101,4 @@ __all__ = [
     "ResourceMeta",
     "Service",
     "resource",
-    # Lazy
-    "Element",
-    "Event",
-    "EventStatus",
-    "Execution",
-    "Pile",
-    "Progression",
-    "Node",
-    "Edge",
-    "EdgeCondition",
-    "Graph",
-    "EventQueue",
-    "EventTracker",
 ]

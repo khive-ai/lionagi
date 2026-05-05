@@ -21,14 +21,10 @@ from pydantic import Field, PrivateAttr, field_serializer, model_validator
 from lionagi._errors import NotFoundError
 from lionagi.beta.core.types import Capability, Principal
 from lionagi.beta.resource import Calling, ResourceRegistry, iModel
-from lionagi.beta.resource.pile import Pile
 from lionagi.beta.work.node import Operation
-from lionagi.ln.types import HashableModel
 from lionagi.ln.types._sentinel import Unset, UnsetType, not_sentinel
-from lionagi.protocols.generic.element import Element
-from lionagi.protocols.generic.flow import Flow
-from lionagi.protocols.generic.progression import Progression
-from lionagi.protocols.messages import Message
+from lionagi.models import HashableModel
+from lionagi.protocols.types import Element, Flow, Message, Pile, Progression
 
 __all__ = (
     "Branch",

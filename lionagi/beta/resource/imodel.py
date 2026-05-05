@@ -9,10 +9,10 @@ from typing import Any
 from pydantic import Field, PrivateAttr, field_serializer, field_validator
 
 from lionagi._errors import ConfigurationError, ExecutionError
-from lionagi.beta.protocols import Invocable, implements
+from lionagi.protocols.contracts import Invocable, implements
 from lionagi.beta.resource.processor import Executor
 from lionagi.ln.concurrency import sleep
-from lionagi.protocols.generic.element import Element
+from lionagi.protocols.types import Element
 from lionagi.service.hooks import HookRegistry
 from lionagi.service.rate_limiter import RateLimitConfig, TokenBucket
 

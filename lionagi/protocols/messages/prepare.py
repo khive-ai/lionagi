@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import JsonValue
 
-from lionagi.beta.resource.pile import Pile
+from lionagi.protocols.generic.pile import Pile
 from lionagi.protocols.generic.progression import Progression
 from lionagi.protocols.messages.action_request import ActionRequestContent
 from lionagi.protocols.messages.action_response import ActionResponseContent

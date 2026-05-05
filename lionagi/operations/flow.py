@@ -537,7 +537,7 @@ class DependencyAwareExecutor:
         for edge in self.graph.internal_edges.values():
             if edge.condition is not None:
                 # Ensure condition is an EdgeCondition instance
-                from lionagi.protocols.graph.edge import EdgeCondition
+                from lionagi.protocols.graph.graph import EdgeCondition
 
                 if not isinstance(edge.condition, EdgeCondition):
                     raise TypeError(

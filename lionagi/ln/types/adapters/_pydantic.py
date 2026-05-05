@@ -252,7 +252,10 @@ class PydanticSpecAdapter(SpecAdapter[FieldInfo]):
         Returns:
             Dynamically created BaseModel subclass with validators
         """
-        use_specs = op.get_specs(include=include, exclude=exclude)
+        use_specs = op.get_specs(
+            include=include if not is_sentinel(include) else None,
+            exclude=exclude if not is_sentinel(exclude) else None,
+        )
         use_fields = {i.name: cls.create_field(i) for i in use_specs if i.name}
 
         field_definitions = {

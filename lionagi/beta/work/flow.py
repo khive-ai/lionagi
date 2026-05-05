@@ -15,7 +15,7 @@ from lionagi.beta.core.graph import OpGraph, OpNode
 from lionagi.beta.core.morphism import MorphismAdapter
 from lionagi.beta.core.runner import Runner
 from lionagi.beta.core.types import Principal
-from lionagi.beta.resource.graph import Graph
+from lionagi.protocols.graph.graph import Graph
 from lionagi.protocols.generic.event import EventStatus
 
 from .control import ControlDecision
@@ -162,8 +162,8 @@ def compile_flow_to_graph(
     if not graph.is_acyclic():
         raise ValueError("Operation graph has cycles - must be a DAG")
 
-    operations = [node for node in graph.nodes if isinstance(node, Operation)]
-    for node in graph.nodes:
+    operations = [node for node in graph.internal_nodes if isinstance(node, Operation)]
+    for node in graph.internal_nodes:
         if not isinstance(node, Operation):
             raise ValueError(
                 f"Graph contains non-Operation node: {node} ({type(node).__name__})"

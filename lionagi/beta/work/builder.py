@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from lionagi.beta.resource.graph import Edge, Graph
+from lionagi.protocols.graph.edge import Edge
+from lionagi.protocols.graph.graph import Graph
 from lionagi.ln._utils import to_uuid
 from lionagi.ln.types._sentinel import (
     Undefined,
@@ -161,7 +162,7 @@ class OperationGraphBuilder:
         )
         op = self._nodes[name]
         for dep_id in uuid_deps:
-            if dep_id not in self.graph.nodes:
+            if dep_id not in self.graph.internal_nodes:
                 raise ValueError(f"Dependency '{dep_id}' not found")
             self.graph.add_edge(Edge(head=dep_id, tail=op.id, label=["depends_on"]))
         return op.id
@@ -276,7 +277,7 @@ class OperationGraphBuilder:
         return self._nodes[name]
 
     def get_by_id(self, operation_id: UUID) -> Operation | None:
-        node = self.graph.nodes.get(operation_id, None)
+        node = self.graph.internal_nodes.get(operation_id, None)
         if isinstance(node, Operation):
             return node
         return None
@@ -309,7 +310,7 @@ class OperationGraphBuilder:
         return (
             f"OperationGraphBuilder("
             f"operations={len(self._nodes)}, "
-            f"edges={len(self.graph.edges)}, "
+            f"edges={len(self.graph.internal_edges)}, "
             f"executed={len(self._executed)})"
         )
 

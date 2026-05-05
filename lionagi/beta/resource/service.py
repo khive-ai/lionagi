@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import PrivateAttr, model_validator
 
 from lionagi._errors import ExistsError, NotFoundError
-from lionagi.beta.resource.pile import Pile
+from lionagi.protocols.generic.pile import Pile
 from lionagi.ln.types import Operable
 from lionagi.protocols.generic.element import Element
 

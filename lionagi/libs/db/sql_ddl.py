@@ -860,7 +860,10 @@ class SQLSpecAdapter:
         validate_identifier(name, "table")
         validate_identifier(schema, "schema")
 
-        specs = op.get_specs(include=include, exclude=exclude)
+        specs = op.get_specs(
+            include=include if not is_sentinel(include) else None,
+            exclude=exclude if not is_sentinel(exclude) else None,
+        )
 
         columns: list[str] = list(base_columns)
         foreign_keys: list[str] = []

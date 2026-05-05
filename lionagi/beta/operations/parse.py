@@ -37,9 +37,7 @@ if TYPE_CHECKING:
 
     from lionagi.beta.resource.imodel import iModel
     from lionagi.beta.session.context import RequestContext
-
-    Branch = Any  # Branch not yet fully migrated
-    Session = Any  # Session not yet migrated to beta
+    from lionagi.beta.session.session import Branch, Session
 
 __all__ = ("ParseParams", "parse")
 
@@ -116,9 +114,9 @@ async def _parse(
     **imodel_kwargs: Any,
 ) -> dict[str, Any]:
     _sentinel_check = {"none", "empty"}
-    if is_sentinel(target_keys, _sentinel_check):
+    if is_sentinel(target_keys, additions=_sentinel_check):
         raise ValidationError("No target_keys provided for parse operation")
-    if is_sentinel(text, _sentinel_check):
+    if is_sentinel(text, additions=_sentinel_check):
         raise ValidationError("No text provided for parse operation")
 
     direct_error: Exception | None = None
@@ -147,7 +145,7 @@ async def _parse(
             raise
         direct_error = e
 
-    if is_sentinel(max_retries, _sentinel_check) or max_retries < 1:
+    if is_sentinel(max_retries, additions=_sentinel_check) or max_retries < 1:
         raise ExecutionError(
             "Direct parse failed and max_retries not enabled, no reparse attempted",
             retryable=False,
@@ -203,7 +201,7 @@ def _direct_parse(
     are merged into resolution so OUT{} can reference earlier declarations.
     """
     _sentinel_check = {"none", "empty"}
-    if is_sentinel(target_keys, _sentinel_check):
+    if is_sentinel(target_keys, additions=_sentinel_check):
         raise ValidationError("No target_keys provided for direct_parse operation")
 
     match structure_format:
@@ -281,15 +279,18 @@ def _direct_parse(
             cause=e,
         ) from e
 
-    if is_sentinel(extracted, _sentinel_check):
+    if is_sentinel(extracted, additions=_sentinel_check):
         raise ExecutionError(
             "No JSON object could be extracted from text during parse",
             retryable=True,
         )
 
+    # extract_json may return a dict (single object) or list; normalize to list
+    extracted_list = extracted if isinstance(extracted, list) else [extracted]
+
     try:
         return fuzzy_validate_mapping(
-            extracted[0],
+            extracted_list[0],
             target_keys,
             similarity_threshold=similarity_threshold,
             handle_unmatched=handle_unmatched,

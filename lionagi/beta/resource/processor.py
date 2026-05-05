@@ -18,8 +18,8 @@ from lionagi.ln import concurrency
 from lionagi.protocols.generic.event import Event, EventStatus
 from lionagi.protocols.generic.progression import Progression
 
-from .flow import Flow
-from .pile import Pile
+from lionagi.protocols.generic.flow import Flow
+from lionagi.protocols.generic.pile import Pile
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -118,9 +118,9 @@ class Processor:
         self.concurrency_limit = concurrency_limit
 
         # Priority queue: (priority, event_uuid) tuples, min-heap ordering
-        self.queue: concurrency.PriorityQueue[tuple[float, UUID]] = (
-            concurrency.PriorityQueue()
-        )
+        import asyncio
+
+        self.queue: asyncio.PriorityQueue[tuple[float, UUID]] = asyncio.PriorityQueue()
 
         self._available_capacity = queue_capacity
         self._execution_mode = False

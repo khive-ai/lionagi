@@ -23,8 +23,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from pydantic import Field, field_validator
 
 from lionagi.beta.rules import Validator
-from lionagi.ln.types import HashableModel, ModelConfig, Params
+from lionagi.ln.types import ModelConfig, Params
 from lionagi.ln.types._sentinel import MaybeUnset, Unset
+from lionagi.models import HashableModel
 
 from .generate import GenerateParams
 from .operate import OperateParams

@@ -26,9 +26,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from lionagi.beta.resource.imodel import iModel
-
-    Branch = Any  # Branch not yet fully migrated to beta
-    Session = Any  # Session not yet migrated to beta
+    from lionagi.beta.session.session import Branch, Session
 
 __all__ = ("_llm_reparse",)
 
