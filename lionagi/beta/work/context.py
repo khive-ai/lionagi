@@ -38,26 +38,7 @@ _EMPTY_MAP: MappingProxyType = MappingProxyType({})
 
 @dataclass(frozen=True, slots=True)
 class CrudPattern:
-    """Declarative CRUD pattern for auto-generating phrase handlers.
-
-    Attributes:
-        table: Validated database table name (alphanumeric + underscores).
-        operation: CRUD operation type (read, insert, update, soft_delete).
-        lookup: Fields from options used in WHERE clause (for read/update/delete).
-        filters: Static key-value pairs added to WHERE clause. Use for
-            hardcoded filters like {"status": "active"}.
-        set_fields: Explicit field mappings for update. Values can be:
-            - Field name (str): copy from options
-            - "ctx.{attr}": read from context (e.g., "ctx.now", "ctx.user_id")
-            - Literal value: use directly
-        defaults: Static default values for insert.
-
-    The auto-handler resolves output fields in order:
-        1. ctx metadata attribute (e.g., tenant_id -- only if explicitly set)
-        2. options pass-through (if field in inputs)
-        3. row column (direct from query result)
-        4. result_parser (for computed fields)
-    """
+    """Declarative CRUD pattern for auto-generating phrase handlers."""
 
     table: str
     operation: CrudOperation | str = CrudOperation.READ
@@ -67,15 +48,12 @@ class CrudPattern:
     defaults: Mapping[str, Any] = None  # type: ignore[assignment]
 
     def __post_init__(self):
-        # Validate table name against SQL injection
         validate_identifier(self.table, "table")
-        # Normalize operation to enum
         if isinstance(self.operation, str):
             object.__setattr__(self, "operation", CrudOperation(self.operation))
-        # Normalize lookup to frozenset
         if not isinstance(self.lookup, frozenset):
             object.__setattr__(self, "lookup", frozenset(self.lookup))
-        # Normalize None mappings to immutable empty maps; freeze mutable dicts
+        # Immutable empty maps prevent accidental mutation across instances
         object.__setattr__(
             self,
             "filters",
@@ -93,22 +71,7 @@ class CrudPattern:
         )
 
 class QueryFn(Protocol):
-    """Protocol for CRUD query functions used by declarative phrases.
-
-    The query_fn is the bridge between declarative CrudPattern phrases
-    and the actual database backend. Implementations MUST use parameterized
-    queries to prevent SQL injection.
-
-    Args:
-        table: Validated database table name (alphanumeric + underscores only).
-        operation: CRUD operation enum value.
-        where: WHERE clause as dict of column -> value. None for insert.
-        data: Data dict for insert/update. None for select/delete.
-        ctx: The RequestContext (for connection, tenant isolation, etc).
-
-    Returns:
-        Row as dict if found/affected, None otherwise.
-    """
+    """Callable protocol bridging CrudPattern phrases to a DB backend."""
 
     def __call__(
         self,

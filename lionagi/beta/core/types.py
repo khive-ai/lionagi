@@ -1,20 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Core type definitions for lionagi.beta substrate.
-
-Capability string format: "domain.action[:resource]"
-  Examples: "net.out", "fs.read:/data/*", "llm.call", "tool.execute:search"
-
-Design decisions:
-  - Capability is a frozen msgspec.Struct. The `object` field was removed (#2)
-    because it was never used by policy_check — resource scoping belongs IN the
-    rights strings (e.g., "fs.read:/data/*"), not as a separate field.
-  - Principal.rights() filters by subject (#1) so a Capability minted for a
-    different Principal cannot escalate privileges.
-  - Principal.caps is frozen (#10) — mutation requires grant() which returns a
-    new Principal, enforcing capability monotonicity at the API level.
-"""
+"""Core type definitions for lionagi.beta substrate."""
 
 from __future__ import annotations
 
@@ -40,12 +27,7 @@ def now_utc() -> datetime:
 
 
 class Capability(msgspec.Struct, frozen=True, kw_only=True):
-    """Immutable capability token granting rights to a subject.
-
-    Attributes:
-        subject: UUID of the Principal this capability is bound to.
-        rights: Set of capability strings.
-    """
+    """Immutable capability token granting rights to a subject."""
 
     subject: UUID
     rights: frozenset[str]
@@ -55,18 +37,10 @@ class Capability(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class Principal(Element):
-    """An identified process with isolated context and capability view.
+    """Execution authority with isolated context and capability-based access control.
 
-    Principal is the execution authority object. Morphisms execute within a
-    Principal context and have their capabilities checked against rights().
-
-    Immutability:
-        caps is frozen — use grant() to produce a new Principal with additional
-        capabilities. This prevents mid-execution capability escalation.
-
-    Subject binding:
-        rights() only returns rights from Capabilities whose subject matches
-        this Principal's id. Capabilities bound to other Principals are ignored.
+    caps is frozen — use grant() to add rights without mid-execution escalation.
+    rights() filters by subject, so capabilities minted for other Principals cannot escalate.
     """
 
     name: str = Field(default="default")
@@ -104,7 +78,7 @@ class Principal(Element):
         ]
 
     def rights(self) -> frozenset[str]:
-        """Flatten rights from capabilities bound to THIS principal only (#1)."""
+        """Return rights from capabilities bound to this principal only."""
         return frozenset(
             r for c in self.caps if c.subject == self.id for r in c.rights
         )
@@ -113,7 +87,7 @@ class Principal(Element):
         return right in self.rights()
 
     def grant(self, *new_rights: str) -> Principal:
-        """Return a new Principal with additional rights. Preserves identity."""
+        """Return a new Principal with additional rights, preserving identity."""
         new_cap = Capability(subject=self.id, rights=frozenset(new_rights))
         data = self.model_dump()
         data["caps"] = list(self.caps) + [new_cap]

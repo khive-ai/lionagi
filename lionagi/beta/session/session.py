@@ -1,11 +1,7 @@
 # Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Session and Branch: central orchestration for messages, model resources, and operations.
-
-Session owns branches, messages, model resources, and operations registry.
-Branch is a named message progression with capability/resource access control.
-"""
+"""Session and Branch: multi-branch orchestration hub for messages, resources, and operations."""
 
 from __future__ import annotations
 
@@ -44,7 +40,6 @@ __all__ = (
 )
 
 OperationHandler = Callable[..., Any]
-"""Handler signature: (params, ctx: RequestContext) -> awaitable or async stream."""
 
 
 def _status(message: str, style: str | None = None) -> None:
@@ -86,7 +81,6 @@ class OperationDecl:
         operation: Any | None = None,
         name: str | None = None,
     ) -> Any:
-        """Compile this declaration to the executable Morphism used by Runner."""
         from lionagi.beta.core.morphism import MorphismAdapter
 
         if self.handler is not None:
@@ -108,7 +102,6 @@ def _coerce_morphism(
     requires: frozenset[str] | set[str] = frozenset(),
     provides: frozenset[str] | set[str] = frozenset(),
 ) -> Any:
-    """Normalize a Morphism-like object or callable into Runner-compatible form."""
     from lionagi.beta.core.morphism import MorphismAdapter
 
     if source is None:
@@ -136,7 +129,6 @@ def _coerce_morphism(
 
 
 class _MorphismProxy:
-    """Runner-compatible proxy that preserves a Morphism-like object's lifecycle."""
 
     def __init__(
         self,
@@ -179,7 +171,6 @@ class _MorphismProxy:
 
 
 class OperationRegistry:
-    """Map operation names to declared async handler functions."""
 
     def __init__(self) -> None:
         self._decls: dict[str, OperationDecl] = {}
@@ -247,7 +238,6 @@ class OperationRegistry:
         return self._decls[operation_name]
 
     def get(self, operation_name: str) -> OperationHandler:
-        """Get handler by name. Kept for direct Session.conduct() calls."""
         handler = self.get_decl(operation_name).handler
         if handler is None:
             raise TypeError(f"Operation '{operation_name}' is registered as a morphism")
@@ -283,17 +273,7 @@ class OperationRegistry:
 
 
 class Branch(Progression):
-    """Message progression with capability and resource access control.
-
-    Branch extends Progression with session binding and access control.
-    Messages are referenced by UUID in the order list.
-
-    Attributes:
-        session_id: Owning session (immutable after creation).
-        principal: Capability-bearing execution authority for this branch.
-        capabilities: Compatibility projection from principal rights.
-        resources: Compatibility projection from principal service rights.
-    """
+    """Message progression with session binding and capability/resource access control."""
 
     session_id: UUID = Field(..., frozen=True)
     principal: Principal = Field(default_factory=Principal)
@@ -303,7 +283,6 @@ class Branch(Progression):
     @model_validator(mode="before")
     @classmethod
     def _migrate_access_fields(cls, data: Any) -> Any:
-        """Accept legacy capabilities/resources inputs and fold them into Principal."""
         if not isinstance(data, dict):
             return data
 
@@ -324,7 +303,7 @@ class Branch(Progression):
 
     @model_validator(mode="after")
     def _sync_principal_id(self) -> Branch:
-        """Keep branch and principal identity aligned for capability subjects."""
+        """Capability subjects are keyed by principal.id; it must equal branch.id."""
         if self.principal.id != self.id:
             self.principal = self._principal_with_rights(
                 self.principal,
@@ -388,11 +367,7 @@ class Branch(Progression):
 
     @property
     def scratchpad(self) -> Any:
-        """Note-backed persistent lvar state across rounds.
-
-        Supports nested paths: scratchpad["round1", "findings"].
-        Auto-created on first access.
-        """
+        """Lazy-initialized Note store for cross-round lvar state; supports nested key paths."""
         if self._scratchpad is None:
             from lionagi.models.note import Note
 
@@ -400,18 +375,12 @@ class Branch(Progression):
         return self._scratchpad
 
     def scratchpad_summary(self) -> dict[str, str] | None:
-        """Top-level scratchpad content rendered as strings for prompt inclusion.
-
-        Returns the actual content of each top-level key, not metadata.
-        Callers that want to include scratchpad in a continuation prompt should
-        use this directly. Returns None when the scratchpad is empty.
-        """
+        """Top-level scratchpad values stringified for prompt injection; None when empty."""
         from lionagi.libs.schema import minimal_yaml
 
         if self._scratchpad is None or len(self._scratchpad) == 0:
             return None
 
-        # Support both Note (has .content) and dict fallback
         content = (
             self._scratchpad.content
             if hasattr(self._scratchpad, "content")
@@ -487,12 +456,10 @@ class Session(Element):
 
     @field_serializer("communications")
     def _serialize_communications(self, flow: Flow) -> dict:
-        """Use Flow's custom to_dict for proper nested serialization."""
         return flow.to_dict(mode="json")
 
     @model_validator(mode="after")
     def _validate_default_branch(self) -> Session:
-        """Auto-create default branch and register built-in operations."""
         if self.config.auto_create_default_branch and self.default_branch is None:
             default_branch_name = self.config.default_branch_name or "main"
             self.create_branch(
@@ -502,7 +469,6 @@ class Session(Element):
             )
             self.set_default_branch(default_branch_name)
 
-        # Register atexit handler if configured
         if (
             self.config.logging_enabled
             and self.config.log_auto_save_on_exit
@@ -511,7 +477,7 @@ class Session(Element):
             atexit.register(self._save_at_exit)
             self._registered_atexit = True
 
-        # Register built-in operations lazily to avoid circular imports.
+        # Lazy import avoids circular dependency with operations module.
         try:
             from lionagi.beta.operations import builtin_operation_declarations
 
@@ -519,7 +485,7 @@ class Session(Element):
                 if not self.operations.has(name):
                     self.operations.register(name, decl)
         except ImportError:
-            pass  # operations not yet fully migrated; handlers registered separately
+            pass
 
         return self
 
@@ -537,17 +503,14 @@ class Session(Element):
 
     @property
     def messages(self) -> Pile[Message]:
-        """All messages in session (Pile[Message])."""
         return self.communications.items
 
     @property
     def branches(self) -> Pile[Branch]:
-        """All branches in session (Pile[Branch])."""
         return self.communications.progressions
 
     @property
     def default_branch(self) -> Branch | None:
-        """Default branch, or None if unset or deleted."""
         if self.default_branch_id is None:
             return None
         with contextlib.suppress(KeyError, NotFoundError):
@@ -562,17 +525,6 @@ class Session(Element):
         resources: set[str] | None = None,
         messages: Iterable[UUID | Message] | None = None,
     ) -> Branch:
-        """Create and register a new branch.
-
-        Args:
-            name: Branch name (auto: "branch_N").
-            capabilities: Allowed schema names.
-            resources: Allowed service names.
-            messages: Initial message UUIDs or objects.
-
-        Returns:
-            Created Branch added to session.
-        """
         if name:
             from .constraints import branch_name_must_be_unique
 
@@ -596,18 +548,6 @@ class Session(Element):
     def get_branch(
         self, branch: UUID | str | Branch, default: Branch | UnsetType = Unset, /
     ) -> Branch:
-        """Get branch by UUID, name, or instance.
-
-        Args:
-            branch: Branch identifier.
-            default: Return this if not found (else raise).
-
-        Returns:
-            Branch instance.
-
-        Raises:
-            NotFoundError: If not found and no default.
-        """
         if isinstance(branch, Branch) and branch in self.branches:
             return branch
         with contextlib.suppress(KeyError):
@@ -617,14 +557,6 @@ class Session(Element):
         raise NotFoundError("Branch not found")
 
     def set_default_branch(self, branch: Branch | UUID | str) -> None:
-        """Set the default branch for operations.
-
-        Args:
-            branch: Branch to set as default (must exist).
-
-        Raises:
-            NotFoundError: If branch not in session.
-        """
         resolved = self.get_branch(branch)
         self.default_branch_id = resolved.id
 
@@ -636,19 +568,7 @@ class Session(Element):
         capabilities: set[str] | Literal[True] | None = None,
         resources: set[str] | Literal[True] | None = None,
     ) -> Branch:
-        """Fork branch for divergent exploration.
-
-        Creates new branch with same messages. Use True to copy access control.
-
-        Args:
-            branch: Source branch (Branch|UUID|str).
-            name: Fork name (auto: "{source}_fork").
-            capabilities: True=copy, None=empty, or explicit set.
-            resources: True=copy, None=empty, or explicit set.
-
-        Returns:
-            New Branch with forked_from metadata.
-        """
+        """Fork a branch for divergent exploration; pass True to inherit access control."""
         source = self.get_branch(branch)
 
         forked = self.create_branch(
@@ -673,7 +593,6 @@ class Session(Element):
         message: Message,
         branches: list[Branch | UUID | str] | Branch | UUID | str | None = None,
     ) -> None:
-        """Add message to session, optionally appending to branch(es)."""
         self.communications.add_item(message, progressions=branches)
 
     async def request(
@@ -894,21 +813,6 @@ class Session(Element):
         params: Any | None = None,
         verbose: bool = False,
     ) -> Operation:
-        """Execute operation via registry.
-
-        Args:
-            operation_type: Registry key.
-            branch: Target branch (default if None).
-            params: Operation parameters.
-            verbose: Print real-time status updates.
-
-        Returns:
-            Invoked Operation (result in op.execution.response).
-
-        Raises:
-            RuntimeError: No branch and no default.
-            KeyError: Operation not registered.
-        """
         resolved = self._resolve_branch(branch)
 
         if verbose:
@@ -948,21 +852,6 @@ class Session(Element):
         params: Any | None = None,
         verbose: bool = False,
     ) -> AsyncGenerator[Any, None]:
-        """Stream operation results via async generator.
-
-        For streaming handlers like react_stream that yield intermediate
-        results per round. Bypasses the Operation wrapper since streaming
-        handlers produce multiple values, not a single response.
-
-        Args:
-            operation_type: Registry key (e.g. "react_stream").
-            branch: Target branch (default if None).
-            params: Operation parameters.
-            verbose: Enable real-time streaming output.
-
-        Yields:
-            Handler results (e.g., ReActAnalysis per round).
-        """
         resolved = self._resolve_branch(branch)
         op = Operation(
             operation_type=operation_type,
@@ -996,7 +885,6 @@ class Session(Element):
         update: bool = True,
         override: bool | None = None,
     ) -> None:
-        """Register a session operation handler with optional capabilities."""
         self.operations.register(
             operation_name,
             handler,
@@ -1017,13 +905,7 @@ class Session(Element):
         update: bool = True,
         override: bool | None = None,
     ) -> None:
-        """Register a Runner-native Morphism under a session operation name.
-
-        ``morphism`` may be a Morphism instance, a Morphism-like object with
-        ``apply()``, an async/sync callable taking ``(principal, **kw)``, or a
-        factory when ``factory=True``. Registered morphisms execute directly as
-        ``OpNode.m``; they do not receive a RequestContext.
-        """
+        """Register a Runner-native Morphism; it executes as OpNode.m without a RequestContext."""
         self.operations.register_morphism(
             operation_name,
             morphism,
@@ -1047,7 +929,6 @@ class Session(Element):
         max_concurrent: int | None = None,
         verbose: bool = False,
     ) -> Any:
-        """Execute one injected Morphism through this session's Runner."""
         from lionagi.beta.core.graph import OpGraph, OpNode
         from lionagi.beta.core.runner import Runner
 
@@ -1091,7 +972,6 @@ class Session(Element):
         *,
         func: OperationHandler | None = None,
     ) -> bool:
-        """Remove a registered operation, optionally only if handler matches."""
         return self.operations.unregister(operation_name, func=func)
 
     async def flow(
@@ -1104,7 +984,6 @@ class Session(Element):
         verbose: bool = False,
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Execute a work operation graph through the core Runner."""
         from lionagi.beta.work.flow import flow
 
         return await flow(
@@ -1126,7 +1005,6 @@ class Session(Element):
         stop_on_error: bool = True,
         context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[Any, None]:
-        """Stream a work operation graph through the core Runner."""
         from lionagi.beta.work.flow import flow_stream
 
         async for result in flow_stream(
@@ -1140,18 +1018,7 @@ class Session(Element):
             yield result
 
     def dump(self, clear: bool = False) -> Path | None:
-        """Sync dump entire session state for replay.
-
-        Serializes session (messages, branches, config) to JSON.
-        Resources and operations are excluded (re-register on restore).
-        To restore: Session.from_dict(data), then re-register resources.
-
-        Args:
-            clear: Clear communications after dump (default False).
-
-        Returns:
-            Path to session file, or None if logging disabled or empty.
-        """
+        """Serialize session to JSON; resources and operations are excluded and must be re-registered on restore."""
         from lionagi.ln._json_dump import json_dumpb
         from lionagi.ln._utils import create_path
 
@@ -1181,17 +1048,7 @@ class Session(Element):
         return std_path
 
     async def adump(self, clear: bool = False) -> Path | None:
-        """Async dump entire session state for replay.
-
-        Serializes the full session (messages, branches, config) to JSON.
-        To restore: Session.from_dict(data), then re-register resources.
-
-        Args:
-            clear: Clear communications after dump (default False).
-
-        Returns:
-            Path to session file, or None if logging disabled or empty.
-        """
+        """Async variant of dump; resources and operations are excluded and must be re-registered on restore."""
         from lionagi.ln._json_dump import json_dumpb
         from lionagi.ln._utils import acreate_path
 

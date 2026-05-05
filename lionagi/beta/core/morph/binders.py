@@ -28,10 +28,7 @@ def _build_call_kwargs(
 
 @register
 class BoundOp(BaseOp):
-    """
-    Wrap an inner morphism. Before calling it, build kwargs by pulling
-    values from Principal.ctx using a binding map: param -> ctx_key.
-    """
+    """Wrap a morphism, injecting kwargs from Principal.ctx via a param→ctx_key binding map."""
 
     name = "op.bound"
 

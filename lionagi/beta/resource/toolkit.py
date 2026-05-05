@@ -1,40 +1,7 @@
 # Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ToolKit — Service for agent-runtime tool execution.
-
-ToolKit is the single class for defining, enforcing, and exposing tools
-to agents. It combines:
-- @tool_action decorated methods (handler discovery)
-- Policy enforcement (path, process, capability checks)
-- Service registry integration (register globally, invoke with RequestContext)
-
-Usage — subclass::
-
-    class FileKit(ToolKit):
-        @tool_action(name="read", requires={"fs.read:/workspace/*"})
-        async def read(self, args, ctx):
-            return {"content": Path(args["path"]).read_text()}
-
-    kit = FileKit(config=ToolKitConfig(
-        name="file", provider="local",
-        path_policy=PathGuard(root=Path.cwd()),
-    ))
-    await add_service(kit)
-
-Usage — from handlers::
-
-    kit = ToolKit.from_handlers({
-        "search": search_fn,
-        "count": count_fn,
-    }, name="utils")
-
-ToolKit vs Endpoint:
-    Endpoint is a ResourceBackend transport adapter.
-    ToolKit is a Service for agent-runtime tools with policy enforcement.
-    Use ``create_backend()`` or ``create_imodel()`` when a ToolKit must be
-    invoked through the ResourceBackend/iModel path.
-"""
+"""ToolKit: Service subclass for agent-runtime tool execution with policy enforcement."""
 
 from __future__ import annotations
 
@@ -72,13 +39,10 @@ __all__ = (
 )
 
 
-# ─── Action metadata + decorator (was tools/enforcement.py) ──────────
-
 _TOOL_ACTION_ATTR = "_tool_action"
 
 
 class ToolEnforcement(StrEnum):
-    """Policy enforcement level for a tool action."""
 
     HARD = "hard"
     SOFT = "soft"
@@ -87,19 +51,7 @@ class ToolEnforcement(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ToolActionMeta:
-    """Metadata for a tool action handler.
-
-    Action-level invocation gating is enforced through the bound branch
-    Principal using ``lionagi.beta.core.policy.policy_check``. ``requires``
-    declares additional capabilities beyond the service-call right.
-
-    Attributes:
-        name: Action identifier (e.g., "read", "write", "grep").
-        input_schema: Pydantic model for input validation.
-        output_schema: Pydantic model for output validation + LLM schema rendering.
-        pre_hooks: Hook names to run before action.
-        post_hooks: Hook names to run after action.
-    """
+    """Metadata attached to a @tool_action handler; requires declares extra capabilities."""
 
     name: str
     input_schema: type | None = None
@@ -112,7 +64,6 @@ class ToolActionMeta:
 
 @dataclass(slots=True)
 class ToolPolicyResult:
-    """Result of a toolkit-level policy check (hooks-based)."""
 
     allowed: bool
     enforcement: ToolEnforcement = ToolEnforcement.HARD

@@ -44,11 +44,6 @@ __all__ = (
 )
 
 
-# ---------------------------------------------------------------------------
-# ReAct spec models
-# ---------------------------------------------------------------------------
-
-
 class PlannedAction(HashableModel):
     """Short descriptor for an upcoming tool invocation."""
 
@@ -115,71 +110,38 @@ class Analysis(HashableModel):
         return value.strip()
 
 
-# ---------------------------------------------------------------------------
-# ReAct params
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True, slots=True)
 class ReActParams(Params):
-    """Parameters for ReAct loop.
-
-    Attributes:
-        instruction: The user's task/question.
-        operable: Spec definition for structured output composition.
-        validator: Rule-based validator. Defaults to beta.rules.Validator.
-        generate_params: LLM generation config.
-        max_rounds: Maximum reason-act rounds before forcing final answer.
-        request_model: Model for the final answer (default: Analysis).
-        invoke_actions: Enable tool execution in each round.
-        action_strategy: Default strategy (overridden by LLM per-round).
-        persist: Persist messages to branch.
-    """
+    """Parameters for the ReAct loop; final answer uses request_model (default: Analysis)."""
 
     _config = ModelConfig(sentinel_additions=frozenset({"none", "empty"}))
 
-    # Required
     instruction: str
     operable: Operable
     generate_params: GenerateParams
     validator: Validator = field(default_factory=Validator)
 
-    # ReAct loop config
     max_rounds: int = 3
     request_model: type | None = None
     invoke_actions: bool = True
     persist: bool = True
 
-    # Action defaults
     action_strategy: Literal["sequential", "concurrent"] = "concurrent"
     max_concurrent: int | None = None
     throttle_period: float | None = None
 
-    # Validation
     auto_fix: bool = True
     strict: bool = True
 
-    # Parse overrides
     parse_imodel: MaybeUnset[iModel | str] = Unset
     parse_imodel_kwargs: dict[str, Any] = field(default_factory=dict)
     similarity_threshold: float = 0.85
     max_retries: int = 3
 
-    # Toolkit support
     toolkits: list[Any] | None = None
 
 
-# ---------------------------------------------------------------------------
-# Handlers
-# ---------------------------------------------------------------------------
-
-
 async def react(params: ReActParams, ctx: RequestContext) -> Any:
-    """ReAct handler: collects all rounds, returns final answer.
-
-    The final answer is extracted from the last round's Analysis.answer
-    if request_model is not provided (defaults to Analysis).
-    """
     result = None
     async for round_result in ctx.stream_conduct("react_stream", params):
         result = round_result
@@ -191,15 +153,9 @@ async def react(params: ReActParams, ctx: RequestContext) -> Any:
 
 
 async def react_stream(params: ReActParams, ctx: RequestContext) -> AsyncGenerator[Any, None]:
-    """Streaming ReAct: yields each round's structured analysis.
-
-    Yields:
-        Round 1..N: ReActAnalysis instances (reasoning + action results)
-        Final: request_model instance (the answer)
-    """
+    """Yields ReActAnalysis per intermediate round and the final request_model instance."""
     max_rounds = min(params.max_rounds, 100)
 
-    # --- Round 1: Initial analysis ---
     instruction_with_prompt = (
         params.instruction + "\n\n" + ReActAnalysis.FIRST_ROUND_PROMPT.format(max_rounds=max_rounds)
     )
@@ -207,7 +163,6 @@ async def react_stream(params: ReActParams, ctx: RequestContext) -> AsyncGenerat
     analysis = await _safe_round(params, ctx, instruction_with_prompt, ReActAnalysis)
     yield analysis
 
-    # --- Extension rounds ---
     remaining = max_rounds - 1
     while remaining > 0 and _needs_extension(analysis):
         prompt = ReActAnalysis.CONTINUE_PROMPT.format(remaining=remaining)
@@ -215,7 +170,6 @@ async def react_stream(params: ReActParams, ctx: RequestContext) -> AsyncGenerat
         yield analysis
         remaining -= 1
 
-    # --- Final answer ---
     answer_model = params.request_model or Analysis
     answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction=params.instruction)
     final = await _run_round(params, ctx, answer_prompt, answer_model, invoke_actions=False)
@@ -258,16 +212,10 @@ async def _run_round(
     request_model: type,
     invoke_actions: bool | None = None,
 ) -> Any:
-    """Execute a single ReAct round via operate."""
     from lionagi.ln.types import Operable
 
-    # Build operable from the round's request model
     round_operable = Operable.from_structure(request_model)
-
-    # Override instruction in generate params
     gen_params = params.generate_params.with_updates(copy_containers="deep", primary=instruction)
-
-    # Resolve action strategy from previous analysis if available
     should_act = invoke_actions if invoke_actions is not None else params.invoke_actions
 
     operate_params = OperateParams(
@@ -292,7 +240,6 @@ async def _run_round(
 
 
 def _needs_extension(analysis: Any) -> bool:
-    """Check if the analysis signals more rounds are needed."""
     if hasattr(analysis, "extension_needed"):
         return bool(analysis.extension_needed)
     if isinstance(analysis, dict):

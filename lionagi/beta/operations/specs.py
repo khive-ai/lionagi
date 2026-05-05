@@ -50,7 +50,6 @@ class Action(HashableModel):
     @field_validator("arguments", mode="before")
     @classmethod
     def _coerce_arguments(cls, value: Any) -> dict[str, Any]:
-        """Coerce arguments into a dict, handling JSON strings."""
         if isinstance(value, dict):
             return value
         return to_dict(
@@ -165,11 +164,6 @@ def get_action_result_spec():
     return Spec(ActionResult, name="action_results").as_listable().as_nullable()
 
 
-# ---------------------------------------------------------------------------
-# Parsing helpers
-# ---------------------------------------------------------------------------
-
-
 def _parse_action_blocks(content: str | dict | BaseModel) -> list[dict]:
     """Extract action request dicts from raw content.
 
@@ -182,7 +176,7 @@ def _parse_action_blocks(content: str | dict | BaseModel) -> list[dict]:
     elif isinstance(content, str):
         json_blocks = extract_json(content, fuzzy_parse=True)
         if not json_blocks:
-            # Fallback: try extracting from ```python ... ``` blocks
+            # Try ```python ... ``` blocks as fallback for models that emit code fences.
             matches = re.findall(r"```python\s*(.*?)\s*```", content, re.DOTALL)
             json_blocks = to_list(
                 [extract_json(m, fuzzy_parse=True) for m in matches],

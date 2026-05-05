@@ -1,15 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Report state and graph compilation for form-based work.
-
-Experimental — not yet integrated with beta core substrate. Will be redesigned
-to compile to OpGraph.
-
-``Report`` owns the artifact state for one job. It validates form wiring,
-resolves scoped inputs, and compiles forms into an ``OperationGraphBuilder``.
-It does not run a second scheduler; execution is delegated to ``Session.flow()``.
-"""
+"""Report: artifact state container that compiles Forms into a Session.flow() graph."""
 
 from __future__ import annotations
 
@@ -126,14 +118,12 @@ class Report(Element):
         return dict(self._node_by_form_id)
 
     def initialize(self, **inputs: Any) -> None:
-        """Set report-level inputs required by the top-level assignment."""
         missing = [field for field in self.input_fields if field not in inputs]
         if missing:
             raise ValueError(f"Missing required input fields: {missing}")
         self._initial_inputs = dict(inputs)
 
     def validate(self, external_input_fields: set[str] | None = None) -> None:
-        """Validate field wiring before compiling or executing the report."""
         external_input_fields = external_input_fields or set()
         producer_by_field = self._producer_map()
 
@@ -153,7 +143,6 @@ class Report(Element):
         self._assert_acyclic()
 
     def resolve_inputs(self, form: Form, *, strict: bool = False) -> dict[str, Any]:
-        """Resolve a form's declared inputs from completed producers or initial data."""
         resolved = {}
         for field in form.input_fields:
             value = self._resolved_field_value(field, consumer=form)
@@ -180,11 +169,7 @@ class Report(Element):
         return cross
 
     def next_forms(self) -> list[Form]:
-        """Return currently ready forms without performing scheduling.
-
-        This method is retained for manual orchestration. The preferred path is
-        ``to_builder()`` or ``run()``, which executes through ``Session.flow()``.
-        """
+        """Return ready forms; retained for manual orchestration (prefer to_builder()/run())."""
         ready = []
         for form in self._topological_forms():
             if form.filled:
@@ -196,7 +181,6 @@ class Report(Element):
         return ready
 
     def complete_form(self, form: Form) -> None:
-        """Record a filled form as completed."""
         if not form.filled:
             raise ValueError("Form is not filled")
         if form not in self.forms:
@@ -237,16 +221,6 @@ class Report(Element):
             Callable[[Form, dict[str, Any]], dict[str, Any]] | None
         ) = None,
     ) -> OperationGraphBuilder:
-        """Compile this report into an ``OperationGraphBuilder``.
-
-        Args:
-            operation: Branch operation name used for every form node.
-            builder: Optional existing builder to append to.
-            branches: Optional mapping from form branch names to Branch objects
-                or IDs.
-            parameter_factory: Optional callback that receives the Form and its
-                base parameters and returns operation parameters.
-        """
         from lionagi.beta.work.builder import OperationGraphBuilder
 
         builder = builder or OperationGraphBuilder(name=f"Report:{self.id}")
@@ -298,7 +272,6 @@ class Report(Element):
         verbose: bool = False,
         **flow_kwargs: Any,
     ) -> dict[str, Any]:
-        """Compile and execute this report through ``Session.flow()``."""
         builder = self.to_builder(operation=operation, branches=branches)
         result = await session.flow(
             builder.get_graph(),
@@ -311,7 +284,6 @@ class Report(Element):
         return result
 
     def apply_flow_result(self, result: dict[str, Any]) -> None:
-        """Update forms from a ``Session.flow()`` result."""
         operation_results = result.get("operation_results", {})
         failed = set(result.get("failed_operations", []))
         skipped = set(result.get("skipped_operations", []))

@@ -25,11 +25,7 @@ __all__ = ("Builder", "OperationGraphBuilder")
 
 
 def _resolve_branch_ref(branch: Any) -> UUID | str:
-    """Convert branch reference to UUID or trimmed name string.
-
-    Raises:
-        ValueError: If branch is not a valid UUID, Branch, or non-empty string.
-    """
+    """Coerce a branch reference to UUID or name string; raises ValueError if invalid."""
     try:
         return to_uuid(branch)
     except (ValueError, TypeError):
@@ -42,21 +38,7 @@ def _resolve_branch_ref(branch: Any) -> UUID | str:
 
 
 class OperationGraphBuilder:
-    """Fluent builder for operation DAGs with automatic linking.
-
-    Operations added sequentially auto-link unless depends_on is specified.
-    Use depends_on=[] for independent operations, depends_on=["op1"] for explicit.
-
-    Example:
-        graph = (Builder()
-            .add("fetch", "http_get", {"url": "..."})
-            .add("parse", "json_parse")  # auto-links to fetch
-            .add("validate", "schema_check", depends_on=["parse"])
-            .build())
-
-    Attributes:
-        graph: Underlying Graph being built.
-    """
+    """Fluent builder for operation DAGs with automatic sequential linking."""
 
     def __init__(
         self,
@@ -64,11 +46,6 @@ class OperationGraphBuilder:
         *,
         name: str | None = None,
     ):
-        """Initialize builder, optionally with existing graph.
-
-        Args:
-            graph: Pre-existing Graph to extend, or Undefined for new.
-        """
         if isinstance(graph, str):
             name = graph
             graph = Undefined
@@ -91,31 +68,7 @@ class OperationGraphBuilder:
         control_policy: dict[str, Any] | None = None,
         morphism: Any | UndefinedType = Undefined,
     ) -> OperationGraphBuilder:
-        """Add operation to graph.
-
-        Args:
-            name: Unique operation name for reference.
-            operation: Operation type (registry key).
-            parameters: Factory arguments (dict or model).
-            depends_on: Explicit dependencies. Undefined=auto-link, []=independent.
-            branch: Target branch (Branch|UUID|str). Undefined=default.
-            inherit_context: Store primary_dependency for context inheritance.
-            metadata: Additional metadata dict.
-            control_type: Runner control semantic ("halt", "retry", "skip",
-                "route", or custom). Non-None marks this as a control node
-                executed after regular nodes in the same Runner wave.
-            control_policy: Type-specific config such as {"targets": [...]} for
-                skip/retry/route or {"reason": "..."} for halt.
-            morphism: Optional direct Morphism injection. When set, the graph
-                compiler uses this object as OpNode.m instead of looking up an
-                operation handler in the session registry.
-
-        Returns:
-            Self for chaining.
-
-        Raises:
-            ValueError: If name exists or dependency not found.
-        """
+        """Add an operation; Undefined depends_on auto-links to current head, [] is independent."""
         if name in self._nodes:
             raise ValueError(f"Operation with name '{name}' already exists")
 
@@ -172,7 +125,6 @@ class OperationGraphBuilder:
         control_policy: dict[str, Any] | None = None,
         morphism: Any | UndefinedType = Undefined,
     ) -> UUID:
-        """Add an operation and return its node UUID."""
         resolved_metadata = {} if is_sentinel(metadata) else dict(metadata)
         base_name = str(resolved_metadata.pop("name", operation))
         name = base_name
@@ -220,7 +172,6 @@ class OperationGraphBuilder:
         branch: str | UUID | Branch | None | UndefinedType = Undefined,
         metadata: dict[str, Any] | UndefinedType = Undefined,
     ) -> UUID:
-        """Add a Runner control checkpoint and return its node UUID."""
         control_policy: dict[str, Any] = {}
         if not is_sentinel(targets):
             control_policy["targets"] = list(targets)
@@ -248,7 +199,6 @@ class OperationGraphBuilder:
         metadata: dict[str, Any] | UndefinedType = Undefined,
         control: bool = False,
     ) -> OperationGraphBuilder:
-        """Add a Runner-native morphism node to the operation graph."""
         operation_name = getattr(morphism, "name", None) or f"morphism.{name}"
         return self.add(
             name,
@@ -273,7 +223,6 @@ class OperationGraphBuilder:
         inherit_context: bool = False,
         metadata: dict[str, Any] | UndefinedType = Undefined,
     ) -> UUID:
-        """Add a form-backed operation and return its node UUID."""
         resolved_metadata = {} if is_sentinel(metadata) else dict(metadata)
         resolved_metadata.setdefault("form_id", str(getattr(form, "id", "")))
         resolved_metadata.setdefault("form_assignment", getattr(form, "assignment", ""))
@@ -292,19 +241,6 @@ class OperationGraphBuilder:
         *dependencies: str,
         label: list[str] | UndefinedType = Undefined,
     ) -> OperationGraphBuilder:
-        """Add explicit dependency edges: dependencies -> target.
-
-        Args:
-            target: Operation that depends on others.
-            *dependencies: Operations that target depends on.
-            label: Optional edge labels.
-
-        Returns:
-            Self for chaining.
-
-        Raises:
-            ValueError: If target or any dependency not found.
-        """
         if target not in self._nodes:
             raise ValueError(f"Target operation '{target}' not found")
 
@@ -328,41 +264,34 @@ class OperationGraphBuilder:
         return self
 
     def get(self, name: str) -> Operation:
-        """Get operation by name. Raises ValueError if not found."""
         if name not in self._nodes:
             raise ValueError(f"Operation '{name}' not found")
         return self._nodes[name]
 
     def get_by_id(self, operation_id: UUID) -> Operation | None:
-        """Get operation by UUID, or None if not in graph."""
         node = self.graph.nodes.get(operation_id, None)
         if isinstance(node, Operation):
             return node
         return None
 
     def mark_executed(self, *names: str) -> OperationGraphBuilder:
-        """Mark operations as executed for incremental workflows. Returns self."""
         for name in names:
             if name in self._nodes:
                 self._executed.add(self._nodes[name].id)
         return self
 
     def get_unexecuted_nodes(self) -> list[Operation]:
-        """Return operations not marked as executed."""
         return [op for op in self._nodes.values() if op.id not in self._executed]
 
     def build(self) -> Graph:
-        """Validate and return the graph. Raises ValueError if cyclic."""
         if not self.graph.is_acyclic():
             raise ValueError("Operation graph has cycles - must be a DAG")
         return self.graph
 
     def get_graph(self) -> Graph:
-        """Compatibility alias for build()."""
         return self.build()
 
     def clear(self) -> OperationGraphBuilder:
-        """Reset builder to empty state. Returns self."""
         self.graph = Graph()
         self._nodes = {}
         self._executed = set()

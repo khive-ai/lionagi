@@ -99,47 +99,25 @@ def _extract_lvars_from_text(
 
 @dataclass(frozen=True, slots=True)
 class OperateParams(Params):
-    """Parameters for operate (structure + act pipeline).
-
-    Flat parameter set — no nested StructureParams. The operate handler
-    builds StructureParams internally after runtime composition.
-
-    Attributes:
-        operable: Spec definition (required). Used to compose structures.
-        validator: Rule-based validator. Defaults to beta.rules.Validator.
-        generate_params: LLM generation config.
-        request_model: Base model type for structured output.
-            If None, composed entirely from operable specs.
-        capabilities: Field subset for runtime composition.
-        invoke_actions: Enable action spec injection and execution.
-        action_strategy: "concurrent" (default) or "sequential".
-        max_concurrent: Concurrency limit for tool execution.
-        throttle_period: Delay between starting tool calls (seconds).
-        persist: Persist assistant/action messages to branch.
-    """
+    """Parameters for the operate pipeline; StructureParams is built internally after runtime spec composition."""
 
     _config = ModelConfig(sentinel_additions=frozenset({"none", "empty"}))
 
-    # Required
     generate_params: GenerateParams
     operable: Operable
     validator: Validator = field(default_factory=Validator)
 
-    # Structure composition
     capabilities: set[str] | None = None
     persist: bool = True
 
-    # Action stage
     invoke_actions: bool = False
     action_strategy: Literal["sequential", "concurrent"] = "concurrent"
     max_concurrent: int | None = None
     throttle_period: float | None = None
 
-    # Validation
     auto_fix: bool = True
     strict: bool = True
 
-    # Parse overrides
     parse_imodel: MaybeUnset[iModel | str] = Unset
     parse_imodel_kwargs: dict[str, Any] = field(default_factory=dict)
     custom_parser: CustomParser | None = None
@@ -148,10 +126,8 @@ class OperateParams(Params):
     fill_mapping: dict[str, Any] | None = None
     fill_value: Any = Unset
 
-    # LNDL multi-round cognition
     max_lndl_rounds: int = 3
 
-    # Toolkits
     toolkits: list[ToolKit] | None = None
 
 
@@ -171,25 +147,18 @@ async def operate(params: OperateParams, ctx: RequestContext) -> Any:
     operable = params.operable
     gen_params = params.generate_params
 
-    # Determine if action spec should be injected.
-    # LNDL has its own tool-call mechanism via <lact> tags, so the JSON-based
-    # action_requests spec must NOT be injected when format is "lndl".
+    # LNDL uses <lact> tags for tool calls; JSON action_requests spec must NOT be injected for lndl.
     has_tools = not gen_params.is_sentinel_field("tool_schemas")
     branch_caps = getattr(branch, "capabilities", set())
     is_lndl = gen_params.structure_format == "lndl"
     inject_actions = params.invoke_actions and has_tools and "action" in branch_caps and not is_lndl
 
-    # --- Stage 1: Compose request structure ---
     request_operable = operable.extend([get_action_spec()]) if inject_actions else operable
-
     request_structure = request_operable.compose_structure()
-
-    # Update generate params with the composed request model
     use_gen_params = gen_params.with_updates(
         copy_containers="deep", request_model=request_structure
     )
 
-    # --- Stage 2: Generate + parse + execute + resolve ---
     if is_lndl and params.invoke_actions and has_tools:
         # LNDL with tools: generate → extract → execute lacts → resolve with results
         structured = await _lndl_tool_operate(
@@ -206,7 +175,6 @@ async def operate(params: OperateParams, ctx: RequestContext) -> Any:
         )
         return structured
 
-    # Non-tool LNDL or JSON: structure (generate → parse → validate) with continuation
     structure_params = StructureParams(
         generate_params=use_gen_params,
         validator=params.validator,
@@ -234,7 +202,6 @@ async def operate(params: OperateParams, ctx: RequestContext) -> Any:
         max_lndl_rounds=params.max_lndl_rounds,
     )
 
-    # --- Stage 3: Extract and execute actions (JSON action_requests spec) ---
     if not inject_actions:
         return structured
 
@@ -242,7 +209,6 @@ async def operate(params: OperateParams, ctx: RequestContext) -> Any:
     if not act_requests:
         return structured
 
-    # Convert Action models to ActionRequest messages, persist to branch
     action_messages = _actions_to_messages(act_requests)
     if not action_messages:
         return structured
@@ -259,17 +225,13 @@ async def operate(params: OperateParams, ctx: RequestContext) -> Any:
     )
     action_responses = await ctx.conduct("act", act_params)
 
-    # Persist action response messages to branch
     for resp in action_responses:
         resp_msg = Message(content=resp)
         session.add_message(resp_msg, branches=branch)
 
-    # Build ActionResult models from ActionResponse messages
     action_results = _responses_to_results(action_responses, action_messages)
 
-    # --- Stage 4: Compose response structure, merge, return ---
-    # No re-validation needed: structured output was validated in stage 2,
-    # action_results are execution artifacts (not LLM output).
+    # No re-validation: structured output was validated in stage 2; action_results are execution artifacts.
     response_operable = request_operable.extend([get_action_result_spec()])
     response_structure = response_operable.compose_structure()
 
@@ -379,7 +341,6 @@ async def _run_lndl_round(
 
     from .utils import ReturnAs
 
-    # 1. Generate
     if round_num == 0:
         round_gen = gen_params
     else:
@@ -394,7 +355,6 @@ async def _run_lndl_round(
         text_gen = round_gen.with_updates(copy_containers="deep", return_as=ReturnAs.TEXT)
         text = await ctx.conduct("generate", text_gen)
 
-    # 2. Normalize → parse strict → fuzzy rescue on last round only
     from lionagi.beta.lndl.fuzzy import normalize_lndl_text
 
     text = normalize_lndl_text(text)
@@ -435,10 +395,8 @@ async def _run_lndl_round(
 
     has_out = program.out_block is not None
 
-    # 3. Execute lacts referenced in OUT{}.
-    # ONLY tags in OUT{} execute. Everything else is scratch (thinking).
-    # No magic namespaces — scratchpad persistence is via the scratchpad TOOL,
-    # not via syntax-level note.X declarations.
+    # Only lacts referenced in OUT{} execute; everything outside OUT{} is scratch.
+    # Scratchpad persistence is via the scratchpad tool, not syntax-level note.X declarations.
     out_refs: set[str] = set()
     if has_out:
         for v in program.out_block.fields.values():
@@ -451,17 +409,14 @@ async def _run_lndl_round(
             lacts_to_execute, session, branch, ctx, toolkits=toolkits
         )
 
-    # 4. Promote tool results to synthetic lvars; pop executed lacts
     for alias, result in lact_results.items():
         lvars[alias] = RLvarMetadata(local_name=alias, value=_result_to_str(result))
     for alias in lact_results:
         lacts.pop(alias, None)
 
-    # 5. No OUT → Continue (model is still thinking; next round can commit)
     if not has_out:
         return Continue(notes_committed=())
 
-    # 6. Resolve OUT{} — pure reference resolution, no scratchpad magic
     try:
         output = resolve_references_prefixed(
             program.out_block.fields,
@@ -659,7 +614,6 @@ def _get_last_assistant_text(session: Any, branch: Any) -> str | None:
 
 
 def _actions_to_messages(act_requests: list) -> list[Message]:
-    """Convert Action models from structured output to ActionRequest Messages."""
     from lionagi.beta.core.message import ActionRequest
 
     messages: list[Message] = []
@@ -680,13 +634,8 @@ def _responses_to_results(
     action_responses: list,
     action_messages: list[Message],
 ) -> list[ActionResult]:
-    """Convert ActionResponse messages to ActionResult spec models.
-
-    Maps request_id back to function name via action_messages.
-    """
     from lionagi.beta.core.message import ActionResponse
 
-    # Build request_id → function lookup from action messages
     id_to_func: dict[str, str] = {}
     for msg in action_messages:
         content = msg.content

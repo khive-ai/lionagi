@@ -1,45 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Worker - Declarative workflow definition via decorated methods.
-
-Experimental — not yet integrated with beta core substrate. Will be redesigned
-to compile to OpGraph.
-
-A Worker defines workflows through:
-- @work: Typed operations with assignment DSL (inputs -> outputs)
-- @worklink: Conditional edges between work methods
-
-Workers compose with Session for Branch-backed execution, where @work methods
-with ``operation=...`` auto-delegate to the active Branch operation.
-
-The Worker pattern and the Flow/Builder pattern share the same substrate:
-graph-based stateful execution. Worker+Engine is the imperative interface;
-Flow+Builder is the declarative interface. Both execute on the same
-graph/operation primitives.
-
-Example:
-    class ResearchPipeline(Worker):
-        @work(assignment="topic -> findings")
-        async def survey(self, topic="", **kwargs):
-            return {"findings": await self.session.default_branch.operate(...)}
-
-        @work(assignment="findings -> analysis")
-        async def analyze(self, findings="", **kwargs):
-            return {"analysis": ...}
-
-        @worklink(from_="survey", to_="analyze")
-        async def survey_to_analyze(self, from_result):
-            return from_result
-
-        @worklink(from_="survey", to_="survey")
-        async def deepen(self, from_result):
-            questions = from_result.get("open_questions", [])
-            novel = [q for q in questions if q.get("novelty", 0) > 0.7]
-            if novel:
-                return {"topic": novel[0]["question"]}
-            return None  # no re-entry
-"""
+"""Worker: declarative workflow base class with @work and @worklink decorators."""
 
 from __future__ import annotations
 
@@ -65,15 +27,7 @@ __all__ = (
 
 @dataclass
 class WorkConfig:
-    """Configuration for a @work decorated method.
-
-    Attributes:
-        assignment: DSL string 'inputs -> outputs' for typed I/O
-        operation: Branch operation to auto-delegate to ('operate', 'communicate', 'ReAct')
-        branch: Optional branch routing hint.
-        resource: Optional resource hint.
-        timeout: Max execution time in seconds
-    """
+    """Configuration for a @work-decorated method."""
 
     assignment: str = ""
     operation: str = ""
@@ -92,17 +46,7 @@ class WorkLink:
 
 
 class Worker:
-    """Base class for declarative workflow definition.
-
-    Subclass and decorate methods with @work and @worklink to define workflows.
-    Set `session` for Session-backed execution where @work methods with
-    `operation` auto-delegate to the session's default branch.
-
-    Attributes:
-        name: Worker name (default: class name)
-        session: Optional Session for model-backed execution
-        forms: Dict mapping form IDs to Form instances
-    """
+    """Base class for declarative workflow definition via @work and @worklink."""
 
     name: str = "worker"
 
@@ -193,27 +137,7 @@ def work(
     resource: str | None = None,
     timeout: float | None = None,
 ) -> Callable[[Callable[..., Awaitable]], Callable[..., Awaitable]]:
-    """Decorator for typed work methods.
-
-    Args:
-        assignment: DSL string 'inputs -> outputs' defining typed I/O.
-        operation: Branch operation name ('operate', 'communicate', 'ReAct').
-            When set on a session-backed Worker, the method body is ignored
-            and execution auto-delegates to the session's default branch.
-        branch: Optional branch routing hint for compilers.
-        role: Alias for ``branch``.
-        resource: Optional resource/capability hint for compilers.
-        timeout: Max execution time in seconds.
-
-    Example:
-        @work(assignment="context -> code")
-        async def write_code(self, context="", **kwargs):
-            return {"code": await some_llm_call(context)}
-
-        @work(assignment="question -> findings", operation="ReAct")
-        async def research(self, **kwargs):
-            pass  # auto-delegates to branch.ReAct()
-    """
+    """Decorator for typed work methods with DSL assignment and optional branch auto-delegation."""
 
     def decorator(func: Callable[..., Awaitable]) -> Callable[..., Awaitable]:
         parsed_branch = branch or role
@@ -282,23 +206,7 @@ def worklink(
     from_: str,
     to_: str,
 ) -> Callable[[Callable[..., Awaitable]], Callable[..., Awaitable]]:
-    """Decorator for conditional edges between work methods.
-
-    The decorated function receives the result from the 'from_' method
-    and returns kwargs dict for the 'to_' method. Return None to skip
-    the edge (conditional routing).
-
-    Example:
-        @worklink(from_="write_code", to_="review")
-        async def write_to_review(self, from_result):
-            return from_result
-
-        @worklink(from_="review", to_="write_code")
-        async def review_to_rewrite(self, from_result):
-            if not from_result.get("approved"):
-                return {"instruction": "Fix: " + from_result["feedback"]}
-            return None  # approved, don't retry
-    """
+    """Decorator for conditional edges between work methods; return None to suppress the edge."""
 
     def decorator(func: Callable[..., Awaitable]) -> Callable[..., Awaitable]:
         @functools.wraps(func)

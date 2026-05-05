@@ -23,16 +23,11 @@ from .hook import HookEvent, HookPhase, HookRegistry
 logger = logging.getLogger(__name__)
 
 
-# Module-level cache for schema field keys (keyed by class)
 _SCHEMA_FIELD_KEYS_CACHE: dict[type[BaseModel], set[str]] = {}
 
 
 def _get_schema_field_keys(cls: type[BaseModel]) -> set[str]:
-    """Get field names for a Pydantic model (cached).
-
-    Uses model_fields instead of model_json_schema to include fields
-    that may be excluded from JSON schema (e.g., SkipJsonSchema fields).
-    """
+    """Return cached field names via model_fields (includes SkipJsonSchema fields)."""
     if cls not in _SCHEMA_FIELD_KEYS_CACHE:
         _SCHEMA_FIELD_KEYS_CACHE[cls] = set(cls.model_fields.keys())
     return _SCHEMA_FIELD_KEYS_CACHE[cls]
@@ -81,10 +76,7 @@ class ResourceConfig(HashableModel):
 
 @dataclass(slots=True)
 class Normalized(DataClass):
-    """
-    data is the direct output from the resource backend,
-    serialized is the serialzied form of the response (e.g., raw dict from provider),
-    """
+    """Normalized backend response: data is the direct output, serialized is the raw dict form."""
 
     _config: ClassVar[ModelConfig] = ModelConfig(
         sentinel_additions=frozenset({"none", "empty", "pydantic", "dataclass"}),
@@ -98,15 +90,7 @@ class Normalized(DataClass):
 
 
 class Calling(Event):
-    """Base calling event with hook support.
-
-    Extends Event with pre/post invocation hooks.
-    Always delegates to backend.call() for actual resource invocation.
-
-    Attributes:
-        backend: ResourceBackend instance (Tool, Endpoint, etc.)
-        payload: Request payload/arguments for backend call
-    """
+    """Base event wrapping a backend.call() with pre/post invocation hooks."""
 
     backend: ResourceBackend = Field(..., exclude=True, description="Resource backend instance")
     payload: dict[str, Any] = Field(..., description="Request payload/arguments")
@@ -116,7 +100,6 @@ class Calling(Event):
 
     @property
     def response(self) -> Normalized | UnsetType:
-        """Get normalized response from execution."""
         if is_sentinel(self.execution.response):
             return Unset
         resp = self.execution.response
@@ -127,45 +110,21 @@ class Calling(Event):
     @property
     @abstractmethod
     def call_args(self) -> dict:
-        """Get arguments for backend.call(**self.call_args).
-
-        Subclasses must implement this to return their specific call arguments:
-        - APICalling: {"request": ..., "extra_headers": ..., "skip_payload_creation": True}
-        - ToolCalling: {"arguments": ...}
-
-        Returns:
-            Dict of keyword arguments for backend.call()
-        """
+        """Keyword arguments for backend.call(**self.call_args); must be implemented by subclass."""
         ...
 
-    # Call-only kwargs that should NOT propagate to backend.stream().
-    # Subclasses can extend this if they add more call-specific flags.
+    # Keys in call_args that must not propagate to backend.stream().
     _STREAM_EXCLUDE_KEYS: frozenset[str] = frozenset({"skip_payload_creation"})
 
     @property
     def stream_args(self) -> dict:
-        """Arguments for backend.stream(**self.stream_args).
-
-        Defaults to call_args minus _STREAM_EXCLUDE_KEYS. Subclasses can
-        override for divergent streaming signatures.
-        """
+        """call_args minus _STREAM_EXCLUDE_KEYS; override for divergent streaming signatures."""
         args = dict(self.call_args)
         for key in self._STREAM_EXCLUDE_KEYS:
             args.pop(key, None)
         return args
 
     async def _invoke(self) -> Normalized:
-        """Execute with hook lifecycle (called by parent Event.invoke()).
-
-        Hook execution order:
-        1. Pre-invocation hook (if configured) - can abort
-        2. backend.call(**self.call_args) - actual service invocation
-        3. Post-invocation hook (if configured) - runs even on failure (finally)
-
-        Returns:
-            Normalized from backend
-        """
-        # Pre-invocation hook
         await self._check_pre_invoke_hook()
 
         try:
@@ -178,7 +137,6 @@ class Calling(Event):
         if h_ev := self._pre_invoke_hook_event:
             await h_ev.invoke()
 
-            # Check hook status and propagate failures
             if h_ev.execution.status in (EventStatus.FAILED, EventStatus.CANCELLED):
                 raise RuntimeError(
                     f"Pre-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
@@ -194,7 +152,6 @@ class Calling(Event):
         if h_ev := self._post_invoke_hook_event:
             await h_ev.invoke()
 
-            # Check hook status (post-hook failures don't block, just log)
             if h_ev.execution.status in (EventStatus.FAILED, EventStatus.CANCELLED):
                 logger.warning(
                     f"Post-invoke hook {h_ev.execution.status.value}: {h_ev.execution.error}"
@@ -229,7 +186,6 @@ class Calling(Event):
         hook_timeout: float = 30.0,
         hook_params: dict[str, Any] | None = None,
     ) -> None:
-        """Create pre-invocation hook event."""
         h_ev = HookEvent(
             hook_phase=HookPhase.PreInvocation,
             event_like=self,
@@ -248,7 +204,6 @@ class Calling(Event):
         hook_timeout: float = 30.0,
         hook_params: dict[str, Any] | None = None,
     ) -> None:
-        """Create post-invocation hook event."""
         h_ev = HookEvent(
             hook_phase=HookPhase.PostInvocation,
             event_like=self,
@@ -261,7 +216,6 @@ class Calling(Event):
         self._post_invoke_hook_event = h_ev
 
     def assert_is_normalized(self) -> None:
-        """Assert that response is normalized."""
         self.assert_completed()
         if is_unset(self.execution.response):
             raise ValidationError("Calling response is not set")
@@ -270,56 +224,37 @@ class Calling(Event):
 
 
 class ResourceBackend(Element):
-    """Base class for all resource backends (Endpoint adapters, etc.).
-
-    Subclasses must implement event_type and call() methods.
-    """
+    """Base class for resource backends; subclasses implement event_type and call()."""
 
     config: ResourceConfig = Field(..., description="Resource configuration")
 
     @property
     def provider(self) -> str:
-        """Provider name from config."""
         return self.config.provider
 
     @property
     def name(self) -> str:
-        """Resource name from config."""
         return self.config.name
 
     @property
     def version(self) -> str | None:
-        """Resource version from config."""
         return self.config.version
 
     @property
     def tags(self) -> set[str]:
-        """Resource tags from config."""
         return set(self.config.tags) if self.config.tags else set()
 
     @property
     def request_options(self) -> type[BaseModel] | None:
-        """Request options schema (Pydantic model type) from config."""
         return self.config.request_options
 
     @property
     @abstractmethod
     def event_type(self) -> type[Calling]:
-        """Return Calling type for this backend (e.g., ToolCalling, APICalling)."""
+        """The Calling subclass used to wrap invocations of this backend."""
         ...
 
     def normalize_response(self, raw_response: Any) -> Normalized:
-        """Normalize raw response into Normalized.
-
-        Default implementation wraps response as-is. Subclasses can override
-        to extract specific fields or add metadata.
-
-        Args:
-            raw_response: Raw response from resource call
-
-        Returns:
-            Normalized with status, data, raw_response
-        """
         return Normalized(
             status="success",
             data=raw_response,
@@ -334,10 +269,7 @@ class ResourceBackend(Element):
         )
 
     @abstractmethod
-    async def call(self, *args, **kw) -> Normalized:
-        """Execute resource call and return normalized response."""
-        ...
+    async def call(self, *args, **kw) -> Normalized: ...
 
     async def stream(self, *args, **kw):
-        """Stream responses (not supported by default)."""
         raise NotImplementedError("This backend does not support streaming calls.")

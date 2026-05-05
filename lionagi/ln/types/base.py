@@ -22,7 +22,7 @@ __all__ = (
 
 
 class Enum(_Enum):
-    """Enhanced Enum with allowed() classmethod."""
+    """Enum with an allowed() classmethod returning all values as a tuple."""
 
     @classmethod
     def allowed(cls) -> tuple[str, ...]:
@@ -30,61 +30,30 @@ class Enum(_Enum):
 
 
 class KeysDict(TypedDict, total=False):
-    """TypedDict for keys dictionary."""
-
-    key: Any  # Represents any key-type pair
+    key: Any
 
 
 @dataclass(slots=True, frozen=True)
 class ModelConfig:
-    """Configuration for Params and DataClass behavior.
+    """Shared configuration for sentinel handling, validation strictness, and serialization."""
 
-    Attributes:
-        none_as_sentinel: If True, None is treated as a sentinel value (excluded from to_dict).
-        empty_as_sentinel: If True, empty collections are treated as sentinels (excluded from to_dict).
-        strict: If True, no sentinels allowed (all fields must have values).
-        prefill_unset: If True, unset fields are prefilled with Unset.
-        use_enum_values: If True, use enum values instead of enum instances in to_dict().
-    """
-
-    # Extended sentinel handling
     sentinel_additions: frozenset[str] = frozenset()
-
-    # Sentinel handling (controls what gets excluded from to_dict)
     none_as_sentinel: bool = False
     empty_as_sentinel: bool = False
-
-    # Validation
     strict: bool = False
     prefill_unset: bool = True
-
-    # Serialization
     use_enum_values: bool = False
     serialize_exclude: frozenset[str] = frozenset()
 
 
 @dataclass(slots=True, frozen=True, init=False)
 class Params:
-    """Base class for parameters used in various functions.
-
-    Use the ModelConfig class attribute to customize behavior:
-
-    Example:
-        @dataclass(slots=True, frozen=True, init=False)
-        class MyParams(Params):
-            _config: ClassVar[ModelConfig] = ModelConfig(strict=True)
-            param1: str
-            param2: int
-    """
+    """Immutable parameter container with sentinel-aware serialization."""
 
     _config: ClassVar[ModelConfig] = ModelConfig()
-    """Configuration for this Params class."""
-
     _allowed_keys: ClassVar[set[str]] = field(default=set(), init=False, repr=False)
-    """Class variable cache to store allowed keys for parameters."""
 
     def __init__(self, **kwargs: Any):
-        """Initialize the Params object with keyword arguments."""
         allowed = self.allowed()
         for k, v in kwargs.items():
             if k in allowed:
@@ -92,7 +61,6 @@ class Params:
             else:
                 raise ValueError(f"Invalid parameter: {k}")
 
-        # Apply dataclass field defaults for fields not in kwargs
         for k in allowed:
             if k not in kwargs:
                 fld = self.__dataclass_fields__.get(k)
@@ -106,7 +74,6 @@ class Params:
 
     @classmethod
     def _is_sentinel(cls, value: Any) -> bool:
-        """Check if a value is a sentinel (Undefined or Unset)."""
         return is_sentinel(
             value,
             none_as_sentinel=cls._config.none_as_sentinel,
@@ -115,19 +82,12 @@ class Params:
 
     @classmethod
     def _normalize_value(cls, value: Any) -> Any:
-        """Normalize a value for serialization.
-
-        Handles:
-        - Enum values if use_enum_values is True
-        - Can be extended for other transformations
-        """
         if cls._config.use_enum_values and isinstance(value, _Enum):
             return value.value
         return value
 
     @classmethod
     def allowed(cls) -> set[str]:
-        """Return the keys of the parameters."""
         if "_allowed_keys" in cls.__dict__ and cls.__dict__["_allowed_keys"]:
             return cls._allowed_keys
         cls._allowed_keys = {
@@ -147,14 +107,11 @@ class Params:
             _validate_strict(k)
 
     def is_sentinel_field(self, name: str) -> bool:
-        """Check if a field's current value is a sentinel."""
         return self._is_sentinel(getattr(self, name, Undefined))
 
     def default_kw(self) -> Any:
-        # create a partial function with the current parameters
         dict_ = self.to_dict()
-
-        # handle kwargs if present, handle both 'kwargs' and 'kw'
+        # flatten 'kwargs'/'kw' sub-dicts so callers can pass result directly as **kwargs
         kw_ = {}
         kw_.update(dict_.pop("kwargs", {}))
         kw_.update(dict_.pop("kw", {}))
@@ -190,31 +147,16 @@ class Params:
 
 @dataclass(slots=True)
 class DataClass:
-    """A base class for data classes with strict parameter handling.
-
-    Use the ModelConfig class attribute to customize behavior:
-
-    Example:
-        @dataclass(slots=True)
-        class MyDataClass(DataClass):
-            _config: ClassVar[ModelConfig] = ModelConfig(strict=True, prefill_unset=False)
-            field1: str
-            field2: int
-    """
+    """Mutable dataclass base with sentinel-aware serialization."""
 
     _config: ClassVar[ModelConfig] = ModelConfig()
-    """Configuration for this DataClass."""
-
     _allowed_keys: ClassVar[set[str]] = field(default=set(), init=False, repr=False)
-    """Class variable cache to store allowed keys for parameters."""
 
     def __post_init__(self):
-        """Post-initialization to ensure all fields are set."""
         self._validate()
 
     @classmethod
     def allowed(cls) -> set[str]:
-        """Return the keys of the parameters."""
         if "_allowed_keys" in cls.__dict__ and cls.__dict__["_allowed_keys"]:
             return cls._allowed_keys
         cls._allowed_keys = {
@@ -245,7 +187,6 @@ class DataClass:
 
     @classmethod
     def _is_sentinel(cls, value: Any) -> bool:
-        """Check if a value is a sentinel (Undefined or Unset)."""
         return is_sentinel(
             value,
             none_as_sentinel=cls._config.none_as_sentinel,
@@ -254,12 +195,6 @@ class DataClass:
 
     @classmethod
     def _normalize_value(cls, value: Any) -> Any:
-        """Normalize a value for serialization.
-
-        Handles:
-        - Enum values if use_enum_values is True
-        - Can be extended for other transformations
-        """
         from enum import Enum as _Enum
 
         if cls._config.use_enum_values and isinstance(value, _Enum):
@@ -295,36 +230,21 @@ class Meta:
 
     @override
     def __hash__(self) -> int:
-        """Make metadata hashable for caching.
-
-        Note: For callables, we hash by id to maintain identity semantics.
-        """
-        # For callables, use their id
+        # callables hashed by id to maintain identity semantics across cache hits
         if callable(self.value):
             return hash((self.key, id(self.value)))
-        # For other values, try to hash directly
         try:
             return hash((self.key, self.value))
         except TypeError:
-            # Fallback for unhashable types
             return hash((self.key, str(self.value)))
 
     @override
     def __eq__(self, other: object) -> bool:
-        """Compare metadata for equality.
-
-        For callables, compare by id to increase cache hits when the same
-        validator instance is reused. For other values, use standard equality.
-        """
+        # callables compared by id so the same validator instance reuses the cache
         if not isinstance(other, Meta):
             return NotImplemented
-
         if self.key != other.key:
             return False
-
-        # For callables, compare by identity
         if callable(self.value) and callable(other.value):
             return id(self.value) == id(other.value)
-
-        # For other values, use standard equality
         return bool(self.value == other.value)

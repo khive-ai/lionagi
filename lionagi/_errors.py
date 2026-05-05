@@ -64,7 +64,6 @@ class LionError(Exception):
         return data
 
     def get_cause(self) -> Exception | None:
-        """Get the cause of this error, if any."""
         return self.__cause__ if hasattr(self, "__cause__") else None
 
     @classmethod
@@ -77,7 +76,6 @@ class LionError(Exception):
         cause: Exception | None = None,
         **extra: Any,
     ):
-        """Create a ValidationError from a value with optional expected type and message."""
         details = {
             "value": value,
             "type": type(value).__name__,
@@ -88,8 +86,6 @@ class LionError(Exception):
 
 
 class ValidationError(LionError):
-    """Exception raised when validation fails."""
-
     default_message = "Validation failed"
     default_status_code = 422
     default_retryable = False
@@ -97,8 +93,6 @@ class ValidationError(LionError):
 
 
 class NotFoundError(LionError):
-    """Exception raised when an item is not found."""
-
     default_message = "Item not found"
     default_status_code = 404
     default_retryable = False
@@ -106,8 +100,6 @@ class NotFoundError(LionError):
 
 
 class ExistsError(LionError):
-    """Exception raised when an item already exists."""
-
     default_message = "Item already exists"
     default_status_code = 409
     default_retryable = False
@@ -115,16 +107,12 @@ class ExistsError(LionError):
 
 
 class ObservationError(LionError):
-    """Exception raised when an observation fails."""
-
     default_message = "Observation failed"
     default_status_code = 500
     __slots__ = ()
 
 
 class ResourceError(LionError):
-    """Exception raised when resource access fails."""
-
     default_message = "Resource error"
     default_status_code = 429
     __slots__ = ()
@@ -153,8 +141,6 @@ class ExecutionError(LionError):
 
 
 class AccessError(LionError):
-    """Exception raised when access is denied."""
-
     default_message = "Access denied"
     default_status_code = 403
     default_retryable = False
@@ -162,8 +148,6 @@ class AccessError(LionError):
 
 
 class ConfigurationError(LionError):
-    """Exception raised when configuration is invalid."""
-
     default_message = "Invalid configuration"
     default_status_code = 500
     default_retryable = False
@@ -171,8 +155,6 @@ class ConfigurationError(LionError):
 
 
 class TimeoutError(LionError):  # noqa: A001 — intentional shadowing of builtin
-    """Exception raised when an operation times out."""
-
     default_message = "Operation timed out"
     default_status_code = 408
     __slots__ = ()

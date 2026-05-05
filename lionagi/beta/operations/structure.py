@@ -40,37 +40,21 @@ __all__ = ("StructureParams", "structure")
 
 @dataclass(frozen=True, slots=True)
 class StructureParams(Params):
-    """Parameters for structure operation (generate -> parse -> validate).
-
-    Attributes:
-        generate_params: LLM generation config.
-        validator: Rule-based validator for operable spec enforcement.
-        operable: Spec definition for field validation (required).
-        structure: Pre-composed Pydantic model to cast into.
-            If None, auto-composed from operable via compose_structure().
-        persist: Persist assistant message to branch before parsing.
-        capabilities: Allowed field subset (None = all operable fields).
-        auto_fix: Auto-coerce validation issues (e.g., wrap scalar -> list).
-        strict: Raise on validation failure vs. skip.
-    """
+    """Parameters for generate -> parse -> validate pipeline; structure auto-composed from operable if None."""
 
     _config = ModelConfig(sentinel_additions=frozenset({"none", "empty"}))
 
-    # Generate stage
     generate_params: GenerateParams
     operable: Operable
 
-    # Validate stage
     validator: Validator = field(default_factory=Validator)
     structure: type[BaseModel] | None = None
     capabilities: set[str] | None = None
     auto_fix: bool = True
     strict: bool = True
 
-    # Message persistence
     persist: bool = False
 
-    # Parse stage overrides
     parse_imodel: MaybeUnset[iModel | str] = Unset
     parse_imodel_kwargs: dict[str, Any] = field(default_factory=dict)
     custom_parser: CustomParser | None = None
@@ -81,17 +65,10 @@ class StructureParams(Params):
 
 
 async def structure(params: StructureParams, ctx: RequestContext) -> Any:
-    """Structure operation handler: generate -> parse -> validate.
-
-    When persist=True, generates as MESSAGE, persists to branch,
-    then extracts text from message.content.response for parsing.
-    """
-    # Resolve structure type: explicit or auto-composed from operable
     structure_type = params.structure
     if structure_type is None:
         structure_type = params.operable.compose_structure()
 
-    # Stage 1: Generate
     if params.persist:
         text = await _generate_and_persist(params.generate_params, ctx)
     else:
@@ -100,7 +77,6 @@ async def structure(params: StructureParams, ctx: RequestContext) -> Any:
         )
         text = await ctx.conduct("generate", gen_params)
 
-    # Stage 2: Parse (inherit schema config from generate params)
     gen = params.generate_params
     parse_imodel = params.parse_imodel if not is_unset(params.parse_imodel) else gen.imodel
     parse_params = ParseParams(
@@ -120,7 +96,6 @@ async def structure(params: StructureParams, ctx: RequestContext) -> Any:
     )
     parsed = await ctx.conduct("parse", parse_params)
 
-    # Stage 3: Validate against operable specs + structure type
     return await params.validator.validate(
         parsed,
         params.operable,
@@ -135,18 +110,11 @@ async def _generate_and_persist(
     generate_params: GenerateParams,
     ctx: RequestContext,
 ) -> str:
-    """Generate as MESSAGE, persist to branch, return text.
-
-    The assistant message is added to both session messages and
-    the branch progression for conversation continuity.
-    """
+    """Generate as MESSAGE and persist before returning text; ensures the assistant message exists in branch history before parse reads it."""
     gen_params = generate_params.with_updates(copy_containers="deep", return_as=ReturnAs.MESSAGE)
     message = await ctx.conduct("generate", gen_params)
 
-    # Persist to branch
     session = await ctx.get_session()
     branch = await ctx.get_branch()
     session.add_message(message, branches=branch)
-
-    # Extract text from assistant content
     return message.content.response

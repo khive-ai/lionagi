@@ -1,16 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Sandbox and local-effect policies for tools.
-
-This module contains two separate concerns used by agent tools:
-- PathGuard / ProcessGuard: local filesystem and subprocess effect gates.
-- SandboxSession helpers: git-worktree isolation for larger code changes.
-
-Path/process policies are intentionally separate from beta.core.policy:
-core policy answers "may this Principal invoke this action"; these policies
-answer "is this particular path/process effect safe inside the workspace".
-"""
+"""Sandbox policies (PathGuard, ProcessGuard) and git-worktree isolation (SandboxSession) for agent tools."""
 
 from __future__ import annotations
 
@@ -242,7 +233,6 @@ def _run_git(args: list[str], cwd: str | None = None) -> tuple[str, str, int]:
 def _create_worktree_sync(
     repo_root: str, branch_name: str, base_branch: str
 ) -> SandboxSession:
-    """Create a git worktree for isolated work."""
     root = Path(repo_root)
     worktree_dir = root / ".worktrees" / branch_name
     worktree_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -263,7 +253,6 @@ def _create_worktree_sync(
 
 
 def _get_diff_sync(session: SandboxSession) -> dict:
-    """Get diff of all changes in the worktree vs base branch."""
     wt = session.worktree_path
 
     _run_git(["add", "-A"], cwd=wt)
@@ -284,7 +273,6 @@ def _get_diff_sync(session: SandboxSession) -> dict:
 
 
 def _commit_sync(session: SandboxSession, message: str) -> dict:
-    """Commit staged changes in the worktree."""
     wt = session.worktree_path
     _run_git(["add", "-A"], cwd=wt)
 
@@ -299,7 +287,6 @@ def _commit_sync(session: SandboxSession, message: str) -> dict:
 
 
 def _cleanup_worktree_sync(session: SandboxSession) -> dict:
-    """Remove worktree and delete branch."""
     _, err1, rc1 = _run_git(
         ["worktree", "remove", session.worktree_path, "--force"],
         cwd=session.repo_root,
@@ -316,7 +303,6 @@ def _cleanup_worktree_sync(session: SandboxSession) -> dict:
 
 
 def _merge_sync(session: SandboxSession) -> dict:
-    """Merge worktree branch back into base branch."""
     _run_git(["add", "-A"], cwd=session.worktree_path)
     _run_git(
         ["commit", "-m", f"sandbox: {session.branch_name}"], cwd=session.worktree_path

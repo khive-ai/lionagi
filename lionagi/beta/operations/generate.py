@@ -39,19 +39,7 @@ __all__ = ("GenerateParams", "generate", "handle_return")
 
 @dataclass(frozen=True, slots=True)
 class GenerateParams(Params):
-    """Parameters for generate operation.
-
-    Provide either `instruction` (pre-built Message/Instruction) or
-    `primary` (string) to auto-build an Instruction via Instruction.create().
-
-    Attributes:
-        instruction: Pre-built Instruction or Message (takes priority).
-        primary: Instruction text (used when instruction is Unset).
-        context: Additional context merged into instruction.
-        imodel: Model name or iModel instance (Unset = session default).
-        return_as: How to unwrap the Calling result.
-        imodel_kwargs: Extra kwargs forwarded to imodel.invoke().
-    """
+    """LLM call parameters; provide either ``instruction`` (pre-built) or ``primary`` (string) — not both."""
 
     _config = ModelConfig(sentinel_additions=frozenset({"none", "empty", "dataclass", "pydantic"}))
 
@@ -91,7 +79,6 @@ class GenerateParams(Params):
 
 
 async def generate(params: GenerateParams, ctx: RequestContext) -> Any:
-    """Generate operation handler: resolve context and delegate to _generate."""
     session = await ctx.get_session()
     imodel = params.imodel if not params.is_sentinel_field("imodel") else None
 
@@ -118,19 +105,10 @@ async def _generate(
     return_as: ReturnAs = ReturnAs.CALLING,
     **imodel_kwargs: Any,
 ) -> Any:
-    """Core generate: resolve model/branch/instruction → invoke → handle_return.
-
-    Args:
-        instruction: Message, Instruction, or message UUID to look up.
-        imodel: Model name (resolved from session.resources) or iModel instance.
-        return_as: Controls output unwrapping (see ReturnAs).
-        **imodel_kwargs: Forwarded to imodel.invoke().
-    """
     if imodel is None:
         imodel = session.default_gen_model
     elif isinstance(imodel, str):
         imodel = session.resources.get(imodel, None)
-    # else: already an iModel instance
     if imodel is None:
         raise ConfigurationError(
             "Provided imodel could not be resolved, or no default model is set."

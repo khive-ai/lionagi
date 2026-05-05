@@ -37,15 +37,7 @@ __all__ = ("ParseParams", "parse")
 
 @dataclass(frozen=True, slots=True)
 class ParseParams(Params):
-    """Parameters for parse operation.
-
-    Attributes:
-        text: Raw text to parse (required).
-        target_keys: Expected keys for fuzzy matching (or derived from request_model).
-        imodel: Model for LLM reparse fallback.
-        structure_format: JSON (default) or custom parser.
-        max_retries: LLM reparse attempts (1-5, 0 = direct only).
-    """
+    """Parse operation parameters; max_retries=0 disables LLM reparse fallback."""
 
     _config = ModelConfig(sentinel_additions=frozenset({"none", "empty"}))
 
@@ -68,7 +60,6 @@ class ParseParams(Params):
 
 
 async def parse(params: ParseParams, ctx: RequestContext) -> dict[str, Any]:
-    """Parse operation handler: resolve target_keys and delegate to _parse."""
     target_keys = params.target_keys
 
     if params.is_sentinel_field("target_keys"):
@@ -113,19 +104,12 @@ async def _parse(
     scratchpad: Any = None,
     **imodel_kwargs: Any,
 ) -> dict[str, Any]:
-    """Two-stage parse: try direct extraction, fall back to LLM reparse.
-
-    Raises:
-        ValidationError: Missing required params.
-        ExecutionError: All parse attempts failed.
-    """
     _sentinel_check = {"none", "empty"}
     if is_sentinel(target_keys, _sentinel_check):
         raise ValidationError("No target_keys provided for parse operation")
     if is_sentinel(text, _sentinel_check):
         raise ValidationError("No text provided for parse operation")
 
-    # Stage 1: direct parse (no LLM call)
     direct_error: Exception | None = None
     try:
         return _direct_parse(
@@ -148,11 +132,10 @@ async def _parse(
         from lionagi.beta.lndl.errors import MissingOutBlockError
 
         if isinstance(e, MissingOutBlockError):
-            # Propagate directly — operate catches this to trigger LNDL continuation.
+            # Propagate — operate catches this to trigger LNDL continuation.
             raise
         direct_error = e
 
-    # Stage 2: LLM reparse fallback
     if is_sentinel(max_retries, _sentinel_check) or max_retries < 1:
         raise ExecutionError(
             "Direct parse failed and max_retries not enabled, no reparse attempted",

@@ -1,16 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""WorkerEngine - dynamic Worker driver backed by Session.flow().
-
-Experimental — not yet integrated with beta core substrate. Will be redesigned
-to compile to OpGraph.
-
-The engine keeps the imperative worklink loop, but each executable wave is
-compiled into an ``OperationGraphBuilder`` and executed by ``Session.flow()``.
-That keeps concurrency, branch resolution, edge conditions, and operation
-status handling in one runtime.
-"""
+"""Worker engine that compiles each task wave into a Session.flow() graph."""
 
 from __future__ import annotations
 
@@ -43,7 +34,6 @@ TERMINAL = {COMPLETED, FAILED, CANCELLED}
 
 @dataclass
 class WorkerTask:
-    """A logical Worker task that can traverse multiple work methods."""
 
     id: UUID = field(default_factory=uuid4)
     function: str = ""
@@ -58,11 +48,7 @@ class WorkerTask:
 
 
 class WorkerEngine:
-    """Execute Worker tasks by compiling waves into operation graphs.
-
-    Worklinks remain dynamic: after a wave completes, matching handlers map
-    method results to the next task kwargs. All matching links fan out.
-    """
+    """Drives a Worker by compiling task waves into operation graphs via Session.flow()."""
 
     def __init__(
         self,
@@ -103,7 +89,6 @@ class WorkerEngine:
         return task
 
     async def execute(self) -> None:
-        """Execute queued tasks until no work remains."""
         self._stopped = False
         await self._start_worker()
         session = self._ensure_session()
@@ -149,7 +134,7 @@ class WorkerEngine:
         return any(config.operation for _, config in self.worker._work_methods.values())
 
     async def _start_worker(self) -> None:
-        """Start the Worker lifecycle without reserving ``start`` as a work name."""
+        """Call Worker.start() bypassing the @work dispatch path."""
         from .worker import Worker
 
         start = self.worker.start
@@ -160,7 +145,7 @@ class WorkerEngine:
         await Worker.start(self.worker)
 
     async def _stop_worker(self) -> None:
-        """Stop the Worker lifecycle without reserving ``stop`` as a work name."""
+        """Call Worker.stop() bypassing the @work dispatch path."""
         from .worker import Worker
 
         stop = self.worker.stop
@@ -351,7 +336,6 @@ class WorkerEngine:
         task: WorkerTask,
         result: Any,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Follow all matching worklinks from the current method."""
         next_steps: list[tuple[str, dict[str, Any]]] = []
         for link in self.worker.get_links_from(task.function):
             try:

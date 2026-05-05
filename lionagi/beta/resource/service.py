@@ -42,12 +42,6 @@ _RESOURCE_ATTR = "_SERVICE_RESOURCE_META"
 
 
 def _to_pascal(snake_name: str) -> str:
-    """Convert snake_case name to PascalCase.
-
-    Examples:
-        require_monitoring_active -> RequireMonitoringActive
-        verify_consent_token -> VerifyConsentToken
-    """
     return "".join(word.capitalize() for word in snake_name.split("_"))
 
 
@@ -149,7 +143,6 @@ class Service(Element):
 
     @model_validator(mode="after")
     def _populate_resources(self):
-        """Scan for @resource decorated methods, build Operables from catalog."""
         all_specs = self._get_catalog_specs()
 
         for cls in reversed(type(self).mro()):
@@ -167,7 +160,6 @@ class Service(Element):
         return self
 
     def _get_catalog_specs(self) -> list:
-        """Extract Spec list from the catalog model."""
         if self.catalog is None:
             return []
         cat_op = Operable.from_structure(self.catalog)
@@ -191,11 +183,9 @@ class Service(Element):
                 raise
 
     def create_imodel(self) -> iModel:
-        """Create an iModel wrapping this service for session registration."""
         return iModel(backend=self.create_backend())
 
     def create_backend(self, **kwargs: Any) -> ResourceBackend:
-        """Create a ResourceBackend adapter for this service."""
         return _ServiceBackend(service=self, **kwargs)
 
     async def call(
@@ -259,14 +249,12 @@ class Service(Element):
         options: Any,
         ctx: RequestContext,
     ) -> AsyncIterable[Normalized]:
-        """Stream a service action. Default: single-yield from call()."""
         result = await self.call(name, options, ctx)
         yield result  # type: ignore[misc]
 
     async def _evaluate_policy(
         self, meta: ResourceMeta, options: Any, ctx: RequestContext
     ) -> dict[str, Any]:
-        """Evaluate policy. Override for custom policy logic."""
         return {"allowed": True}
 
 

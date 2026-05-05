@@ -74,19 +74,7 @@ def _must_be_allowed(p: Pile[T], item: T | type) -> None:
 
 
 def must_be_allowed(func: Callable) -> Callable:
-    """Decorator: validate first positional arg against pile's item_type.
-
-    Wraps Pile methods (add, update, include) that accept a single Element
-    instance or type. Delegates to _must_be_allowed which raises NotAllowedError
-    on mismatch. No-op when pile.item_type is None.
-
-    Usage::
-
-        @synchronized
-        @must_be_allowed
-        def add(self, item: T) -> None:
-            ...
-    """
+    """Decorator: validate first positional arg against pile's item_type before calling func."""
 
     @functools.wraps(func)
     def wrapper(self: Pile, item: Any, *args: Any, **kwargs: Any) -> Any:
@@ -97,20 +85,6 @@ def must_be_allowed(func: Callable) -> Callable:
 
 
 def _must_exist(p: Pile[T], item: UUID | str | T, *, strict: bool = True):
-    """Validate item exists in pile by ID.
-
-    Args:
-        p: The pile to check against.
-        item: UUID, str, or Element whose ID to look up.
-        strict: If True (default), raise NotFoundError on miss or coerce failure.
-                If False, return False instead of raising.
-
-    Returns:
-        True if item exists, False if strict=False and item missing.
-
-    Raises:
-        NotFoundError: If strict=True and item can't be coerced or isn't in pile.
-    """
     try:
         uid = p._coerce_id(item)
     except Exception:
@@ -127,18 +101,7 @@ def _must_exist(p: Pile[T], item: UUID | str | T, *, strict: bool = True):
 
 
 def must_exist(func: Callable) -> Callable:
-    """Decorator: validate first positional arg exists in pile by ID.
-
-    Wraps Pile methods (remove, get, pop) that accept a UUID, str, or Element.
-    Delegates to _must_exist which raises NotFoundError if item not found.
-
-    Usage::
-
-        @synchronized
-        @must_exist
-        def remove(self, item_id: UUID | str | Element) -> T:
-            ...
-    """
+    """Decorator: validate first positional arg exists in pile by ID before calling func."""
 
     @functools.wraps(func)
     def wrapper(self: Pile, item: Any, *args: Any, **kwargs: Any) -> Any:
@@ -154,24 +117,7 @@ def must_exist(func: Callable) -> Callable:
     Deserializable,
 )
 class Pile(Element, Generic[T]):
-    """Thread-safe typed collection with rich query interface.
-
-    A Pile is an ordered, type-validated container for Element subclasses.
-    Maintains insertion order via Progression, supports concurrent access.
-
-    Type-dispatched __getitem__:
-        pile[uuid|str]     -> T (single item by ID)
-        pile[int]          -> T (single item by index)
-        pile[slice]        -> Pile[T] (range)
-        pile[list|tuple]   -> Pile[T] (indices or UUIDs)
-        pile[Progression]  -> Pile[T] (ordered subset)
-        pile[callable]     -> Pile[T] (filter function)
-
-    Example:
-        pile = Pile[Node](items=[n1, n2], item_type=Node)
-        pile.add(n3)
-        filtered = pile[lambda x: x.metadata.get("active")]
-    """
+    """Thread-safe, ordered, type-validated container for Element subclasses."""
 
     _items: dict[UUID, T] = PrivateAttr(default_factory=dict)
     _progression: Progression = PrivateAttr(default_factory=Progression)
@@ -180,7 +126,6 @@ class Pile(Element, Generic[T]):
 
     @property
     def progression(self) -> Progression:
-        """Read-only copy of progression order."""
         return Progression(order=list(self._progression.order), name=self._progression.name)
 
     item_type: set[type] | None = Field(
@@ -197,7 +142,6 @@ class Pile(Element, Generic[T]):
     @field_validator("item_type", mode="before")
     @classmethod
     def _normalize_item_type(cls, v: Any) -> set[type] | None:
-        """Normalize item_type to set[type] from various input formats."""
         if v is None:
             return None
         if isinstance(v, list) and v and isinstance(v[0], str):
@@ -213,19 +157,6 @@ class Pile(Element, Generic[T]):
         strict_type: bool = False,
         **kwargs,
     ):
-        """Initialize Pile with optional items.
-
-        Args:
-            items: Initial items to add
-            item_type: Type(s) for validation (type, set, list, or Union)
-            order: Custom order (list of UUIDs or Progression)
-            strict_type: Enforce exact type match (no subclasses)
-            **kwargs: Element fields (id, created_at, metadata)
-
-        Raises:
-            NotFoundError: If order contains UUID not in items
-            TypeError: If item type validation fails
-        """
         super().__init__(**{"item_type": item_type, "strict_type": strict_type, **kwargs})
 
         if items:
@@ -241,7 +172,6 @@ class Pile(Element, Generic[T]):
 
     @field_serializer("item_type")
     def _serialize_item_type(self, v: set[type] | None) -> list[str] | None:
-        """Serialize item_type to list of fully-qualified type names."""
         if v is None:
             return None
         return [f"{t.__module__}.{t.__name__}" for t in v]
@@ -256,19 +186,6 @@ class Pile(Element, Generic[T]):
         item_created_at_format: (Literal["datetime", "isoformat", "timestamp"] | UnsetType) = Unset,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Serialize pile with items in progression order.
-
-        Args:
-            mode: Serialization mode (python/json/db)
-            created_at_format: Timestamp format for Pile itself
-            meta_key: Rename Pile metadata field
-            item_meta_key: Metadata key name for items
-            item_created_at_format: Timestamp format for items
-            **kwargs: Passed to model_dump()
-
-        Returns:
-            Dict with pile fields and serialized items in order
-        """
         data = super().to_dict(
             mode=mode, created_at_format=created_at_format, meta_key=meta_key, **kwargs
         )
@@ -304,7 +221,6 @@ class Pile(Element, Generic[T]):
     @synchronized
     @must_be_allowed
     def add(self, item: T) -> None:
-        """Add item to pile. Raises ExistsError if duplicate, TypeError if invalid type."""
         if item.id in self._items:
             raise ExistsError(f"Item {item.id} already exists in pile")
 
@@ -314,7 +230,6 @@ class Pile(Element, Generic[T]):
     @synchronized
     @must_exist
     def remove(self, item_id: UUID | str | Element) -> T:
-        """Remove and return item. Raises NotFoundError if not found."""
         uid = self._coerce_id(item_id)
         item = self._items.pop(uid)
         self._progression.remove(uid)
@@ -322,7 +237,6 @@ class Pile(Element, Generic[T]):
 
     @synchronized
     def pop(self, item_id: UUID | str | Element, default: Any = ...) -> T | Any:
-        """Remove and return item, or default if not found. Raises NotFoundError if no default."""
         uid = self._coerce_id(item_id)
 
         try:
@@ -336,7 +250,6 @@ class Pile(Element, Generic[T]):
 
     @synchronized
     def get(self, item_id: UUID | str | Element, default: Any = ...) -> T | Any:
-        """Get item by ID, or default if not found. Raises NotFoundError if no default."""
         uid = self._coerce_id(item_id)
 
         try:
@@ -350,12 +263,10 @@ class Pile(Element, Generic[T]):
     @must_be_allowed
     @must_exist
     def update(self, item: T) -> None:
-        """Update existing item in-place. Raises NotFoundError if not found, TypeError if invalid."""
         self._items[item.id] = item
 
     @synchronized
     def clear(self) -> None:
-        """Remove all items from pile."""
         self._items.clear()
         self._progression.clear()
 
@@ -363,7 +274,6 @@ class Pile(Element, Generic[T]):
 
     @synchronized
     def include(self, item: T) -> bool:
-        """Idempotent add: returns True if item is in pile after call, False on validation failure."""
         if item.id in self._items:
             return True
         try:
@@ -376,7 +286,6 @@ class Pile(Element, Generic[T]):
 
     @synchronized
     def exclude(self, item: UUID | str | Element) -> bool:
-        """Idempotent remove: returns True if item is not in pile after call, False on coercion failure."""
         try:
             uid = self._coerce_id(item)
         except Exception:
@@ -406,7 +315,6 @@ class Pile(Element, Generic[T]):
     def __getitem__(self, key: Callable[[T], bool]) -> Pile[T]: ...
 
     def __getitem__(self, key: Any) -> T | Pile[T]:
-        """Type-dispatched query: UUID/str/int -> T; slice/list/tuple/Progression/callable -> Pile[T]."""
         if isinstance(key, (UUID, str)):
             return self.get(key)
         elif isinstance(key, int):
@@ -425,7 +333,6 @@ class Pile(Element, Generic[T]):
             )
 
     def _filter_by_progression(self, prog: Progression) -> Pile[T]:
-        """Return new Pile with items in progression order. Raises NotFoundError if UUID missing."""
         if any(uid not in self._items for uid in prog):
             raise NotFoundError("Some items from progression not found in pile")
 
@@ -437,13 +344,11 @@ class Pile(Element, Generic[T]):
 
     @synchronized
     def _get_by_index(self, index: int) -> T:
-        """Get item by position in progression order."""
         uid: UUID = self._progression[index]
         return self._items[uid]
 
     @synchronized
     def _get_by_slice(self, s: slice) -> Pile[T]:
-        """Return new Pile with items from slice range."""
         uids: list[UUID] = self._progression[s]
         return Pile(
             items=[self._items[uid] for uid in uids],
@@ -453,7 +358,6 @@ class Pile(Element, Generic[T]):
 
     @synchronized
     def _get_by_list(self, keys: list | tuple) -> Pile[T]:
-        """Return new Pile from list of indices or UUIDs. No mixing allowed."""
         if not keys:
             raise ValueError("Cannot get items with empty list/tuple")
 
@@ -476,7 +380,6 @@ class Pile(Element, Generic[T]):
         )
 
     def _filter_by_function(self, func: Callable[[T], bool]) -> Pile[T]:
-        """Return new Pile with items matching filter function."""
         return Pile(
             items=[item for item in self if func(item)],
             item_type=self.item_type,
@@ -484,18 +387,6 @@ class Pile(Element, Generic[T]):
         )
 
     def filter_by_type(self, item_type: type[T] | set[type] | list[type]) -> Pile[T]:
-        """Return new Pile with items matching specified type(s).
-
-        Args:
-            item_type: Type(s) to filter by
-
-        Returns:
-            New Pile containing only items of requested type(s)
-
-        Raises:
-            TypeError: If requested type incompatible with pile's item_type
-            NotFoundError: If no items match
-        """
         types_to_filter = extract_types(item_type)
 
         if self.item_type is not None:
@@ -518,19 +409,16 @@ class Pile(Element, Generic[T]):
     # ==================== Context Managers ====================
 
     async def __aenter__(self) -> Pile[T]:
-        """Acquire async lock for context manager."""
         await self._async_lock.acquire()
         return self
 
     async def __aexit__(self, _exc_type, _exc_val, _exc_tb) -> None:
-        """Release async lock."""
         self._async_lock.release()
 
     # ==================== Query Operations ====================
 
     @synchronized
     def __contains__(self, item: UUID | str | Element) -> bool:
-        """Check if item exists in pile by ID."""
         with contextlib.suppress(Exception):
             uid = self._coerce_id(item)
             return uid in self._items
@@ -545,25 +433,21 @@ class Pile(Element, Generic[T]):
 
     @synchronized
     def __iter__(self) -> Iterator[T]:  # type: ignore[override]
-        """Iterate items in progression order. LSP override: yields T, not field tuples."""
+        """Iterate in progression order. LSP override: yields T, not field tuples."""
         for uid in self._progression:
             yield self._items[uid]
 
     def keys(self) -> Iterator[UUID]:
-        """Iterate UUIDs in progression order."""
         return iter(self._progression)
 
     def items(self) -> Iterator[tuple[UUID, T]]:
-        """Iterate (UUID, item) pairs in progression order."""
         for i in self:
             yield (i.id, i)
 
     def __list__(self) -> list[T]:
-        """Return items as list in progression order."""
         return [i for i in self]
 
     def is_empty(self) -> bool:
-        """Check if pile contains no items."""
         return len(self._items) == 0
 
     # ==================== Deserialization ====================
@@ -577,20 +461,6 @@ class Pile(Element, Generic[T]):
         item_meta_key: str | UnsetType = Unset,
         **kwargs: Any,
     ) -> Pile[T]:
-        """Deserialize Pile from dict. Validates all item types before deserializing.
-
-        Args:
-            data: Serialized pile data
-            meta_key: Restore metadata from this key (db mode compatibility)
-            item_meta_key: Metadata key for item deserialization
-            **kwargs: Additional arguments (e.g., item_type override)
-
-        Returns:
-            Reconstructed Pile with all items
-
-        Raises:
-            TypeError: If any item type incompatible with pile's constraints
-        """
         from .element import Element
 
         data = data.copy()

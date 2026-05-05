@@ -41,17 +41,7 @@ __all__ = (
 
 
 class EventStatus(Enum):
-    """Event execution status states.
-
-    Values:
-        PENDING: Not yet started
-        PROCESSING: Currently executing
-        COMPLETED: Finished successfully
-        FAILED: Execution failed with error
-        CANCELLED: Interrupted by timeout or cancellation
-        SKIPPED: Bypassed due to condition
-        ABORTED: Pre-validation rejected, never started
-    """
+    """Execution status states for events."""
 
     PENDING = "pending"
     PROCESSING = "processing"
@@ -65,15 +55,7 @@ class EventStatus(Enum):
 @implements(Serializable)
 @dataclass(slots=True)
 class Execution:
-    """Execution state (status, duration, response, error, retryable).
-
-    Attributes:
-        status: Current execution status
-        duration: Elapsed time in seconds (Unset until complete)
-        response: Result (Unset if unavailable, None if legitimate null)
-        error: Exception if failed (Unset/None/BaseException)
-        retryable: Whether retry is safe (Unset/bool)
-    """
+    """Mutable execution state snapshot for an in-progress or completed event."""
 
     status: EventStatus = EventStatus.PENDING
     duration: MaybeUnset[float] = Unset
@@ -82,7 +64,6 @@ class Execution:
     retryable: MaybeUnset[bool] = Unset
 
     def to_dict(self, **kwargs: Any) -> dict[str, Any]:
-        """Serialize to dict. Sentinels become None; errors become dicts."""
         res_ = Unset
         if is_sentinel(self.response):
             res_ = None
@@ -121,16 +102,6 @@ class Execution:
         depth: int = 0,
         _seen: set[int] | None = None,
     ) -> dict[str, Any]:
-        """Recursively serialize ExceptionGroup with depth limit and cycle detection.
-
-        Args:
-            eg: ExceptionGroup to serialize.
-            depth: Current recursion depth (internal).
-            _seen: Object IDs already visited for cycle detection (internal).
-
-        Returns:
-            Dict with error type, message, and nested exceptions.
-        """
         max_depth = 100
         if depth > max_depth:
             return {
@@ -177,7 +148,6 @@ class Execution:
             _seen.discard(eg_id)
 
     def add_error(self, exc: BaseException) -> None:
-        """Add error; creates ExceptionGroup if multiple errors accumulated."""
         if is_unset(self.error) or self.error is None:
             self.error = exc
         elif isinstance(self.error, ExceptionGroup):
@@ -194,28 +164,19 @@ class Execution:
 
 @implements(Invocable)
 class Event(Element):
-    """Base event with lifecycle tracking and execution state.
-
-    Subclasses implement _invoke(). invoke() manages transitions, timing, errors.
-
-    Attributes:
-        execution: Execution state
-        timeout: Optional timeout in seconds (None = no timeout)
-    """
+    """Base event with lifecycle tracking; subclasses implement _invoke()."""
 
     execution: Execution = Field(default_factory=Execution)
     timeout: MaybeUnset[float] = Field(Unset, exclude=True)
     streaming: bool = Field(False, exclude=True)
 
     def model_post_init(self, __context) -> None:
-        """Initialize async lock for thread-safe invoke()."""
         super().model_post_init(__context)
         self._async_lock = Lock()
 
     @field_validator("timeout")
     @classmethod
     def _validate_timeout(cls, v: Any) -> MaybeUnset[float]:
-        """Validate timeout is positive and finite (raises ValueError if not)."""
         if is_sentinel(v, additions={"none", "empty"}):
             return Unset
         if not math.isfinite(v):
@@ -226,34 +187,24 @@ class Event(Element):
 
     @field_serializer("execution")
     def _serialize_execution(self, val: Execution) -> dict:
-        """Serialize Execution to dict."""
         return val.to_dict()
 
     @property
     def request(self) -> dict:
-        """Request parameters for this event. Override in subclasses."""
         return {}
 
     async def _invoke(self) -> Any:
-        """Execute event logic. Subclasses must override."""
+        """Subclasses must override to provide event execution logic."""
         raise NotImplementedError("Subclasses must implement _invoke()")
 
     async def _stream(self):
-        """Stream event logic. Subclasses override for incremental execution.
-
-        Yields chunks of any type. The stream() lifecycle wrapper handles
-        status transitions, timing, error capture, and response accumulation.
-        """
+        """Subclasses override to yield incremental chunks; stream() manages lifecycle."""
         raise NotImplementedError("Subclasses must implement _stream()")
 
     @final
     @async_synchronized
     async def invoke(self) -> None:
-        """Execute with lifecycle management: status tracking, timing, error capture.
-
-        Idempotent: no-op if status is not PENDING. Thread-safe via async lock.
-        Sets execution.status, duration, response/error, and retryable flag.
-        """
+        """Execute with lifecycle management. No-op if not PENDING; thread-safe."""
         if self.execution.status != EventStatus.PENDING:
             return
 
@@ -315,17 +266,7 @@ class Event(Element):
     @final
     @contextlib.asynccontextmanager
     async def stream(self):
-        """Stream with lifecycle management as an async context manager.
-
-        Usage::
-
-            async with event.stream() as chunks:
-                async for chunk in chunks:
-                    process(chunk)
-
-        Accumulates chunks into execution.response for inspection consistency.
-        Context manager guarantees cleanup — no aclosing() needed by consumer.
-        """
+        """Stream with lifecycle management; context manager guarantees cleanup (no aclosing() needed)."""
         async with self._async_lock:
             if self.execution.status != EventStatus.PENDING:
 
@@ -411,14 +352,7 @@ class Event(Element):
                     self.execution.retryable = False
 
     def as_fresh_event(self, copy_meta: bool = False) -> Event:
-        """Clone with reset execution state (new ID, PENDING status).
-
-        Args:
-            copy_meta: If True, copy original metadata to clone.
-
-        Returns:
-            Fresh Event with original ID/created_at stored in metadata["original"].
-        """
+        """Clone with reset execution state; original id/created_at stored in metadata["original"]."""
         d_ = self.to_dict(exclude={"execution", *LN_ELEMENT_FIELDS})
         fresh = self.__class__(**d_)
 

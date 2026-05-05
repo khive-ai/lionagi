@@ -3,15 +3,9 @@
 
 """Capability-based policy enforcement for morphism execution.
 
-Coverage rules (conservative, segment-aware):
-  - have="net.out"         covers req="net.out"            (exact)
-  - have="net.out"         covers req="net.out:any.host"   (no resource = all)
-  - have="fs.read:/data/*" covers req="fs.read:/data/x"    (wildcard)
-  - have="fs.read:/data/*" DOES NOT cover "fs.read:/data/../etc/passwd" (canonicalized)
-  - have="fs.read:/x"      DOES NOT cover req="fs.read:*"  (narrower than wildcard)
-
-Security: fnmatch is NOT used (#6). Resources are canonicalized and matched
-segment-by-segment. Path traversal (../) is resolved before matching.
+Coverage is segment-aware: "net.out" covers "net.out:any.host" (no resource = wildcard),
+"fs.read:/data/*" covers "fs.read:/data/x" but not "fs.read:/data/../etc/passwd".
+Resources are canonicalized before matching — fnmatch is not used to prevent traversal attacks.
 """
 
 from __future__ import annotations
@@ -26,13 +20,11 @@ __all__ = ("covers", "policy_check")
 
 
 def _split(s: str) -> tuple[str, str]:
-    """Split 'domain.action[:resource]' -> ('domain.action', resource-or-empty)."""
     d, _, r = s.partition(":")
     return d, r
 
 
 def _canonicalize_resource(res: str) -> str:
-    """Normalize resource string: resolve .., collapse //, strip trailing /."""
     if not res:
         return res
     normalized = posixpath.normpath(res)
@@ -42,7 +34,6 @@ def _canonicalize_resource(res: str) -> str:
 
 
 def _segments_match(have_segs: list[str], req_segs: list[str]) -> bool:
-    """Segment-by-segment match. '*' in have matches one segment."""
     if len(have_segs) != len(req_segs):
         if have_segs and have_segs[-1] == "*":
             return len(req_segs) >= len(have_segs) - 1
@@ -56,7 +47,6 @@ def _segments_match(have_segs: list[str], req_segs: list[str]) -> bool:
 
 
 def _covers_resource(have_res: str, req_res: str) -> bool:
-    """Determine if have_res covers req_res for the same domain.action."""
     if have_res == "":
         return True
     if req_res == "":
@@ -83,7 +73,7 @@ def _covers_resource(have_res: str, req_res: str) -> bool:
     if req_wc and not have_wc:
         return False
 
-    # Both wildcards: have must be at least as broad (segment-aware)
+    # Both wildcards: have must be at least as broad
     have_segs = have_res.rstrip("*").rstrip("/").split("/")
     req_segs = req_res.rstrip("*").rstrip("/").split("/")
     if len(have_segs) > len(req_segs):
@@ -106,13 +96,9 @@ def policy_check(
     override_reqs: set[str] | None = None,
     extra_rights: frozenset[str] | None = None,
 ) -> bool:
-    """Check if principal has capabilities to run morphism.
+    """Return True iff every required right is covered by a capability held by principal.
 
-    True iff every required right R is covered by some capability H in principal.
-
-    Args:
-        extra_rights: Additional rights beyond principal.rights() (e.g., from
-            predecessor provides accumulated during Runner execution).
+    extra_rights extends principal.rights() with accumulated predecessor provides.
     """
     reqs: set[str]
     if override_reqs is not None:

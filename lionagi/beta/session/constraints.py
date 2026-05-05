@@ -62,31 +62,13 @@ def scope_is_accessible(branch, scope: str) -> bool:
 
 
 def scope_in_resources(scope: str, resources: set[str]) -> bool:
-    """Check if a scope is granted by a resources set with wildcard semantics.
-
-    Scope format: ``service:operation`` (e.g. ``lore:suggest``) or bare
-    ``service`` (e.g. ``lore``) for single-action toolkits / non-scoped imodels.
-
-    A scope is granted iff one of these holds:
-      - exact membership: ``scope in resources``
-      - wildcard admin:   ``"*:*" in resources``
-      - service wildcard: scope is ``svc:op``, ``"svc:*" in resources``
-      - bare alias:       scope is bare ``svc``, ``"svc:*" in resources``
-
-    The matcher is intentionally simple — no glob nesting, no exclusions.
-    Set semantics are additive only; restrictive grants use explicit allowlists.
-    """
+    """Additive-only wildcard grant check: exact, ``*:*``, or ``svc:*`` satisfies any ``svc:op``."""
     required = scope_to_right(scope)
     granted = {scope_to_right(resource) for resource in resources}
     return any(covers(have, required) for have in granted)
 
 
 def scope_must_be_accessible(branch, scope: str) -> None:
-    """Validate branch.resources grants the requested scope. Raise AccessError if not.
-
-    Companion to :func:`scope_in_resources`. Lists what the branch DOES have
-    so the LLM (or caller) can adapt or report cleanly.
-    """
     if scope_is_accessible(branch, scope):
         return
     raise AccessError(
@@ -115,12 +97,7 @@ def resource_is_accessible(branch, name: str) -> bool:
 
 
 def resource_must_be_accessible(branch, name: str) -> None:
-    """Validate branch has resource access. Raise AccessError if not.
-
-    Uses Principal capability rights. A bare resource name maps to
-    ``service.call:{name}``; scoped service grants such as
-    ``service.call:{name}:*`` also satisfy resource-level access.
-    """
+    """Bare resource name maps to ``service.call:{name}``; scoped grants like ``service.call:{name}:*`` also satisfy."""
     if resource_is_accessible(branch, name):
         return
     raise AccessError(
@@ -158,22 +135,12 @@ def capabilities_must_be_granted(branch, capabilities: set[str]) -> None:
 def branch_name_must_be_unique(session, name: str) -> None:
     try:
         session.communications.get_progression(name)
-        # If we get here, the name exists - not unique
         raise ExistsError(f"Branch with name '{name}' already exists")
     except KeyError:
-        # KeyError means name not found - it's unique, which is good
         pass
 
 
 def genai_model_must_be_configured(session) -> None:
-    """Validate session has a default GenAI model configured.
-
-    Args:
-        session: Session to check
-
-    Raises:
-        ConfigurationError: If no default model configured
-    """
     if session.default_gen_model is None:
         raise ConfigurationError(
             "Session has no default_gen_model configured",

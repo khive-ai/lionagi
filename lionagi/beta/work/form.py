@@ -1,19 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Form contracts for work units.
-
-Experimental — not yet integrated with beta core substrate. Will be redesigned
-to compile to OpGraph.
-
-A Form represents an instantiated work unit with:
-- an assignment DSL (inputs -> outputs)
-- optional branch/resource routing hints
-- scoped input and output data
-
-Forms deliberately do not schedule or execute work. Reports compile Forms into
-operation graphs, and ``Session.flow()`` executes those graphs.
-"""
+"""Form: input/output contract for a single work unit using the assignment DSL."""
 
 from __future__ import annotations
 
@@ -32,15 +20,7 @@ _BRANCH_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 
 @dataclass
 class ParsedAssignment:
-    """Parsed form assignment with all components.
-
-    Attributes:
-        branch: Branch/worker name (e.g., "classifier1")
-        inputs: Input field names
-        outputs: Output field names
-        resource: Resource hint (e.g., "api:fast")
-        raw: Original assignment string
-    """
+    """Result of parsing the full assignment DSL."""
 
     branch: str | None
     inputs: list[str]
@@ -50,28 +30,12 @@ class ParsedAssignment:
 
 
 def parse_assignment(assignment: str) -> tuple[list[str], list[str]]:
-    """Parse 'inputs -> outputs' assignment DSL (simple form).
-
-    Args:
-        assignment: DSL string like "a, b -> c, d"
-
-    Returns:
-        Tuple of (input_fields, output_fields)
-    """
     parsed = parse_full_assignment(assignment)
     return parsed.inputs, parsed.outputs
 
 
 def parse_full_assignment(assignment: str) -> ParsedAssignment:
-    """Parse full assignment DSL with branch and resource hints.
-
-    Format: "branch: inputs -> outputs | resource"
-
-    Examples:
-        "a, b -> c"                           # Simple
-        "classifier: job -> role | api:fast"  # Full
-        "writer: context -> summary"          # Branch, no resource
-    """
+    """Parse the full 'branch: inputs -> outputs | resource' assignment DSL."""
     raw = assignment.strip()
     branch = None
     resource = None
@@ -113,21 +77,7 @@ def parse_full_assignment(assignment: str) -> ParsedAssignment:
 
 
 class Form(Element):
-    """Input/output contract and local data for one work unit.
-
-    Assignment DSL supports full format:
-        "branch: inputs -> outputs | resource"
-
-    Attributes:
-        assignment: DSL string 'branch: inputs -> outputs | resource'
-        branch: Worker/branch name for routing
-        resource: Resource hint for capability matching
-        input_fields: Fields required as inputs
-        output_fields: Fields produced as outputs
-        available_data: Current data values
-        output: Execution result
-        filled: Whether required output fields have been set.
-    """
+    """Input/output contract and data store for one work unit."""
 
     assignment: str = Field(
         default="",
@@ -169,7 +119,6 @@ class Form(Element):
         return True
 
     def get_inputs(self) -> dict[str, Any]:
-        """Return declared inputs currently available on the form."""
         return {
             field: self.available_data[field]
             for field in self.input_fields
@@ -177,11 +126,9 @@ class Form(Element):
         }
 
     def fill(self, **data: Any) -> None:
-        """Merge available input or output data into this form."""
         self.available_data.update(data)
 
     def extract_output_data(self, output: Any) -> dict[str, Any]:
-        """Extract declared output fields from an arbitrary operation result."""
         data = {}
         if output is None:
             return data
@@ -200,7 +147,6 @@ class Form(Element):
         return data
 
     def missing_outputs(self, output: Any | None = None) -> list[str]:
-        """Return declared output fields absent from output/current data."""
         data = self.extract_output_data(output) if output is not None else {}
         available = {**self.available_data, **data}
         return [
@@ -210,15 +156,6 @@ class Form(Element):
         ]
 
     def set_output(self, output: Any, *, partial: bool = False) -> None:
-        """Store operation output and mark the form filled.
-
-        Args:
-            output: Operation result object, dict, or Pydantic model.
-            partial: Allow missing declared output fields. Defaults to False.
-
-        Raises:
-            ValueError: If required output fields are missing.
-        """
         output_data = self.extract_output_data(output)
         available = {**self.available_data, **output_data}
         missing = [
@@ -236,7 +173,6 @@ class Form(Element):
         self.filled = not missing
 
     def get_output_data(self) -> dict[str, Any]:
-        """Return declared outputs currently stored on the form."""
         result = {}
         for field in self.output_fields:
             if field in self.available_data:

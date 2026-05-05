@@ -128,7 +128,7 @@ def _grep_sync(
     except Exception as e:
         return SearchResponse(success=False, error=f"grep error: {e}", count=0)
 
-    # exit code 1 = no matches (not an error), 2 = real error
+    # grep exit code 1 = no matches (not an error); 2 = real error
     if result.returncode == 2:
         return SearchResponse(success=False, error=result.stderr.strip(), count=0)
 

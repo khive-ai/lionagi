@@ -21,14 +21,7 @@ E = TypeVar("E", bound=Event)
 
 
 class HookPhase(Enum):
-    """Event lifecycle phases for hook registration.
-
-    Hooks execute at specific points in Event lifecycle:
-    - PreEventCreate: Before Event instantiation (receives event type)
-    - PreInvocation: After Event created, before invoke() (receives event instance)
-    - PostInvocation: After invoke() completes (receives event with result)
-    - ErrorHandling: On exception during invocation
-    """
+    """Lifecycle phases at which hooks may be registered."""
 
     PreEventCreate = "pre_event_create"
     PreInvocation = "pre_invocation"
@@ -50,11 +43,7 @@ class AssociatedEventInfo(TypedDict, total=False):
 
 
 class HookEvent(Event):
-    """Hook execution event that delegates to HookRegistry.
-
-    Extends Event with hook-specific execution logic.
-    Parent Event.invoke() handles lifecycle, this implements _invoke().
-    """
+    """Event that delegates _invoke() to a HookRegistry phase handler."""
 
     registry: HookRegistry = Field(..., exclude=True)
     hook_phase: HookPhase
@@ -73,11 +62,6 @@ class HookEvent(Event):
         return v
 
     async def _invoke(self) -> Any:
-        """Execute hook via registry (called by parent Event.invoke()).
-
-        Parent Event.invoke() handles status/timing/errors automatically.
-        Just execute hook logic and let exceptions propagate naturally.
-        """
         result = await self.registry.call(
             self.event_like,
             hook_phase=self.hook_phase,
@@ -85,16 +69,13 @@ class HookEvent(Event):
             **self.params,
         )
 
-        # Unpack the result - hook_phase returns tuple of (inner_tuple, meta)
         if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], dict):
             inner_tuple, meta = result
             res, se, _ = inner_tuple
         else:
-            # Streaming chunk returns a simpler tuple
             res, se, _ = result
             meta = {}
 
-        # Build associated event info from meta dict
         event_info: AssociatedEventInfo = {"kron_class": str(meta.get("kron_class", ""))}
         if "event_id" in meta:
             event_info["event_id"] = str(meta["event_id"])
@@ -103,18 +84,14 @@ class HookEvent(Event):
         self.associated_event_info = event_info
         self._should_exit = se
 
-        # Handle error results - raise them so parent Event catches and sets FAILED status
         if isinstance(res, tuple) and len(res) == 2:
-            # Tuple (Undefined, exception) from cancelled hook
             self._exit_cause = res[1]
             raise res[1]
 
         if isinstance(res, Exception):
-            # Exception result from failed hook
             self._exit_cause = res
             raise res
 
-        # Success - return result (parent sets COMPLETED status)
         return res
 
 
@@ -124,16 +101,7 @@ K = TypeVar("K")
 def get_handler(
     d_: dict[K, Any], k: K, get: bool = False, /
 ) -> Callable[..., Awaitable[Any]] | None:
-    """Retrieve async handler from dict, wrapping sync functions if needed.
-
-    Args:
-        d_: Handler dictionary (HookPhase->handler or chunk_type->handler).
-        k: Key to look up.
-        get: If True, return default passthrough handler when key missing.
-
-    Returns:
-        Async handler function, or None if key missing and get=False.
-    """
+    """Look up a handler, wrapping sync callables; returns passthrough default when get=True and key missing."""
     handler = d_.get(k)
     if handler is None and not get:
         return None
@@ -156,11 +124,6 @@ def get_handler(
 
 
 def validate_hooks(kw: dict[Any, Any]) -> None:
-    """Validate hook dict: keys must be HookPhase, values must be callable.
-
-    Raises:
-        ValueError: If dict structure or types are invalid.
-    """
     if not isinstance(kw, dict):
         raise ValueError("Hooks must be a dictionary of callable functions")
 
@@ -172,11 +135,6 @@ def validate_hooks(kw: dict[Any, Any]) -> None:
 
 
 def validate_stream_handlers(kw: dict[Any, Any]) -> None:
-    """Validate stream handler dict: keys must be str|type, values callable.
-
-    Raises:
-        ValueError: If dict structure or types are invalid.
-    """
     if not isinstance(kw, dict):
         raise ValueError("Stream handlers must be a dictionary of callable functions")
 
@@ -189,17 +147,7 @@ def validate_stream_handlers(kw: dict[Any, Any]) -> None:
 
 
 class HookRegistry:
-    """Registry for hook callbacks at Event lifecycle phases.
-
-    Manages two handler types:
-    - Phase hooks: Execute at PreEventCreate/PreInvocation/PostInvocation/ErrorHandling
-    - Stream handlers: Process chunks during streaming (keyed by type name or class)
-
-    Handler semantics:
-    - Return value: Passed through to caller
-    - Raise exception: Cancels/aborts operation (status depends on phase)
-    - Exit flag: Determines whether exception should halt further processing
-    """
+    """Registry of phase hooks and stream handlers for the Event lifecycle."""
 
     _hooks: dict[HookPhase, Callable[..., Any]]
     _stream_handlers: dict[str | type, Callable[..., Any]]
@@ -209,12 +157,6 @@ class HookRegistry:
         hooks: dict[HookPhase, Callable[..., Any]] | None = None,
         stream_handlers: StreamHandlers[Any] | None = None,
     ):
-        """Initialize registry with optional hooks and stream handlers.
-
-        Args:
-            hooks: Mapping of HookPhase to handler callables.
-            stream_handlers: Mapping of chunk type (str|type) to handler callables.
-        """
         _hooks: dict[HookPhase, Callable[..., Any]] = {}
         _stream_handlers: dict[str | type, Callable[..., Any]] = {}
 
@@ -238,7 +180,6 @@ class HookRegistry:
         /,
         **kw: Any,
     ) -> tuple[Any | Exception, bool]:
-        """Internal dispatch to hook or stream handler."""
         if hp_ is None and ct_ is None:
             raise ConfigurationError("Either hook_type or chunk_type must be provided")
         if hp_ and (self._hooks.get(hp_)):
@@ -264,7 +205,6 @@ class HookRegistry:
         /,
         **kw: Any,
     ) -> Any:
-        """Internal dispatch to stream handler by chunk type."""
         validate_stream_handlers({ct_: self._stream_handlers.get(ct_)})
         handler = get_handler(self._stream_handlers, ct_, True)
         if handler is not None:
@@ -278,16 +218,6 @@ class HookRegistry:
         exit: bool = False,  # noqa: A002
         **kw: Any,
     ) -> tuple[Any, bool, EventStatus]:
-        """Execute PreEventCreate hook before Event instantiation.
-
-        Args:
-            event_type: Event class being created.
-            exit: If True and hook raises, signal caller to halt.
-            **kw: Passed to hook handler.
-
-        Returns:
-            Tuple of (result|exception, should_exit, status).
-        """
         try:
             res = await self._call(
                 HookPhase.PreEventCreate,
@@ -310,16 +240,6 @@ class HookRegistry:
         exit: bool = False,  # noqa: A002
         **kw: Any,
     ) -> tuple[Any, bool, EventStatus]:
-        """Execute PreInvocation hook before Event.invoke().
-
-        Args:
-            event: Event instance about to be invoked.
-            exit: If True and hook raises, signal caller to halt.
-            **kw: Passed to hook handler.
-
-        Returns:
-            Tuple of (result|exception, should_exit, status).
-        """
         try:
             res = await self._call(
                 HookPhase.PreInvocation,
@@ -342,16 +262,6 @@ class HookRegistry:
         exit: bool = False,  # noqa: A002
         **kw: Any,
     ) -> tuple[Any, bool, EventStatus]:
-        """Execute PostInvocation hook after Event.invoke() completes.
-
-        Args:
-            event: Event instance with execution results populated.
-            exit: If True and hook raises, signal caller to halt.
-            **kw: Passed to hook handler.
-
-        Returns:
-            Tuple of (result|exception, should_exit, status). Status is ABORTED on error.
-        """
         try:
             res = await self._call(
                 HookPhase.PostInvocation,
@@ -375,20 +285,6 @@ class HookRegistry:
         exit: bool = False,  # noqa: A002
         **kw: Any,
     ) -> tuple[Any, bool, EventStatus | None]:
-        """Process a streaming chunk via registered handler.
-
-        Args:
-            chunk_type: Type identifier for handler lookup (str name or class).
-            chunk: The chunk data to process.
-            exit: If True and handler raises, signal caller to halt.
-            **kw: Passed to handler.
-
-        Returns:
-            Tuple of (result|exception, should_exit, status|None).
-
-        Raises:
-            ValueError: If chunk_type is None.
-        """
         if chunk_type is None:
             raise ValueError("chunk_type cannot be None for streaming chunks")
         try:
@@ -418,12 +314,6 @@ class HookRegistry:
     ) -> (
         tuple[tuple[Any, bool, EventStatus], dict[str, Any]] | tuple[Any, bool, EventStatus | None]
     ):
-        """Call a hook or stream handler.
-
-        If method is provided, it will call the corresponding hook.
-        If chunk_type is provided, it will call the corresponding stream handler.
-        If both are provided, method will be used.
-        """
         if hook_phase is None and chunk_type is None:
             raise ValueError("Either method or chunk_type must be provided")
 
@@ -431,19 +321,16 @@ class HookRegistry:
             meta: dict[str, Any] = {"kron_class": event_like.class_name(full=True)}
             match hook_phase:
                 case HookPhase.PreEventCreate | HookPhase.PreEventCreate.value:
-                    # For pre_event_create, event_like should be a type
                     if isinstance(event_like, type):
                         return (
                             await self.pre_event_create(event_like, exit=exit, **kw),
                             meta,
                         )
-                    # Fall through to treat as event instance
                     return (
                         await self.pre_event_create(type(event_like), exit=exit, **kw),
                         meta,
                     )
                 case HookPhase.PreInvocation | HookPhase.PreInvocation.value:
-                    # For pre_invocation, event_like should be an instance
                     if isinstance(event_like, Event):
                         meta["event_id"] = str(event_like.id)
                         meta["event_created_at"] = event_like.created_at.isoformat()
@@ -453,7 +340,6 @@ class HookRegistry:
                         )
                     raise TypeError("PreInvocation requires an Event instance, not a type")
                 case HookPhase.PostInvocation | HookPhase.PostInvocation.value:
-                    # For post_invocation, event_like should be an instance
                     if isinstance(event_like, Event):
                         meta["event_id"] = str(event_like.id)
                         meta["event_created_at"] = event_like.created_at.isoformat()
@@ -471,7 +357,6 @@ class HookRegistry:
         hp_: HookPhase | None = None,
         ct_=None,
     ) -> bool:
-        """Check if the registry can handle the given event or chunk type."""
         if hp_:
             return hp_ in self._hooks
         if ct_:

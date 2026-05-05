@@ -1,11 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""OpNode and OpGraph: the DAG execution model for lionagi.beta.
-
-Distinct from core/base/Graph (rich Pydantic graph for knowledge/content).
-OpGraph is minimal: nodes → morphisms + deps. Formally analyzable.
-"""
+"""OpNode and OpGraph: minimal DAG execution model for lionagi.beta."""
 
 from __future__ import annotations
 
@@ -73,16 +69,7 @@ class OpGraph:
     def check_satisfiability(
         self, ambient: frozenset[str] = frozenset()
     ) -> list[tuple[UUID, frozenset[str]]]:
-        """Static capability satisfiability check (#7).
-
-        For each node, checks that morphism.requires ⊆ (ambient ∪ predecessors.provides).
-        Returns list of (node_id, unsatisfied_requirements) for failing nodes.
-        Empty list means the graph is satisfiable.
-
-        Args:
-            ambient: Capabilities available without any predecessor providing them
-                (e.g., from Principal.rights()).
-        """
+        """Check morphism.requires ⊆ (ambient ∪ predecessors.provides) for every node; returns unsatisfied pairs."""
         order = self.validate_dag()
         available: dict[UUID, frozenset[str]] = {}
         failures: list[tuple[UUID, frozenset[str]]] = []

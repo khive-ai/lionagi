@@ -1,29 +1,7 @@
 # Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Agent operations: composable LLM pipeline stages.
-
-Handlers (async handler(params, ctx) -> result):
-    generate: Stateless LLM call with message preparation.
-    parse: JSON extraction with LLM reparse fallback.
-    structure: generate -> parse -> validate pipeline.
-    operate: structure + action execution + response composition.
-    act: Tool/action execution from structured output.
-    react / react_stream: Multi-round reason-act loop.
-
-Spec models:
-    Action, ActionResult: Tool call request/result models.
-    Instruct: Task handoff bundle for orchestration.
-    ReActAnalysis, PlannedAction, Analysis: ReAct loop models.
-
-Built-in handlers are auto-registered on Session creation:
-    generate, structure, operate, react, react_stream
-
-Usage:
-    result = await session.conduct("operate", branch, params)
-    async for analysis in session.stream_conduct("react_stream", params=...):
-        print(analysis)
-"""
+"""Composable LLM pipeline stages: generate, parse, structure, operate, act, react."""
 
 from __future__ import annotations
 

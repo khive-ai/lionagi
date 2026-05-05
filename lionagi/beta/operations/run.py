@@ -42,11 +42,7 @@ __all__ = ("RunParams", "run", "run_and_collect")
 
 @dataclass(frozen=True, slots=True)
 class RunParams(Params):
-    """Parameters for the run (CLI streaming) operation.
-
-    Extends GenerateParams concept for streaming. The key addition is
-    stream_chunk_hook for real-time chunk processing (display, persist, etc.).
-    """
+    """CLI streaming operation parameters; stream_chunk_hook enables real-time chunk processing."""
 
     _config = ModelConfig(sentinel_additions=frozenset({"none", "empty", "dataclass", "pydantic"}))
 
@@ -58,7 +54,6 @@ class RunParams(Params):
 
 
 async def run(params: RunParams, ctx: RequestContext) -> str:
-    """Run operation handler: streaming generate for CLI endpoints."""
     session = await ctx.get_session()
     imodel = params.imodel if not params.is_sentinel_field("imodel") else None
 
@@ -84,7 +79,6 @@ async def _run(
     stream_chunk_hook: Any | None = None,
     **imodel_kwargs: Any,
 ) -> str:
-    """Core run: resolve model → stream → accumulate messages → return text."""
     if imodel is None:
         imodel = session.default_gen_model
     elif isinstance(imodel, str):
@@ -109,10 +103,8 @@ async def _run(
         scratchpad=branch.scratchpad_summary(),
     )
 
-    # Add instruction to branch
     session.add_message(ins_msg, branches=branch)
 
-    # Resume from previous session if available
     if sid := imodel.provider_metadata.get("session_id"):
         imodel_kwargs.setdefault("resume", sid)
 
@@ -142,7 +134,7 @@ async def _run(
                     text_parts.append(chunk.data)
 
             elif chunk_type == "tool_use":
-                # Flush accumulated text as assistant message before tool call
+                # Flush before tool call so the assistant message ends at the right boundary.
                 if text_parts:
                     _add_assistant_msg(session, branch, text_parts, thinking_parts)
 
@@ -175,14 +167,11 @@ async def _run(
             elif chunk_type == "done":
                 break
 
-    # Capture before flush clears the list
     result_text = "".join(text_parts)
 
-    # Flush remaining text as assistant message
     if text_parts:
         _add_assistant_msg(session, branch, text_parts, thinking_parts)
 
-    # Store session_id for resume
     if session_id:
         imodel.provider_metadata["session_id"] = session_id
 
@@ -219,7 +208,6 @@ async def run_and_collect(
     stream_chunk_hook: Any | None = None,
     **imodel_kwargs: Any,
 ) -> str:
-    """Convenience: _run that returns collected text. Used as Middle for operate."""
     return await _run(
         session=session,
         branch=branch,

@@ -51,29 +51,7 @@ async def acreate_path(
     random_hash_digits: int = 0,
     timeout: float | None = None,
 ) -> AsyncPath:
-    """Generate file path asynchronously with optional timeout.
-
-    Args:
-        directory: Base directory path.
-        filename: Target filename (may contain subdirectory with /).
-        extension: File extension (if filename doesn't have one).
-        timestamp: Add timestamp to filename.
-        dir_exist_ok: Allow existing directories.
-        file_exist_ok: Allow existing files.
-        time_prefix: Put timestamp before filename instead of after.
-        timestamp_format: Custom strftime format for timestamp.
-        random_hash_digits: Add random hash suffix (0 = disabled).
-        timeout: Maximum time in seconds for async I/O operations
-            (None = no timeout).
-
-    Returns:
-        AsyncPath to the created/validated file path.
-
-    Raises:
-        ValueError: If filename contains backslash.
-        FileExistsError: If file exists and file_exist_ok is False.
-        TimeoutError: If timeout is exceeded.
-    """
+    """Async variant of create_path with optional timeout."""
     from .concurrency import move_on_after
 
     async def _impl() -> AsyncPath:
@@ -172,15 +150,7 @@ def create_path(
 
 
 def get_bins(input_: list[str], upper: int) -> list[list[int]]:
-    """Organizes indices of strings into bins based on a cumulative upper limit.
-
-    Args:
-        input_ (List[str]): The list of strings to be binned.
-        upper (int): The cumulative length upper limit for each bin.
-
-    Returns:
-        List[List[int]]: A list of bins, each bin is a list of indices from the input list.
-    """
+    """Group string indices into bins whose cumulative char length stays below upper."""
     current = 0
     bins = []
     current_bin = []
@@ -202,18 +172,6 @@ def import_module(
     module_name: str = None,
     import_name: str | list = None,
 ) -> Any:
-    """
-    Import a module by its path.
-
-    Args:
-        module_path: The path of the module to import.
-
-    Returns:
-        The imported module.
-
-    Raises:
-        ImportError: If the module cannot be imported.
-    """
     try:
         full_import_path = (
             f"{package_name}.{module_name}" if module_name else package_name
@@ -238,21 +196,8 @@ def import_module(
 
 
 def is_import_installed(package_name: str) -> bool:
-    """
-    Check if a package is installed.
-
-    Args:
-        package_name: The name of the package to check.
-
-    Returns:
-        bool: True if the package is installed, False otherwise.
-    """
     return importlib.util.find_spec(package_name) is not None
 
-
-# ---------------------------------------------------------------------------
-# Dynamic type loading
-# ---------------------------------------------------------------------------
 
 _TYPE_CACHE: dict[str, type] = {}
 
@@ -261,36 +206,14 @@ _ALLOWED_MODULE_PREFIXES: set[str] = set(_DEFAULT_ALLOWED_PREFIXES)
 
 
 def register_type_prefix(prefix: str) -> None:
-    """Register module prefix for dynamic type loading allowlist.
-
-    Security: Only register prefixes for modules you control.
-
-    Args:
-        prefix: Module prefix to allow (e.g., "myapp.models.").
-            Must end with "." to prevent prefix attacks.
-
-    Raises:
-        ValueError: If prefix doesn't end with ".".
-    """
+    """Register a module prefix for dynamic type loading; prefix must end with '.' to prevent prefix-injection attacks."""
     if not prefix.endswith("."):
         raise ValueError(f"Prefix must end with '.': {prefix}")
     _ALLOWED_MODULE_PREFIXES.add(prefix)
 
 
 def load_type_from_string(type_str: str) -> type:
-    """Load type from fully qualified path (e.g., 'lionagi.core.Node').
-
-    Security: Only allowlisted module prefixes can be loaded.
-
-    Args:
-        type_str: Fully qualified type path.
-
-    Returns:
-        The loaded type class.
-
-    Raises:
-        ValueError: If path invalid, not allowlisted, or type not found.
-    """
+    """Load a type from a fully-qualified string path; only allowlisted prefixes are permitted."""
     if type_str in _TYPE_CACHE:
         return _TYPE_CACHE[type_str]
 
@@ -322,23 +245,8 @@ def load_type_from_string(type_str: str) -> type:
         raise ValueError(f"Failed to load type '{type_str}': {e}") from e
 
 
-# ---------------------------------------------------------------------------
-# Type extraction
-# ---------------------------------------------------------------------------
-
-
 def extract_types(item_type: Any) -> set[type]:
-    """Extract concrete types from type annotations.
-
-    Handles Union, list, set, and single types recursively.
-
-    Args:
-        item_type: Type annotation (Union[X, Y], list[type],
-            set[type], or type).
-
-    Returns:
-        Set of concrete types extracted from the annotation.
-    """
+    """Flatten a type annotation (Union, list, set, or bare type) into a set of concrete types."""
 
     def is_union(t: Any) -> bool:
         origin = get_origin(t)
@@ -368,23 +276,8 @@ def extract_types(item_type: Any) -> set[type]:
     return {item_type}
 
 
-# ---------------------------------------------------------------------------
-# UUID / datetime coercion
-# ---------------------------------------------------------------------------
-
-
 def to_uuid(value: Any) -> UUID:
-    """Convert value to UUID instance.
-
-    Args:
-        value: UUID, UUID string, or object with ``.id`` attribute.
-
-    Returns:
-        UUID instance.
-
-    Raises:
-        ValueError: If value cannot be converted to UUID.
-    """
+    """Convert a UUID, UUID string, or object with .id to a UUID instance."""
     if isinstance(value, UUID):
         return value
     if isinstance(value, str):
@@ -399,19 +292,7 @@ def to_uuid(value: Any) -> UUID:
 
 
 def coerce_created_at(v: Any) -> datetime:
-    """Coerce value to UTC-aware datetime.
-
-    Supports datetime, Unix timestamp (int/float), or ISO string.
-
-    Args:
-        v: datetime, Unix timestamp (int/float), or ISO string.
-
-    Returns:
-        UTC-aware datetime instance.
-
-    Raises:
-        ValueError: If value cannot be parsed as datetime.
-    """
+    """Coerce a datetime, Unix timestamp, or ISO string to a UTC-aware datetime."""
     if isinstance(v, datetime):
         return v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
 
@@ -428,17 +309,8 @@ def coerce_created_at(v: Any) -> datetime:
     raise ValueError(f"Expected datetime/timestamp/string, got {type(v).__name__}")
 
 
-# ---------------------------------------------------------------------------
-# Synchronization decorators
-# ---------------------------------------------------------------------------
-
-
 def synchronized(func: Callable[P, R]) -> Callable[P, R]:
-    """Decorator for thread-safe method execution.
-
-    Requires decorated method's instance to have ``self._lock``
-    (``threading.Lock``).
-    """
+    """Wrap a method so it acquires self._lock before executing."""
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -452,11 +324,7 @@ def synchronized(func: Callable[P, R]) -> Callable[P, R]:
 def async_synchronized(
     func: Callable[P, Awaitable[R]],
 ) -> Callable[P, Awaitable[R]]:
-    """Decorator for async-safe method execution.
-
-    Requires decorated method's instance to have ``self._async_lock``
-    (``anyio.Lock``).
-    """
+    """Wrap an async method so it acquires self._async_lock before executing."""
 
     @wraps(func)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:

@@ -1,29 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Invariant Policy Unit (IPU): enforcement layer between morphisms and the runner.
-
-The IPU intercepts before_node and after_node execution phases to run a chain
-of Invariants. Invariants check pre- and post-conditions; the IPU decides what
-to do when they fail (log in lenient mode, raise in strict mode).
-
-Design principles:
-    - Invariants are small, focused checks. They have no side-effects.
-    - The IPU composes invariants — it does not implement policy itself.
-    - Invariants are opt-in via morphism attributes (no forced overhead).
-    - LenientIPU warns; StrictIPU raises. Choose at runner-construction time.
-
-Slim invariant set (vs. the over-engineered idealized v1):
-    PolicyGatePresent: capability check — always enforced (the critical invariant)
-    LatencyBound:      timing check — opt-in via morphism.latency_budget_ms
-    ResultShape:       output validation — opt-in via morphism.result_keys / result_schema
-
-The removed invariants (BranchIsolation, CapabilityMonotonicity, DeterministicLineage,
-ObservationCompleteness, NoAmbientAuthority, CtxWriteSet, ResultSizeBound) are
-available as opt-in advanced invariants but not included in default_invariants().
-They are maintained here as a reference for consumers that need formal verification
-but are not part of the recommended default.
-"""
+"""Invariant Policy Unit: pre/post enforcement hooks around morphism execution."""
 
 from __future__ import annotations
 
@@ -55,29 +33,17 @@ logger = logging.getLogger(__name__)
 
 
 class Invariant(Protocol):
-    """Protocol for execution invariants checked by the IPU.
-
-    Invariants are stateless (or minimally stateful for timing) objects that
-    check pre- and post-conditions around node execution.
-    """
+    """Protocol for pre/post condition checks run by the IPU."""
 
     name: str
 
-    def pre(self, br: Principal, node: OpNode) -> bool:
-        """Check precondition before node.m.apply(). Return False to abort."""
-        ...
+    def pre(self, br: Principal, node: OpNode) -> bool: ...
 
-    def post(self, br: Principal, node: OpNode, result: dict[str, Any]) -> bool:
-        """Check postcondition after node.m.apply(). Return False to reject."""
-        ...
+    def post(self, br: Principal, node: OpNode, result: dict[str, Any]) -> bool: ...
 
 
 class IPU(Protocol):
-    """Invariant Policy Unit: composable execution enforcement.
-
-    Implementations receive before_node/after_node hooks from the Runner
-    and run their invariant chain. on_observation receives runtime telemetry.
-    """
+    """Composable execution enforcement with before/after node hooks."""
 
     name: str
     invariants: list[Invariant]
@@ -90,19 +56,11 @@ class IPU(Protocol):
     async def on_observation(self, obs: Observation) -> None: ...
 
 
-# ---------------------------------------------------------------------------
-# Core invariants (always checked)
-# ---------------------------------------------------------------------------
-
-
 class PolicyGatePresent:
-    """Verify that the policy gate is present in the execution pipeline.
+    """Sentinel invariant declaring that policy enforcement is required.
 
-    Runner performs the authoritative policy check (including dynamic rights,
-    accumulated provides, and extra_rights) BEFORE calling ipu.before_node().
-    This invariant is a sentinel: it declares that policy enforcement is
-    required, but does not re-check — the IPU cannot access Runner's per-run
-    state (accumulated_provides) and would produce false rejections.
+    The Runner performs the authoritative check before ipu.before_node(); this
+    invariant cannot re-check because it lacks access to accumulated_provides.
     """
 
     name = "PolicyGatePresent"
@@ -120,11 +78,7 @@ class PolicyGatePresent:
 
 
 class LatencyBound:
-    """Enforce per-node latency budget when morphism declares latency_budget_ms.
-
-    Opt-in: morphism must have latency_budget_ms: int attribute.
-    No-op if the attribute is absent or None.
-    """
+    """Enforce per-node latency budget; opt-in via morphism.latency_budget_ms attribute."""
 
     name = "LatencyBound"
 
@@ -146,14 +100,7 @@ class LatencyBound:
 
 
 class ResultShape:
-    """Validate result shape when morphism declares result_keys or result_schema.
-
-    Opt-in:
-        result_keys: frozenset[str] — all these keys must appear in result dict
-        result_schema: type[msgspec.Struct] — strict round-trip validation
-
-    No-op if both attributes are absent or None.
-    """
+    """Validate result shape; opt-in via morphism.result_keys or morphism.result_schema attributes."""
 
     name = "ResultShape"
 
@@ -161,7 +108,6 @@ class ResultShape:
         return True
 
     def post(self, br: Principal, node: OpNode, result: dict[str, Any]) -> bool:
-        # 1) Required keys check
         required = getattr(node.m, "result_keys", None)
         if required:
             if not isinstance(result, dict):
@@ -170,7 +116,6 @@ class ResultShape:
             if miss:
                 return False
 
-        # 2) Schema validation (strict, requires msgspec)
         schema = getattr(node.m, "result_schema", None)
         if schema is not None and _msgspec is not None:
             try:
@@ -196,11 +141,7 @@ def _is_result_dependent(inv: Invariant) -> bool:
 
 
 class LenientIPU:
-    """IPU that logs invariant failures without halting execution.
-
-    Use in development/staging. Failures produce warnings in logs but
-    execution continues. Observations are forwarded to logger.
-    """
+    """IPU that logs invariant violations without halting execution; for development/staging."""
 
     name = "LenientIPU"
 
@@ -227,11 +168,7 @@ class LenientIPU:
 
 
 class StrictIPU(LenientIPU):
-    """IPU that raises AssertionError on any invariant failure.
-
-    Use in production/tests. Any pre- or post-condition violation halts
-    execution immediately.
-    """
+    """IPU that raises AssertionError on any invariant violation; for production/tests."""
 
     name = "StrictIPU"
 
@@ -258,15 +195,6 @@ class StrictIPU(LenientIPU):
 
 
 def default_invariants() -> list[Invariant]:
-    """Return the recommended default invariant set.
-
-    Always enforced:
-        PolicyGatePresent — capability check (the critical invariant)
-
-    Opt-in (no-op unless morphism declares the relevant attribute):
-        LatencyBound — activated by morphism.latency_budget_ms
-        ResultShape  — activated by morphism.result_keys or morphism.result_schema
-    """
     return [
         PolicyGatePresent(),
         LatencyBound(),

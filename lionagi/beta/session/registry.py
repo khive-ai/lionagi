@@ -7,15 +7,13 @@ from lionagi.beta.core.base.pile import Pile
 
 from .session import Session
 
-# Semantic UUID type alias for type-safe entity identification.
-# ID[T] is Annotated[UUID, ("ID", T)] at runtime — pure annotation sugar.
 class _IDMeta(type):
     def __getitem__(cls, item: type) -> type:
         return Annotated[UUID, ("ID", item)]
 
 
 class ID(UUID, metaclass=_IDMeta):
-    """Semantic UUID type with model association."""
+    """UUID with generic model association; ID[T] is Annotated[UUID, ("ID", T)] at runtime."""
     pass
 
 SESSION_REGISTRY: Pile[Session] = Pile(item_type=Session, strict_type=True)

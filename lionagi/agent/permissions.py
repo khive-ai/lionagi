@@ -1,45 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Permission system for agent tool access control.
-
-Three modes:
-    - allow_all: everything permitted (default for orchestrators)
-    - deny_all: nothing permitted (safe mode)
-    - rules: per-tool allow/deny/escalate rules
-
-Rules are checked in order: deny first, then allow, then default.
-Escalation lets a worker agent request permission from its orchestrator.
-
-Usage::
-
-    policy = PermissionGuard(
-        mode="rules",
-        allow={"reader": ["*"], "search": ["*"], "bash": ["git *", "cargo *"]},
-        deny={"bash": ["rm *", "sudo *"], "editor": [".env", "*.key"]},
-        escalate={"bash": ["*"]},  # anything not explicitly allowed → escalate
-    )
-
-    # As AgentConfig
-    config = AgentConfig.coding()
-    config.permissions = {
-        "mode": "rules",
-        "allow": {"reader": ["*"], "search": ["*"]},
-        "deny": {"bash": ["rm *"]},
-        "escalate": {"bash": ["*"]},
-    }
-
-    # In settings.yaml
-    permissions:
-      mode: rules
-      allow:
-        reader: ["*"]
-        search: ["*"]
-        bash: ["git *", "cargo *", "uv *"]
-      deny:
-        bash: ["rm -rf *", "sudo *"]
-        editor: [".env", "credentials*"]
-"""
+"""Per-tool permission guards with allow/deny/escalate rule modes for agent tool access control."""
 
 from __future__ import annotations
 
@@ -53,10 +15,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Finding 2: shell control operators bypass fnmatch allow-rules via suffix injection
+# shell control operators can bypass fnmatch allow-rules via suffix injection
 _SHELL_CONTROL = re.compile(r"(;|&&|\|\||\||`|\$\(|[<>]|\n)")
 
-# Finding 10: tool alias → canonical name mapping
 _TOOL_ALIASES = {
     "bash_tool": "bash",
     "reader_tool": "reader",
@@ -93,7 +54,6 @@ class PermissionGuard:
     on_escalate: Callable | None = None
 
     def __post_init__(self) -> None:
-        # Finding 10: normalize all rule keys to canonical tool names at init time
         self.allow = _normalize_rules(self.allow)
         self.deny = _normalize_rules(self.deny)
         self.escalate = _normalize_rules(self.escalate)
@@ -143,9 +103,7 @@ class PermissionGuard:
         if self.mode == "deny_all":
             return PermissionDecision("deny", tool_name, action, "mode=deny_all")
 
-        # Finding 10: normalize tool name before rule lookup
         tool_name = _canonical_tool_name(tool_name)
-        # Finding 2: reject shell control operators before pattern matching
         try:
             match_str = _build_match_string(tool_name, action, args)
         except PermissionError as e:
@@ -181,13 +139,13 @@ class PermissionGuard:
                     pattern,
                 )
 
-        # Finding 10: default deny instead of default allow in rules mode
+        # default deny in rules mode: explicit allowlist required
         return PermissionDecision(
             "deny", tool_name, action, "no matching rule, default deny"
         )
 
     def to_pre_hook(self) -> Callable:
-        """Convert this policy into a Tool preprocessor hook."""
+        """Return an async hook that enforces this policy before each tool call."""
         policy = self
 
         async def permission_check(
@@ -220,7 +178,6 @@ class PermissionGuard:
 def _build_match_string(tool_name: str, action: str, args: dict) -> str:
     if tool_name == "bash":
         command = str(args.get("command", ""))
-        # Finding 2: reject shell control operators before fnmatch
         if _SHELL_CONTROL.search(command):
             raise PermissionError(
                 f"Shell control operator requires explicit approval: {command!r}"

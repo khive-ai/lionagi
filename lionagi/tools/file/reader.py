@@ -44,10 +44,9 @@ _CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
-    """Finding 8: resolve path under workspace_root; raise PermissionError if it escapes."""
     raw = Path(path).expanduser()
     candidate = raw if raw.is_absolute() else workspace_root / raw
-    # GAP B: check symlink on candidate BEFORE resolve() follows it
+    # check symlink on candidate BEFORE resolve() follows it
     if candidate.is_symlink():
         raise PermissionError(f"Refusing to access symlink: {path!r}")
     resolved = candidate.resolve(strict=False)
@@ -146,7 +145,6 @@ def _read_sync(
     limit: int | None,
     workspace_root: Path,
 ) -> ReaderResponse:
-    # Finding 8: validate path before opening
     try:
         p = _resolve_workspace_path(path, workspace_root)
     except PermissionError as e:
@@ -193,7 +191,6 @@ def _list_dir_sync(
     file_types: list[str] | None,
     workspace_root: Path,
 ) -> ReaderResponse:
-    # Finding 8: validate directory path before listing
     try:
         base = _resolve_workspace_path(path, workspace_root)
     except PermissionError as e:
@@ -205,7 +202,6 @@ def _list_dir_sync(
     from lionagi.libs.file.process import dir_to_files
 
     try:
-        # Finding 8: cap listing to prevent unbounded output
         files = dir_to_files(
             str(base),
             recursive=bool(recursive),
@@ -224,7 +220,6 @@ def _open_sync(
     workspace_root: Path,
     allowed_url_hosts: frozenset[str],
 ) -> ReaderResponse:
-    """Finding 9: validate path/URL before passing to docling."""
     try:
         from docling.document_converter import DocumentConverter
     except ImportError:
@@ -233,7 +228,6 @@ def _open_sync(
             error="docling not installed. Run: pip install lionagi[reader]",
         )
 
-    # Finding 9: split URL vs local file handling
     parsed = urlparse(path)
     if parsed.scheme in ("http", "https", "ftp"):
         if parsed.scheme != "https" or (parsed.hostname or "") not in allowed_url_hosts:
@@ -243,7 +237,6 @@ def _open_sync(
             )
         validated_path = path
     else:
-        # local file: validate workspace containment, extension, and size
         try:
             p = _resolve_workspace_path(path, workspace_root)
         except PermissionError as e:
@@ -281,7 +274,6 @@ def _open_sync(
 def _read_cached(
     path: str, offset: int, limit: int, cache: dict[str, tuple[str, float]]
 ) -> ReaderResponse | None:
-    """Read from cache if path was previously opened and not expired."""
     if path not in cache:
         return None
     text, cached_at = cache[path]
@@ -295,7 +287,6 @@ def _read_cached(
 
 
 def _evict_expired(cache: dict[str, tuple[str, float]]) -> int:
-    """Remove expired entries. Returns count evicted."""
     now = time.time()
     expired = [k for k, (_, t) in cache.items() if now - t > _CACHE_TTL_SECONDS]
     for k in expired:
@@ -316,9 +307,8 @@ class ReaderTool(LionTool):
         self._tool = None
         self._cache: dict[str, tuple[str, float]] = {}
         self._cache_ttl = cache_ttl
-        # Finding 8: default to CWD when no workspace root is specified
         self.workspace_root = Path(workspace_root or Path.cwd()).expanduser().resolve()
-        # Finding 9: no URL hosts allowed by default
+        # no URL hosts allowed by default; callers must opt in explicitly
         self._allowed_url_hosts: frozenset[str] = frozenset(allowed_url_hosts or ())
 
     async def handle_request(self, request: ReaderRequest) -> ReaderResponse:

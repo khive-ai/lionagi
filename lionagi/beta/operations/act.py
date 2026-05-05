@@ -30,15 +30,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True, init=False)
 class ActParams(Params):
-    """Parameters for tool execution.
-
-    Attributes:
-        action_requests: Messages with ActionRequest content to execute.
-        delay_before_start: Initial delay before first execution (seconds).
-        throttle_period: Delay between starting tasks (seconds).
-        max_concurrent: Concurrency limit (None = unlimited).
-        strategy: "concurrent" (default) or "sequential".
-    """
+    """Tool execution parameters; strategy controls sequential vs concurrent dispatch."""
 
     action_requests: list[Message]
     delay_before_start: float = 0
@@ -49,7 +41,6 @@ class ActParams(Params):
 
 
 async def act(params: ActParams, ctx: RequestContext) -> list[ActionResponse]:
-    """Execute tool calls from action_requests."""
     session = await ctx.get_session()
     branch = session.get_branch(ctx.branch)
     return await _act(session=session, branch=branch, ctx=ctx, **params.to_dict())
@@ -116,11 +107,6 @@ async def _act(
     strategy: Literal["sequential", "concurrent"] = "concurrent",
     toolkits: list[ToolKit] | None = None,
 ) -> list[ActionResponse]:
-    """Execute action requests against session-registered tools.
-
-    Validates resource existence and branch scope access before execution.
-    Returns ActionResponse per request (with result or error).
-    """
     if not action_requests:
         return []
 
@@ -147,18 +133,14 @@ async def _act(
             req._scope_resolution_hint = error_hint  # type: ignore[attr-defined]
 
     async def _execute_one(req_msg: Message) -> ActionResponse:
-        """Execute a single action request and normalize result."""
         action_request: ActionRequest = req_msg.content
-        scope = action_request.function  # canonical "service:operation" or bare service
-
-        # Surface scope-resolution issues (ambiguous bare action, unknown name)
+        scope = action_request.function
         hint = getattr(req_msg, "_scope_resolution_hint", None)
         if hint:
             return ActionResponse(request_id=str(req_msg.id), error=str(hint))
 
         try:
             scope_must_be_accessible(branch, scope)
-            # Routing: registry is keyed by toolkit name (prefix of scope).
             toolkit_name = scope.split(":", 1)[0] if ":" in scope else scope
             from lionagi.beta.resource.service import get_service
 

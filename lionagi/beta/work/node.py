@@ -1,12 +1,7 @@
 # Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Operation: executable graph node bridging session operations to Runner.
-
-Operation.invoke() delegates to the bound session, which wraps the registered
-handler as a Morphism and executes it through Runner. Handlers still receive
-the canonical (params, ctx) call shape.
-"""
+"""Operation: executable DAG node that delegates invocation through the session's Runner path."""
 
 from __future__ import annotations
 
@@ -25,15 +20,7 @@ __all__ = ("Operation",)
 
 
 class Operation(Node, Event):
-    """Executable operation node.
-
-    Bridges session.conduct() to Runner by:
-    1. Storing bound session/branch references
-    2. Letting the session compile the operation declaration to an OpGraph
-    3. Preserving Event.invoke() lifecycle state around Runner execution
-
-    The result is stored in execution.response (via Event.invoke).
-    """
+    """Executable DAG node that delegates invocation to the bound session's Runner path."""
 
     operation_type: str
     parameters: dict[str, Any] | Any = Field(
@@ -64,7 +51,6 @@ class Operation(Node, Event):
 
     @property
     def is_control(self) -> bool:
-        """True if this operation is a control node (conditions flow progression)."""
         return self.control_type is not None
 
     @property
@@ -72,23 +58,12 @@ class Operation(Node, Event):
         return self.execution.response
 
     def bind(self, session: Session, branch: Branch) -> Operation:
-        """Bind session and branch for execution.
-
-        Must be called before invoke() if not using Session.conduct().
-
-        Args:
-            session: Session with operations registry and services.
-            branch: Branch for message context.
-
-        Returns:
-            Self for chaining.
-        """
+        """Bind session and branch before direct invoke() calls outside Session.conduct()."""
         self._session = session
         self._branch = branch
         return self
 
     def _require_binding(self) -> tuple[Session, Branch]:
-        """Return bound (session, branch) tuple or raise RuntimeError if unbound."""
         if self._session is None or self._branch is None:
             raise RuntimeError(
                 "Operation not bound to session/branch. "
@@ -104,7 +79,6 @@ class Operation(Node, Event):
         verbose: bool | None = None,
         principal: Any | None = None,
     ) -> RequestContext:
-        """Build the canonical RequestContext for this operation."""
         metadata: dict[str, Any] = {
             "_bound_session": session,
             "_bound_branch": branch,
@@ -121,18 +95,6 @@ class Operation(Node, Event):
         )
 
     async def _invoke(self) -> Any:
-        """Execute handler via the bound session's Runner path.
-
-        The session compiles the operation declaration into a single-node
-        OpGraph and calls the handler through MorphismAdapter.from_operation().
-
-        Returns:
-            Handler result (stored in execution.response).
-
-        Raises:
-            RuntimeError: If not bound.
-            KeyError: If operation_type not registered.
-        """
         session, branch = self._require_binding()
         return await session._execute_operation_handler(self, branch)
 

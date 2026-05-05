@@ -31,7 +31,7 @@ __all__ = ("OperationResult", "compile_flow_to_graph", "flow", "flow_stream")
 
 @dataclass
 class OperationResult:
-    """Single operation result from streaming execution."""
+    """Single operation result from a streaming flow execution."""
 
     name: str
     result: Any
@@ -153,7 +153,6 @@ def compile_flow_to_graph(
     verbose: bool = False,
     context: dict[str, Any] | None = None,
 ) -> tuple[OpGraph, Principal, dict[UUID, Operation], dict[UUID, Branch | None]]:
-    """Compile a work Graph of Operation nodes into a core OpGraph."""
     if not graph.is_acyclic():
         raise ValueError("Operation graph has cycles - must be a DAG")
 
@@ -244,7 +243,6 @@ async def flow(
     verbose: bool = False,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute an operation graph by compiling it to OpGraph and using Runner."""
     op_graph, principal, operations_by_id, _ = compile_flow_to_graph(
         session,
         graph,
@@ -295,7 +293,6 @@ async def flow_stream(
     stop_on_error: bool = True,
     context: dict[str, Any] | None = None,
 ) -> AsyncGenerator[OperationResult, None]:
-    """Execute an operation graph and yield results as Runner completes nodes."""
     op_graph, principal, operations_by_id, _ = compile_flow_to_graph(
         session,
         graph,

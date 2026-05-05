@@ -38,15 +38,7 @@ __all__ = ("LN_ELEMENT_FIELDS", "Element")
 
 @implements(Observable, Serializable, Deserializable, Hashable)
 class Element(BaseModel):
-    """Base element with UUID identity, timestamps, polymorphic serialization.
-
-    Attributes:
-        id: UUID identifier (frozen, auto-generated)
-        created_at: UTC datetime (frozen, auto-generated)
-        metadata: Arbitrary metadata dict
-
-    Serialization injects kron_class for polymorphic deserialization.
-    """
+    """Base entity with UUID identity, timestamps, and polymorphic serialization."""
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -63,13 +55,11 @@ class Element(BaseModel):
     @field_validator("id", mode="before")
     @classmethod
     def _coerce_id(cls, v) -> UUID:
-        """Coerce to UUID4."""
         return to_uuid(v)
 
     @field_validator("created_at", mode="before")
     @classmethod
     def _coerce_created_at(cls, v) -> dt.datetime:
-        """Coerce to UTC datetime."""
         return coerce_created_at(v)
 
     @field_validator("metadata", mode="before")
@@ -77,7 +67,6 @@ class Element(BaseModel):
     def _validate_meta_integrity(
         cls, val: dict[str, Any] | MaybeSentinel
     ) -> dict[str, Any]:
-        """Validate and coerce metadata to dict. Raises ValueError if conversion fails."""
         if is_sentinel(val, additions={"none"}):
             return {}
 
@@ -91,14 +80,7 @@ class Element(BaseModel):
 
     @classmethod
     def class_name(cls, full: bool = False) -> str:
-        """Get class name, stripping generic parameters (Flow[E,P] -> Flow).
-
-        Args:
-            full: If True, returns module.Class; otherwise Class only.
-
-        Returns:
-            Class name string.
-        """
+        """Return class name, stripping generic parameters (Flow[E,P] -> Flow)."""
         name = cls.__qualname__ if full else cls.__name__
         if "[" in name:
             name = name.split("[")[0]
@@ -107,7 +89,6 @@ class Element(BaseModel):
         return name
 
     def _to_dict(self, **kwargs: Any) -> dict[str, Any]:
-        """Serialize to dict with kron_class injected in metadata."""
         data = self.model_dump(**kwargs)
         data.setdefault("metadata", {})
         data["metadata"]["kron_class"] = self.__class__.class_name(full=True)
@@ -123,17 +104,6 @@ class Element(BaseModel):
         meta_key: str | UnsetType = Unset,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Serialize to dict with kron_class metadata injected.
-
-        Args:
-            mode: python/json/db (db auto-renames metadata to node_metadata).
-            created_at_format: datetime/isoformat/timestamp (auto-selected by mode).
-            meta_key: Rename metadata field (overrides db default).
-            **kwargs: Passed to model_dump().
-
-        Returns:
-            Serialized dict with kron_class in metadata for polymorphic restore.
-        """
         if is_unset(created_at_format):
             created_at_format = "isoformat" if mode == "json" else "datetime"
 
@@ -168,19 +138,6 @@ class Element(BaseModel):
     def from_dict(
         cls, data: dict[str, Any], meta_key: str | UnsetType = Unset, **kwargs: Any
     ) -> Element:
-        """Deserialize from dict with polymorphic type restoration via kron_class.
-
-        Args:
-            data: Serialized element dict.
-            meta_key: Restore metadata from this key (db mode compatibility).
-            **kwargs: Passed to model_validate().
-
-        Returns:
-            Element instance (actual type determined by kron_class if present).
-
-        Raises:
-            ValueError: If kron_class invalid or not Element subclass.
-        """
         data = data.copy()
 
         if not is_unset(meta_key) and meta_key in data:
@@ -220,17 +177,14 @@ class Element(BaseModel):
         return cls.model_validate(data, **kwargs)
 
     def __eq__(self, other: Any) -> bool:
-        """Equality by ID."""
         if not isinstance(other, Element):
             return NotImplemented
         return self.id == other.id
 
     def __hash__(self) -> int:
-        """Hash by ID."""
         return hash(self.id)
 
     def __bool__(self) -> bool:
-        """Always truthy."""
         return True
 
     def __repr__(self) -> str:

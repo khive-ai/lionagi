@@ -25,11 +25,7 @@ T = TypeVar("T")
 
 
 class _SingletonMeta(type):
-    """Metaclass that guarantees exactly one instance per subclass.
-
-    This ensures that sentinel values maintain identity across the entire application,
-    allowing safe identity checks with 'is' operator.
-    """
+    """Metaclass ensuring exactly one instance per subclass for safe `is` identity checks."""
 
     _cache: dict[type, SingletonType] = {}
 
@@ -40,13 +36,7 @@ class _SingletonMeta(type):
 
 
 class SingletonType(metaclass=_SingletonMeta):
-    """Base class for singleton sentinel types.
-
-    Provides consistent interface for sentinel values with:
-    - Identity preservation across deepcopy
-    - Falsy boolean evaluation
-    - Clear string representation
-    """
+    """Base class for singleton sentinel types."""
 
     __slots__: tuple[str, ...] = ()
 
@@ -62,18 +52,7 @@ class SingletonType(metaclass=_SingletonMeta):
 
 
 class UndefinedType(SingletonType):
-    """Sentinel for a key or field entirely missing from a namespace.
-
-    Use this when:
-    - A field has never been set
-    - A key doesn't exist in a mapping
-    - A value is conceptually undefined (not just unset)
-
-    Example:
-        >>> d = {"a": 1}
-        >>> d.get("b", Undefined) is Undefined
-        True
-    """
+    """Sentinel for a key or field entirely absent from a namespace."""
 
     __slots__ = ()
 
@@ -87,24 +66,11 @@ class UndefinedType(SingletonType):
         return "Undefined"
 
     def __reduce__(self):
-        """Ensure pickle preservation of singleton identity."""
-        return "Undefined"
+        return "Undefined"  # preserves singleton identity across pickle
 
 
 class UnsetType(SingletonType):
-    """Sentinel for a key present but value not yet provided.
-
-    Use this when:
-    - A parameter exists but hasn't been given a value
-    - Distinguishing between None and "not provided"
-    - API parameters that are optional but need explicit handling
-
-    Example:
-        >>> def func(param=Unset):
-        ...     if param is not Unset:
-        ...         # param was explicitly provided
-        ...         process(param)
-    """
+    """Sentinel distinguishing "not provided" from None."""
 
     __slots__ = ()
 
@@ -118,14 +84,11 @@ class UnsetType(SingletonType):
         return "Unset"
 
     def __reduce__(self):
-        """Ensure pickle preservation of singleton identity."""
-        return "Unset"
+        return "Unset"  # preserves singleton identity across pickle
 
 
 Undefined: Final = UndefinedType()
-"""A key or field entirely missing from a namespace"""
 Unset: Final = UnsetType()
-"""A key present but value not yet provided."""
 
 MaybeUndefined: TypeAlias = T | UndefinedType
 MaybeUnset: TypeAlias = T | UnsetType
@@ -168,7 +131,6 @@ def is_sentinel(
     none_as_sentinel: bool = False,
     empty_as_sentinel: bool = False,
 ) -> bool:
-    """Check if a value is any sentinel (Undefined or Unset)."""
     active = set(additions)
     if none_as_sentinel:
         active.add("none")
@@ -186,7 +148,6 @@ def not_sentinel(
     *,
     additions: set[AdditionalSentinels] = frozenset(),
 ) -> TypeGuard[T]:
-    """Check if a value is NOT a sentinel. Useful for filtering operations."""
     return not is_sentinel(
         value,
         additions=additions,

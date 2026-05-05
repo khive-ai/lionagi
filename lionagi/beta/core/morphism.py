@@ -1,33 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Morphism: the atomic executable unit in lionagi.beta.
-
-Morphism is a concrete msgspec.Struct base class.
-
-Capability contract:
-    requires: capabilities needed before execution
-    provides: capabilities unlocked after completion (used by OpGraph.check_satisfiability)
-
-Lifecycle:
-    1. pre(br, **kw)    → bool    validate preconditions
-    2. apply(br, **kw)  → dict    execute and return result
-    3. post(br, result) → bool    validate postconditions
-
-Subclass pattern (msgspec requires annotated fields for overrides):
-    class MyOp(Morphism, kw_only=True):
-        name: str = "my.op"                          # annotated field override
-        requires: frozenset[str] = frozenset({"net.out"})
-        io: bool = True                              # IPU invariant hook
-
-        provider: SomeProvider                       # custom injected field
-
-        async def apply(self, br, **kw) -> dict:
-            return await self.provider.do_thing(kw["prompt"])
-
-For non-Struct callables, use MorphismAdapter to wrap any async callable:
-    adapted = MorphismAdapter.wrap(my_async_fn, name="my.op", requires={"net.out"})
-"""
+"""Morphism: the atomic executable unit in lionagi.beta."""
 
 from __future__ import annotations
 
@@ -41,11 +15,7 @@ __all__ = ("Morphism", "MorphismLike", "MorphismAdapter")
 
 @runtime_checkable
 class MorphismLike(Protocol):
-    """Structural protocol for foreign executables that can't inherit Morphism.
-
-    Anything with name/requires and an async apply() qualifies. Use
-    MorphismAdapter.from_protocol() to wrap into a real Morphism for the Runner.
-    """
+    """Structural protocol for foreign executables that cannot inherit Morphism."""
 
     name: str
     requires: frozenset[str]
@@ -54,10 +24,7 @@ class MorphismLike(Protocol):
 
 
 class Morphism(msgspec.Struct, kw_only=True):
-    """Atomic executable unit with explicit capability declarations.
-
-    Subclass and override apply(). Override pre()/post() for validation.
-    """
+    """Atomic executable unit with explicit capability declarations."""
 
     name: str
     requires: frozenset[str] = frozenset()
@@ -77,18 +44,7 @@ class Morphism(msgspec.Struct, kw_only=True):
 
 
 class MorphismAdapter(Morphism, kw_only=True):
-    """Wraps an arbitrary async callable as a Morphism for Runner compatibility.
-
-    Solves the composition problem (#13): when you can't inherit from
-    msgspec.Struct (e.g., existing class hierarchies), wrap the callable.
-
-    Usage:
-        async def my_tool(br, **kw) -> dict:
-            return {"result": "done"}
-
-        adapted = MorphismAdapter.wrap(my_tool, name="my.tool", requires={"tool.exec"})
-        node = OpNode(m=adapted)
-    """
+    """Wraps an arbitrary async callable as a Morphism for Runner compatibility."""
 
     name: str = "adapter"
     _fn: Any = None
@@ -144,7 +100,6 @@ class MorphismAdapter(Morphism, kw_only=True):
         params: Any,
         operation: Any | None = None,
     ) -> MorphismAdapter:
-        """Wrap a session operation declaration for Runner execution."""
 
         def _required_rights(**kw: Any) -> set[str] | None:
             resolver = getattr(decl, "required_rights", None)

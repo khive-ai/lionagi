@@ -58,12 +58,7 @@ def _unwrap_exception_group(exc: BaseException) -> BaseException:
 
 
 class Runner:
-    """Execute an OpGraph within a Principal context.
-
-    Args:
-        ipu: Invariant Policy Unit for pre/post checks (default: LenientIPU).
-        event_bus: EventBus for node lifecycle events (default: new EventBus).
-    """
+    """Execute an OpGraph within a Principal context."""
 
     def __init__(
         self,
@@ -128,14 +123,6 @@ class Runner:
         br: Principal,
         g: OpGraph,
     ) -> dict[UUID, dict[str, Any]]:
-        """Execute graph within principal context.
-
-        Waves execute with TaskGroup — if any node in a wave fails, the
-        entire wave is cancelled and the exception propagates.
-
-        Returns:
-            dict mapping node UUID -> morphism result dict.
-        """
         results: dict[UUID, dict[str, Any]] = {}
         async for node_id, result in self.run_stream(br, g):
             results[node_id] = result
@@ -146,12 +133,7 @@ class Runner:
         br: Principal,
         g: OpGraph,
     ) -> AsyncGenerator[tuple[UUID, dict[str, Any]], None]:
-        """Execute graph and yield node results as each node completes.
-
-        Non-control nodes in a wave run concurrently. Control nodes in that
-        wave run after the non-control nodes, one at a time, and can mutate
-        the pending ready set with a small action protocol.
-        """
+        """Execute graph and yield results as nodes complete; control nodes run serially after regular nodes per wave."""
         g.validate_dag()
 
         ready: set[UUID] = set(g.roots) if g.roots else {
@@ -159,9 +141,8 @@ class Runner:
         }
         done: set[UUID] = set()
         results: dict[UUID, dict[str, Any]] = {}
-        # Accumulated provides from completed nodes — extends policy rights
         accumulated_provides: set[str] = set()
-        # Per-run effective reqs (never pollute node.params)
+        # Per-run effective reqs — never written to node.params to avoid cross-run contamination
         effective_reqs: dict[UUID, set[str] | None] = {}
         topo = g.validate_dag()
 
@@ -180,13 +161,8 @@ class Runner:
             regular_batch = [node for node in batch if not node.control]
             control_batch = [node for node in batch if node.control]
 
-            # Snapshot ctx before wave for isolated reads
             ctx_snapshot = dict(br.ctx)
-
-            # Per-node write dicts for isolated ctx writes
             node_writes: dict[UUID, dict[str, Any]] = {}
-
-            # Wave execution with TaskGroup — all-or-nothing
             wave_results: dict[UUID, dict[str, Any]] = {}
             try:
                 async for item in self._run_parallel_nodes(
@@ -234,7 +210,6 @@ class Runner:
                     halt_requested = True
                     break
 
-            # Merge node writes deterministically (topo order within wave)
             for nid in topo:
                 if nid in node_writes:
                     br.ctx.update(node_writes[nid])
@@ -242,7 +217,6 @@ class Runner:
             results.update(wave_results)
             for nid in wave_results:
                 done.add(nid)
-                # Accumulate provides from completed morphisms
                 provides = getattr(g.nodes[nid].m, "provides", frozenset())
                 if provides:
                     accumulated_provides.update(provides)
@@ -392,11 +366,10 @@ class Runner:
         effective_reqs_map: dict[UUID, set[str] | None] | None = None,
         node_writes: dict[UUID, dict[str, Any]] | None = None,
     ) -> None:
-        """Execute a single node with full lifecycle management."""
         kwargs: dict[str, Any] = dict(ctx_snapshot if ctx_snapshot is not None else br.ctx)
         kwargs.update(node.params)
 
-        # Dynamic rights — failure is DENIAL, not fallback
+        # Dynamic rights: failure is DENIAL, not fallback to static rights
         override_reqs: set[str] | None = None
         req_fn = getattr(node.m, "required_rights", None)
         if callable(req_fn):
@@ -410,27 +383,20 @@ class Runner:
                     retryable=False,
                 ) from e
 
-        # Store effective reqs in run-local map (never pollute node.params)
         if effective_reqs_map is not None:
             effective_reqs_map[node.id] = override_reqs
 
         extra = frozenset(accumulated_provides) if accumulated_provides else None
 
-        # Policy gate — before any side effects
         if not policy_check(br, node.m, override_reqs=override_reqs, extra_rights=extra):
             raise AccessError(
                 f"Policy denied for morphism '{node.m.name}' in principal '{br.name}'",
                 retryable=False,
             )
 
-        # Latency budget enforcement — wrap apply in timeout
         budget_ms = getattr(node.m, "latency_budget_ms", None)
         timeout = budget_ms / 1000.0 if budget_ms else None
-
-        # Isolated write dict for this node's ctx mutations
         local_ctx = {} if node_writes is not None else None
-
-        # Full lifecycle with error-aware IPU cleanup
         res: dict[str, Any] = {}
         error: BaseException | None = None
         try:
@@ -451,7 +417,6 @@ class Runner:
             if not isinstance(res, dict):
                 res = {"result": res}
 
-            # Capture writes to isolated dict instead of shared br.ctx
             if local_ctx is not None and isinstance(res, dict):
                 local_ctx.update(res)
 
@@ -469,7 +434,7 @@ class Runner:
             except Exception:
                 if error is None:
                     raise
-                # Primary error takes priority — log but don't mask
+                # Primary error takes precedence — don't mask it with IPU cleanup failure
                 import logging
                 logging.getLogger(__name__).warning(
                     "IPU after_node raised during error cleanup for '%s'",
