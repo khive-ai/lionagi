@@ -152,6 +152,11 @@ class Element(BaseModel, Observable):
         return True
 
     @classmethod
+    def _coerce_id(cls, value: Any) -> UUID:
+        """Resolve various ID forms to UUID."""
+        return ID.get_id(value)
+
+    @classmethod
     def class_name(cls, full: bool = False) -> str:
         """Returns this class's name.
 
@@ -166,11 +171,8 @@ class Element(BaseModel, Observable):
         """kw for model_dump."""
         dict_ = self.model_dump(**kw)
         cls_name = self.class_name(full=True)
-        # Write both lion_class (production convention) and kron_class (beta convention)
-        # so serialized dicts are readable by both sides during the convergence period.
-        # Guard: metadata may be excluded when kw contains exclude={"metadata"}.
         if "metadata" in dict_:
-            dict_["metadata"].update({"lion_class": cls_name, "kron_class": cls_name})
+            dict_["metadata"]["lion_class"] = cls_name
         return {k: v for k, v in dict_.items() if not_sentinel(v)}
 
     def to_dict(
@@ -238,7 +240,7 @@ class Element(BaseModel, Observable):
     ) -> Element:
         """Deserializes a dictionary into an Element or subclass of Element.
 
-        If `lion_class` or `kron_class` in `metadata` refers to a subclass,
+        If `lion_class` in `metadata` refers to a subclass,
         this method is polymorphic and will attempt to create an instance of
         that subclass.
 
@@ -263,14 +265,7 @@ class Element(BaseModel, Observable):
         elif "metadata" in data:
             metadata = dict(data.pop("metadata"))
 
-        # Support both lion_class (production) and kron_class (beta) conventions
-        subcls_name: str | None = None
-        if "lion_class" in metadata:
-            subcls_name = metadata.pop("lion_class")
-            # Also remove kron_class if present to avoid duplication
-            metadata.pop("kron_class", None)
-        elif "kron_class" in metadata:
-            subcls_name = metadata.pop("kron_class")
+        subcls_name: str | None = metadata.pop("lion_class", None)
 
         if subcls_name and subcls_name != cls.class_name(full=True):
             try:
@@ -324,9 +319,9 @@ class Element(BaseModel, Observable):
         """Deserializes a JSON string into an Element or subclass of Element."""
         return cls.from_dict(orjson.loads(json_str))
 
-    # Alias for beta compatibility: beta code uses cls.kron_class(full=True)
+    # Alias for beta compatibility: beta code uses cls.lion_class(full=True)
     # whereas production uses cls.class_name(full=True). Both return the same value.
-    kron_class = class_name
+    lion_class = class_name
 
 
 DEFAULT_ELEMENT_SERIALIZER = get_orjson_default(

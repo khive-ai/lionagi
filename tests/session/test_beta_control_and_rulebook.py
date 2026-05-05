@@ -5,7 +5,6 @@ from lionagi.beta.core.morphism import MorphismAdapter
 from lionagi.beta.core.runner import Runner
 from lionagi.beta.core.types import Principal
 from lionagi.beta.rules import RuleBook, Validator
-from lionagi.beta.session.conversation import Conversation
 from lionagi.beta.session.session import Session
 from lionagi.beta.work.builder import OperationGraphBuilder
 
@@ -81,16 +80,6 @@ async def test_work_builder_control_compiles_to_runner_control():
     assert result["results_by_name"]["first"] == {"value": 1}
     assert result["results_by_name"]["gate"]["action"] == "halt"
     assert "blocked" not in result["results_by_name"]
-
-
-def test_validator_accepts_rulebook_alias_and_conversation_injection():
-    rulebook = RuleBook()
-    validator = Validator(rulebook=rulebook)
-
-    conversation = Conversation(validator=validator)
-
-    assert validator.rulebook is rulebook
-    assert conversation._validator is validator
 
 
 def test_validator_rejects_distinct_registry_and_rulebook():

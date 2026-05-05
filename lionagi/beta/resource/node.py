@@ -217,11 +217,11 @@ class Node(Element):
         # Polymorphic: restore type from class metadata
         if isinstance(value, dict) and "metadata" in value:
             metadata = value.get("metadata", {})
-            kron_class = metadata.get("kron_class")
-            if kron_class:
+            lion_class = metadata.get("lion_class")
+            if lion_class:
                 if (
-                    kron_class in NODE_REGISTRY
-                    or kron_class.split(".")[-1] in NODE_REGISTRY
+                    lion_class in NODE_REGISTRY
+                    or lion_class.split(".")[-1] in NODE_REGISTRY
                 ):
                     return Node.from_dict(value)
                 return Element.from_dict(value)
@@ -370,13 +370,13 @@ class Node(Element):
         if isinstance(metadata, dict):
             metadata = metadata.copy()
             data["metadata"] = metadata
-            kron_class = metadata.pop("kron_class", None)
+            lion_class = metadata.pop("lion_class", None)
         else:
-            kron_class = None
+            lion_class = None
 
-        if kron_class and kron_class != cls.class_name(full=True):
-            target_cls = NODE_REGISTRY.get(kron_class) or NODE_REGISTRY.get(
-                kron_class.split(".")[-1]
+        if lion_class and lion_class != cls.class_name(full=True):
+            target_cls = NODE_REGISTRY.get(lion_class) or NODE_REGISTRY.get(
+                lion_class.split(".")[-1]
             )
             if target_cls is not None and target_cls is not cls:
                 return target_cls.from_dict(

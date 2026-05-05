@@ -3,7 +3,7 @@ import pytest
 from lionagi.beta.session.constraints import scope_in_resources
 from lionagi.beta.session.context import RequestContext
 from lionagi.beta.session.session import Branch, Session
-from lionagi.tools import ToolKit, ToolKitConfig, tool_action
+from lionagi.beta.resource.toolkit import ToolKit, ToolKitConfig, tool_action
 
 
 def _ctx(session: Session, branch: Branch, service: str, name: str) -> RequestContext:

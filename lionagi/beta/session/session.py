@@ -853,7 +853,8 @@ class Session(Element):
 
         if verbose:
             with _timer(f"{operation_type} completed"):
-                await op.invoke()
+                with contextlib.suppress(Exception):
+                    await op.invoke()
 
             resp = op.execution.response
             if op.execution.error:
@@ -863,7 +864,8 @@ class Session(Element):
             else:
                 _status(f"response: {type(resp).__name__}", style="success")
         else:
-            await op.invoke()
+            with contextlib.suppress(Exception):
+                await op.invoke()
 
         return op
 

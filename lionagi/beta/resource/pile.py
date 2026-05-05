@@ -33,7 +33,7 @@ T = TypeVar("T", bound=Element)
 
 
 # Invariant Assertions
-def kron_class_must_be_allowed(strict: bool, actual: type, allowed: set[type]) -> None:
+def lion_class_must_be_allowed(strict: bool, actual: type, allowed: set[type]) -> None:
     if strict:
         if actual not in allowed:
             raise NotAllowedError(
@@ -69,7 +69,7 @@ def _must_be_allowed(p: Pile[T], item: T | type) -> None:
         item_type_actual = type(item)
 
     if p.item_type is not None:
-        kron_class_must_be_allowed(p.strict_type, item_type_actual, p.item_type)
+        lion_class_must_be_allowed(p.strict_type, item_type_actual, p.item_type)
 
 
 def must_be_allowed(func: Callable) -> Callable:
@@ -498,13 +498,13 @@ class Pile(Element, Generic[T]):
 
             for item_dict in items_data:
                 metadata = item_dict.get("metadata", {})
-                kron_class = metadata.get("kron_class") or metadata.get("lion_class")
-                if kron_class:
+                lion_class = metadata.get("lion_class") or metadata.get("lion_class")
+                if lion_class:
                     try:
-                        item_type_actual = load_type_from_string(kron_class)
+                        item_type_actual = load_type_from_string(lion_class)
                     except ValueError:
                         continue
-                    kron_class_must_be_allowed(
+                    lion_class_must_be_allowed(
                         strict_type, item_type_actual, allowed_types
                     )
 
@@ -521,7 +521,7 @@ class Pile(Element, Generic[T]):
 
         for item_dict in items_data:
             metadata = item_dict.get("metadata", {})
-            if "lion_class" in metadata and "kron_class" not in metadata:
+            if "lion_class" in metadata and "lion_class" not in metadata:
                 from lionagi.protocols.generic import Element as ProductionElement
 
                 item = ProductionElement.from_dict(item_dict)

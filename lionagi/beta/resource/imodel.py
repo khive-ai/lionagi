@@ -456,7 +456,7 @@ class iModel(Element):  # noqa: N801
         backend_dict = backend.model_dump()
         if "metadata" not in backend_dict:
             backend_dict["metadata"] = {}
-        backend_dict["metadata"]["kron_class"] = backend.__class__.class_name(full=True)
+        backend_dict["metadata"]["lion_class"] = backend.__class__.class_name(full=True)
         return backend_dict
 
     @field_serializer("rate_limiter")
