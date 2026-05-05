@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from lionagi.ln.types._compat import ExceptionGroup
 from lionagi.ln.types._sentinel import Unset, UnsetType, is_sentinel
+
 from ..spec import Spec
 from ._utils import resolve_annotation_to_base_types
 from .protocol import SpecAdapter

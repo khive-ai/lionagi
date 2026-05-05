@@ -1,8 +1,9 @@
+from ._compat import StrEnum
 from ._sentinel import (
+    AdditionalSentinels,
     MaybeSentinel,
     MaybeUndefined,
     MaybeUnset,
-    AdditionalSentinels,
     SingletonType,
     T,
     Undefined,
@@ -14,16 +15,7 @@ from ._sentinel import (
     is_unset,
     not_sentinel,
 )
-from .base import (
-    DataClass,
-    Enum,
-    KeysDict,
-    KeysLike,
-    Meta,
-    ModelConfig,
-    Params,
-)
-from ._compat import StrEnum
+from .base import DataClass, Enum, KeysDict, KeysLike, Meta, ModelConfig, Params
 from .operable import Operable
 from .spec import CommonMeta, Spec
 
@@ -31,6 +23,7 @@ from .spec import CommonMeta, Spec
 def __getattr__(name: str):
     if name == "HashableModel":
         from lionagi.models.hashable_model import HashableModel
+
         return HashableModel
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

@@ -5,6 +5,7 @@ from typing import Any
 
 from lionagi.beta.core.morphism import Morphism
 from lionagi.beta.core.types import Principal
+
 from .wrappers import BaseOp, inherit_contract, maybe_await, register
 
 

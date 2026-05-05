@@ -7,9 +7,8 @@ import logging
 import re
 
 from lionagi.ln.fuzzy import SimilarityAlgo, string_similarity
+from lionagi.ln.types import Operable, Spec
 
-from lionagi.ln.types import Operable
-from lionagi.ln.types import Spec
 from .errors import AmbiguousMatchError, MissingFieldError, MissingOutBlockError
 from .resolver import resolve_references_prefixed
 from .types import LactMetadata, LNDLOutput, LvarMetadata, RLvarMetadata

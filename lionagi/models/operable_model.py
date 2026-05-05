@@ -595,6 +595,8 @@ class OperableModel(HashableModel):
             try:
                 model_cls.model_rebuild()
             except Exception as exc:
-                logger.debug("Ignoring model_rebuild failure for %s: %s", model_cls, exc)
+                logger.debug(
+                    "Ignoring model_rebuild failure for %s: %s", model_cls, exc
+                )
 
         return model_cls

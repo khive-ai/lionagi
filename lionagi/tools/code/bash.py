@@ -238,7 +238,9 @@ async def _subprocess_async(
                 start_new_session=True,
             )
         except Exception as e:
-            return BashResponse(stdout="", stderr=f"Execution error: {e}", return_code=-1)
+            return BashResponse(
+                stdout="", stderr=f"Execution error: {e}", return_code=-1
+            )
     else:
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -249,14 +251,12 @@ async def _subprocess_async(
                 start_new_session=True,
             )
         except Exception as e:
-            return BashResponse(stdout="", stderr=f"Execution error: {e}", return_code=-1)
+            return BashResponse(
+                stdout="", stderr=f"Execution error: {e}", return_code=-1
+            )
 
-    out_task = asyncio.create_task(
-        _read_bounded_async(proc.stdout, _MAX_OUTPUT_BYTES)
-    )
-    err_task = asyncio.create_task(
-        _read_bounded_async(proc.stderr, _MAX_OUTPUT_BYTES)
-    )
+    out_task = asyncio.create_task(_read_bounded_async(proc.stdout, _MAX_OUTPUT_BYTES))
+    err_task = asyncio.create_task(_read_bounded_async(proc.stderr, _MAX_OUTPUT_BYTES))
 
     try:
         await asyncio.wait_for(proc.wait(), timeout=timeout_sec)

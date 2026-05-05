@@ -39,12 +39,16 @@ def _get_text(content: MessageContent, attr: str) -> str:
     return "" if val is None else str(val)
 
 
-def _build_context(content: InstructionContent, action_outputs: list[str]) -> list[JsonValue]:
+def _build_context(
+    content: InstructionContent, action_outputs: list[str]
+) -> list[JsonValue]:
     """Build context list by appending action outputs to existing context."""
     existing = content.prompt_context
     if not existing:
         return cast("list[JsonValue]", list(action_outputs))
-    return cast("list[JsonValue]", list(cast("list[JsonValue]", existing)) + action_outputs)
+    return cast(
+        "list[JsonValue]", list(cast("list[JsonValue]", existing)) + action_outputs
+    )
 
 
 def _aggregate_round_actions(
@@ -84,6 +88,7 @@ def _build_round_notification(
     # Branch is session-layer; import lazily to avoid circular dependency.
     try:
         from lionagi.beta.session.session import Branch  # type: ignore[import]
+
         if isinstance(progression, Branch):
             capabilities = getattr(progression, "capabilities", set())
             resources = getattr(progression, "resources", set())
@@ -138,7 +143,9 @@ def prepare_messages_for_chat(
                 if _is_message(new_instruction)
                 else new_instruction
             )
-            new_content: InstructionContent = new_content.with_updates(copy_containers="deep")
+            new_content: InstructionContent = new_content.with_updates(
+                copy_containers="deep"
+            )
             if to_chat:
                 chat_msg = {
                     "role": new_content.role.value,
@@ -164,7 +171,9 @@ def prepare_messages_for_chat(
 
     # Phase 1b: Prepend system_prefix (e.g., LNDL prompt)
     if system_prefix:
-        system_text = f"{system_prefix}\n\n{system_text}" if system_text else system_prefix
+        system_text = (
+            f"{system_prefix}\n\n{system_text}" if system_text else system_prefix
+        )
 
     # Phase 2: Process messages — collect action outputs for next instruction
     _use_msgs: list[MessageContent] = []
@@ -205,10 +214,14 @@ def prepare_messages_for_chat(
                 context_parts: list[str] = []
                 if round_notifications:
                     context_parts.append(
-                        _build_round_notification(progression, round_num, msg_count, scratchpad)
+                        _build_round_notification(
+                            progression, round_num, msg_count, scratchpad
+                        )
                     )
                 context_parts.append(
-                    _aggregate_round_actions(pending_requests, pending_responses, round_num)
+                    _aggregate_round_actions(
+                        pending_requests, pending_responses, round_num
+                    )
                 )
                 updates["context"] = _build_context(content, context_parts)
                 pending_requests.clear()
@@ -229,10 +242,14 @@ def prepare_messages_for_chat(
     if len(_use_msgs) > 1:
         merged: list[MessageContent] = [_use_msgs[0]]
         for content in _use_msgs[1:]:
-            if isinstance(content, AssistantResponseContent) and isinstance(merged[-1], AssistantResponseContent):
+            if isinstance(content, AssistantResponseContent) and isinstance(
+                merged[-1], AssistantResponseContent
+            ):
                 prev = _get_text(merged[-1], "assistant_response")
                 curr = _get_text(content, "assistant_response")
-                merged[-1] = AssistantResponseContent(assistant_response=f"{prev}\n\n{curr}")
+                merged[-1] = AssistantResponseContent(
+                    assistant_response=f"{prev}\n\n{curr}"
+                )
             else:
                 merged.append(content)
         _use_msgs = merged
@@ -254,10 +271,14 @@ def prepare_messages_for_chat(
                 if aggregate_actions and pending_responses:
                     if round_notifications:
                         ctx_parts.append(
-                            _build_round_notification(progression, round_num, msg_count, scratchpad)
+                            _build_round_notification(
+                                progression, round_num, msg_count, scratchpad
+                            )
                         )
                     ctx_parts.append(
-                        _aggregate_round_actions(pending_requests, pending_responses, round_num)
+                        _aggregate_round_actions(
+                            pending_requests, pending_responses, round_num
+                        )
                     )
                     pending_requests.clear()
                     pending_responses.clear()
@@ -265,10 +286,10 @@ def prepare_messages_for_chat(
                     ctx_parts.extend(pending_actions)
                     pending_actions = []
                 if ctx_parts:
-                    system_updates["context"] = _build_context(new_content_inner, ctx_parts)
-                _use_msgs.append(
-                    new_content_inner.with_updates(**system_updates)
-                )
+                    system_updates["context"] = _build_context(
+                        new_content_inner, ctx_parts
+                    )
+                _use_msgs.append(new_content_inner.with_updates(**system_updates))
                 new_instruction = None
                 system_embedded = True
         elif _use_msgs and isinstance(_use_msgs[0], InstructionContent):
@@ -289,10 +310,14 @@ def prepare_messages_for_chat(
             if aggregate_actions and pending_responses:
                 if round_notifications:
                     context_parts_final.append(
-                        _build_round_notification(progression, round_num, msg_count, scratchpad)
+                        _build_round_notification(
+                            progression, round_num, msg_count, scratchpad
+                        )
                     )
                 context_parts_final.append(
-                    _aggregate_round_actions(pending_requests, pending_responses, round_num)
+                    _aggregate_round_actions(
+                        pending_requests, pending_responses, round_num
+                    )
                 )
                 pending_requests.clear()
                 pending_responses.clear()
@@ -300,13 +325,13 @@ def prepare_messages_for_chat(
                 context_parts_final.extend(pending_actions)
                 pending_actions = []
             if context_parts_final:
-                final_updates["context"] = _build_context(new_content_final, context_parts_final)
+                final_updates["context"] = _build_context(
+                    new_content_final, context_parts_final
+                )
             if system_text and not system_embedded:
                 curr = _get_text(new_content_final, "instruction")
                 final_updates["primary"] = f"{system_text}\n\n{curr}"
-        _use_msgs.append(
-            new_content_final.with_updates(**final_updates)
-        )
+        _use_msgs.append(new_content_final.with_updates(**final_updates))
 
     if to_chat:
         result = []
@@ -329,7 +354,9 @@ def prepare_messages_for_chat(
 
 def _is_message(obj: Any) -> bool:
     """Check if obj is a session Message (duck-typed, no hard import)."""
-    return hasattr(obj, "content") and isinstance(getattr(obj, "content", None), MessageContent)
+    return hasattr(obj, "content") and isinstance(
+        getattr(obj, "content", None), MessageContent
+    )
 
 
 def _get_content(msg: Any) -> MessageContent:

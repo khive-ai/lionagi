@@ -26,11 +26,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from lionagi.beta.resource.toolkit import ToolKit
 from lionagi.beta.rules import Validator
 from lionagi.ln.types import ModelConfig, Params
 from lionagi.ln.types._sentinel import MaybeUnset, Unset
 from lionagi.protocols.messages import Message
-from lionagi.beta.resource.toolkit import ToolKit
 
 from .act import ActParams
 from .generate import GenerateParams
@@ -39,10 +39,10 @@ from .specs import Action, ActionResult, get_action_result_spec, get_action_spec
 from .structure import StructureParams
 
 if TYPE_CHECKING:
-    from lionagi.protocols.messages.rendering import CustomParser
     from lionagi.beta.resource.imodel import iModel
     from lionagi.beta.session.context import RequestContext
     from lionagi.ln.types import Operable
+    from lionagi.protocols.messages.rendering import CustomParser
 
 __all__ = ("OperateParams", "operate")
 
@@ -151,9 +151,13 @@ async def operate(params: OperateParams, ctx: RequestContext) -> Any:
     has_tools = not gen_params.is_sentinel_field("tool_schemas")
     branch_caps = getattr(branch, "capabilities", set())
     is_lndl = gen_params.structure_format == "lndl"
-    inject_actions = params.invoke_actions and has_tools and "action" in branch_caps and not is_lndl
+    inject_actions = (
+        params.invoke_actions and has_tools and "action" in branch_caps and not is_lndl
+    )
 
-    request_operable = operable.extend([get_action_spec()]) if inject_actions else operable
+    request_operable = (
+        operable.extend([get_action_spec()]) if inject_actions else operable
+    )
     request_structure = request_operable.compose_structure()
     use_gen_params = gen_params.with_updates(
         copy_containers="deep", request_model=request_structure
@@ -347,12 +351,16 @@ async def _run_lndl_round(
         continuation = _build_lndl_continuation(
             branch, round_num, last_error=last_error, max_rounds=max_rounds
         )
-        round_gen = gen_params.with_updates(copy_containers="deep", primary=continuation)
+        round_gen = gen_params.with_updates(
+            copy_containers="deep", primary=continuation
+        )
 
     if persist:
         text = await _generate_and_persist_text(round_gen, ctx)
     else:
-        text_gen = round_gen.with_updates(copy_containers="deep", return_as=ReturnAs.TEXT)
+        text_gen = round_gen.with_updates(
+            copy_containers="deep", return_as=ReturnAs.TEXT
+        )
         text = await ctx.conduct("generate", text_gen)
 
     from lionagi.beta.lndl.fuzzy import normalize_lndl_text
@@ -367,7 +375,9 @@ async def _run_lndl_round(
         if is_last_round:
             try:
                 output = parse_lndl_fuzzy(text, operable, scratchpad=branch.scratchpad)
-                validated = await validator.validate(output.fields, operable, structure=structure)
+                validated = await validator.validate(
+                    output.fields, operable, structure=structure
+                )
                 return Success(validated)
             except Exception:
                 return Failed(strict_err)
@@ -384,7 +394,10 @@ async def _run_lndl_round(
     for lvar in program.lvars:
         if isinstance(lvar, Lvar):
             lvars[lvar.alias] = LvarMetadata(
-                model=lvar.model, field=lvar.field, local_name=lvar.alias, value=lvar.content
+                model=lvar.model,
+                field=lvar.field,
+                local_name=lvar.alias,
+                value=lvar.content,
             )
         else:
             lvars[lvar.alias] = RLvarMetadata(local_name=lvar.alias, value=lvar.content)
@@ -461,9 +474,11 @@ async def _execute_lacts_to_results(
     parse_function_call splits "code.count_lines(...)" into tool="count_lines".
     act() handles ToolKit name coercion via the toolkits parameter.
     """
-    from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
     from lionagi.beta.lndl.types import LactMetadata
     from lionagi.libs.parse import parse_function_call
+    from lionagi.protocols.messages.action_request import (
+        ActionRequestContent as ActionRequest,
+    )
 
     action_messages: list[Message] = []
     alias_to_msg_id: dict[str, str] = {}
@@ -494,7 +509,9 @@ async def _execute_lacts_to_results(
         session.add_message(Message(content=resp), branches=branch)
         alias = alias_to_msg_id.get(resp.request_id, "")
         if alias:
-            results[alias] = resp.result if resp.success else f"<tool_error: {resp.error}>"
+            results[alias] = (
+                resp.result if resp.success else f"<tool_error: {resp.error}>"
+            )
     return results
 
 
@@ -614,12 +631,16 @@ def _get_last_assistant_text(session: Any, branch: Any) -> str | None:
 
 
 def _actions_to_messages(act_requests: list) -> list[Message]:
-    from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
+    from lionagi.protocols.messages.action_request import (
+        ActionRequestContent as ActionRequest,
+    )
 
     messages: list[Message] = []
     for req in act_requests:
         if isinstance(req, Action):
-            content = ActionRequest.create(function=req.function, arguments=req.arguments)
+            content = ActionRequest.create(
+                function=req.function, arguments=req.arguments
+            )
             messages.append(Message(content=content))
         elif isinstance(req, dict):
             content = ActionRequest.create(
@@ -634,7 +655,9 @@ def _responses_to_results(
     action_responses: list,
     action_messages: list[Message],
 ) -> list[ActionResult]:
-    from lionagi.protocols.messages.action_response import ActionResponseContent as ActionResponse
+    from lionagi.protocols.messages.action_response import (
+        ActionResponseContent as ActionResponse,
+    )
 
     id_to_func: dict[str, str] = {}
     for msg in action_messages:

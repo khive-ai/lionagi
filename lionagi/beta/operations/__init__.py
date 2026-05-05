@@ -102,6 +102,7 @@ def builtin_operation_declarations():
         ),
     }
 
+
 __all__ = (
     "ActParams",
     "Action",

@@ -15,18 +15,22 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Literal
 
-from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
-from lionagi.protocols.messages.action_response import ActionResponseContent as ActionResponse
 from lionagi.beta.session.constraints import scope_must_be_accessible
 from lionagi.ln import alcall
 from lionagi.ln.types import Params
+from lionagi.protocols.messages.action_request import (
+    ActionRequestContent as ActionRequest,
+)
+from lionagi.protocols.messages.action_response import (
+    ActionResponseContent as ActionResponse,
+)
 
 if TYPE_CHECKING:
 
+    from lionagi.beta.resource.toolkit import ToolKit
     from lionagi.beta.session.context import RequestContext
     from lionagi.beta.session.session import Branch, Session
     from lionagi.protocols.messages import Message
-    from lionagi.beta.resource.toolkit import ToolKit
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -177,9 +181,13 @@ async def _act(
                 service_ctx,
             )
         except Exception as e:
-            return ActionResponse.create(request_id=str(req_msg.id), error=f"ExecutionError: {e}")
+            return ActionResponse.create(
+                request_id=str(req_msg.id), error=f"ExecutionError: {e}"
+            )
         if normalized.status == "error":
-            return ActionResponse.create(request_id=str(req_msg.id), error=normalized.error or "Tool error")
+            return ActionResponse.create(
+                request_id=str(req_msg.id), error=normalized.error or "Tool error"
+            )
         return ActionResponse.create(request_id=str(req_msg.id), result=normalized.data)
 
     if strategy == "sequential":

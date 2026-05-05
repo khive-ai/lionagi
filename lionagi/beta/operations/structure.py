@@ -22,18 +22,18 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from lionagi.beta.rules import Validator
-from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_unset
 from lionagi.ln.types import ModelConfig, Params
+from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_unset
 
 from .generate import GenerateParams
 from .parse import ParseParams
 from .utils import ReturnAs
 
 if TYPE_CHECKING:
-    from lionagi.protocols.messages.rendering import CustomParser
     from lionagi.beta.resource.imodel import iModel
-    from lionagi.ln.types import Operable
     from lionagi.beta.session.context import RequestContext
+    from lionagi.ln.types import Operable
+    from lionagi.protocols.messages.rendering import CustomParser
 
 __all__ = ("StructureParams", "structure")
 
@@ -78,7 +78,9 @@ async def structure(params: StructureParams, ctx: RequestContext) -> Any:
         text = await ctx.conduct("generate", gen_params)
 
     gen = params.generate_params
-    parse_imodel = params.parse_imodel if not is_unset(params.parse_imodel) else gen.imodel
+    parse_imodel = (
+        params.parse_imodel if not is_unset(params.parse_imodel) else gen.imodel
+    )
     parse_params = ParseParams(
         text=text,
         imodel=parse_imodel if not is_unset(parse_imodel) else None,
@@ -111,7 +113,9 @@ async def _generate_and_persist(
     ctx: RequestContext,
 ) -> str:
     """Generate as MESSAGE and persist before returning text; ensures the assistant message exists in branch history before parse reads it."""
-    gen_params = generate_params.with_updates(copy_containers="deep", return_as=ReturnAs.MESSAGE)
+    gen_params = generate_params.with_updates(
+        copy_containers="deep", return_as=ReturnAs.MESSAGE
+    )
     message = await ctx.conduct("generate", gen_params)
 
     session = await ctx.get_session()

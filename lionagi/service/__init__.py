@@ -19,8 +19,8 @@ if TYPE_CHECKING:
     from .connections.endpoint import Endpoint, EndpointConfig
     from .imodel import iModel
     from .manager import iModelManager
-    from .rate_limiter import RateLimitConfig, TokenBucket
     from .rate_limited_processor import RateLimitedAPIExecutor
+    from .rate_limiter import RateLimitConfig, TokenBucket
     from .token_calculator import TokenCalculator
 
 _LAZY_MAP: dict[str, tuple[str, str | None]] = {

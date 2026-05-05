@@ -58,7 +58,9 @@ class ChoiceRule(Rule):
         self.case_sensitive = case_sensitive
 
         if not case_sensitive:
-            self._lower_map = {str(c).lower(): c for c in self.choices if isinstance(c, str)}
+            self._lower_map = {
+                str(c).lower(): c for c in self.choices if isinstance(c, str)
+            }
 
     async def validate(self, v: Any, t: type, **kw) -> None:
         """Validate that value is in allowed choices (exact match only).
@@ -72,7 +74,9 @@ class ChoiceRule(Rule):
         if v in self.choices:
             return
 
-        raise ValueError(f"Invalid choice: {v} not in {sorted(str(c) for c in self.choices)}")
+        raise ValueError(
+            f"Invalid choice: {v} not in {sorted(str(c) for c in self.choices)}"
+        )
 
     async def perform_fix(self, v: Any, _t: type) -> Any:
         """Attempt to fix value to closest choice.
@@ -94,4 +98,6 @@ class ChoiceRule(Rule):
             if v_lower in self._lower_map:
                 return self._lower_map[v_lower]
 
-        raise ValueError(f"Cannot fix choice: {v} not in {sorted(str(c) for c in self.choices)}")
+        raise ValueError(
+            f"Cannot fix choice: {v} not in {sorted(str(c) for c in self.choices)}"
+        )

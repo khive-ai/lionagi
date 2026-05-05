@@ -9,8 +9,8 @@ from typing import Any
 from pydantic import Field, PrivateAttr, field_serializer, field_validator
 
 from lionagi._errors import ConfigurationError, ExecutionError
-from lionagi.beta.resource.processor import Executor
 from lionagi.beta.protocols import Invocable, implements
+from lionagi.beta.resource.processor import Executor
 from lionagi.ln.concurrency import sleep
 from lionagi.protocols.generic.element import Element
 from lionagi.service.hooks import HookRegistry
@@ -279,7 +279,11 @@ class iModel(Element):  # noqa: N801
                 hook_type=HookEventTypes.PreEventCreate,
                 event_like=calling_type,
                 registry=self.hook_registry,
-                exit=(create_event_exit_hook if create_event_exit_hook is not None else False),
+                exit=(
+                    create_event_exit_hook
+                    if create_event_exit_hook is not None
+                    else False
+                ),
                 timeout=create_event_hook_timeout,
                 streaming=False,
                 params=create_event_hook_params or {},
@@ -304,7 +308,9 @@ class iModel(Element):  # noqa: N801
         ):
             calling.create_pre_invoke_hook(
                 hook_registry=self.hook_registry,
-                exit_hook=(pre_invoke_exit_hook if pre_invoke_exit_hook is not None else False),
+                exit_hook=(
+                    pre_invoke_exit_hook if pre_invoke_exit_hook is not None else False
+                ),
                 hook_timeout=pre_invoke_hook_timeout,
                 hook_params=pre_invoke_hook_params or {},
             )
@@ -314,7 +320,11 @@ class iModel(Element):  # noqa: N801
         ):
             calling.create_post_invoke_hook(
                 hook_registry=self.hook_registry,
-                exit_hook=(post_invoke_exit_hook if post_invoke_exit_hook is not None else False),
+                exit_hook=(
+                    post_invoke_exit_hook
+                    if post_invoke_exit_hook is not None
+                    else False
+                ),
                 hook_timeout=post_invoke_hook_timeout,
                 hook_params=post_invoke_hook_params or {},
             )
@@ -349,7 +359,8 @@ class iModel(Element):  # noqa: N801
             # Poll for completion (fast backends see ~100-200% overhead, slow backends <10%)
             interval = poll_interval or self._EXECUTOR_POLL_SLEEP_INTERVAL
             timeout_seconds = poll_timeout or (
-                self._EXECUTOR_POLL_TIMEOUT_ITERATIONS * self._EXECUTOR_POLL_SLEEP_INTERVAL
+                self._EXECUTOR_POLL_TIMEOUT_ITERATIONS
+                * self._EXECUTOR_POLL_SLEEP_INTERVAL
             )
             max_iterations = int(timeout_seconds / interval)
             ctr = 0
@@ -520,9 +531,13 @@ class iModel(Element):  # noqa: N801
 
         config = {**v}
         if "request_bucket" in config and isinstance(config["request_bucket"], dict):
-            config["request_bucket"] = TokenBucket(RateLimitConfig(**config["request_bucket"]))
+            config["request_bucket"] = TokenBucket(
+                RateLimitConfig(**config["request_bucket"])
+            )
         if "token_bucket" in config and isinstance(config["token_bucket"], dict):
-            config["token_bucket"] = TokenBucket(RateLimitConfig(**config["token_bucket"]))
+            config["token_bucket"] = TokenBucket(
+                RateLimitConfig(**config["token_bucket"])
+            )
 
         return RateLimitedExecutor(processor_config=config)
 

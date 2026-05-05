@@ -17,11 +17,20 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from lionagi.protocols.messages.rendering import CustomParser, CustomRenderer, StructureFormat
-from lionagi._errors import ConfigurationError, ExecutionError, LionError, ValidationError
-from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
-from lionagi.ln.types import ModelConfig, Params
+from lionagi._errors import (
+    ConfigurationError,
+    ExecutionError,
+    LionError,
+    ValidationError,
+)
 from lionagi.ln.fuzzy import HandleUnmatched, extract_json, fuzzy_validate_mapping
+from lionagi.ln.types import ModelConfig, Params
+from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
+from lionagi.protocols.messages.rendering import (
+    CustomParser,
+    CustomRenderer,
+    StructureFormat,
+)
 
 if TYPE_CHECKING:
     from typing import Any
@@ -78,7 +87,9 @@ async def parse(params: ParseParams, ctx: RequestContext) -> dict[str, Any]:
         session=session,
         branch=branch,
         target_keys=target_keys,
-        scratchpad=branch.scratchpad if params.scratchpad is None else params.scratchpad,
+        scratchpad=(
+            branch.scratchpad if params.scratchpad is None else params.scratchpad
+        ),
         **data,
         **params.imodel_kwargs,
     )
@@ -207,7 +218,10 @@ def _direct_parse(
                 from lionagi.beta.lndl.errors import MissingOutBlockError
 
                 output = parse_lndl_fuzzy(
-                    text, operable, threshold=similarity_threshold, scratchpad=scratchpad
+                    text,
+                    operable,
+                    threshold=similarity_threshold,
+                    scratchpad=scratchpad,
                 )
 
                 result = {}

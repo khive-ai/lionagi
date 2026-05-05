@@ -23,10 +23,14 @@ def validate_image_url(url: str) -> None:
         ValueError: If URL is invalid or uses disallowed scheme.
     """
     if not url or not isinstance(url, str):
-        raise ValueError(f"Image URL must be non-empty string, got: {type(url).__name__}")
+        raise ValueError(
+            f"Image URL must be non-empty string, got: {type(url).__name__}"
+        )
 
     if "\x00" in url:
-        raise ValueError("Image URL contains null byte - potential path truncation attack")
+        raise ValueError(
+            "Image URL contains null byte - potential path truncation attack"
+        )
     if "%00" in url.lower():
         raise ValueError(
             "Image URL contains percent-encoded null byte (%00) - potential path truncation attack"

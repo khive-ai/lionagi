@@ -14,7 +14,12 @@ from uuid import UUID
 
 from lionagi.beta.resource.graph import Edge, Graph
 from lionagi.ln._utils import to_uuid
-from lionagi.ln.types._sentinel import Undefined, UndefinedType, is_sentinel, not_sentinel
+from lionagi.ln.types._sentinel import (
+    Undefined,
+    UndefinedType,
+    is_sentinel,
+    not_sentinel,
+)
 
 from .node import Operation
 
@@ -245,7 +250,9 @@ class OperationGraphBuilder:
             raise ValueError(f"Target operation '{target}' not found")
 
         target_node = self._nodes[target]
-        resolved_label = [] if is_sentinel(label, additions={"none", "empty"}) else label
+        resolved_label = (
+            [] if is_sentinel(label, additions={"none", "empty"}) else label
+        )
 
         for dep_name in dependencies:
             if dep_name not in self._nodes:

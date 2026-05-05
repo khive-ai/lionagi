@@ -90,8 +90,8 @@ class Processor(Observer):
         # Lower priority value = processed first. Default priority = event.created_at.
         # The sequence counter (seq) is a monotonically increasing tiebreaker so that
         # Event objects are never compared directly (Event does not support __lt__).
-        self.queue: asyncio.PriorityQueue[tuple[float, int, Event]] = asyncio.PriorityQueue(
-            maxsize=max_queue_size
+        self.queue: asyncio.PriorityQueue[tuple[float, int, Event]] = (
+            asyncio.PriorityQueue(maxsize=max_queue_size)
         )
         self._enqueue_counter = itertools.count()
         self._available_capacity = queue_capacity
@@ -485,9 +485,7 @@ class Executor(Observer):
             counts[key] = counts.get(key, 0) + 1
         return counts
 
-    def cleanup_events(
-        self, statuses: list[EventStatus] | None = None
-    ) -> int:
+    def cleanup_events(self, statuses: list[EventStatus] | None = None) -> int:
         """Remove terminal events from the pile to free memory.
 
         Also clears denial tracking entries for removed events.

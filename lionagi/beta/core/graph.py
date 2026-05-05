@@ -83,15 +83,16 @@ class OpGraph:
 
         for nid in order:
             node = self.nodes[nid]
-            pred_provides = frozenset().union(*(
-                available.get(d, frozenset()) for d in node.deps
-            )) if node.deps else frozenset()
+            pred_provides = (
+                frozenset().union(*(available.get(d, frozenset()) for d in node.deps))
+                if node.deps
+                else frozenset()
+            )
 
             effective = ambient | pred_provides
             requires = frozenset(getattr(node.m, "requires", frozenset()))
             unsatisfied = frozenset(
-                r for r in requires
-                if not any(covers(h, r) for h in effective)
+                r for r in requires if not any(covers(h, r) for h in effective)
             )
 
             if unsatisfied:

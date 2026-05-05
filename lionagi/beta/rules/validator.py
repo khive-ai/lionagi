@@ -35,7 +35,9 @@ class Validator:
             raise ValueError("Pass either registry or rulebook, not both")
         self.registry = registry or rulebook or get_default_registry()
         max_entries = (
-            max_log_entries if max_log_entries is not None else self.DEFAULT_MAX_LOG_ENTRIES
+            max_log_entries
+            if max_log_entries is not None
+            else self.DEFAULT_MAX_LOG_ENTRIES
         )
         self.validation_log: deque[dict[str, Any]] = deque(
             maxlen=max_entries if max_entries > 0 else None
@@ -145,7 +147,9 @@ class Validator:
                     raise ValidationError(error_msg)
             else:
                 try:
-                    value = await rule.invoke(field_name, value, spec.base_type, auto_fix=auto_fix)
+                    value = await rule.invoke(
+                        field_name, value, spec.base_type, auto_fix=auto_fix
+                    )
                 except Exception as e:
                     self.log_validation_error(field_name, value, str(e))
                     raise
@@ -184,7 +188,9 @@ class Validator:
         strict: bool = True,
         structure: type[BaseModel] | None = None,
     ) -> dict[str, Any]:
-        if not_sentinel(capabilities, additions={"none"}) and not capabilities.issubset(operable.allowed()):
+        if not_sentinel(capabilities, additions={"none"}) and not capabilities.issubset(
+            operable.allowed()
+        ):
             raise ValidationError("Capabilities exceed operable's allowed set")
 
         capabilities = capabilities or operable.allowed()

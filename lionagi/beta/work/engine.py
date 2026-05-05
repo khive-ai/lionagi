@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from lionagi.ln.concurrency import fail_after, get_cancelled_exc_class
 from lionagi.beta.work.builder import OperationGraphBuilder
+from lionagi.ln.concurrency import fail_after, get_cancelled_exc_class
 
 if TYPE_CHECKING:
     from lionagi.beta.session.session import Session

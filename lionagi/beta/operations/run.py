@@ -15,16 +15,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
-from lionagi.protocols.messages.action_response import ActionResponseContent as ActionResponse
-from lionagi.protocols.messages.assistant_response import AssistantResponseContent as Assistant
-from lionagi.protocols.messages.instruction import InstructionContent as Instruction
-from lionagi.protocols.messages.prepare import prepare_messages_for_chat
 from lionagi._errors import ConfigurationError
 from lionagi.beta.session.constraints import resource_must_be_accessible
 from lionagi.ln.types import ModelConfig, Params
 from lionagi.ln.types._sentinel import MaybeUnset, Unset
 from lionagi.protocols.messages import Message
+from lionagi.protocols.messages.action_request import (
+    ActionRequestContent as ActionRequest,
+)
+from lionagi.protocols.messages.action_response import (
+    ActionResponseContent as ActionResponse,
+)
+from lionagi.protocols.messages.assistant_response import (
+    AssistantResponseContent as Assistant,
+)
+from lionagi.protocols.messages.instruction import InstructionContent as Instruction
+from lionagi.protocols.messages.prepare import prepare_messages_for_chat
 
 if TYPE_CHECKING:
     from typing import Any
@@ -42,7 +48,9 @@ __all__ = ("RunParams", "run", "run_and_collect")
 class RunParams(Params):
     """CLI streaming operation parameters; stream_chunk_hook enables real-time chunk processing."""
 
-    _config = ModelConfig(sentinel_additions=frozenset({"none", "empty", "dataclass", "pydantic"}))
+    _config = ModelConfig(
+        sentinel_additions=frozenset({"none", "empty", "dataclass", "pydantic"})
+    )
 
     primary: MaybeUnset[str] = Unset
     context: MaybeUnset[Any] = Unset
@@ -151,9 +159,11 @@ async def _run(
                 orig_msg = pending_requests.pop(tool_id, None) if tool_id else None
                 act_resp = ActionResponse.create(
                     request_id=str(orig_msg.id) if orig_msg else None,
-                    result=chunk.data.get("content")
-                    if isinstance(chunk.data, dict)
-                    else chunk.data,
+                    result=(
+                        chunk.data.get("content")
+                        if isinstance(chunk.data, dict)
+                        else chunk.data
+                    ),
                     error=None if not meta.get("is_error") else str(chunk.data),
                 )
                 resp_msg = Message(content=act_resp)

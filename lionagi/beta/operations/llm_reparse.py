@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from lionagi.protocols.messages.instruction import InstructionContent as Instruction
-from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
 from lionagi.ln.fuzzy import HandleUnmatched, fuzzy_validate_mapping
-
+from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
+from lionagi.protocols.messages.instruction import InstructionContent as Instruction
 from lionagi.protocols.messages.rendering import CustomParser, CustomRenderer
+
 from .utils import ReturnAs
 
 if TYPE_CHECKING:
@@ -32,9 +32,7 @@ if TYPE_CHECKING:
 
 __all__ = ("_llm_reparse",)
 
-JSON_REPARSE_PROMPT = (
-    "Reformat text into specified model or structure, using the provided schema format as a guide"
-)
+JSON_REPARSE_PROMPT = "Reformat text into specified model or structure, using the provided schema format as a guide"
 
 LNDL_REPARSE_PROMPT = (
     "Your previous LNDL output had a syntax error. Fix it and respond with ONLY valid LNDL.\n\n"
@@ -69,7 +67,10 @@ async def _llm_reparse(
     the LNDL syntax, then re-parses with the LNDL parser.
     For JSON format: asks the model to extract structured data.
     """
-    if not is_sentinel(structure_format, additions={"none", "empty"}) and structure_format == "lndl":
+    if (
+        not is_sentinel(structure_format, additions={"none", "empty"})
+        and structure_format == "lndl"
+    ):
         return await _lndl_reparse(
             session=session,
             branch=branch,
@@ -115,7 +116,9 @@ async def _llm_reparse(
 
     extracted = extract_json(res, return_one_if_single=False)
     if not extracted or not isinstance(extracted[0], dict):
-        raise ValueError(f"LLM reparse failed to produce a JSON object. Got: {str(res)[:200]}")
+        raise ValueError(
+            f"LLM reparse failed to produce a JSON object. Got: {str(res)[:200]}"
+        )
 
     return fuzzy_validate_mapping(
         extracted[0],

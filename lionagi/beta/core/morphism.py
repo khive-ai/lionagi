@@ -63,11 +63,15 @@ class MorphismAdapter(Morphism, kw_only=True):
             if callable(args[0]):
                 fn = args[0]
                 if len(args) > 1:
-                    raise TypeError("wrap(fn, ...) accepts only one positional argument")
+                    raise TypeError(
+                        "wrap(fn, ...) accepts only one positional argument"
+                    )
                 name = name or getattr(fn, "__name__", "adapter")
             else:
                 if len(args) != 2:
-                    raise TypeError("wrap(name, fn, ...) requires exactly two positional arguments")
+                    raise TypeError(
+                        "wrap(name, fn, ...) requires exactly two positional arguments"
+                    )
                 name = str(args[0])
                 fn = args[1]
 
@@ -130,7 +134,9 @@ class MorphismAdapter(Morphism, kw_only=True):
             else:
                 branch_ref = kw.get("_lionagi_branch_ref")
                 if branch_ref is None and branch is not None:
-                    branch_ref = getattr(branch, "name", None) or str(getattr(branch, "id", ""))
+                    branch_ref = getattr(branch, "name", None) or str(
+                        getattr(branch, "id", "")
+                    )
 
                 metadata: dict[str, Any] = {"principal": br}
                 if session is not None:

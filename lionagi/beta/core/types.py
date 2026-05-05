@@ -72,16 +72,11 @@ class Principal(Element):
 
     @field_serializer("caps")
     def _serialize_caps(self, caps: tuple[Capability, ...]) -> list[dict]:
-        return [
-            {"subject": str(c.subject), "rights": sorted(c.rights)}
-            for c in caps
-        ]
+        return [{"subject": str(c.subject), "rights": sorted(c.rights)} for c in caps]
 
     def rights(self) -> frozenset[str]:
         """Return rights from capabilities bound to this principal only."""
-        return frozenset(
-            r for c in self.caps if c.subject == self.id for r in c.rights
-        )
+        return frozenset(r for c in self.caps if c.subject == self.id for r in c.rights)
 
     def has_right(self, right: str) -> bool:
         return right in self.rights()
@@ -93,6 +88,7 @@ class Principal(Element):
         data["caps"] = list(self.caps) + [new_cap]
         data["id"] = self.id
         return Principal(**data)
+
 
 class Observation(msgspec.Struct, kw_only=True):
     """Structured event record emitted during execution."""

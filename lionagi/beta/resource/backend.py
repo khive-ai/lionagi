@@ -91,7 +91,9 @@ class Normalized(DataClass):
 class Calling(Event):
     """Base event wrapping a backend.call() with pre/post invocation hooks."""
 
-    backend: ResourceBackend = Field(..., exclude=True, description="Resource backend instance")
+    backend: ResourceBackend = Field(
+        ..., exclude=True, description="Resource backend instance"
+    )
     payload: dict[str, Any] = Field(..., description="Request payload/arguments")
     _pre_invoke_hook_event: HookEvent | None = PrivateAttr(None)
     _post_invoke_hook_event: HookEvent | None = PrivateAttr(None)

@@ -59,7 +59,9 @@ def fuzzy_validate_mapping(
     keys: KeysLike,
     /,
     *,
-    similarity_algo: SIMILARITY_TYPE | SimilarityAlgo | Callable[[str, str], float] = "jaro_winkler",
+    similarity_algo: (
+        SIMILARITY_TYPE | SimilarityAlgo | Callable[[str, str], float]
+    ) = "jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,
     handle_unmatched: HandleUnmatched | str = HandleUnmatched.IGNORE,

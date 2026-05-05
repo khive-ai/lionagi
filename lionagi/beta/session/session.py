@@ -19,9 +19,9 @@ from uuid import UUID
 from pydantic import Field, PrivateAttr, field_serializer, model_validator
 
 from lionagi._errors import NotFoundError
-from lionagi.beta.resource.pile import Pile
 from lionagi.beta.core.types import Capability, Principal
 from lionagi.beta.resource import Calling, ResourceRegistry, iModel
+from lionagi.beta.resource.pile import Pile
 from lionagi.beta.work.node import Operation
 from lionagi.ln.types import HashableModel
 from lionagi.ln.types._sentinel import Unset, UnsetType, not_sentinel
@@ -67,10 +67,18 @@ class OperationDecl:
     morphism_factory: Callable[[Any], Any] | None = None
 
     def __post_init__(self) -> None:
-        if self.handler is None and self.morphism is None and self.morphism_factory is None:
-            raise ValueError("OperationDecl requires a handler, morphism, or morphism_factory")
+        if (
+            self.handler is None
+            and self.morphism is None
+            and self.morphism_factory is None
+        ):
+            raise ValueError(
+                "OperationDecl requires a handler, morphism, or morphism_factory"
+            )
         if self.morphism is not None and self.morphism_factory is not None:
-            raise ValueError("OperationDecl cannot define both morphism and morphism_factory")
+            raise ValueError(
+                "OperationDecl cannot define both morphism and morphism_factory"
+            )
         object.__setattr__(self, "requires", frozenset(self.requires))
         object.__setattr__(self, "provides", frozenset(self.provides))
 
@@ -86,7 +94,9 @@ class OperationDecl:
         if self.handler is not None:
             return MorphismAdapter.from_operation(self, params, operation=operation)
 
-        source = self.morphism_factory(params) if self.morphism_factory else self.morphism
+        source = (
+            self.morphism_factory(params) if self.morphism_factory else self.morphism
+        )
         return _coerce_morphism(
             source,
             name=name,
@@ -109,7 +119,9 @@ def _coerce_morphism(
 
     reqs = frozenset(requires or getattr(source, "requires", frozenset()))
     provs = frozenset(provides or getattr(source, "provides", frozenset()))
-    morph_name = name or getattr(source, "name", None) or getattr(source, "__name__", "morphism")
+    morph_name = (
+        name or getattr(source, "name", None) or getattr(source, "__name__", "morphism")
+    )
 
     apply = getattr(source, "apply", None)
     if callable(apply):
@@ -221,8 +233,16 @@ class OperationRegistry:
             raise ValueError(
                 f"Operation '{operation_name}' already registered. Use override=True to replace."
             )
-        reqs = frozenset(requires if requires is not None else getattr(morphism, "requires", frozenset()))
-        provs = frozenset(provides if provides is not None else getattr(morphism, "provides", frozenset()))
+        reqs = frozenset(
+            requires
+            if requires is not None
+            else getattr(morphism, "requires", frozenset())
+        )
+        provs = frozenset(
+            provides
+            if provides is not None
+            else getattr(morphism, "provides", frozenset())
+        )
         self._decls[operation_name] = OperationDecl(
             requires=reqs,
             provides=provs,
@@ -296,7 +316,11 @@ class Branch(Progression):
     def _resource_to_right(resource: str) -> str:
         if resource in {"*", "*:*"}:
             return "service.call"
-        return resource if resource.startswith("service.call") else f"service.call:{resource}"
+        return (
+            resource
+            if resource.startswith("service.call")
+            else f"service.call:{resource}"
+        )
 
     @staticmethod
     def _coerce_principal(value: Any, name: str | None = None) -> Principal:
@@ -319,9 +343,7 @@ class Branch(Progression):
         data["id"] = subject
         data["name"] = name or principal.name
         data["caps"] = (
-            [Capability(subject=subject, rights=frozenset(rights))]
-            if rights
-            else []
+            [Capability(subject=subject, rights=frozenset(rights))] if rights else []
         )
         return Principal(**data)
 
@@ -423,9 +445,13 @@ class SessionConfig(HashableModel):
 
 class Session(Element):
     user: str | None = None
-    communications: Flow[Message, Branch] = Field(default_factory=lambda: Flow(item_type=Message))
+    communications: Flow[Message, Branch] = Field(
+        default_factory=lambda: Flow(item_type=Message)
+    )
     resources: ResourceRegistry = Field(default_factory=ResourceRegistry, exclude=True)
-    operations: OperationRegistry = Field(default_factory=OperationRegistry, exclude=True)
+    operations: OperationRegistry = Field(
+        default_factory=OperationRegistry, exclude=True
+    )
     config: SessionConfig = Field(default_factory=SessionConfig)
     default_branch_id: UUID | None = None
 
@@ -518,9 +544,9 @@ class Session(Element):
 
         if principal is None:
             rights: set[str] = set()
-            for cap in (capabilities or set()):
+            for cap in capabilities or set():
                 rights.add(str(cap))
-            for res in (resources or set()):
+            for res in resources or set():
                 rights.add(Branch._resource_to_right(str(res)))
             principal = Branch._principal_with_rights(
                 Principal(name=branch_name),
@@ -567,9 +593,13 @@ class Session(Element):
             name=name or f"{source.name}_fork",
             messages=source.order,
             capabilities=(
-                {*source.capabilities} if capabilities is True else (capabilities or set())
+                {*source.capabilities}
+                if capabilities is True
+                else (capabilities or set())
             ),
-            resources=({*source.resources} if resources is True else (resources or set())),
+            resources=(
+                {*source.resources} if resources is True else (resources or set())
+            ),
         )
 
         forked.metadata["forked_from"] = {
@@ -954,7 +984,11 @@ class Session(Element):
             control=control,
         )
         graph = OpGraph(nodes={node.id: node}, roots={node.id})
-        runner = self._get_runner() if max_concurrent is None else Runner(max_concurrent=max_concurrent)
+        runner = (
+            self._get_runner()
+            if max_concurrent is None
+            else Runner(max_concurrent=max_concurrent)
+        )
         results = await runner.run(principal, graph)
         return self._unwrap_runner_result(results[node.id])
 

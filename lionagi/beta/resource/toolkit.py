@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from lionagi.beta.resource.backend import Normalized, ResourceConfig
 from lionagi.beta.resource.service import Service, add_service, list_services_sync
 from lionagi.ln.types._compat import StrEnum
-
 from lionagi.tools.sandbox import PathGuard, ProcessGuard
 
 if TYPE_CHECKING:
@@ -23,7 +22,9 @@ if TYPE_CHECKING:
 
     @runtime_checkable
     class ToolPolicyEvaluator(Protocol):
-        async def evaluate(self, action: str, args: dict, ctx: Any) -> ToolPolicyResult: ...
+        async def evaluate(
+            self, action: str, args: dict, ctx: Any
+        ) -> ToolPolicyResult: ...
 
 
 __all__ = (
@@ -121,7 +122,9 @@ class ToolKit(Service):
     """Service with @tool_action handler discovery and capability-gated invocation."""
 
     config: ToolKitConfig = Field(..., description="ToolKit configuration")
-    _action_registry: dict[str, tuple[Callable, ToolActionMeta]] = PrivateAttr(default_factory=dict)
+    _action_registry: dict[str, tuple[Callable, ToolActionMeta]] = PrivateAttr(
+        default_factory=dict
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -180,7 +183,9 @@ class ToolKit(Service):
     def schemas(self) -> list[dict[str, Any]]:
         return self.tool_schemas(fmt="dict")  # type: ignore[return-value]
 
-    def create_payload(self, request: dict | BaseModel | None = None, **kwargs: Any) -> dict:
+    def create_payload(
+        self, request: dict | BaseModel | None = None, **kwargs: Any
+    ) -> dict:
         """Unwrap iModel's {"arguments": {...}} envelope so call() receives the inner dict."""
         if request is None:
             payload = kwargs
@@ -190,7 +195,11 @@ class ToolKit(Service):
             payload = dict(request)
             payload.update(kwargs)
 
-        if "arguments" in payload and len(payload) == 1 and isinstance(payload["arguments"], dict):
+        if (
+            "arguments" in payload
+            and len(payload) == 1
+            and isinstance(payload["arguments"], dict)
+        ):
             return payload["arguments"]
         return payload
 
@@ -430,7 +439,9 @@ class ToolKit(Service):
                     continue
 
             handler, meta = self._action_registry[action_name]
-            full_name = f"{self.name}.{action_name}" if len(self.actions) > 1 else self.name
+            full_name = (
+                f"{self.name}.{action_name}" if len(self.actions) > 1 else self.name
+            )
 
             desc = handler.__doc__ or full_name
 
@@ -495,8 +506,4 @@ async def register_toolkit(toolkit: ToolKit, update: bool = False) -> ToolKit:
 
 
 def list_toolkits() -> list[ToolKit]:
-    return [
-        service
-        for service in list_services_sync()
-        if isinstance(service, ToolKit)
-    ]
+    return [service for service in list_services_sync() if isinstance(service, ToolKit)]

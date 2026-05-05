@@ -28,6 +28,7 @@ from lionagi.ln.types._sentinel import (
     is_unset,
     not_sentinel,
 )
+
 from ..spec import Spec
 from ._utils import resolve_annotation_to_base_types
 from .protocol import SpecAdapter
@@ -287,7 +288,10 @@ class PydanticSpecAdapter(SpecAdapter[FieldInfo]):
     @classmethod
     def validate_instance(cls, structure: type[BaseModel], data: dict, /) -> BaseModel:
         """Validate dict into BaseModel instance via model_validate."""
-        if any(isinstance(v, BaseModel) or type(v).__name__ == "ActionCall" for v in data.values()):
+        if any(
+            isinstance(v, BaseModel) or type(v).__name__ == "ActionCall"
+            for v in data.values()
+        ):
             return structure.model_construct(**data)
         return structure.model_validate(data)
 

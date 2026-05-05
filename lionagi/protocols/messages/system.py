@@ -1,9 +1,10 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field, field_validator
 
@@ -58,7 +59,8 @@ class SystemContent(MessageContent):
         elif system_datetime is False:
             system_datetime = None
         return cls(
-            system_message=system_message or "You are a helpful AI assistant. Let's think step by step.",
+            system_message=system_message
+            or "You are a helpful AI assistant. Let's think step by step.",
             system_datetime=system_datetime,
             datetime_factory=datetime_factory if callable(datetime_factory) else None,
         )

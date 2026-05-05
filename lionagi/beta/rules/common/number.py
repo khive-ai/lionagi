@@ -66,7 +66,9 @@ class NumberRule(Rule):
             ValueError: If not a number or constraints violated
         """
         if not isinstance(v, (int, float)):
-            raise ValueError(f"Invalid number value: expected int or float, got {type(v).__name__}")
+            raise ValueError(
+                f"Invalid number value: expected int or float, got {type(v).__name__}"
+            )
 
         if self.ge is not None and v < self.ge:
             raise ValueError(f"Number too small: {v} < {self.ge}")

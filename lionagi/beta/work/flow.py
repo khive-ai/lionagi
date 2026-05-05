@@ -11,12 +11,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from lionagi.protocols.generic.event import EventStatus
-from lionagi.beta.resource.graph import Graph
 from lionagi.beta.core.graph import OpGraph, OpNode
 from lionagi.beta.core.morphism import MorphismAdapter
 from lionagi.beta.core.runner import Runner
 from lionagi.beta.core.types import Principal
+from lionagi.beta.resource.graph import Graph
+from lionagi.protocols.generic.event import EventStatus
 
 from .control import ControlDecision
 from .node import Operation
@@ -70,7 +70,9 @@ def _resolve_operation_branch(
         return default_branch
 
 
-def _default_branch(session: Session, branch: Branch | UUID | str | None) -> Branch | None:
+def _default_branch(
+    session: Session, branch: Branch | UUID | str | None
+) -> Branch | None:
     if branch is not None:
         return session.get_branch(branch)
     return getattr(session, "default_branch", None)
@@ -85,7 +87,11 @@ def _principal_for_flow(
         (b for b in operation_branches.values() if b is not None),
         None,
     )
-    principal = branch.principal.model_copy(deep=True) if branch is not None else Principal(name="flow")
+    principal = (
+        branch.principal.model_copy(deep=True)
+        if branch is not None
+        else Principal(name="flow")
+    )
     if context:
         principal.ctx.update(context)
     return principal
@@ -216,7 +222,11 @@ def compile_flow_to_graph(
         node = OpNode(
             id=op.id,
             m=_operation_morphism(session, decl, op),
-            deps={pred.id for pred in graph.get_predecessors(op) if isinstance(pred, Operation)},
+            deps={
+                pred.id
+                for pred in graph.get_predecessors(op)
+                if isinstance(pred, Operation)
+            },
             params=node_params,
             control=op.is_control,
         )
@@ -224,7 +234,12 @@ def compile_flow_to_graph(
 
     roots = {nid for nid, node in op_nodes.items() if not node.deps}
     principal = _principal_for_flow(default_branch, operation_branches, context)
-    return OpGraph(nodes=op_nodes, roots=roots), principal, operations_by_id, operation_branches
+    return (
+        OpGraph(nodes=op_nodes, roots=roots),
+        principal,
+        operations_by_id,
+        operation_branches,
+    )
 
 
 def _mark_completed(op: Operation, result: Any) -> None:

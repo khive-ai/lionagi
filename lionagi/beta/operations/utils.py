@@ -12,8 +12,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from lionagi._errors import ValidationError
-from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
 from lionagi.ln.types import Enum
+from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,7 +56,9 @@ def handle_return(
         return calling
 
     if return_as == ReturnAs.CUSTOM:
-        if is_sentinel(return_parser, additions={"none", "empty"}) or not callable(return_parser):
+        if is_sentinel(return_parser, additions={"none", "empty"}) or not callable(
+            return_parser
+        ):
             raise ValidationError(
                 "return_parser must be provided as a callable when return_as is 'custom'"
             )
@@ -73,7 +75,9 @@ def handle_return(
         case ReturnAs.RESPONSE:
             return response
         case ReturnAs.MESSAGE:
-            from lionagi.protocols.messages.assistant_response import parse_to_assistant_message
+            from lionagi.protocols.messages.assistant_response import (
+                parse_to_assistant_message,
+            )
 
             return parse_to_assistant_message(response)
         case _:

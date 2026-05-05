@@ -57,18 +57,31 @@ class CrudPattern:
         object.__setattr__(
             self,
             "filters",
-            (_EMPTY_MAP if self.filters is None else MappingProxyType(dict(self.filters))),
+            (
+                _EMPTY_MAP
+                if self.filters is None
+                else MappingProxyType(dict(self.filters))
+            ),
         )
         object.__setattr__(
             self,
             "set_fields",
-            (_EMPTY_MAP if self.set_fields is None else MappingProxyType(dict(self.set_fields))),
+            (
+                _EMPTY_MAP
+                if self.set_fields is None
+                else MappingProxyType(dict(self.set_fields))
+            ),
         )
         object.__setattr__(
             self,
             "defaults",
-            (_EMPTY_MAP if self.defaults is None else MappingProxyType(dict(self.defaults))),
+            (
+                _EMPTY_MAP
+                if self.defaults is None
+                else MappingProxyType(dict(self.defaults))
+            ),
         )
+
 
 class QueryFn(Protocol):
     """Callable protocol bridging CrudPattern phrases to a DB backend."""

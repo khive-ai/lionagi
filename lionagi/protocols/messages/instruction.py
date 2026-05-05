@@ -165,7 +165,11 @@ class InstructionContent(MessageContent):
         # Translate 'context' alias → 'prompt_context'
         if "context" in kwargs:
             ctx_val = kwargs.pop("context")
-            kwargs["prompt_context"] = ctx_val if isinstance(ctx_val, list) else [ctx_val] if ctx_val is not None else []
+            kwargs["prompt_context"] = (
+                ctx_val
+                if isinstance(ctx_val, list)
+                else [ctx_val] if ctx_val is not None else []
+            )
         # Translate 'request_model' → 'response_format'
         if "request_model" in kwargs:
             kwargs["response_format"] = kwargs.pop("request_model")
@@ -198,7 +202,11 @@ class InstructionContent(MessageContent):
         # Normalise structure_format to str
         sf: str | None = None
         if structure_format is not None:
-            sf = structure_format.value if isinstance(structure_format, StructureFormat) else str(structure_format)
+            sf = (
+                structure_format.value
+                if isinstance(structure_format, StructureFormat)
+                else str(structure_format)
+            )
 
         return cls(
             primary=primary,

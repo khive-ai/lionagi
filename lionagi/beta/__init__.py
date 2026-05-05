@@ -54,6 +54,7 @@ def __getattr__(name: str) -> object:
         return _LOADED_SUBMODULES[name]
     if name in _LAZY_SUBMODULES:
         from importlib import import_module
+
         mod = import_module(_LAZY_SUBMODULES[name])
         _LOADED_SUBMODULES[name] = mod
         return mod

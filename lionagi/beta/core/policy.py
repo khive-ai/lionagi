@@ -63,12 +63,8 @@ def _covers_resource(have_res: str, req_res: str) -> bool:
 
     if have_wc and not req_wc:
         if "/" in have_res or "/" in req_res:
-            return _segments_match(
-                have_res.split("/"), req_res.split("/")
-            )
-        return have_res.rstrip("*") == "" or req_res.startswith(
-            have_res.rstrip("*")
-        )
+            return _segments_match(have_res.split("/"), req_res.split("/"))
+        return have_res.rstrip("*") == "" or req_res.startswith(have_res.rstrip("*"))
 
     if req_wc and not have_wc:
         return False

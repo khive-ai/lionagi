@@ -48,9 +48,9 @@ from .concurrency import (
     retry,
 )
 from .fuzzy import (
-    HandleUnmatched,
     MAX_JSON_INPUT_SIZE,
     SIMILARITY_TYPE,
+    HandleUnmatched,
     SimilarityAlgo,
     extract_json,
     fuzzy_json,

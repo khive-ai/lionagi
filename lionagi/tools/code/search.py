@@ -92,12 +92,24 @@ _DEFAULT_GREP_EXCLUDES = [
 ]
 
 _DEFAULT_FIND_EXCLUDES = (
-    "-not", "-path", "*/.git/*",
-    "-not", "-path", "*/node_modules/*",
-    "-not", "-path", "*/.venv/*",
-    "-not", "-path", "*/__pycache__/*",
-    "-not", "-path", "*/.mypy_cache/*",
-    "-not", "-path", "*/.pytest_cache/*",
+    "-not",
+    "-path",
+    "*/.git/*",
+    "-not",
+    "-path",
+    "*/node_modules/*",
+    "-not",
+    "-path",
+    "*/.venv/*",
+    "-not",
+    "-path",
+    "*/__pycache__/*",
+    "-not",
+    "-path",
+    "*/.mypy_cache/*",
+    "-not",
+    "-path",
+    "*/.pytest_cache/*",
 )
 
 

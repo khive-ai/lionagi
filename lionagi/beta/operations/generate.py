@@ -15,15 +15,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, JsonValue
 
-from lionagi.protocols.messages.instruction import InstructionContent as Instruction
-from lionagi.protocols.messages.prepare import prepare_messages_for_chat
 from lionagi._errors import ConfigurationError
 from lionagi.beta.session.constraints import resource_must_be_accessible
 from lionagi.ln.types import ModelConfig, Params
 from lionagi.ln.types._sentinel import MaybeUnset, Unset
 from lionagi.protocols.messages import Message
-
+from lionagi.protocols.messages.instruction import InstructionContent as Instruction
+from lionagi.protocols.messages.prepare import prepare_messages_for_chat
 from lionagi.protocols.messages.rendering import CustomRenderer
+
 from .utils import ReturnAs, handle_return
 
 if TYPE_CHECKING:
@@ -42,7 +42,9 @@ __all__ = ("GenerateParams", "generate", "handle_return")
 class GenerateParams(Params):
     """LLM call parameters; provide either ``instruction`` (pre-built) or ``primary`` (string) — not both."""
 
-    _config = ModelConfig(sentinel_additions=frozenset({"none", "empty", "dataclass", "pydantic"}))
+    _config = ModelConfig(
+        sentinel_additions=frozenset({"none", "empty", "dataclass", "pydantic"})
+    )
 
     instruction: MaybeUnset[Instruction | Message] = Unset
     primary: MaybeUnset[str] = Unset
@@ -125,7 +127,8 @@ async def _generate(
 
     # CLI endpoints use streaming run path
     is_cli = (
-        getattr(imodel.backend, "config", None) and imodel.backend.config.endpoint == "query_cli"
+        getattr(imodel.backend, "config", None)
+        and imodel.backend.config.endpoint == "query_cli"
     )
     if is_cli:
         from .run import run_and_collect

@@ -12,9 +12,9 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from typing_extensions import override
 
 from lionagi._errors import NotFoundError
+from lionagi.beta.protocols import Containable, Deserializable, Serializable, implements
 from lionagi.beta.resource.node import Node
 from lionagi.beta.resource.pile import Pile
-from lionagi.beta.protocols import Containable, Deserializable, Serializable, implements
 from lionagi.ln._utils import synchronized
 from lionagi.ln.types._sentinel import Unset, UnsetType, is_unset
 from lionagi.protocols.generic.element import Element
@@ -60,7 +60,9 @@ class Edge(Element):
     condition: EdgeCondition | None = Field(
         default=None, exclude=True, description="Runtime traversal predicate"
     )
-    properties: dict[str, Any] = Field(default_factory=dict, description="Custom edge attributes")
+    properties: dict[str, Any] = Field(
+        default_factory=dict, description="Custom edge attributes"
+    )
 
     @field_validator("head", "tail", mode="before")
     @classmethod
@@ -317,12 +319,16 @@ class Graph(Element):
     def get_predecessors(self, node_id: UUID | Node) -> list[Node]:
         """Get nodes with edges pointing to this node (in-neighbors)."""
         nid = self._coerce_id(node_id)
-        return [self.nodes[self.edges[eid].head] for eid in self._in_edges.get(nid, set())]
+        return [
+            self.nodes[self.edges[eid].head] for eid in self._in_edges.get(nid, set())
+        ]
 
     def get_successors(self, node_id: UUID | Node) -> list[Node]:
         """Get nodes this node points to (out-neighbors)."""
         nid = self._coerce_id(node_id)
-        return [self.nodes[self.edges[eid].tail] for eid in self._out_edges.get(nid, set())]
+        return [
+            self.nodes[self.edges[eid].tail] for eid in self._out_edges.get(nid, set())
+        ]
 
     def get_node_edges(
         self,
@@ -345,11 +351,17 @@ class Graph(Element):
 
     def get_heads(self) -> list[Node]:
         """Get source nodes (no incoming edges)."""
-        return [self.nodes[nid] for nid, in_edges in self._in_edges.items() if not in_edges]
+        return [
+            self.nodes[nid] for nid, in_edges in self._in_edges.items() if not in_edges
+        ]
 
     def get_tails(self) -> list[Node]:
         """Get sink nodes (no outgoing edges)."""
-        return [self.nodes[nid] for nid, out_edges in self._out_edges.items() if not out_edges]
+        return [
+            self.nodes[nid]
+            for nid, out_edges in self._out_edges.items()
+            if not out_edges
+        ]
 
     # ==================== Graph Algorithms ====================
 
@@ -466,10 +478,14 @@ class Graph(Element):
     def to_dict(
         self,
         mode: Literal["python", "json", "db"] = "python",
-        created_at_format: (Literal["datetime", "isoformat", "timestamp"] | UnsetType) = Unset,
+        created_at_format: (
+            Literal["datetime", "isoformat", "timestamp"] | UnsetType
+        ) = Unset,
         meta_key: str | UnsetType = Unset,
         item_meta_key: str | UnsetType = Unset,
-        item_created_at_format: (Literal["datetime", "isoformat", "timestamp"] | UnsetType) = Unset,
+        item_created_at_format: (
+            Literal["datetime", "isoformat", "timestamp"] | UnsetType
+        ) = Unset,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Serialize graph with nodes and edges as nested Pile dicts.

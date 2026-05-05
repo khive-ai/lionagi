@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import Self, override
 
-from lionagi.protocols.generic.event import Event
-from lionagi.beta.resource.processor import Executor, Processor
 from lionagi.beta.resource.backend import Calling
+from lionagi.beta.resource.processor import Executor, Processor
 from lionagi.ln.concurrency import current_time as _now
+from lionagi.protocols.generic.event import Event
 from lionagi.service.rate_limiter import TokenBucket
 
 if TYPE_CHECKING:
@@ -196,8 +196,12 @@ class RateLimitedProcessor(Processor):
             "concurrency_limit": self.concurrency_limit,
             "max_queue_size": self.max_queue_size,
             "max_denial_tracking": self.max_denial_tracking,
-            "request_bucket": (self.request_bucket.to_dict() if self.request_bucket else None),
-            "token_bucket": (self.token_bucket.to_dict() if self.token_bucket else None),
+            "request_bucket": (
+                self.request_bucket.to_dict() if self.request_bucket else None
+            ),
+            "token_bucket": (
+                self.token_bucket.to_dict() if self.token_bucket else None
+            ),
         }
 
 

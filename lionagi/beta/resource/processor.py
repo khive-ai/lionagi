@@ -8,13 +8,18 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from typing_extensions import Self
 
-from lionagi._errors import ConfigurationError, NotFoundError, QueueFullError, ValidationError
+from lionagi._errors import (
+    ConfigurationError,
+    NotFoundError,
+    QueueFullError,
+    ValidationError,
+)
 from lionagi.ln import concurrency
-
 from lionagi.protocols.generic.event import Event, EventStatus
+from lionagi.protocols.generic.progression import Progression
+
 from .flow import Flow
 from .pile import Pile
-from lionagi.protocols.generic.progression import Progression
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -79,13 +84,19 @@ class Processor:
         if queue_capacity < 1:
             raise ValidationError("Queue capacity must be greater than 0.")
         if queue_capacity > 10000:
-            raise ValidationError("Queue capacity must be <= 10000 (prevent unbounded batches).")
+            raise ValidationError(
+                "Queue capacity must be <= 10000 (prevent unbounded batches)."
+            )
 
         # Validate capacity_refresh_time (prevent hot loop or starvation)
         if capacity_refresh_time < 0.01:
-            raise ValidationError("Capacity refresh time must be >= 0.01s (prevent CPU hot loop).")
+            raise ValidationError(
+                "Capacity refresh time must be >= 0.01s (prevent CPU hot loop)."
+            )
         if capacity_refresh_time > 3600:
-            raise ValidationError("Capacity refresh time must be <= 3600s (prevent starvation).")
+            raise ValidationError(
+                "Capacity refresh time must be <= 3600s (prevent starvation)."
+            )
 
         # Validate concurrency_limit
         if concurrency_limit < 1:
@@ -107,7 +118,9 @@ class Processor:
         self.concurrency_limit = concurrency_limit
 
         # Priority queue: (priority, event_uuid) tuples, min-heap ordering
-        self.queue: concurrency.PriorityQueue[tuple[float, UUID]] = concurrency.PriorityQueue()
+        self.queue: concurrency.PriorityQueue[tuple[float, UUID]] = (
+            concurrency.PriorityQueue()
+        )
 
         self._available_capacity = queue_capacity
         self._execution_mode = False
@@ -233,7 +246,9 @@ class Processor:
                     self._denial_counts.pop(event_id, None)
 
                     if self.executor:
-                        await self.executor._update_progression(next_event, EventStatus.PROCESSING)
+                        await self.executor._update_progression(
+                            next_event, EventStatus.PROCESSING
+                        )
 
                     if next_event.streaming:
 
@@ -257,7 +272,9 @@ class Processor:
                                 if self.executor:
                                     await self.executor._update_progression(event)
 
-                        tg.start_soon(self._with_semaphore, invoke_and_update(next_event))
+                        tg.start_soon(
+                            self._with_semaphore, invoke_and_update(next_event)
+                        )
 
                     events_processed += 1
                     self._available_capacity -= 1
@@ -272,7 +289,9 @@ class Processor:
 
                     if denial_count >= 3:
                         if self.executor:
-                            await self.executor._update_progression(next_event, EventStatus.ABORTED)
+                            await self.executor._update_progression(
+                                next_event, EventStatus.ABORTED
+                            )
                         self._denial_counts.pop(event_id, None)
                     else:
                         backoff = denial_count * 1.0

@@ -87,7 +87,9 @@ class Runner:
                 )
             )
 
-        async def on_finish(br: Principal, node: OpNode, result: dict[str, Any]) -> None:
+        async def on_finish(
+            br: Principal, node: OpNode, result: dict[str, Any]
+        ) -> None:
             await self.ipu.on_observation(
                 Observation(
                     who=br.id,
@@ -115,7 +117,9 @@ class Runner:
                 )
             )
 
-        async def on_spawn(br: Principal, control_node: OpNode, info: dict[str, Any]) -> None:
+        async def on_spawn(
+            br: Principal, control_node: OpNode, info: dict[str, Any]
+        ) -> None:
             await self.ipu.on_observation(
                 Observation(
                     who=br.id,
@@ -138,7 +142,9 @@ class Runner:
         check_satisfiability: bool = True,
     ) -> dict[UUID, dict[str, Any]]:
         results: dict[UUID, dict[str, Any]] = {}
-        async for node_id, result in self.run_stream(br, g, check_satisfiability=check_satisfiability):
+        async for node_id, result in self.run_stream(
+            br, g, check_satisfiability=check_satisfiability
+        ):
             results[node_id] = result
         return results
 
@@ -168,13 +174,17 @@ class Runner:
         self._total_spawned = 0
         name_map: dict[str, UUID] = {}
         for nid, node in g.nodes.items():
-            node_name = node.params.get("_lionagi_operation_name") or node.params.get("name")
+            node_name = node.params.get("_lionagi_operation_name") or node.params.get(
+                "name"
+            )
             if node_name:
                 name_map[node_name] = nid
 
-        ready: set[UUID] = set(g.roots) if g.roots else {
-            nid for nid, node in g.nodes.items() if not node.deps
-        }
+        ready: set[UUID] = (
+            set(g.roots)
+            if g.roots
+            else {nid for nid, node in g.nodes.items() if not node.deps}
+        )
         done: set[UUID] = set()
         results: dict[UUID, dict[str, Any]] = {}
         accumulated_provides: set[str] = set()
@@ -183,15 +193,9 @@ class Runner:
         topo = g.validate_dag()
 
         while ready:
-            batch = [
-                g.nodes[n]
-                for n in list(ready)
-                if g.nodes[n].deps.issubset(done)
-            ]
+            batch = [g.nodes[n] for n in list(ready) if g.nodes[n].deps.issubset(done)]
             if not batch:
-                raise RuntimeError(
-                    f"Runner stalled: ready={ready}, done={done}"
-                )
+                raise RuntimeError(f"Runner stalled: ready={ready}, done={done}")
 
             ready -= {n.id for n in batch}
             regular_batch = [node for node in batch if not node.control]
@@ -269,12 +273,19 @@ class Runner:
                 self._apply_control_action(action, g, ready, done, results, name_map)
                 if action.get("action") == "spawn":
                     spawn_meta = action.get("metadata", {}).get("spawn_nodes", [])
-                    ctrl_node = control_batch[ca_idx] if ca_idx < len(control_batch) else None
-                    await self.bus.emit("graph.spawn", br, ctrl_node, {
-                        "spawned_count": len(spawn_meta),
-                        "total_dynamic": self._total_spawned,
-                        "names": [s.get("name") for s in spawn_meta],
-                    })
+                    ctrl_node = (
+                        control_batch[ca_idx] if ca_idx < len(control_batch) else None
+                    )
+                    await self.bus.emit(
+                        "graph.spawn",
+                        br,
+                        ctrl_node,
+                        {
+                            "spawned_count": len(spawn_meta),
+                            "total_dynamic": self._total_spawned,
+                            "names": [s.get("name") for s in spawn_meta],
+                        },
+                    )
 
     async def _run_parallel_nodes(
         self,
@@ -332,11 +343,7 @@ class Runner:
         if action == "abort":
             action = "halt"
         if action == "spawn":
-            spawn_nodes = (
-                result.get("nodes")
-                or result.get("spawn_nodes")
-                or []
-            )
+            spawn_nodes = result.get("nodes") or result.get("spawn_nodes") or []
             return {
                 "action": "spawn",
                 "targets": [],
@@ -366,7 +373,8 @@ class Runner:
         return {
             "action": action,
             "targets": [
-                nid for target in targets
+                nid
+                for target in targets
                 if (nid := self._resolve_node_id(target, g)) is not None
             ],
             "reason": str(result.get("reason", "")),
@@ -414,12 +422,15 @@ class Runner:
                     ready.add(node_id)
 
         if action_name == "spawn":
-            new_nodes = action.get("metadata", {}).get("spawn_nodes") or action.get("targets", [])
+            new_nodes = action.get("metadata", {}).get("spawn_nodes") or action.get(
+                "targets", []
+            )
             if not new_nodes:
                 return
 
             if self._total_spawned + len(new_nodes) > self.max_dynamic_nodes:
                 from lionagi._errors import ExecutionError
+
                 raise ExecutionError(
                     f"Dynamic node limit ({self.max_dynamic_nodes}) exceeded: "
                     f"tried to spawn {len(new_nodes)}, already spawned {self._total_spawned}",
@@ -477,7 +488,9 @@ class Runner:
         effective_reqs_map: dict[UUID, set[str] | None] | None = None,
         node_writes: dict[UUID, dict[str, Any]] | None = None,
     ) -> None:
-        kwargs: dict[str, Any] = dict(ctx_snapshot if ctx_snapshot is not None else br.ctx)
+        kwargs: dict[str, Any] = dict(
+            ctx_snapshot if ctx_snapshot is not None else br.ctx
+        )
         kwargs.update(node.params)
 
         # Dynamic rights: failure is DENIAL, not fallback to static rights
@@ -499,7 +512,9 @@ class Runner:
 
         extra = frozenset(accumulated_provides) if accumulated_provides else None
 
-        if not policy_check(br, node.m, override_reqs=override_reqs, extra_rights=extra):
+        if not policy_check(
+            br, node.m, override_reqs=override_reqs, extra_rights=extra
+        ):
             raise AccessError(
                 f"Policy denied for morphism '{node.m.name}' in principal '{br.name}'",
                 retryable=False,
@@ -516,7 +531,9 @@ class Runner:
         # and node_writes are applied in topological order by the caller.
         original_ctx = br.ctx
         if node_writes is not None:
-            br.ctx = dict(ctx_snapshot) if ctx_snapshot is not None else dict(original_ctx)
+            br.ctx = (
+                dict(ctx_snapshot) if ctx_snapshot is not None else dict(original_ctx)
+            )
 
         try:
             await self.ipu.before_node(br, node)
@@ -524,9 +541,7 @@ class Runner:
 
             ok_pre = await node.m.pre(br, **kwargs)
             if not ok_pre:
-                raise AssertionError(
-                    f"Morphism '{node.m.name}' pre() returned False"
-                )
+                raise AssertionError(f"Morphism '{node.m.name}' pre() returned False")
 
             if timeout:
                 with fail_after(timeout):
@@ -541,9 +556,7 @@ class Runner:
 
             ok_post = await node.m.post(br, res)
             if not ok_post:
-                raise AssertionError(
-                    f"Morphism '{node.m.name}' post() returned False"
-                )
+                raise AssertionError(f"Morphism '{node.m.name}' post() returned False")
         except BaseException as exc:
             error = exc
             raise
@@ -556,15 +569,19 @@ class Runner:
                 if error is None:
                     raise
                 import logging
+
                 logging.getLogger(__name__).warning(
                     "IPU after_node raised during error cleanup for '%s'",
-                    node.m.name, exc_info=True,
+                    node.m.name,
+                    exc_info=True,
                 )
             if error is None:
                 await self.bus.emit("node.finish", br, node, res)
             else:
                 await self.bus.emit(
-                    "node.error", br, node,
+                    "node.error",
+                    br,
+                    node,
                     {"error": str(error), "type": type(error).__name__},
                 )
 

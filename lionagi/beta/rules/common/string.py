@@ -103,14 +103,18 @@ class StringRule(Rule):
             ValueError: If not a string or constraints violated
         """
         if not isinstance(v, str):
-            raise ValueError(f"Invalid string value: expected str, got {type(v).__name__}")
+            raise ValueError(
+                f"Invalid string value: expected str, got {type(v).__name__}"
+            )
 
         if self.min_length is not None and len(v) < self.min_length:
             raise ValueError(
                 f"String too short: got {len(v)} characters, minimum {self.min_length}"
             )
         if self.max_length is not None and len(v) > self.max_length:
-            raise ValueError(f"String too long: got {len(v)} characters, maximum {self.max_length}")
+            raise ValueError(
+                f"String too long: got {len(v)} characters, maximum {self.max_length}"
+            )
 
         if self._compiled_pattern is not None:
             if len(v) > self.regex_max_input_length:
@@ -119,7 +123,9 @@ class StringRule(Rule):
                     f"maximum {self.regex_max_input_length}"
                 )
             if not self._compiled_pattern.match(v):
-                raise ValueError(f"String does not match required pattern: {self.pattern}")
+                raise ValueError(
+                    f"String does not match required pattern: {self.pattern}"
+                )
 
     async def perform_fix(self, v: Any, t: type) -> Any:
         """Attempt to convert value to string and re-validate.

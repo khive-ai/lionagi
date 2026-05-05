@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, PrivateAttr
 
-from lionagi.protocols.generic.event import Event
 from lionagi.beta.resource.node import Node
 from lionagi.beta.session.context import RequestContext
+from lionagi.protocols.generic.event import Event
 
 if TYPE_CHECKING:
     from lionagi.beta.session.session import Branch, Session
@@ -27,13 +27,15 @@ class Operation(Node, Event):
         default_factory=dict,
         description="Operation parameters (Params dataclass, dict, or model)",
     )
-    control_type: Literal["halt", "abort", "retry", "skip", "route"] | str | None = Field(
-        default=None,
-        description=(
-            "Runner control semantic: halt/abort, retry, skip, or route. Custom "
-            "types execute as control checkpoints but do not mutate the graph "
-            "unless their morphism returns a supported action."
-        ),
+    control_type: Literal["halt", "abort", "retry", "skip", "route"] | str | None = (
+        Field(
+            default=None,
+            description=(
+                "Runner control semantic: halt/abort, retry, skip, or route. Custom "
+                "types execute as control checkpoints but do not mutate the graph "
+                "unless their morphism returns a supported action."
+            ),
+        )
     )
     control_policy: dict[str, Any] | None = Field(
         default=None,
@@ -100,6 +102,4 @@ class Operation(Node, Event):
 
     def __repr__(self) -> str:
         bound = "bound" if self._session is not None else "unbound"
-        return (
-            f"Operation(type={self.operation_type}, status={self.execution.status.value}, {bound})"
-        )
+        return f"Operation(type={self.operation_type}, status={self.execution.status.value}, {bound})"

@@ -132,7 +132,9 @@ class Service(Element):
     catalog: ClassVar[type | None] = None
     hooks: ClassVar[dict[str, Callable]] = {}
     name: str
-    _registry: dict[str, tuple[Callable, ResourceMeta]] = PrivateAttr(default_factory=dict)
+    _registry: dict[str, tuple[Callable, ResourceMeta]] = PrivateAttr(
+        default_factory=dict
+    )
 
     @property
     def resources(self) -> frozenset[str]:
@@ -217,7 +219,11 @@ class Service(Element):
 
         if meta.inputs:
             try:
-                data = options if isinstance(options, dict) else meta.op.dump_instance(options)
+                data = (
+                    options
+                    if isinstance(options, dict)
+                    else meta.op.dump_instance(options)
+                )
                 options = meta.op.validate_instance(meta.options_type, data)
             except Exception as e:
                 return Normalized(
@@ -295,7 +301,11 @@ class _ServiceBackend(ResourceBackend):
     def create_payload(self, request: dict | None = None, **kwargs: Any) -> dict:
         payload = dict(request) if request else {}
         payload.update(kwargs)
-        if "arguments" in payload and len(payload) == 1 and isinstance(payload["arguments"], dict):
+        if (
+            "arguments" in payload
+            and len(payload) == 1
+            and isinstance(payload["arguments"], dict)
+        ):
             return payload["arguments"]
         return payload
 
@@ -309,10 +319,13 @@ class _ServiceBackend(ResourceBackend):
 SERVICE_REGISTRY: Pile[Service] = Pile(item_type=Service)
 SERVICE_NAME_MAP: dict[str, UUID] = {}
 
+
 async def add_service(service: Service, update: bool = False) -> UUID:
     if service.name in SERVICE_NAME_MAP:
         if not update:
-            raise ExistsError(f"Service with name '{service.name}' already exists in registry.")
+            raise ExistsError(
+                f"Service with name '{service.name}' already exists in registry."
+            )
         await remove_service(service.name)
 
     async with SERVICE_REGISTRY:
@@ -326,6 +339,7 @@ def has_service(service: UUID | str) -> bool:
         return True
     return isinstance(service, str) and service in SERVICE_NAME_MAP
 
+
 async def get_service(service: UUID | str) -> Service:
     async with SERVICE_REGISTRY:
         if service in SERVICE_REGISTRY:
@@ -334,6 +348,7 @@ async def get_service(service: UUID | str) -> Service:
             service_id = SERVICE_NAME_MAP[service]
             return SERVICE_REGISTRY[service_id]
     raise NotFoundError(f"Service with id or name '{service}' not found in registry.")
+
 
 async def remove_service(service: UUID | str) -> None:
     async with SERVICE_REGISTRY:
@@ -347,7 +362,10 @@ async def remove_service(service: UUID | str) -> None:
             return
     raise NotFoundError(f"Service with id or name '{service}' not found in registry.")
 
-async def list_services(by: Literal["name", "instance"] = "instance") -> list[str | Service]:
+
+async def list_services(
+    by: Literal["name", "instance"] = "instance"
+) -> list[str | Service]:
     async with SERVICE_REGISTRY:
         if by == "name":
             return list(SERVICE_NAME_MAP.keys())
@@ -355,10 +373,13 @@ async def list_services(by: Literal["name", "instance"] = "instance") -> list[st
     return []
 
 
-def list_services_sync(by: Literal["name", "instance"] = "instance") -> list[str | Service]:
+def list_services_sync(
+    by: Literal["name", "instance"] = "instance"
+) -> list[str | Service]:
     if by == "name":
         return list(SERVICE_NAME_MAP.keys())
     return list(SERVICE_REGISTRY)
+
 
 async def clear_services():
     async with SERVICE_REGISTRY:

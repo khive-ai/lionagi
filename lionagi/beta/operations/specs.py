@@ -17,9 +17,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
 
-from lionagi.ln.types import HashableModel
 from lionagi.ln._to_list import to_list
 from lionagi.ln.fuzzy import extract_json, to_dict
+from lionagi.ln.types import HashableModel
 
 __all__ = (
     "Action",
@@ -44,7 +44,9 @@ class Action(HashableModel):
     )
     arguments: dict[str, Any] = Field(
         default_factory=dict,
-        description=("Argument dict for the function. Use only names/types from tool_schemas."),
+        description=(
+            "Argument dict for the function. Use only names/types from tool_schemas."
+        ),
     )
 
     @field_validator("arguments", mode="before")
@@ -211,11 +213,15 @@ def _normalize_action_keys(d: dict) -> dict | None:
 
     for k, v in d.items():
         # Strip common prefixes: action_name → name, recipient_name → name
-        normalized = k.replace("action_", "").replace("recipient_", "").removesuffix("s")
+        normalized = (
+            k.replace("action_", "").replace("recipient_", "").removesuffix("s")
+        )
         if normalized in ("name", "function", "recipient"):
             result["function"] = v
         elif normalized in ("parameter", "argument", "arg", "param"):
-            result["arguments"] = to_dict(v, str_type="json", fuzzy_parse=True, suppress=True)
+            result["arguments"] = to_dict(
+                v, str_type="json", fuzzy_parse=True, suppress=True
+            )
 
     if "function" in result:
         result.setdefault("arguments", {})

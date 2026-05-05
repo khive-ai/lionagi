@@ -10,8 +10,8 @@ from uuid import UUID
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from lionagi._errors import ExistsError, NotFoundError
-from lionagi.beta.resource.pile import Pile
 from lionagi.beta.protocols import Serializable, implements
+from lionagi.beta.resource.pile import Pile
 from lionagi.ln._utils import extract_types, synchronized
 from lionagi.ln.types._sentinel import Unset, UnsetType
 from lionagi.protocols.generic.element import Element
@@ -98,7 +98,9 @@ class Flow(Element, Generic[E, P]):
 
             # Create Pile with items and type validation (item_type/strict_type are frozen)
             # Even if items=None, create Pile if item_type/strict_type specified
-            data["items"] = Pile(items=items, item_type=item_type, strict_type=strict_type)
+            data["items"] = Pile(
+                items=items, item_type=item_type, strict_type=strict_type
+            )
 
         # Handle progressions - let field validator convert dict/list to Pile
         if progressions is not None:
@@ -216,7 +218,10 @@ class Flow(Element, Generic[E, P]):
             NotFoundError: If progression not found.
         """
         name_to_delete: str | None
-        if isinstance(progression_id, str) and progression_id in self._progression_names:
+        if (
+            isinstance(progression_id, str)
+            and progression_id in self._progression_names
+        ):
             uid = self._progression_names[progression_id]
             name_to_delete = progression_id
         else:
@@ -329,7 +334,9 @@ class Flow(Element, Generic[E, P]):
     def to_dict(
         self,
         mode: Literal["python", "json", "db"] = "python",
-        created_at_format: (Literal["datetime", "isoformat", "timestamp"] | UnsetType) = Unset,
+        created_at_format: (
+            Literal["datetime", "isoformat", "timestamp"] | UnsetType
+        ) = Unset,
         meta_key: str | UnsetType = Unset,
         **kwargs: Any,
     ) -> dict[str, Any]:

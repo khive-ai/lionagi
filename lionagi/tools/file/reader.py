@@ -134,9 +134,7 @@ def _read_image_sync(p: Path) -> ReaderResponse:
     except OSError as e:
         return ReaderResponse(success=False, error=f"Cannot read image: {e}")
     encoded = base64.b64encode(raw).decode("ascii")
-    return ReaderResponse(
-        success=True, content=f"data:{media_type};base64,{encoded}"
-    )
+    return ReaderResponse(success=True, content=f"data:{media_type};base64,{encoded}")
 
 
 def _read_sync(

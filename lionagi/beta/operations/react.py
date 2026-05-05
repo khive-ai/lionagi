@@ -23,16 +23,16 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from pydantic import Field, field_validator
 
 from lionagi.beta.rules import Validator
-from lionagi.ln.types._sentinel import MaybeUnset, Unset
 from lionagi.ln.types import HashableModel, ModelConfig, Params
+from lionagi.ln.types._sentinel import MaybeUnset, Unset
 
 from .generate import GenerateParams
 from .operate import OperateParams
 
 if TYPE_CHECKING:
     from lionagi.beta.resource.imodel import iModel
-    from lionagi.ln.types import Operable
     from lionagi.beta.session.context import RequestContext
+    from lionagi.ln.types import Operable
 
 __all__ = (
     "Analysis",
@@ -152,12 +152,16 @@ async def react(params: ReActParams, ctx: RequestContext) -> Any:
     return result
 
 
-async def react_stream(params: ReActParams, ctx: RequestContext) -> AsyncGenerator[Any, None]:
+async def react_stream(
+    params: ReActParams, ctx: RequestContext
+) -> AsyncGenerator[Any, None]:
     """Yields ReActAnalysis per intermediate round and the final request_model instance."""
     max_rounds = min(params.max_rounds, 100)
 
     instruction_with_prompt = (
-        params.instruction + "\n\n" + ReActAnalysis.FIRST_ROUND_PROMPT.format(max_rounds=max_rounds)
+        params.instruction
+        + "\n\n"
+        + ReActAnalysis.FIRST_ROUND_PROMPT.format(max_rounds=max_rounds)
     )
 
     analysis = await _safe_round(params, ctx, instruction_with_prompt, ReActAnalysis)
@@ -172,7 +176,9 @@ async def react_stream(params: ReActParams, ctx: RequestContext) -> AsyncGenerat
 
     answer_model = params.request_model or Analysis
     answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction=params.instruction)
-    final = await _run_round(params, ctx, answer_prompt, answer_model, invoke_actions=False)
+    final = await _run_round(
+        params, ctx, answer_prompt, answer_model, invoke_actions=False
+    )
     yield final
 
 
@@ -215,7 +221,9 @@ async def _run_round(
     from lionagi.ln.types import Operable
 
     round_operable = Operable.from_structure(request_model)
-    gen_params = params.generate_params.with_updates(copy_containers="deep", primary=instruction)
+    gen_params = params.generate_params.with_updates(
+        copy_containers="deep", primary=instruction
+    )
     should_act = invoke_actions if invoke_actions is not None else params.invoke_actions
 
     operate_params = OperateParams(

@@ -25,18 +25,21 @@ import types
 from dataclasses import dataclass
 from datetime import date, datetime
 from functools import reduce
-from typing import TYPE_CHECKING, Annotated, Any, ForwardRef, Union, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ForwardRef,
+    Union,
+    get_args,
+    get_origin,
+)
 from uuid import UUID
 
+from lionagi.libs.db.types import FK, FKMeta, Vector, VectorMeta
+from lionagi.libs.db.types import extract_db_meta as extract_kron_db_meta
 from lionagi.ln.types._compat import StrEnum
 from lionagi.ln.types._sentinel import Unset, UnsetType, is_sentinel
-from lionagi.libs.db.types import (
-    FK,
-    FKMeta,
-    Vector,
-    VectorMeta,
-    extract_db_meta as extract_kron_db_meta,
-)
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -108,6 +111,7 @@ def resolve_annotation_to_base_types(annotation: Any) -> dict[str, Any]:
         "nullable": _null,
         "listable": _list,
     }
+
 
 __all__ = (
     "FK",

@@ -21,7 +21,12 @@ from .common import (
     NumberRule,
     StringRule,
 )
-from .registry import RuleBook, RuleRegistry, get_default_registry, reset_default_registry
+from .registry import (
+    RuleBook,
+    RuleRegistry,
+    get_default_registry,
+    reset_default_registry,
+)
 from .rule import Rule, RuleParams, RuleQualifier
 from .validator import Validator
 

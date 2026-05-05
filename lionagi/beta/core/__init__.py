@@ -51,11 +51,8 @@ Execution naming:
 
 from __future__ import annotations
 
-# --- Core substrate ---
-from lionagi.beta.core.types import Principal, Capability, Observation, now_utc
-from lionagi.beta.core.morphism import Morphism, MorphismAdapter, MorphismLike
+from lionagi.beta.core.binders import BoundOp
 from lionagi.beta.core.graph import OpGraph, OpNode
-from lionagi.beta.core.policy import policy_check
 from lionagi.beta.core.ipu import (
     IPU,
     Invariant,
@@ -66,11 +63,15 @@ from lionagi.beta.core.ipu import (
     StrictIPU,
     default_invariants,
 )
-from lionagi.protocols.generic.eventbus import EventBus, Handler
-from lionagi.beta.core.wrappers import BaseOp
-from lionagi.beta.core.binders import BoundOp
+from lionagi.beta.core.morphism import Morphism, MorphismAdapter, MorphismLike
+from lionagi.beta.core.policy import policy_check
 from lionagi.beta.core.runner import Runner
+
+# --- Core substrate ---
+from lionagi.beta.core.types import Capability, Observation, Principal, now_utc
+from lionagi.beta.core.wrappers import BaseOp
 from lionagi.beta.resource.service import Normalized, ResourceMeta, Service, resource
+from lionagi.protocols.generic.eventbus import EventBus, Handler
 
 # --- Base primitives (lazy) ---
 # These are accessed via __getattr__ to keep core import startup minimal.
@@ -99,6 +100,7 @@ def __getattr__(name: str) -> object:
         return _LOADED[name]
     if name in _LAZY:
         from importlib import import_module
+
         module_path, attr = _LAZY[name]
         mod = import_module(module_path)
         val = getattr(mod, attr)

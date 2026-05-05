@@ -11,7 +11,7 @@ from typing import Any, Protocol
 
 from .graph import OpNode
 from .policy import policy_check
-from .types import Principal, Observation
+from .types import Observation, Principal
 
 try:
     import msgspec as _msgspec
@@ -50,8 +50,12 @@ class IPU(Protocol):
 
     async def before_node(self, br: Principal, node: OpNode) -> None: ...
     async def after_node(
-        self, br: Principal, node: OpNode, result: dict[str, Any],
-        *, error: BaseException | None = None,
+        self,
+        br: Principal,
+        node: OpNode,
+        result: dict[str, Any],
+        *,
+        error: BaseException | None = None,
     ) -> None: ...
     async def on_observation(self, obs: Observation) -> None: ...
 
@@ -154,8 +158,12 @@ class LenientIPU:
                 logger.warning("[IPU][%s] pre-violation at node %s", inv.name, node.id)
 
     async def after_node(
-        self, br: Principal, node: OpNode, result: dict[str, Any],
-        *, error: BaseException | None = None,
+        self,
+        br: Principal,
+        node: OpNode,
+        result: dict[str, Any],
+        *,
+        error: BaseException | None = None,
     ) -> None:
         for inv in self.invariants:
             if error is not None and _is_result_dependent(inv):
@@ -181,8 +189,12 @@ class StrictIPU(LenientIPU):
                 )
 
     async def after_node(
-        self, br: Principal, node: OpNode, result: dict[str, Any],
-        *, error: BaseException | None = None,
+        self,
+        br: Principal,
+        node: OpNode,
+        result: dict[str, Any],
+        *,
+        error: BaseException | None = None,
     ) -> None:
         for inv in self.invariants:
             if error is not None and _is_result_dependent(inv):

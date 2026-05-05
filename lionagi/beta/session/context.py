@@ -56,7 +56,9 @@ class RequestContext(DataClass):
         try:
             return metadata[name]
         except KeyError:
-            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'") from None
+            raise AttributeError(
+                f"'{type(self).__name__}' has no attribute '{name}'"
+            ) from None
 
     async def get_session(self) -> Session | None:
         if "_bound_session" in self.metadata:

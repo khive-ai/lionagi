@@ -105,7 +105,9 @@ class TokenBucket:
 
                 if self.tokens >= tokens:
                     self.tokens -= tokens
-                    logger.debug(f"Acquired {tokens} tokens, {self.tokens:.2f} remaining")
+                    logger.debug(
+                        f"Acquired {tokens} tokens, {self.tokens:.2f} remaining"
+                    )
                     return True
 
                 deficit = tokens - self.tokens

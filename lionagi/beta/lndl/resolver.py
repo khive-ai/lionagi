@@ -6,9 +6,10 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from lionagi.ln.types._compat import ExceptionGroup
-from lionagi.ln.types import Operable
 from lionagi.libs.parse import parse_function_call
+from lionagi.ln.types import Operable
+from lionagi.ln.types._compat import ExceptionGroup
+
 from .errors import MissingFieldError, MissingOutBlockError, TypeMismatchError
 from .parser import parse_value
 from .types import ActionCall, LactMetadata, LNDLOutput, LvarMetadata, RLvarMetadata

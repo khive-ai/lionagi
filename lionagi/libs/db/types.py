@@ -329,7 +329,9 @@ def extract_db_meta(
                 fk = fk_val
         if metas in ("Vector", "BOTH"):
             vec_val = from_.get("embedding", Unset)
-            if not_sentinel(vec_val, additions={"none"}) and isinstance(vec_val, VectorMeta):
+            if not_sentinel(vec_val, additions={"none"}) and isinstance(
+                vec_val, VectorMeta
+            ):
                 vec = vec_val
     else:
         raise TypeError(

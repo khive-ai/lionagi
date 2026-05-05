@@ -125,7 +125,9 @@ class Pile(Element, Generic[T]):
 
     @property
     def progression(self) -> Progression:
-        return Progression(order=list(self._progression.order), name=self._progression.name)
+        return Progression(
+            order=list(self._progression.order), name=self._progression.name
+        )
 
     item_type: set[type] | None = Field(
         default=None,
@@ -156,7 +158,9 @@ class Pile(Element, Generic[T]):
         strict_type: bool = False,
         **kwargs,
     ):
-        super().__init__(**{"item_type": item_type, "strict_type": strict_type, **kwargs})
+        super().__init__(
+            **{"item_type": item_type, "strict_type": strict_type, **kwargs}
+        )
 
         if items:
             for item in items:
@@ -179,10 +183,14 @@ class Pile(Element, Generic[T]):
     def to_dict(
         self,
         mode: Literal["python", "json", "db"] = "python",
-        created_at_format: (Literal["datetime", "isoformat", "timestamp"] | UnsetType) = Unset,
+        created_at_format: (
+            Literal["datetime", "isoformat", "timestamp"] | UnsetType
+        ) = Unset,
         meta_key: str | UnsetType = Unset,
         item_meta_key: str | UnsetType = Unset,
-        item_created_at_format: (Literal["datetime", "isoformat", "timestamp"] | UnsetType) = Unset,
+        item_created_at_format: (
+            Literal["datetime", "isoformat", "timestamp"] | UnsetType
+        ) = Unset,
         **kwargs: Any,
     ) -> dict[str, Any]:
         data = super().to_dict(
@@ -370,7 +378,9 @@ class Pile(Element, Generic[T]):
                 raise TypeError("Cannot mix int and UUID in list/tuple indexing")
             items = [self.get(uid) for uid in keys]
         else:
-            raise TypeError(f"list/tuple must contain only int or UUID, got {type(first)}")
+            raise TypeError(
+                f"list/tuple must contain only int or UUID, got {type(first)}"
+            )
 
         return Pile(
             items=items,
@@ -480,7 +490,9 @@ class Pile(Element, Generic[T]):
                 and item_type_data
                 and isinstance(item_type_data[0], str)
             ):
-                allowed_types = {load_type_from_string(type_str) for type_str in item_type_data}
+                allowed_types = {
+                    load_type_from_string(type_str) for type_str in item_type_data
+                }
             else:
                 allowed_types = extract_types(item_type_data)
 
@@ -492,7 +504,9 @@ class Pile(Element, Generic[T]):
                         item_type_actual = load_type_from_string(kron_class)
                     except ValueError:
                         continue
-                    kron_class_must_be_allowed(strict_type, item_type_actual, allowed_types)
+                    kron_class_must_be_allowed(
+                        strict_type, item_type_actual, allowed_types
+                    )
 
         pile_data = data.copy()
         pile_data.pop("items", None)

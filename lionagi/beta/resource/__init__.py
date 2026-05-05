@@ -67,19 +67,15 @@ def __dir__() -> list[str]:
 
 # TYPE_CHECKING block for static analysis
 if TYPE_CHECKING:
-    from .backend import (
-        Calling,
-        Normalized,
-        ResourceBackend,
-        ResourceConfig,
-    )
     from lionagi.service.hooks import HookEvent, HookEventTypes, HookRegistry
+
+    from .backend import Calling, Normalized, ResourceBackend, ResourceConfig
     from .imodel import iModel
     from .registry import ResourceRegistry
     from .service import (
+        ResourceMeta,
         Service,
         ServiceCalling,
-        ResourceMeta,
         add_service,
         clear_services,
         get_service,

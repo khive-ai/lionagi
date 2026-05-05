@@ -7,6 +7,7 @@ from lionagi.beta.resource.pile import Pile
 
 from .session import Session
 
+
 class _IDMeta(type):
     def __getitem__(cls, item: type) -> type:
         return Annotated[UUID, ("ID", item)]
@@ -14,7 +15,9 @@ class _IDMeta(type):
 
 class ID(UUID, metaclass=_IDMeta):
     """UUID with generic model association; ID[T] is Annotated[UUID, ("ID", T)] at runtime."""
+
     pass
+
 
 SESSION_REGISTRY: Pile[Session] = Pile(item_type=Session, strict_type=True)
 

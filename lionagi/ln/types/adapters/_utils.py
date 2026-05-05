@@ -45,7 +45,9 @@ class AuditSpecs:
         return [
             Spec(id_type, name="id", default_factory=id_factory, frozen=True),
             Spec(dt.datetime, name="created_at", default_factory=now_utc, frozen=True),
-            Spec(dt.datetime, name="updated_at", default_factory=now_utc, nullable=True),
+            Spec(
+                dt.datetime, name="updated_at", default_factory=now_utc, nullable=True
+            ),
             Spec(str, name="updated_by", nullable=True),
             Spec(bool, name="is_active", default=True),
             Spec(bool, name="is_deleted", default=False),

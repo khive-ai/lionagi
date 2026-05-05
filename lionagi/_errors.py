@@ -50,7 +50,9 @@ class LionError(Exception):
         self.message = message or self.default_message
         self.details = details or {}
         self.status_code = status_code or type(self).default_status_code
-        self.retryable = retryable if retryable is not None else type(self).default_retryable
+        self.retryable = (
+            retryable if retryable is not None else type(self).default_retryable
+        )
 
     def to_dict(self, *, include_cause: bool = False) -> dict[str, Any]:
         data = {
