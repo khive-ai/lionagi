@@ -30,7 +30,7 @@ from .parse import ParseParams
 from .utils import ReturnAs
 
 if TYPE_CHECKING:
-    from lionagi.beta.core.message.common import CustomParser
+    from lionagi.protocols.messages.rendering import CustomParser
     from lionagi.beta.resource.imodel import iModel
     from lionagi.ln.types import Operable
     from lionagi.beta.session.context import RequestContext

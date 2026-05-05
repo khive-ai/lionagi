@@ -15,14 +15,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, JsonValue
 
-from lionagi.beta.core.message import Instruction, prepare_messages_for_chat
+from lionagi.protocols.messages.instruction import InstructionContent as Instruction
+from lionagi.protocols.messages.prepare import prepare_messages_for_chat
 from lionagi._errors import ConfigurationError
 from lionagi.beta.session.constraints import resource_must_be_accessible
 from lionagi.ln.types import ModelConfig, Params
 from lionagi.ln.types._sentinel import MaybeUnset, Unset
 from lionagi.protocols.messages import Message
 
-from ..core.message.common import CustomRenderer
+from lionagi.protocols.messages.rendering import CustomRenderer
 from .utils import ReturnAs, handle_return
 
 if TYPE_CHECKING:

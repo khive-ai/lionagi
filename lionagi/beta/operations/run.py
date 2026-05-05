@@ -15,13 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from lionagi.beta.core.message import (
-    ActionRequest,
-    ActionResponse,
-    Assistant,
-    Instruction,
-    prepare_messages_for_chat,
-)
+from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
+from lionagi.protocols.messages.action_response import ActionResponseContent as ActionResponse
+from lionagi.protocols.messages.assistant_response import AssistantResponseContent as Assistant
+from lionagi.protocols.messages.instruction import InstructionContent as Instruction
+from lionagi.protocols.messages.prepare import prepare_messages_for_chat
 from lionagi._errors import ConfigurationError
 from lionagi.beta.session.constraints import resource_must_be_accessible
 from lionagi.ln.types import ModelConfig, Params

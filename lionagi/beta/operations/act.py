@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Literal
 
-from lionagi.beta.core.message import ActionRequest, ActionResponse
+from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
+from lionagi.protocols.messages.action_response import ActionResponseContent as ActionResponse
 from lionagi.beta.session.constraints import scope_must_be_accessible
 from lionagi.ln import alcall
 from lionagi.ln.types import Params

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from lionagi.beta.core.message.common import CustomParser, CustomRenderer, StructureFormat
+from lionagi.protocols.messages.rendering import CustomParser, CustomRenderer, StructureFormat
 from lionagi._errors import ConfigurationError, ExecutionError, LionError, ValidationError
 from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
 from lionagi.ln.types import ModelConfig, Params

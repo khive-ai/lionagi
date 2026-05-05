@@ -39,7 +39,7 @@ from .specs import Action, ActionResult, get_action_result_spec, get_action_spec
 from .structure import StructureParams
 
 if TYPE_CHECKING:
-    from lionagi.beta.core.message.common import CustomParser
+    from lionagi.protocols.messages.rendering import CustomParser
     from lionagi.beta.resource.imodel import iModel
     from lionagi.beta.session.context import RequestContext
     from lionagi.ln.types import Operable
@@ -461,7 +461,7 @@ async def _execute_lacts_to_results(
     parse_function_call splits "code.count_lines(...)" into tool="count_lines".
     act() handles ToolKit name coercion via the toolkits parameter.
     """
-    from lionagi.beta.core.message import ActionRequest
+    from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
     from lionagi.beta.lndl.types import LactMetadata
     from lionagi.libs.parse import parse_function_call
 
@@ -614,7 +614,7 @@ def _get_last_assistant_text(session: Any, branch: Any) -> str | None:
 
 
 def _actions_to_messages(act_requests: list) -> list[Message]:
-    from lionagi.beta.core.message import ActionRequest
+    from lionagi.protocols.messages.action_request import ActionRequestContent as ActionRequest
 
     messages: list[Message] = []
     for req in act_requests:
@@ -634,7 +634,7 @@ def _responses_to_results(
     action_responses: list,
     action_messages: list[Message],
 ) -> list[ActionResult]:
-    from lionagi.beta.core.message import ActionResponse
+    from lionagi.protocols.messages.action_response import ActionResponseContent as ActionResponse
 
     id_to_func: dict[str, str] = {}
     for msg in action_messages:

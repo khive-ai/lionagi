@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from lionagi.beta.core.message import Instruction
+from lionagi.protocols.messages.instruction import InstructionContent as Instruction
 from lionagi.ln.types._sentinel import MaybeUnset, Unset, is_sentinel
 from lionagi.ln.fuzzy import HandleUnmatched, fuzzy_validate_mapping
 
-from ..core.message.common import CustomParser, CustomRenderer
+from lionagi.protocols.messages.rendering import CustomParser, CustomRenderer
 from .utils import ReturnAs
 
 if TYPE_CHECKING:

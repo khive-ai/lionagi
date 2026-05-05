@@ -73,7 +73,7 @@ def handle_return(
         case ReturnAs.RESPONSE:
             return response
         case ReturnAs.MESSAGE:
-            from lionagi.beta.core.message.assistant import parse_to_assistant_message
+            from lionagi.protocols.messages.assistant_response import parse_to_assistant_message
 
             return parse_to_assistant_message(response)
         case _:

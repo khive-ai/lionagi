@@ -15,7 +15,8 @@ Architecture layers (bottom to top):
     Morphism       Atomic async executable (msgspec.Struct base class)
     OpNode         Morphism + dependencies + params (dataclass)
     OpGraph        DAG of OpNodes (dataclass, topological sort)
-    morph/         Morphism combinators: bind, patch, retry, timeout, subgraph
+    binders        Morphism parameter binding (BoundOp)
+    wrappers       Morphism combinators: retry, timeout, subgraph, ctx_set
 
   Enforcement
     policy_check   Capability gate: principal.rights ⊇ morphism.requires?
@@ -28,13 +29,13 @@ Architecture layers (bottom to top):
   Execution Engine
     Runner         One-shot DAG executor (OpGraph + Principal → results)
 
-  Base Primitives (from core/base/)
-    Pile           UUID-keyed O(1) collection (Pydantic)
-    Progression    Ordered UUID sequence (Pydantic)
-    Flow           Pile + Progressions (Pydantic)
-    Node           Graph node (Pydantic)
-    Graph          Directed graph (Pydantic)
-    Event          Async invocable with lifecycle tracking (Pydantic)
+  Base Primitives (from beta.resource/ and protocols/generic/)
+    Pile           UUID-keyed O(1) collection (beta.resource.pile)
+    Progression    Ordered UUID sequence (protocols.generic.progression)
+    Flow           Pile + Progressions (beta.resource.flow)
+    Node           Graph node (beta.resource.node)
+    Graph          Directed graph (beta.resource.graph)
+    Event          Async invocable with lifecycle tracking (protocols.generic.event)
     EventStatus    Execution state enum
 
   Service Base
@@ -66,7 +67,8 @@ from lionagi.beta.core.ipu import (
     default_invariants,
 )
 from lionagi.protocols.generic.eventbus import EventBus, Handler
-from lionagi.beta.core.morph import BaseOp
+from lionagi.beta.core.wrappers import BaseOp
+from lionagi.beta.core.binders import BoundOp
 from lionagi.beta.core.runner import Runner
 from lionagi.beta.resource.service import Normalized, ResourceMeta, Service, resource
 
@@ -78,15 +80,15 @@ _LAZY: dict[str, tuple[str, str]] = {
     "Event": ("lionagi.protocols.generic.event", "Event"),
     "EventStatus": ("lionagi.protocols.generic.event", "EventStatus"),
     "Execution": ("lionagi.protocols.generic.event", "Execution"),
-    "Pile": ("lionagi.beta.core.base.pile", "Pile"),
-    "Progression": ("lionagi.beta.core.base.progression", "Progression"),
-    "Node": ("lionagi.beta.core.base.node", "Node"),
-    "Edge": ("lionagi.beta.core.base.graph", "Edge"),
-    "EdgeCondition": ("lionagi.beta.core.base.graph", "EdgeCondition"),
-    "Graph": ("lionagi.beta.core.base.graph", "Graph"),
+    "Pile": ("lionagi.beta.resource.pile", "Pile"),
+    "Progression": ("lionagi.protocols.generic.progression", "Progression"),
+    "Node": ("lionagi.beta.resource.node", "Node"),
+    "Edge": ("lionagi.beta.resource.graph", "Edge"),
+    "EdgeCondition": ("lionagi.beta.resource.graph", "EdgeCondition"),
+    "Graph": ("lionagi.beta.resource.graph", "Graph"),
     # Execution model aliases.
-    "EventQueue": ("lionagi.beta.core.base.processor", "Processor"),
-    "EventTracker": ("lionagi.beta.core.base.processor", "Executor"),
+    "EventQueue": ("lionagi.beta.resource.processor", "Processor"),
+    "EventTracker": ("lionagi.beta.resource.processor", "Executor"),
 }
 
 _LOADED: dict[str, object] = {}
@@ -128,6 +130,7 @@ __all__ = [
     "EventBus",
     "Handler",
     "BaseOp",
+    "BoundOp",
     "Runner",
     "Normalized",
     "ResourceMeta",

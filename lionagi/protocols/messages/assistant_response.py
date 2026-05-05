@@ -142,6 +142,23 @@ class AssistantResponseContent(MessageContent):
         return cls(assistant_response=assistant_response)
 
 
+def parse_to_assistant_message(response: Any) -> "Message":
+    """Construct a session Message from a Normalized backend response.
+
+    Returns a Message (session layer) — imported lazily to avoid circular
+    imports while session/message is being migrated.
+    """
+    metadata_dict: dict[str, Any] = {"raw_response": response.serialized}
+    if response.metadata is not None:
+        metadata_dict.update(response.metadata)
+
+    content = AssistantResponseContent.create(response_object=response)
+    return Message(
+        content=content,
+        metadata=metadata_dict,
+    )
+
+
 class AssistantResponse(Message):
     """Message representing an AI assistant's reply.
 
