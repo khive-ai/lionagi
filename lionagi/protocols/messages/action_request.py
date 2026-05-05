@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 
 from pydantic import field_validator
 
+from lionagi.ln.types._sentinel import is_sentinel
 from lionagi.utils import copy, to_dict
 
 from .message import Message, MessageContent, MessageRole
@@ -45,6 +46,27 @@ class ActionRequestContent(MessageContent):
             for k, v in self.arguments.items()
         ]
         return f"{func}({', '.join(parts)})"
+
+    @property
+    def role(self) -> MessageRole:
+        """Role for this content type (beta API compat)."""
+        return MessageRole.ACTION
+
+    @classmethod
+    def create(
+        cls,
+        function: str = "",
+        arguments: dict[str, Any] | None = None,
+    ) -> "ActionRequestContent":
+        """Create ActionRequestContent with beta-compatible signature."""
+        # Accept Unset sentinel for arguments (beta convention)
+        if arguments is None or is_sentinel(arguments):
+            arguments = {}
+        return cls(function=function, arguments=arguments)
+
+    def render(self, *_args: Any, **_kwargs: Any) -> str:
+        """Render action request.  Delegates to :attr:`rendered` for beta API compat."""
+        return self.rendered
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ActionRequestContent":

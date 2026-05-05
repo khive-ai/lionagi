@@ -15,6 +15,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_serializer, field_validator
 
+from lionagi._errors import NotAllowedError
+from lionagi.beta.protocols import Deserializable, Serializable, implements
+from lionagi.libs.db.types import VectorMeta, extract_db_meta
+from lionagi.ln._hash import compute_hash
+from lionagi.ln._json_dump import json_dumps
+from lionagi.ln._utils import now_utc
 from lionagi.ln.types import ModelConfig, Params
 from lionagi.ln.types._sentinel import (
     Unset,
@@ -23,13 +29,6 @@ from lionagi.ln.types._sentinel import (
     is_unset,
     not_sentinel,
 )
-from lionagi.libs.db.types import VectorMeta, extract_db_meta
-from lionagi._errors import NotAllowedError
-from lionagi.beta.protocols import Deserializable, Serializable, implements
-from lionagi.ln._hash import compute_hash
-from lionagi.ln._json_dump import json_dumps
-from lionagi.ln._utils import now_utc
-
 from lionagi.protocols.generic.element import Element
 
 # --- Registries ---
@@ -517,8 +516,8 @@ def create_node(
     **config_kwargs: Any,
 ) -> type[Node]:
     """Factory that creates a Node subclass with enforced NodeConfig validation at class creation time."""
-    from lionagi.ln.types.adapters._utils import AuditSpecs, ContentSpecs
     from lionagi.ln.types import Operable
+    from lionagi.ln.types.adapters._utils import AuditSpecs, ContentSpecs
 
     resolved_embedding_dim: int | UnsetType = Unset
     has_embedding = False
@@ -625,8 +624,8 @@ def _extract_base_type(annotation: Any) -> Any:
 
 def generate_ddl(node_cls: type[Node]) -> str:
     """Generate CREATE TABLE DDL from a Node subclass."""
-    from lionagi.ln.types.adapters._utils import AuditSpecs, ContentSpecs
     from lionagi.ln.types import Operable
+    from lionagi.ln.types.adapters._utils import AuditSpecs, ContentSpecs
 
     config = node_cls.get_config()
     if not config.is_persisted:

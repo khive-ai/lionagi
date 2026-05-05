@@ -6,6 +6,8 @@ from typing import Any, ClassVar
 
 from pydantic import field_validator
 
+from lionagi.ln.types._sentinel import is_sentinel
+
 from .message import Message, MessageContent, MessageRole
 
 
@@ -25,6 +27,52 @@ class ActionResponseContent(MessageContent):
     output: Any = None
     action_request_id: str | None = None
     error: str | None = None
+
+    @property
+    def role(self) -> MessageRole:
+        """Role for this content type (beta API compat)."""
+        return MessageRole.ACTION
+
+    @property
+    def request_id(self) -> str | None:
+        """Alias for action_request_id (beta API compat)."""
+        return self.action_request_id
+
+    @property
+    def result(self) -> Any:
+        """Alias for output (beta API compat)."""
+        return self.output
+
+    @classmethod
+    def create(
+        cls,
+        request_id: str | None = None,
+        result: Any = None,
+        error: str | None = None,
+        function: str = "",
+        arguments: dict[str, Any] | None = None,
+    ) -> "ActionResponseContent":
+        """Create ActionResponseContent with beta-compatible signature.
+
+        ``request_id`` maps to ``action_request_id``.
+        ``result`` maps to ``output``.
+        """
+        # Accept Unset sentinels from beta callers
+        if is_sentinel(result):
+            result = None
+        if is_sentinel(error):
+            error = None
+        return cls(
+            function=function,
+            arguments=arguments if arguments is not None else {},
+            output=result,
+            action_request_id=request_id,
+            error=error,
+        )
+
+    def render(self, *_args: Any, **_kwargs: Any) -> str:
+        """Render action response.  Delegates to :attr:`rendered` for beta API compat."""
+        return self.rendered
 
     @property
     def success(self) -> bool:

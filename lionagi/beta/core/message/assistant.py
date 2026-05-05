@@ -3,14 +3,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
-from typing_extensions import Self
-
-from lionagi.ln.types._sentinel import MaybeUnset, Unset
-
-from .role import Role, RoledContent
+from lionagi.protocols.messages.assistant_response import AssistantResponseContent
 
 if TYPE_CHECKING:
     from lionagi.beta.resource.backend import Normalized
@@ -20,32 +15,8 @@ __all__ = (
     "parse_to_assistant_message",
 )
 
-
-@dataclass(slots=True)
-class Assistant(RoledContent):
-    """Assistant text response."""
-
-    role: ClassVar[Role] = Role.ASSISTANT
-    response: MaybeUnset[Any] = Unset
-
-    _buffered_response: Any = Unset
-
-    @classmethod
-    def create(cls, response_object: Normalized) -> Self:
-        self = cls(response=response_object.data)
-        self._buffered_response = response_object
-        return self
-
-    @property
-    def raw_response(self) -> dict[str, Any] | None:
-        if self._is_sentinel(self._buffered_response):
-            return None
-        buffered = self._buffered_response
-        serialized = getattr(buffered, "serialized", None)
-        return serialized
-
-    def render(self, *_args, **_kwargs) -> str:
-        return str(self.response) if not self.is_sentinel_field("response") else ""
+# Production type re-exported under the beta name.
+Assistant = AssistantResponseContent
 
 
 def parse_to_assistant_message(response: Normalized) -> Any:
@@ -60,7 +31,8 @@ def parse_to_assistant_message(response: Normalized) -> Any:
     if response.metadata is not None:
         metadata_dict.update(response.metadata)
 
+    content = AssistantResponseContent.create(response_object=response)
     return Message(
-        content=Assistant.create(response_object=response),
+        content=content,
         metadata=metadata_dict,
     )

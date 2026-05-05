@@ -100,9 +100,40 @@ class AssistantResponseContent(MessageContent):
     assistant_response: str = ""
 
     @property
+    def role(self) -> MessageRole:
+        """Role for this content type (beta API compat)."""
+        return MessageRole.ASSISTANT
+
+    @property
+    def response(self) -> str:
+        """Alias for assistant_response (beta API compat)."""
+        return self.assistant_response
+
+    @property
     def rendered(self) -> str:
         """Render assistant response as plain text."""
         return self.assistant_response
+
+    def render(self, *_args: Any, **_kwargs: Any) -> str:
+        """Render assistant response.  Delegates to :attr:`rendered` for beta API compat."""
+        return self.rendered
+
+    @classmethod
+    def create(
+        cls,
+        response_object: Any = None,
+        text: str | None = None,
+    ) -> "AssistantResponseContent":
+        """Create AssistantResponseContent with beta-compatible signature.
+
+        Accepts a ``response_object`` (Normalized backend response) or a plain
+        ``text`` string.  When a ``response_object`` is supplied its ``.data``
+        attribute is used as the text.
+        """
+        if response_object is not None:
+            raw = getattr(response_object, "data", None)
+            text = str(raw) if raw is not None else ""
+        return cls(assistant_response=text or "")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AssistantResponseContent":

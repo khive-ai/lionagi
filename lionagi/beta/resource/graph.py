@@ -11,14 +11,13 @@ from uuid import UUID
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 from typing_extensions import override
 
-from lionagi.ln.types._sentinel import Unset, UnsetType, is_unset
 from lionagi._errors import NotFoundError
+from lionagi.beta.resource.node import Node
+from lionagi.beta.resource.pile import Pile
 from lionagi.beta.protocols import Containable, Deserializable, Serializable, implements
 from lionagi.ln._utils import synchronized
-
+from lionagi.ln.types._sentinel import Unset, UnsetType, is_unset
 from lionagi.protocols.generic.element import Element
-from lionagi.beta.core.base.node import Node
-from lionagi.beta.core.base.pile import Pile
 
 __all__ = ("Edge", "EdgeCondition", "Graph")
 

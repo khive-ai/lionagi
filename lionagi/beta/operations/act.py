@@ -137,7 +137,7 @@ async def _act(
         scope = action_request.function
         hint = getattr(req_msg, "_scope_resolution_hint", None)
         if hint:
-            return ActionResponse(request_id=str(req_msg.id), error=str(hint))
+            return ActionResponse.create(request_id=str(req_msg.id), error=str(hint))
 
         try:
             scope_must_be_accessible(branch, scope)
@@ -149,7 +149,7 @@ async def _act(
             except Exception:
                 service = toolkit_by_name[toolkit_name]
         except Exception as e:
-            return ActionResponse(request_id=str(req_msg.id), error=str(e))
+            return ActionResponse.create(request_id=str(req_msg.id), error=str(e))
         try:
             from lionagi.beta.session.context import RequestContext
 
@@ -176,10 +176,10 @@ async def _act(
                 service_ctx,
             )
         except Exception as e:
-            return ActionResponse(request_id=str(req_msg.id), error=f"ExecutionError: {e}")
+            return ActionResponse.create(request_id=str(req_msg.id), error=f"ExecutionError: {e}")
         if normalized.status == "error":
-            return ActionResponse(request_id=str(req_msg.id), error=normalized.error or "Tool error")
-        return ActionResponse(request_id=str(req_msg.id), result=normalized.data)
+            return ActionResponse.create(request_id=str(req_msg.id), error=normalized.error or "Tool error")
+        return ActionResponse.create(request_id=str(req_msg.id), result=normalized.data)
 
     if strategy == "sequential":
         results: list[ActionResponse] = []

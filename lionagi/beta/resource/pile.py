@@ -24,7 +24,6 @@ from lionagi.beta.protocols import (
 from lionagi.ln._utils import extract_types, load_type_from_string, synchronized
 from lionagi.ln.concurrency import Lock as AsyncLock
 from lionagi.ln.types._sentinel import Unset, UnsetType, is_unset
-
 from lionagi.protocols.generic.element import Element
 from lionagi.protocols.generic.progression import Progression
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from lionagi.beta.core.base.graph import Edge, Graph
+from lionagi.beta.resource.graph import Edge, Graph
 from lionagi.ln._utils import to_uuid
 from lionagi.ln.types._sentinel import Undefined, UndefinedType, is_sentinel, not_sentinel
 

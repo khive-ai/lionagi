@@ -8,15 +8,15 @@ from typing import Any
 
 from pydantic import Field, PrivateAttr, field_serializer, field_validator
 
-from lionagi.protocols.generic.element import Element
-from lionagi.beta.core.base.processor import Executor
 from lionagi._errors import ConfigurationError, ExecutionError
+from lionagi.beta.resource.processor import Executor
 from lionagi.beta.protocols import Invocable, implements
 from lionagi.ln.concurrency import sleep
+from lionagi.protocols.generic.element import Element
+from lionagi.service.hooks import HookRegistry
 from lionagi.service.rate_limiter import RateLimitConfig, TokenBucket
 
 from .backend import Calling, Normalized, ResourceBackend, ResourceConfig
-from lionagi.service.hooks import HookRegistry
 from .utilities.rate_limited_executor import RateLimitedExecutor
 
 __all__ = ("iModel",)
@@ -181,10 +181,10 @@ class iModel(Element):  # noqa: N801
             Configured iModel ready for invocation.
         """
         from lionagi.cli._providers import (
-            PROVIDER_EFFORT_KWARG,
-            PROVIDER_YOLO_KWARGS,
             _CLAUDE_PROVIDER_NAMES,
             _CODEX_EFFORT_CLAMP,
+            PROVIDER_EFFORT_KWARG,
+            PROVIDER_YOLO_KWARGS,
             _clamp_claude_effort,
             parse_model_spec,
         )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from lionagi.beta.core.base.pile import Pile
+from lionagi.beta.resource.pile import Pile
 
 from .session import Session
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from lionagi.beta.core.base.pile import Pile
+from lionagi.beta.resource.pile import Pile
 from lionagi.ln.types._sentinel import Undefined, UndefinedType, is_sentinel
 
 from .imodel import iModel

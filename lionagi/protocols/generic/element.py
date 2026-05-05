@@ -294,14 +294,21 @@ class Element(BaseModel, Observable):
                     return subcls_type.from_dict(data, **kwargs)
 
             except (KeyError, ValueError, ImportError, AttributeError, TypeError):
+                import logging as _logging
+
+                _logger = _logging.getLogger(__name__)
                 try:
                     mod, imp = subcls_name.rsplit(".", 1)
                     subcls_type = import_module(mod, import_name=imp)
                     data["metadata"] = metadata
                     if hasattr(subcls_type, "from_dict") and (subcls_type is not cls):
                         return subcls_type.from_dict(data, **kwargs)
-                except Exception:
-                    pass
+                except Exception as _err:
+                    _logger.debug(
+                        "Element.from_dict: fallback import of '%s' failed: %s",
+                        subcls_name,
+                        _err,
+                    )
 
         data["metadata"] = metadata
         return cls.model_validate(data)

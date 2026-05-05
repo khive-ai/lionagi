@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from lionagi.protocols.generic.event import EventStatus
-from lionagi.beta.core.base.graph import Graph
+from lionagi.beta.resource.graph import Graph
 from lionagi.beta.core.graph import OpGraph, OpNode
 from lionagi.beta.core.morphism import MorphismAdapter
 from lionagi.beta.core.runner import Runner

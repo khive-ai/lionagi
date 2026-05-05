@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from lionagi._errors import ValidationError
 from lionagi.protocols.generic.event import Event, EventStatus
 from lionagi.protocols.generic.processor import Processor
 
@@ -54,11 +55,11 @@ class TestProcessorInit:
         assert p._concurrency_sem is None
 
     def test_invalid_capacity_raises(self):
-        with pytest.raises(ValueError, match="capacity"):
+        with pytest.raises((ValueError, ValidationError), match="capacity"):
             _proc(queue_capacity=0)
 
     def test_invalid_refresh_time_raises(self):
-        with pytest.raises(ValueError, match="refresh"):
+        with pytest.raises((ValueError, ValidationError), match="refresh"):
             _proc(capacity_refresh_time=0)
 
 

@@ -139,7 +139,12 @@ class Params:
         return hash(self) == hash(other)
 
     def with_updates(self, **kwargs: Any) -> DataClass:
-        """Return a new instance with updated fields."""
+        """Return a new instance with updated fields.
+
+        The ``copy_containers`` keyword is accepted for backwards compatibility
+        with beta API callers but is currently a no-op.
+        """
+        kwargs.pop("copy_containers", None)
         dict_ = self.to_dict()
         dict_.update(kwargs)
         return type(self)(**dict_)
@@ -202,7 +207,13 @@ class DataClass:
         return value
 
     def with_updates(self, **kwargs: Any) -> DataClass:
-        """Return a new instance with updated fields."""
+        """Return a new instance with updated fields.
+
+        The ``copy_containers`` keyword is accepted for backwards compatibility
+        with beta API callers but is currently a no-op (deep-copy behaviour is
+        not required for production content types).
+        """
+        kwargs.pop("copy_containers", None)
         dict_ = self.to_dict()
         dict_.update(kwargs)
         return type(self)(**dict_)

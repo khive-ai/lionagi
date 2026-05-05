@@ -15,13 +15,13 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import Self, override
 
 from lionagi.protocols.generic.event import Event
-from lionagi.beta.core.base.processor import Executor, Processor
+from lionagi.beta.resource.processor import Executor, Processor
 from lionagi.beta.resource.backend import Calling
 from lionagi.ln.concurrency import current_time as _now
 from lionagi.service.rate_limiter import TokenBucket
 
 if TYPE_CHECKING:
-    from lionagi.beta.core.base.pile import Pile
+    from lionagi.beta.resource.pile import Pile
 
 __all__ = ("RateLimitedExecutor", "RateLimitedProcessor")
 

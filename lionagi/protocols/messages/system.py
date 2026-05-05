@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Literal
 
 from pydantic import Field, field_validator
 
@@ -35,6 +35,33 @@ class SystemContent(MessageContent):
             parts.append(f"System Time: {dt}")
         parts.append(self.system_message)
         return "\n\n".join(parts)
+
+    @property
+    def role(self) -> MessageRole:
+        """Role for this content type (beta API compat)."""
+        return MessageRole.SYSTEM
+
+    def render(self, *_args: Any, **_kwargs: Any) -> str:
+        """Render system message.  Delegates to :attr:`rendered` for beta API compat."""
+        return self.rendered
+
+    @classmethod
+    def create(
+        cls,
+        system_message: str | None = None,
+        system_datetime: str | Literal[True] | None = None,
+        datetime_factory: Callable[[], str] | None = None,
+    ) -> "SystemContent":
+        """Create SystemContent with beta-compatible signature."""
+        if system_datetime is True:
+            system_datetime = datetime.now().isoformat(timespec="seconds")
+        elif system_datetime is False:
+            system_datetime = None
+        return cls(
+            system_message=system_message or "You are a helpful AI assistant. Let's think step by step.",
+            system_datetime=system_datetime,
+            datetime_factory=datetime_factory if callable(datetime_factory) else None,
+        )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SystemContent":
