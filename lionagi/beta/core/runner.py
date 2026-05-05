@@ -134,9 +134,11 @@ class Runner:
         self,
         br: Principal,
         g: OpGraph,
+        *,
+        check_satisfiability: bool = True,
     ) -> dict[UUID, dict[str, Any]]:
         results: dict[UUID, dict[str, Any]] = {}
-        async for node_id, result in self.run_stream(br, g):
+        async for node_id, result in self.run_stream(br, g, check_satisfiability=check_satisfiability):
             results[node_id] = result
         return results
 
@@ -144,9 +146,24 @@ class Runner:
         self,
         br: Principal,
         g: OpGraph,
+        *,
+        check_satisfiability: bool = True,
     ) -> AsyncGenerator[tuple[UUID, dict[str, Any]], None]:
         """Execute graph and yield results as nodes complete; control nodes run serially after regular nodes per wave."""
         g.validate_dag()
+
+        if check_satisfiability:
+            ambient = br.rights()
+            failures = g.check_satisfiability(ambient=ambient)
+            if failures:
+                descs = "; ".join(
+                    f"node {nid}: missing {sorted(missing)}"
+                    for nid, missing in failures
+                )
+                raise AccessError(
+                    f"OpGraph satisfiability check failed: {descs}",
+                    retryable=False,
+                )
 
         self._total_spawned = 0
         name_map: dict[str, UUID] = {}
@@ -493,6 +510,14 @@ class Runner:
         local_ctx = {} if node_writes is not None else None
         res: dict[str, Any] = {}
         error: BaseException | None = None
+
+        # Freeze ctx during parallel execution so morphisms cannot mutate
+        # shared state. The real ctx is restored after the wave completes
+        # and node_writes are applied in topological order by the caller.
+        original_ctx = br.ctx
+        if node_writes is not None:
+            br.ctx = dict(ctx_snapshot) if ctx_snapshot is not None else dict(original_ctx)
+
         try:
             await self.ipu.before_node(br, node)
             await self.bus.emit("node.start", br, node)
@@ -523,12 +548,13 @@ class Runner:
             error = exc
             raise
         finally:
+            if node_writes is not None:
+                br.ctx = original_ctx
             try:
                 await self.ipu.after_node(br, node, res, error=error)
             except Exception:
                 if error is None:
                     raise
-                # Primary error takes precedence — don't mask it with IPU cleanup failure
                 import logging
                 logging.getLogger(__name__).warning(
                     "IPU after_node raised during error cleanup for '%s'",
