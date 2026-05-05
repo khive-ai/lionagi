@@ -35,7 +35,7 @@ def make_pile(*contents):
     msgs = [RoledMessage(content=c) for c in contents]
     p = Pile()
     for m in msgs:
-        p.add(m)
+        p.include(m)
     ids = [m.id for m in msgs]
     prog = Progression(order=ids)
     return p, prog, msgs

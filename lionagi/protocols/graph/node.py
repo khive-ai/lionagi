@@ -332,7 +332,7 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         data = data.copy()
         config = cls.node_config
         if config is None or not isinstance(config, NodeConfig):
-            return cls.model_validate(data, **kwargs)
+            return super().from_dict(data, **kwargs)
 
 
         if from_row and config.flatten_content and "content" not in data:
