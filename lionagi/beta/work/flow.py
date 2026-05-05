@@ -15,8 +15,8 @@ from lionagi.beta.core.graph import OpGraph, OpNode
 from lionagi.beta.core.morphism import MorphismAdapter
 from lionagi.beta.core.runner import Runner
 from lionagi.beta.core.types import Principal
-from lionagi.protocols.graph.graph import Graph
 from lionagi.protocols.generic.event import EventStatus
+from lionagi.protocols.graph.graph import Graph
 
 from .control import ControlDecision
 from .node import Operation

@@ -19,7 +19,13 @@ from lionagi.ln._hash import compute_hash
 from lionagi.ln._json_dump import json_dumps
 from lionagi.ln._utils import now_utc
 from lionagi.ln.types import DataClass, ModelConfig, Params
-from lionagi.ln.types._sentinel import Unset, UnsetType, is_sentinel, is_unset, not_sentinel
+from lionagi.ln.types._sentinel import (
+    Unset,
+    UnsetType,
+    is_sentinel,
+    is_unset,
+    not_sentinel,
+)
 
 from .._concepts import Relational
 from ..generic.element import Element
@@ -28,11 +34,11 @@ _ADAPTER_REGISTERED = False
 
 # --- Registries ---
 
-NODE_REGISTRY: dict[str, type["Node"]] = {}
-PERSISTABLE_NODE_REGISTRY: dict[str, type["Node"]] = {}
+NODE_REGISTRY: dict[str, type[Node]] = {}
+PERSISTABLE_NODE_REGISTRY: dict[str, type[Node]] = {}
 
 
-def _register_persistable(table_name: str, cls: type["Node"]) -> None:
+def _register_persistable(table_name: str, cls: type[Node]) -> None:
     if table_name in PERSISTABLE_NODE_REGISTRY:
         existing = PERSISTABLE_NODE_REGISTRY[table_name]
         if existing is not cls:
@@ -45,15 +51,19 @@ def _register_persistable(table_name: str, cls: type["Node"]) -> None:
     PERSISTABLE_NODE_REGISTRY[table_name] = cls
 
 
-def _enable_embedding_requires_dim(config: "NodeConfig") -> None:
+def _enable_embedding_requires_dim(config: NodeConfig) -> None:
     if config.embedding_enabled:
         if config.is_sentinel_field("embedding_dim"):
-            raise ValueError("embedding_dim must be specified when embedding is enabled")
+            raise ValueError(
+                "embedding_dim must be specified when embedding is enabled"
+            )
         if config.embedding_dim <= 0:
-            raise ValueError(f"embedding_dim must be positive, got {config.embedding_dim}")
+            raise ValueError(
+                f"embedding_dim must be positive, got {config.embedding_dim}"
+            )
 
 
-def _only_typed_content_can_flatten(config: "NodeConfig") -> None:
+def _only_typed_content_can_flatten(config: NodeConfig) -> None:
     if config.flatten_content and config.is_sentinel_field("content_type"):
         raise ValueError("content_type must be specified when flatten_content is True")
 
@@ -176,11 +186,15 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         if config.is_sentinel_field("content_type") and "content" in cls.model_fields:
             content_field = cls.model_fields["content"]
             cls._resolved_content_type = (
-                content_field.annotation if content_field.annotation is not None else None
+                content_field.annotation
+                if content_field.annotation is not None
+                else None
             )
         else:
             cls._resolved_content_type = (
-                None if config.is_sentinel_field("content_type") else config.content_type
+                None
+                if config.is_sentinel_field("content_type")
+                else config.content_type
             )
 
     @field_validator("embedding", mode="before")
@@ -212,7 +226,9 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         return await super().adapt_to_async(obj_key=obj_key, many=many, **kwargs)
 
     @classmethod
-    async def adapt_from_async(cls, obj: Any, obj_key: str, many=False, **kwargs: Any) -> Node:
+    async def adapt_from_async(
+        cls, obj: Any, obj_key: str, many=False, **kwargs: Any
+    ) -> Node:
         if obj_key == "lionagi_async_pg":
             _ensure_postgres_adapter()
         kwargs["adapt_meth"] = "from_dict"
@@ -242,7 +258,11 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             return value.to_dict(exclude=value._config.serialize_exclude or None)
         if hasattr(value, "to_dict") and not isinstance(value, BaseModel):
             return value.to_dict(mode="json")
-        return json_dumps(value, as_loaded=True) if not isinstance(value, (str, int, float, bool, list, dict)) else value
+        return (
+            json_dumps(value, as_loaded=True)
+            if not isinstance(value, (str, int, float, bool, list, dict))
+            else value
+        )
 
     @field_validator("content", mode="before")
     @classmethod
@@ -253,7 +273,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             metadata = value.get("metadata", {})
             lion_class = metadata.get("lion_class")
             if lion_class:
-                if lion_class in NODE_REGISTRY or lion_class.split(".")[-1] in NODE_REGISTRY:
+                if (
+                    lion_class in NODE_REGISTRY
+                    or lion_class.split(".")[-1] in NODE_REGISTRY
+                ):
                     return Node.from_dict(value)
                 return Element.from_dict(value)
         return value
@@ -261,7 +284,9 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
     def to_dict(
         self,
         mode: Literal["python", "json", "db"] = "python",
-        created_at_format: Literal["datetime", "isoformat", "timestamp"] | UnsetType = Unset,
+        created_at_format: (
+            Literal["datetime", "isoformat", "timestamp"] | UnsetType
+        ) = Unset,
         meta_key: str | UnsetType = Unset,
         content_serializer: Callable[[Any], Any] | None = None,
         **kwargs: Any,
@@ -269,7 +294,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         config = self.node_config
         if config is None or not isinstance(config, NodeConfig):
             return super().to_dict(
-                mode=mode, created_at_format=created_at_format, meta_key=meta_key, **kwargs
+                mode=mode,
+                created_at_format=created_at_format,
+                meta_key=meta_key,
+                **kwargs,
             )
 
         content_type = (
@@ -296,7 +324,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
 
             effective_meta_key = meta_key if not is_unset(meta_key) else config.meta_key
             result = super().to_dict(
-                mode=mode, created_at_format=created_at_format, meta_key=effective_meta_key, **kwargs
+                mode=mode,
+                created_at_format=created_at_format,
+                meta_key=effective_meta_key,
+                **kwargs,
             )
             content_dict = self.content.model_dump(mode="json")
             result.update(content_dict)
@@ -311,7 +342,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             kwargs["exclude"] = exclude
 
             result = super().to_dict(
-                mode=mode, created_at_format=created_at_format, meta_key=meta_key, **kwargs
+                mode=mode,
+                created_at_format=created_at_format,
+                meta_key=meta_key,
+                **kwargs,
             )
             result["content"] = content_serializer(self.content)
             return result
@@ -334,7 +368,6 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
         if config is None or not isinstance(config, NodeConfig):
             return super().from_dict(data, **kwargs)
 
-
         if from_row and config.flatten_content and "content" not in data:
             content_type = (
                 config.content_type
@@ -347,13 +380,17 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
                 and issubclass(content_type, BaseModel)
             ):
                 content_field_names = set(content_type.model_fields.keys())
-                content_data = {k: v for k, v in data.items() if k in content_field_names}
+                content_data = {
+                    k: v for k, v in data.items() if k in content_field_names
+                }
                 for k in content_field_names:
                     data.pop(k, None)
                 data["content"] = content_type(**content_data)
 
         effective_meta_key = (
-            meta_key if not is_unset(meta_key) else (config.meta_key if from_row else Unset)
+            meta_key
+            if not is_unset(meta_key)
+            else (config.meta_key if from_row else Unset)
         )
 
         if content_deserializer is not None:
@@ -380,7 +417,10 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
             )
             if target_cls is not None and target_cls is not cls:
                 return target_cls.from_dict(
-                    data, content_deserializer=content_deserializer, from_row=from_row, **kwargs
+                    data,
+                    content_deserializer=content_deserializer,
+                    from_row=from_row,
+                    **kwargs,
                 )
 
         return cls.model_validate(data, **kwargs)
@@ -404,7 +444,11 @@ class Node(Element, Relational, AsyncAdaptable, Adaptable):
 
         if by is not None:
             by_str = str(by)
-            if config.track_created_by and self._has_real_field("created_by") and not getattr(self, "created_by", None):
+            if (
+                config.track_created_by
+                and self._has_real_field("created_by")
+                and not getattr(self, "created_by", None)
+            ):
                 self.created_by = by_str
             if self._has_real_field("updated_by"):
                 self.updated_by = by_str
@@ -541,7 +585,10 @@ def _ensure_postgres_adapter():
 
         if check_async_postgres_available() is True:
             try:
-                from lionagi.adapters.async_postgres_adapter import LionAGIAsyncPostgresAdapter
+                from lionagi.adapters.async_postgres_adapter import (
+                    LionAGIAsyncPostgresAdapter,
+                )
+
                 Node.register_async_adapter(LionAGIAsyncPostgresAdapter)
             except ImportError:
                 pass
@@ -552,6 +599,7 @@ def _ensure_postgres_adapter():
 
 if not _ADAPTER_REGISTERED:
     from pydapter.adapters import JsonAdapter, TomlAdapter
+
     Node.register_adapter(JsonAdapter)
     Node.register_adapter(TomlAdapter)
     _ADAPTER_REGISTERED = True
@@ -602,10 +650,14 @@ def create_node(
             resolved_embedding_dim = vec_meta.dim
             has_embedding = True
         else:
-            raise ValueError(f"embedding must be Vector[dim] annotation, got {embedding}. Use: embedding=Vector[1536]")
+            raise ValueError(
+                f"embedding must be Vector[dim] annotation, got {embedding}. Use: embedding=Vector[1536]"
+            )
     elif embedding_enabled:
         if embedding_dim is None or embedding_dim <= 0:
-            raise ValueError("embedding_dim must be positive when embedding_enabled=True")
+            raise ValueError(
+                "embedding_dim must be positive when embedding_enabled=True"
+            )
         resolved_embedding_dim = embedding_dim
         has_embedding = True
 
@@ -623,7 +675,11 @@ def create_node(
         include.append("embedding")
 
     needs_update_tracking = (
-        track_updated_at or content_hashing or integrity_hashing or soft_delete or versioning
+        track_updated_at
+        or content_hashing
+        or integrity_hashing
+        or soft_delete
+        or versioning
     )
     if needs_update_tracking:
         include.append("updated_at")
@@ -663,7 +719,10 @@ def create_node(
 
     op = Operable(all_specs, adapter="pydantic")
     node_cls: type[Node] = op.compose_structure(
-        name, include=set(include), base_type=Node, doc=doc,
+        name,
+        include=set(include),
+        base_type=Node,
+        doc=doc,
     )
     node_cls.node_config = node_config
 
@@ -681,7 +740,9 @@ def generate_ddl(node_cls: type[Node]) -> str:
 
     config = node_cls.get_config()
     if not config.is_persisted:
-        raise ValueError(f"{node_cls.__name__} is not persistable (no table_name configured)")
+        raise ValueError(
+            f"{node_cls.__name__} is not persistable (no table_name configured)"
+        )
 
     content_type = (
         config.content_type
@@ -696,6 +757,7 @@ def generate_ddl(node_cls: type[Node]) -> str:
 
     if config.flatten_content and content_type is not None:
         from lionagi.ln.types.adapters._pydantic import PydanticSpecAdapter
+
         if isinstance(content_type, type) and issubclass(content_type, BaseModel):
             all_specs.extend(PydanticSpecAdapter.extract_specs(content_type))
 
@@ -737,7 +799,10 @@ def generate_ddl(node_cls: type[Node]) -> str:
 
     op = Operable(all_specs, adapter="sql")
     return op.compose_structure(
-        config.table_name, include=include, schema=config.schema, primary_key="id",
+        config.table_name,
+        include=include,
+        schema=config.schema,
+        primary_key="id",
     )
 
 

@@ -11,9 +11,9 @@ from uuid import UUID
 from pydantic import PrivateAttr, model_validator
 
 from lionagi._errors import ExistsError, NotFoundError
-from lionagi.protocols.generic.pile import Pile
 from lionagi.ln.types import Operable
 from lionagi.protocols.generic.element import Element
+from lionagi.protocols.generic.pile import Pile
 
 from .backend import Calling, Normalized, ResourceBackend, ResourceConfig
 from .imodel import iModel
@@ -329,7 +329,7 @@ async def add_service(service: Service, update: bool = False) -> UUID:
         await remove_service(service.name)
 
     async with SERVICE_REGISTRY:
-        SERVICE_REGISTRY.add(service)
+        SERVICE_REGISTRY.include(service)
         SERVICE_NAME_MAP[service.name] = service.id
     return service.id
 
@@ -353,12 +353,14 @@ async def get_service(service: UUID | str) -> Service:
 async def remove_service(service: UUID | str) -> None:
     async with SERVICE_REGISTRY:
         if service in SERVICE_REGISTRY:
-            removed = SERVICE_REGISTRY.remove(service)
-            SERVICE_NAME_MAP.pop(removed.name, None)
+            svc = SERVICE_REGISTRY.get(service)
+            SERVICE_REGISTRY.exclude(service)
+            if svc is not None:
+                SERVICE_NAME_MAP.pop(svc.name, None)
             return
         if service in SERVICE_NAME_MAP:
             service_id = SERVICE_NAME_MAP.pop(service)
-            SERVICE_REGISTRY.remove(service_id)
+            SERVICE_REGISTRY.exclude(service_id)
             return
     raise NotFoundError(f"Service with id or name '{service}' not found in registry.")
 

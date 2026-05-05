@@ -9,11 +9,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from lionagi.protocols.graph.edge import Edge, EdgeCondition
-from lionagi.protocols.graph.graph import Graph
 from lionagi.beta.work.builder import Builder, OperationGraphBuilder
 from lionagi.beta.work.node import Operation
 from lionagi.ln.types._sentinel import Undefined
+from lionagi.protocols.graph.edge import Edge, EdgeCondition
+from lionagi.protocols.graph.graph import Graph
 
 # ---------------------------------------------------------------------------
 # Construction

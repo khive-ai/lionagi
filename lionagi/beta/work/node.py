@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, PrivateAttr
 
-from lionagi.protocols.graph.node import Node
 from lionagi.beta.session.context import RequestContext
 from lionagi.protocols.generic.event import Event
+from lionagi.protocols.graph.node import Node
 
 if TYPE_CHECKING:
     from lionagi.beta.session.session import Branch, Session

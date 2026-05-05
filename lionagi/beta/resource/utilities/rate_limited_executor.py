@@ -14,11 +14,12 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import Self, override
 
-from ..backend import Calling
-from ..processor import Executor, Processor
 from lionagi.ln.concurrency import current_time
 from lionagi.protocols.generic.event import Event
 from lionagi.service.rate_limiter import TokenBucket
+
+from ..backend import Calling
+from ..processor import Executor, Processor
 
 if TYPE_CHECKING:
     from lionagi.protocols.types import Pile

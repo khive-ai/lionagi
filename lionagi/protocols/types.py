@@ -7,8 +7,8 @@ from ._concepts import Observer, Ordering, Relational, Sendable
 from .contracts import Observable, ObservableProto
 from .generic.element import ID, Element, validate_order
 from .generic.event import Event, EventStatus, Execution
-from .generic.log import DataLogger, DataLoggerConfig, Log, LogManager, LogManagerConfig
 from .generic.flow import Flow
+from .generic.log import DataLogger, DataLoggerConfig, Log, LogManager, LogManagerConfig
 from .generic.pile import Pile, to_list_type
 from .generic.processor import Executor, Processor
 from .generic.progression import Progression, prog

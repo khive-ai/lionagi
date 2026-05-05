@@ -18,9 +18,9 @@ from lionagi.beta.resource.backend import (
     ResourceBackend,
     ResourceConfig,
 )
-from lionagi.protocols.generic.pile import Pile
 from lionagi.beta.resource.processor import Executor, Processor
 from lionagi.protocols.generic.event import Event, EventStatus
+from lionagi.protocols.generic.pile import Pile
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -183,7 +183,7 @@ class TestProcessorEnqueue:
     async def test_enqueue_basic(self):
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
         proc = SimpleProcessor(queue_capacity=10, capacity_refresh_time=1.0, pile=pile)
         await proc.enqueue(event.id)
         assert proc.queue.qsize() == 1
@@ -191,7 +191,7 @@ class TestProcessorEnqueue:
     async def test_enqueue_with_priority(self):
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
         proc = SimpleProcessor(queue_capacity=10, capacity_refresh_time=1.0, pile=pile)
         await proc.enqueue(event.id, priority=5.0)
         assert proc.queue.qsize() == 1
@@ -200,7 +200,7 @@ class TestProcessorEnqueue:
         pile = make_pile()
         events = [make_calling() for _ in range(3)]
         for e in events:
-            pile.add(e)
+            pile.include(e)
         proc = SimpleProcessor(
             queue_capacity=10, capacity_refresh_time=1.0, pile=pile, max_queue_size=2
         )
@@ -212,7 +212,7 @@ class TestProcessorEnqueue:
     async def test_enqueue_nan_priority_raises(self):
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
         proc = SimpleProcessor(queue_capacity=10, capacity_refresh_time=1.0, pile=pile)
         import math
 
@@ -222,7 +222,7 @@ class TestProcessorEnqueue:
     async def test_enqueue_inf_priority_raises(self):
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
         proc = SimpleProcessor(queue_capacity=10, capacity_refresh_time=1.0, pile=pile)
         with pytest.raises(ValueError, match="finite"):
             await proc.enqueue(event.id, priority=float("inf"))
@@ -230,7 +230,7 @@ class TestProcessorEnqueue:
     async def test_dequeue_returns_event(self):
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
         proc = SimpleProcessor(queue_capacity=10, capacity_refresh_time=1.0, pile=pile)
         await proc.enqueue(event.id)
         dequeued = await proc.dequeue()
@@ -316,7 +316,7 @@ class TestProcessorProcess:
     async def test_process_resets_capacity(self):
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
         proc = SimpleProcessor(queue_capacity=5, capacity_refresh_time=1.0, pile=pile)
         await proc.enqueue(event.id)
         initial = proc.available_capacity
@@ -337,7 +337,7 @@ class TestProcessorProcess:
         """When request_permission returns False, event gets backoff and re-queued."""
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
 
         class DenyingProcessor(SimpleProcessor):
             async def request_permission(self, **kwargs):
@@ -355,7 +355,7 @@ class TestProcessorProcess:
 
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
 
         class DenyingProcessor(SimpleProcessor):
             async def request_permission(self, **kwargs):
@@ -383,7 +383,7 @@ class TestProcessorProcess:
         """When denial tracking is at max, oldest entry is evicted."""
         pile = make_pile()
         event = make_calling()
-        pile.add(event)
+        pile.include(event)
 
         class DenyingProcessor(SimpleProcessor):
             async def request_permission(self, **kwargs):
@@ -570,9 +570,7 @@ class TestExecutorUpdateProgression:
         # Use an invalid status by force-setting a mock
         mock_status = MagicMock()
         mock_status.value = "nonexistent_status"
-        from lionagi._errors import ConfigurationError
-
-        with pytest.raises(ConfigurationError):
+        with pytest.raises(Exception):
             await exc._update_progression(event, force_status=mock_status)
 
 

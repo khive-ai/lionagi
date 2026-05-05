@@ -12,8 +12,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from lionagi.protocols.graph.edge import Edge
-from lionagi.protocols.graph.graph import Graph
 from lionagi.ln._utils import to_uuid
 from lionagi.ln.types._sentinel import (
     Undefined,
@@ -21,6 +19,8 @@ from lionagi.ln.types._sentinel import (
     is_sentinel,
     not_sentinel,
 )
+from lionagi.protocols.graph.edge import Edge
+from lionagi.protocols.graph.graph import Graph
 
 from .node import Operation
 

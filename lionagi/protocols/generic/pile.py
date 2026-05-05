@@ -833,9 +833,13 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
             result = []
             for uid in key:
                 if uid not in self.collections:
-                    raise ItemNotFoundError(f"UUID {uid} from progression not found in pile")
+                    raise ItemNotFoundError(
+                        f"UUID {uid} from progression not found in pile"
+                    )
                 result.append(self.collections[uid])
-            return type(self)(result, item_type=self.item_type, strict_type=self.strict_type)
+            return type(self)(
+                result, item_type=self.item_type, strict_type=self.strict_type
+            )
 
         else:
             key = to_list_type(key)
