@@ -81,14 +81,7 @@ def tool_action(
     pre_hooks: list[str] | None = None,
     post_hooks: list[str] | None = None,
 ) -> Callable[[Callable], Callable]:
-    """Decorator declaring tool action metadata.
-
-    Usage::
-
-        @tool_action(name="read", input_schema=ReadInput, output_schema=ReadOutput)
-        async def read(self, args, ctx):
-            ...
-    """
+    """Decorator that attaches ToolActionMeta to a handler method."""
 
     def decorator(func: Callable) -> Callable:
         meta = ToolActionMeta(
@@ -107,7 +100,6 @@ def tool_action(
 
 
 def get_tool_action_meta(handler: Callable) -> ToolActionMeta | None:
-    """Get action metadata from a handler method (or None if undecorated)."""
     return getattr(handler, _TOOL_ACTION_ATTR, None)
 
 
@@ -115,13 +107,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolKitConfig(ResourceConfig):
-    """Configuration for a ToolKit.
-
-    Carries local effect policies, hooks, and an optional contextual policy
-    evaluator alongside standard ResourceConfig fields. Invocation authority
-    is always checked through ``lionagi.beta.core.policy.policy_check`` when
-    a RequestContext is bound to a branch.
-    """
+    """ResourceConfig extended with path/process policies and a contextual policy evaluator."""
 
     path_policy: PathGuard | None = Field(default=None, exclude=True)
     process_policy: ProcessGuard | None = Field(default=None, exclude=True)
@@ -132,12 +118,7 @@ class ToolKitConfig(ResourceConfig):
 
 
 class ToolKit(Service):
-    """Agent-runtime tool service with policy enforcement.
-
-    Subclass with @tool_action methods, or use from_handlers() for dynamic
-    construction. Register globally via ``register_toolkit()`` or
-    ``lionagi.beta.resource.service.add_service()``.
-    """
+    """Service with @tool_action handler discovery and capability-gated invocation."""
 
     config: ToolKitConfig = Field(..., description="ToolKit configuration")
     _action_registry: dict[str, tuple[Callable, ToolActionMeta]] = PrivateAttr(default_factory=dict)
@@ -145,7 +126,6 @@ class ToolKit(Service):
     @model_validator(mode="before")
     @classmethod
     def _derive_service_name(cls, data: Any) -> Any:
-        """Mirror config.name onto Service.name for global registration."""
         if not isinstance(data, dict) or data.get("name") is not None:
             return data
         config = data.get("config")
@@ -162,7 +142,6 @@ class ToolKit(Service):
         self._discover_actions()
 
     def _discover_actions(self) -> None:
-        """Scan for @tool_action decorated methods and register them."""
         for cls in reversed(type(self).mro()):
             for attr_name, attr in vars(cls).items():
                 if attr_name.startswith("_"):
@@ -202,12 +181,7 @@ class ToolKit(Service):
         return self.tool_schemas(fmt="dict")  # type: ignore[return-value]
 
     def create_payload(self, request: dict | BaseModel | None = None, **kwargs: Any) -> dict:
-        """Build payload for iModel pipeline.
-
-        Unwraps the iModel invoke convention where kwargs arrive as
-        {"arguments": {...}}. The payload becomes the inner dict directly,
-        so ToolCalling.call_args passes it cleanly to call().
-        """
+        """Unwrap iModel's {"arguments": {...}} envelope so call() receives the inner dict."""
         if request is None:
             payload = kwargs
         elif isinstance(request, BaseModel):
@@ -333,10 +307,8 @@ class ToolKit(Service):
 
         ctx = ctx or RequestContext(name=f"{self.name}:{action}", service=self.name)
 
-        # Pre-hooks
         payload = await self._run_hooks(meta.pre_hooks, payload, ctx)
 
-        # Policy check
         result = await self._evaluate_policy(meta, payload, ctx)
         if not result.allowed:
             if result.enforcement in (ToolEnforcement.HARD, ToolEnforcement.SOFT):
@@ -347,7 +319,6 @@ class ToolKit(Service):
                 )
             logger.warning("Policy advisory for %s: %s", action, result.reason)
 
-        # Execute
         try:
             output = await handler(payload, ctx)
             normalized = Normalized(
@@ -361,7 +332,6 @@ class ToolKit(Service):
             logger.exception("ToolKit %s.%s failed: %s", self.name, action, e)
             normalized = Normalized(status="error", data=None, error=str(e))
 
-        # Post-hooks
         await self._run_hooks(meta.post_hooks, payload, ctx, output=normalized.data)
 
         return normalized
@@ -372,12 +342,6 @@ class ToolKit(Service):
         args: dict,
         ctx: Any,
     ) -> ToolPolicyResult:
-        """Toolkit-level policy gate.
-
-        The branch Principal is checked first through the core capability
-        policy substrate. ``policy_evaluator`` remains only for contextual
-        policy that depends on runtime arguments.
-        """
         principal_result = await self._principal_allows(meta.name, meta, ctx)
         if not principal_result.allowed:
             return principal_result
@@ -441,7 +405,6 @@ class ToolKit(Service):
 
     @property
     def allowed_actions(self) -> set[str]:
-        """Return set of registered action names."""
         return set(self._action_registry.keys())
 
     def tool_schemas(
@@ -450,30 +413,9 @@ class ToolKit(Service):
         fmt: str = "yaml",
         branch: Any = None,
     ) -> list[str] | list[dict[str, Any]]:
-        """Generate tool schemas for LLM consumption.
-
-        Renders input + output schemas as TypeScript-style notation
-        following the khive-mcp @operation pattern. When output_schema
-        is present, the LLM sees what fields the tool returns — enabling
-        proper LNDL <lact> → OUT{} field mapping.
-
-        When ``branch`` is provided, actions are filtered against
-        ``branch.resources`` using :func:`scope_in_resources` semantics.
-        Schemas for denied actions are omitted entirely so the LLM never
-        sees them — defense in depth, plus token savings, plus cleaner
-        prompts. The same matcher is used at dispatch (``act.py``), so
-        what the LLM sees == what the system permits.
-
-        Args:
-            fmt: "yaml" (default, compact minimal_yaml) or "dict" (raw dict).
-            branch: Optional Branch — filters actions by ``branch.resources``.
-
-        Returns:
-            List of schema strings (yaml) or dicts (dict format).
-        """
+        """Render action schemas for LLM; branch filters by branch.resources (same matcher as dispatch)."""
         from lionagi.libs.schema import typescript_schema
 
-        # Lazy import to avoid circular dep
         if branch is not None:
             from lionagi.beta.session.constraints import scope_in_resources
 
@@ -524,21 +466,6 @@ class ToolKit(Service):
         input_schema: type | None = None,
         output_schema: type | None = None,
     ) -> ToolKit:
-        """Create ToolKit from a dict of {action_name: async handler_fn}.
-
-        Each handler should have signature: async def handler(args: dict, ctx) -> Any
-
-        Args:
-            handlers: {action_name: handler_fn} mapping.
-            name: ToolKit name (used as resource name in session).
-            provider: Provider identifier.
-            path_policy: Workspace containment policy.
-            process_policy: Subprocess security policy.
-            input_schema: Pydantic BaseModel for input validation.
-            output_schema: Pydantic BaseModel for output validation + schema rendering.
-                When provided, the tool schema shows return field names so the LLM
-                can map tool outputs to LNDL variables.
-        """
         config = ToolKitConfig(
             name=name,
             provider=provider,
@@ -563,13 +490,11 @@ class ToolKit(Service):
 
 
 async def register_toolkit(toolkit: ToolKit, update: bool = False) -> ToolKit:
-    """Register a ToolKit in the global service registry."""
     await add_service(toolkit, update=update)
     return toolkit
 
 
 def list_toolkits() -> list[ToolKit]:
-    """Return globally registered ToolKit services."""
     return [
         service
         for service in list_services_sync()

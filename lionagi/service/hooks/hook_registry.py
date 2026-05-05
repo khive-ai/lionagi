@@ -39,6 +39,7 @@ def _normalize_hook_key(key: HookEventTypes | str) -> HookEventTypes | str:
             # `pre_event_create_hook`, so callers constructing via dict often
             # use this string. Preserve both spellings for backward compat.
             "pre_event_create_hook": HookEventTypes.PreEventCreate,
+            "error_handling": HookEventTypes.ErrorHandling,
         }
         if key in aliases:
             return aliases[key]
@@ -89,6 +90,14 @@ class HookRegistry:
     def post_invoke(self, fn: F) -> F:
         """Decorator that registers *fn* as the post_invocation hook."""
         key = HookEventTypes.PostInvocation
+        if key in self._hooks:
+            warnings.warn(f"Overwriting existing {key.value} hook", stacklevel=2)
+        self._hooks[key] = fn
+        return fn
+
+    def error_handler(self, fn: F) -> F:
+        """Decorator that registers *fn* as the error_handling hook."""
+        key = HookEventTypes.ErrorHandling
         if key in self._hooks:
             warnings.warn(f"Overwriting existing {key.value} hook", stacklevel=2)
         self._hooks[key] = fn
@@ -212,6 +221,24 @@ class HookRegistry:
         except Exception as e:
             return (e, exit, EventStatus.ABORTED)
 
+    async def error_handling(
+        self, event: E, /, exit: bool = False, **kw
+    ) -> tuple[Any, bool, EventStatus]:
+        try:
+            res = await self._call(
+                HookEventTypes.ErrorHandling,
+                None,
+                None,
+                event,
+                exit=exit,
+                **kw,
+            )
+            return (res, False, EventStatus.COMPLETED)
+        except get_cancelled_exc_class() as e:
+            return ((Undefined, e), True, EventStatus.CANCELLED)
+        except Exception as e:
+            return (e, exit, EventStatus.FAILED)
+
     async def handle_streaming_chunk(
         self, chunk_type: str | type, chunk: Any, /, exit: bool = False, **kw
     ) -> tuple[Any, bool, EventStatus | None]:
@@ -276,6 +303,13 @@ class HookRegistry:
                     meta["event_created_at"] = event_like.created_at
                     return (
                         await self.post_invocation(event_like, exit=exit, **kw),
+                        meta,
+                    )
+                case HookEventTypes.ErrorHandling:
+                    meta["event_id"] = str(event_like.id)
+                    meta["event_created_at"] = event_like.created_at
+                    return (
+                        await self.error_handling(event_like, exit=exit, **kw),
                         meta,
                     )
         return await self.handle_streaming_chunk(chunk_type, chunk, exit=exit, **kw)

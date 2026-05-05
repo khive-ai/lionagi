@@ -155,7 +155,7 @@ class Processor:
 
         if priority is None:
             event = self.pile[event_id]
-            priority = event.created_at.timestamp()
+            priority = float(event.created_at)
 
         if not math.isfinite(priority) or math.isnan(priority):
             raise ValueError(

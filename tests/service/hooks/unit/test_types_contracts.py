@@ -24,6 +24,7 @@ class TestHookEventTypes:
             HookEventTypes.PreEventCreate,
             HookEventTypes.PreInvocation,
             HookEventTypes.PostInvocation,
+            HookEventTypes.ErrorHandling,
         }
         assert set(ALLOWED_HOOKS_TYPES) == expected
 

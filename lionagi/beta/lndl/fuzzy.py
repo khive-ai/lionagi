@@ -249,13 +249,11 @@ def parse_lndl_fuzzy(
             scratchpad=scratchpad,
         )
 
-    # Fuzzy correction pipeline — skip note-namespaced lvars/lacts
     raw_model_names = {
         lvar.model
         for lvar in lvars_raw.values()
         if isinstance(lvar, LvarMetadata) and lvar.model != _NOTE_NS
     }
-    # Also collect model names from lacts
     for lact in lacts_raw.values():
         if lact.model and lact.model != _NOTE_NS:
             raw_model_names.add(lact.model)

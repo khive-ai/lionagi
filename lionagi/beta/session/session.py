@@ -280,27 +280,6 @@ class Branch(Progression):
 
     _scratchpad: Any = PrivateAttr(default=None)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_access_fields(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-
-        data = dict(data)
-        has_legacy_capabilities = "capabilities" in data
-        has_legacy_resources = "resources" in data
-        legacy_capabilities = data.pop("capabilities", None)
-        legacy_resources = data.pop("resources", None)
-        if not has_legacy_capabilities and not has_legacy_resources:
-            return data
-
-        principal = cls._coerce_principal(data.get("principal"), name=data.get("name"))
-        rights = set(principal.rights())
-        rights.update(str(cap) for cap in (legacy_capabilities or set()))
-        rights.update(cls._resource_to_right(str(res)) for res in (legacy_resources or set()))
-        data["principal"] = cls._principal_with_rights(principal, rights)
-        return data
-
     @model_validator(mode="after")
     def _sync_principal_id(self) -> Branch:
         """Capability subjects are keyed by principal.id; it must equal branch.id."""
@@ -523,6 +502,7 @@ class Session(Element):
         name: str | None = None,
         capabilities: set[str] | None = None,
         resources: set[str] | None = None,
+        principal: Principal | None = None,
         messages: Iterable[UUID | Message] | None = None,
     ) -> Branch:
         if name:
@@ -534,11 +514,23 @@ class Session(Element):
         if messages:
             order.extend([self._coerce_id(msg) for msg in messages])
 
+        branch_name = name or f"branch_{len(self.branches)}"
+
+        if principal is None:
+            rights: set[str] = set()
+            for cap in (capabilities or set()):
+                rights.add(str(cap))
+            for res in (resources or set()):
+                rights.add(Branch._resource_to_right(str(res)))
+            principal = Branch._principal_with_rights(
+                Principal(name=branch_name),
+                rights,
+            )
+
         branch = Branch(
             session_id=self.id,
-            name=name or f"branch_{len(self.branches)}",
-            capabilities=capabilities or set(),
-            resources=resources or set(),
+            name=branch_name,
+            principal=principal,
             order=order,
         )
 
@@ -583,7 +575,7 @@ class Session(Element):
         forked.metadata["forked_from"] = {
             "branch_id": str(source.id),
             "branch_name": source.name,
-            "created_at": source.created_at.isoformat(),
+            "created_at": source.created_at,
             "message_count": len(source),
         }
         return forked

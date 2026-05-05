@@ -16,7 +16,7 @@ from typing_extensions import Self, override
 
 from lionagi.beta.core.base.event import Event
 from lionagi.beta.core.base.processor import Executor, Processor
-from lionagi.beta.resource.endpoint import APICalling
+from lionagi.beta.resource.backend import Calling
 from lionagi.ln.concurrency import current_time as _now
 from lionagi.service.rate_limiter import TokenBucket
 
@@ -43,7 +43,7 @@ class RateLimitedProcessor(Processor):
         ... )
     """
 
-    event_type = APICalling
+    event_type = Calling
 
     def __init__(
         self,

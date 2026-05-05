@@ -18,7 +18,7 @@ from lionagi._errors import ValidationError
 from lionagi.ln.types._sentinel import Unset, UnsetType, is_sentinel, is_unset
 from lionagi.ln.types import DataClass, HashableModel, ModelConfig
 
-from .hook import HookEvent, HookPhase, HookRegistry
+from lionagi.service.hooks import HookEvent, HookEventTypes, HookRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +187,7 @@ class Calling(Event):
         hook_params: dict[str, Any] | None = None,
     ) -> None:
         h_ev = HookEvent(
-            hook_phase=HookPhase.PreInvocation,
+            hook_type=HookEventTypes.PreInvocation,
             event_like=self,
             registry=hook_registry,
             exit=exit_hook if exit_hook is not None else False,
@@ -205,7 +205,7 @@ class Calling(Event):
         hook_params: dict[str, Any] | None = None,
     ) -> None:
         h_ev = HookEvent(
-            hook_phase=HookPhase.PostInvocation,
+            hook_type=HookEventTypes.PostInvocation,
             event_like=self,
             registry=hook_registry,
             exit=exit_hook if exit_hook is not None else False,

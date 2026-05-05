@@ -46,13 +46,6 @@ class Validator:
         return self.registry
 
     def log_validation_error(self, field: str, value: Any, error: str) -> None:
-        """Log a validation error with timestamp.
-
-        Args:
-            field: Field name that failed validation
-            value: Value that failed validation
-            error: Error message
-        """
         log_entry = {
             "field": field,
             "value": value,
@@ -62,11 +55,6 @@ class Validator:
         self.validation_log.append(log_entry)
 
     def get_validation_summary(self) -> dict[str, Any]:
-        """Get summary of validation log.
-
-        Returns:
-            Dict with total_errors, fields_with_errors, and error_entries
-        """
         fields_with_errors = set()
         for entry in self.validation_log:
             if "field" in entry:
@@ -79,7 +67,6 @@ class Validator:
         }
 
     def clear_log(self) -> None:
-        """Clear the validation log."""
         self.validation_log.clear()
 
     def get_rule_for_spec(self, spec: Spec) -> Rule | None:
@@ -101,8 +88,8 @@ class Validator:
     ) -> Any:
         field_name = spec.name or "<unnamed>"
 
-        # Treat Unset (LNDL sentinel for unprovided fields) the same as None —
-        # use the field's default before invoking any type-specific rule.
+        # Unset is the LNDL sentinel for unprovided fields; treat it as None so we
+        # fall through to the field default before invoking any type-specific rule.
         from lionagi.ln.types import Unset
 
         if value is None or value is Unset:

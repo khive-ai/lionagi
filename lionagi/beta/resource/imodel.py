@@ -16,7 +16,7 @@ from lionagi.ln.concurrency import sleep
 from lionagi.service.rate_limiter import RateLimitConfig, TokenBucket
 
 from .backend import Calling, Normalized, ResourceBackend, ResourceConfig
-from .hook import HookRegistry
+from lionagi.service.hooks import HookRegistry
 from .utilities.rate_limited_executor import RateLimitedExecutor
 
 __all__ = ("iModel",)
@@ -265,7 +265,7 @@ class iModel(Element):  # noqa: N801
         post_invoke_hook_params: dict | None = None,
         **arguments: Any,
     ) -> Calling:
-        from .hook import HookEvent, HookPhase
+        from lionagi.service.hooks import HookEvent, HookEventTypes
 
         if self.backend is None:
             raise ConfigurationError("Backend not configured")
@@ -273,10 +273,10 @@ class iModel(Element):  # noqa: N801
         calling_type = self.backend.event_type
 
         if self.hook_registry is not None and self.hook_registry._can_handle(
-            hp_=HookPhase.PreEventCreate
+            ht_=HookEventTypes.PreEventCreate
         ):
             h_ev = HookEvent(
-                hook_phase=HookPhase.PreEventCreate,
+                hook_type=HookEventTypes.PreEventCreate,
                 event_like=calling_type,
                 registry=self.hook_registry,
                 exit=(create_event_exit_hook if create_event_exit_hook is not None else False),
@@ -300,7 +300,7 @@ class iModel(Element):  # noqa: N801
         )
 
         if self.hook_registry is not None and self.hook_registry._can_handle(
-            hp_=HookPhase.PreInvocation
+            ht_=HookEventTypes.PreInvocation
         ):
             calling.create_pre_invoke_hook(
                 hook_registry=self.hook_registry,
@@ -310,7 +310,7 @@ class iModel(Element):  # noqa: N801
             )
 
         if self.hook_registry is not None and self.hook_registry._can_handle(
-            hp_=HookPhase.PostInvocation
+            ht_=HookEventTypes.PostInvocation
         ):
             calling.create_post_invoke_hook(
                 hook_registry=self.hook_registry,

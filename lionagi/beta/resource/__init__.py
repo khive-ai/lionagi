@@ -24,12 +24,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ResourceConfig": ("lionagi.beta.resource.backend", "ResourceConfig"),
     "ResourceRegistry": ("lionagi.beta.resource.registry", "ResourceRegistry"),
     "iModel": ("lionagi.beta.resource.imodel", "iModel"),
-    "Endpoint": ("lionagi.beta.resource.endpoint", "Endpoint"),
-    "EndpointConfig": ("lionagi.beta.resource.endpoint", "EndpointConfig"),
-    "APICalling": ("lionagi.beta.resource.endpoint", "APICalling"),
-    "HookRegistry": ("lionagi.beta.resource.hook", "HookRegistry"),
-    "HookEvent": ("lionagi.beta.resource.hook", "HookEvent"),
-    "HookPhase": ("lionagi.beta.resource.hook", "HookPhase"),
+    "HookRegistry": ("lionagi.service.hooks", "HookRegistry"),
+    "HookEvent": ("lionagi.service.hooks", "HookEvent"),
+    "HookEventTypes": ("lionagi.service.hooks", "HookEventTypes"),
     "Service": ("lionagi.beta.resource.service", "Service"),
     "ServiceCalling": ("lionagi.beta.resource.service", "ServiceCalling"),
     "ResourceMeta": ("lionagi.beta.resource.service", "ResourceMeta"),
@@ -76,8 +73,7 @@ if TYPE_CHECKING:
         ResourceBackend,
         ResourceConfig,
     )
-    from .endpoint import APICalling, Endpoint, EndpointConfig
-    from .hook import HookEvent, HookPhase, HookRegistry
+    from lionagi.service.hooks import HookEvent, HookEventTypes, HookRegistry
     from .imodel import iModel
     from .registry import ResourceRegistry
     from .service import (
@@ -95,12 +91,9 @@ if TYPE_CHECKING:
     )
 
 __all__ = (
-    "APICalling",
     "Calling",
-    "Endpoint",
-    "EndpointConfig",
     "HookEvent",
-    "HookPhase",
+    "HookEventTypes",
     "HookRegistry",
     "Normalized",
     "ResourceBackend",
