@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 from pydantic import Field, field_validator
 
@@ -22,13 +22,17 @@ class SystemContent(MessageContent):
 
     system_message: str = "You are a helpful AI assistant. Let's think step by step."
     system_datetime: str | None = None
+    datetime_factory: Callable[[], str] | None = field(default=None, repr=False)
 
     @property
     def rendered(self) -> str:
         """Render system message with optional datetime."""
         parts = []
-        if self.system_datetime:
-            parts.append(f"System Time: {self.system_datetime}")
+        dt = self.system_datetime
+        if dt is None and self.datetime_factory is not None:
+            dt = self.datetime_factory()
+        if dt:
+            parts.append(f"System Time: {dt}")
         parts.append(self.system_message)
         return "\n\n".join(parts)
 
@@ -47,7 +51,13 @@ class SystemContent(MessageContent):
         elif system_datetime is False or system_datetime is None:
             system_datetime = None
 
-        return cls(system_message=system_message, system_datetime=system_datetime)
+        datetime_factory = data.get("datetime_factory")
+
+        return cls(
+            system_message=system_message,
+            system_datetime=system_datetime,
+            datetime_factory=datetime_factory if callable(datetime_factory) else None,
+        )
 
 
 class System(Message):

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
@@ -30,7 +31,7 @@ class InstructionContent(MessageContent):
 
     _config: ClassVar[ModelConfig] = ModelConfig(
         none_as_sentinel=True,
-        serialize_exclude=frozenset({"response_format"}),
+        serialize_exclude=frozenset({"response_format", "custom_renderer"}),
     )
 
     instruction: str | None = None
@@ -49,10 +50,13 @@ class InstructionContent(MessageContent):
     )  # Internal: class for validation
     images: list[str] = field(default_factory=list)
     image_detail: Literal["low", "high", "auto"] | None = None
+    structure_format: str | None = None  # "json", "lndl", "custom"
+    custom_renderer: Callable | None = field(default=None, repr=False)
 
     def __init__(
         self,
         instruction: str | None = None,
+        primary: str | None = None,  # alias for instruction
         guidance: str | None = None,
         prompt_context: list[Any] | None = None,
         context: list[Any] | None = None,  # backwards compat
@@ -61,7 +65,13 @@ class InstructionContent(MessageContent):
         response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = None,
         images: list[str] | None = None,
         image_detail: Literal["low", "high", "auto"] | None = None,
+        structure_format: str | None = None,
+        custom_renderer: Callable | None = None,
     ):
+        # Handle primary as alias for instruction (primary loses if both are set)
+        if primary is not None and instruction is None:
+            instruction = primary
+
         # Handle backwards compatibility: context -> prompt_context
         if context is not None and prompt_context is None:
             prompt_context = context
@@ -116,11 +126,23 @@ class InstructionContent(MessageContent):
         )  # Internal: class for validation
         object.__setattr__(self, "images", images if images is not None else [])
         object.__setattr__(self, "image_detail", image_detail)
+        object.__setattr__(self, "structure_format", structure_format)
+        object.__setattr__(self, "custom_renderer", custom_renderer)
 
     @property
     def context(self) -> list[Any]:
         """Backwards compatibility accessor for prompt_context."""
         return self.prompt_context
+
+    @property
+    def primary(self) -> str | None:
+        """Alias for instruction field."""
+        return self.instruction
+
+    @primary.setter
+    def primary(self, value: str | None) -> None:
+        """Write through to instruction field."""
+        object.__setattr__(self, "instruction", value)
 
     @property
     def response_model_cls(self) -> type[BaseModel] | None:
@@ -162,10 +184,17 @@ class InstructionContent(MessageContent):
 
         inst = cls()
 
-        # Scalar fields
-        for k in ("instruction", "guidance", "plain_content", "image_detail"):
+        # Scalar fields (instruction falls back to primary for compat)
+        for k in ("guidance", "plain_content", "image_detail", "structure_format"):
             if k in data and data[k]:
                 setattr(inst, k, data[k])
+
+        instruction_val = data.get("instruction") or data.get("primary")
+        if instruction_val:
+            object.__setattr__(inst, "instruction", instruction_val)
+
+        if callable(data.get("custom_renderer")):
+            object.__setattr__(inst, "custom_renderer", data["custom_renderer"])
 
         # Determine how to apply context updates
         handle_context = data.get("handle_context", "extend")

@@ -37,6 +37,15 @@ class ActionRequestContent(MessageContent):
         }
         return minimal_yaml(doc).strip()
 
+    def render_compact(self) -> str:
+        """Function-call representation for round summaries."""
+        func = self.function or "unknown"
+        parts = [
+            f"{k}={v!r}" if isinstance(v, str) else f"{k}={v}"
+            for k, v in self.arguments.items()
+        ]
+        return f"{func}({', '.join(parts)})"
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ActionRequestContent":
         """Construct ActionRequestContent from dictionary."""

@@ -24,6 +24,26 @@ class ActionResponseContent(MessageContent):
     arguments: dict[str, Any] = field(default_factory=dict)
     output: Any = None
     action_request_id: str | None = None
+    error: str | None = None
+
+    @property
+    def success(self) -> bool:
+        """True when no error was recorded."""
+        return self.error is None
+
+    def render_summary(self) -> str:
+        """Render result content for round-level aggregation."""
+        from lionagi.libs.schema.minimal_yaml import minimal_yaml
+
+        if not self.success:
+            return f"error: {self.error or 'unknown'}"
+        if self.output is None:
+            return "ok"
+        if isinstance(self.output, str):
+            return self.output
+        if isinstance(self.output, (dict, list)):
+            return minimal_yaml(self.output)
+        return str(self.output)
 
     @property
     def rendered(self) -> str:
@@ -55,11 +75,14 @@ class ActionResponseContent(MessageContent):
         if action_request_id:
             action_request_id = str(action_request_id)
 
+        error = data.get("error")
+
         return cls(
             function=function,
             arguments=arguments,
             output=output,
             action_request_id=action_request_id,
+            error=error,
         )
 
 
@@ -93,3 +116,8 @@ class ActionResponse(Message):
     def output(self) -> Any:
         """Access the function output."""
         return self.content.output
+
+    @property
+    def error(self) -> str | None:
+        """Access the error string, if any."""
+        return self.content.error
