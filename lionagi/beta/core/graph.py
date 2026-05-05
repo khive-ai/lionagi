@@ -66,6 +66,13 @@ class OpGraph:
             )
         return order
 
+    def add_node(self, node: OpNode) -> None:
+        """Add a node to a live graph. Deps must reference existing nodes."""
+        for d in node.deps:
+            if d not in self.nodes:
+                raise ValueError(f"Spawn: dependency {d} not in graph")
+        self.nodes[node.id] = node
+
     def check_satisfiability(
         self, ambient: frozenset[str] = frozenset()
     ) -> list[tuple[UUID, frozenset[str]]]:

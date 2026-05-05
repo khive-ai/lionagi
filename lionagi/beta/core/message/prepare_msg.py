@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from pydantic import JsonValue
 
 from lionagi.beta.core.base.pile import Pile
-from lionagi.beta.core.base.progression import Progression
+from lionagi.protocols.generic.progression import Progression
 
 from .action import ActionRequest, ActionResponse
 from .assistant import Assistant

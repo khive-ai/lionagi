@@ -136,7 +136,7 @@ def branch_name_must_be_unique(session, name: str) -> None:
     try:
         session.communications.get_progression(name)
         raise ExistsError(f"Branch with name '{name}' already exists")
-    except KeyError:
+    except (KeyError, NotFoundError):
         pass
 
 

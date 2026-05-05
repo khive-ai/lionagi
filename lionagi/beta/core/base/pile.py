@@ -26,7 +26,7 @@ from lionagi.ln.concurrency import Lock as AsyncLock
 from lionagi.ln.types._sentinel import Unset, UnsetType, is_unset
 
 from .element import Element
-from .progression import Progression
+from lionagi.protocols.generic.progression import Progression
 
 __all__ = ("Pile",)
 

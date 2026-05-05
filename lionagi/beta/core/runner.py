@@ -65,12 +65,14 @@ class Runner:
         ipu: IPU | None = None,
         event_bus: EventBus | None = None,
         max_concurrent: int | None = None,
+        max_dynamic_nodes: int = 100,
     ) -> None:
         if max_concurrent is not None and max_concurrent < 1:
             raise ValueError("max_concurrent must be a positive integer or None")
         self.ipu = ipu or LenientIPU(default_invariants())
         self.bus = event_bus or EventBus()
         self.max_concurrent = max_concurrent
+        self.max_dynamic_nodes = max_dynamic_nodes
         # Strong refs to prevent GC when EventBus uses weakrefs (#9)
         self._handlers: list = []
         self._install_observers()
@@ -113,10 +115,20 @@ class Runner:
                 )
             )
 
-        self._handlers.extend([on_start, on_finish, on_control])
+        async def on_spawn(br: Principal, control_node: OpNode, info: dict[str, Any]) -> None:
+            await self.ipu.on_observation(
+                Observation(
+                    who=br.id,
+                    what="graph.spawn",
+                    payload=info,
+                )
+            )
+
+        self._handlers.extend([on_start, on_finish, on_control, on_spawn])
         self.bus.subscribe("node.start", on_start)
         self.bus.subscribe("node.finish", on_finish)
         self.bus.subscribe("control.action", on_control)
+        self.bus.subscribe("graph.spawn", on_spawn)
 
     async def run(
         self,
@@ -135,6 +147,13 @@ class Runner:
     ) -> AsyncGenerator[tuple[UUID, dict[str, Any]], None]:
         """Execute graph and yield results as nodes complete; control nodes run serially after regular nodes per wave."""
         g.validate_dag()
+
+        self._total_spawned = 0
+        name_map: dict[str, UUID] = {}
+        for nid, node in g.nodes.items():
+            node_name = node.params.get("_lionagi_operation_name") or node.params.get("name")
+            if node_name:
+                name_map[node_name] = nid
 
         ready: set[UUID] = set(g.roots) if g.roots else {
             nid for nid, node in g.nodes.items() if not node.deps
@@ -229,8 +248,16 @@ class Runner:
                     if nid in cand.deps and cand.deps.issubset(done):
                         ready.add(cand_id)
 
-            for action in control_actions:
-                self._apply_control_action(action, g, ready, done, results)
+            for ca_idx, action in enumerate(control_actions):
+                self._apply_control_action(action, g, ready, done, results, name_map)
+                if action.get("action") == "spawn":
+                    spawn_meta = action.get("metadata", {}).get("spawn_nodes", [])
+                    ctrl_node = control_batch[ca_idx] if ca_idx < len(control_batch) else None
+                    await self.bus.emit("graph.spawn", br, ctrl_node, {
+                        "spawned_count": len(spawn_meta),
+                        "total_dynamic": self._total_spawned,
+                        "names": [s.get("name") for s in spawn_meta],
+                    })
 
     async def _run_parallel_nodes(
         self,
@@ -287,6 +314,18 @@ class Runner:
         action = str(result.get("action", "proceed")).lower()
         if action == "abort":
             action = "halt"
+        if action == "spawn":
+            spawn_nodes = (
+                result.get("nodes")
+                or result.get("spawn_nodes")
+                or []
+            )
+            return {
+                "action": "spawn",
+                "targets": [],
+                "reason": str(result.get("reason", "")),
+                "metadata": {"spawn_nodes": spawn_nodes},
+            }
         targets = (
             result.get("targets")
             or result.get("target_ids")
@@ -339,6 +378,7 @@ class Runner:
         ready: set[UUID],
         done: set[UUID],
         results: dict[UUID, dict[str, Any]],
+        name_map: dict[str, UUID] | None = None,
     ) -> None:
         action_name = action.get("action")
         targets = set(action.get("targets") or [])
@@ -355,6 +395,60 @@ class Runner:
                 results.pop(node_id, None)
                 if g.nodes[node_id].deps.issubset(done):
                     ready.add(node_id)
+
+        if action_name == "spawn":
+            new_nodes = action.get("metadata", {}).get("spawn_nodes") or action.get("targets", [])
+            if not new_nodes:
+                return
+
+            if self._total_spawned + len(new_nodes) > self.max_dynamic_nodes:
+                from lionagi._errors import ExecutionError
+                raise ExecutionError(
+                    f"Dynamic node limit ({self.max_dynamic_nodes}) exceeded: "
+                    f"tried to spawn {len(new_nodes)}, already spawned {self._total_spawned}",
+                    retryable=False,
+                )
+
+            nm = name_map if name_map is not None else {}
+
+            for spec in new_nodes:
+                morphism = spec.get("morphism")
+                if morphism is None:
+                    raise ValueError("spawn spec missing 'morphism'")
+
+                # Resolve deps — can be UUIDs, UUID strings, or names
+                raw_deps = spec.get("deps", [])
+                resolved_deps: set[UUID] = set()
+                for d in raw_deps:
+                    if isinstance(d, UUID):
+                        resolved_deps.add(d)
+                    else:
+                        resolved = self._resolve_node_id(d, g)
+                        if resolved is None:
+                            # Check name_map for nodes added earlier in this batch
+                            resolved = nm.get(str(d))
+                        if resolved is None:
+                            raise ValueError(f"spawn: unresolved dependency '{d}'")
+                        resolved_deps.add(resolved)
+
+                node = OpNode(
+                    m=morphism,
+                    deps=resolved_deps,
+                    params=spec.get("params", {}),
+                    control=spec.get("control", False),
+                )
+
+                node_name = spec.get("name")
+                if node_name:
+                    node.params["_lionagi_operation_name"] = node_name
+                    nm[node_name] = node.id
+
+                g.add_node(node)
+
+                if node.deps.issubset(done):
+                    ready.add(node.id)
+
+            self._total_spawned += len(new_nodes)
 
     async def _exec_node(
         self,

@@ -17,6 +17,7 @@ from .element import ID, Element, validate_order
 
 T = TypeVar("T", bound=Element)
 
+_MISSING = object()
 
 __all__ = (
     "Progression",
@@ -294,18 +295,24 @@ class Progression(Element, Ordering[T], Generic[T]):
         self.order.extend(refs)
         self._members.update(refs)
 
-    def pop(self, index: int = -1) -> UUID:
+    def pop(self, index: int = -1, default: Any = _MISSING) -> UUID:
         """Removes and returns one ID by index.
 
         Args:
             index (int):
                 Position of the item to pop (default is the last item).
+            default (Any):
+                If provided, return this value when the index is out of
+                range instead of raising.  Use the default :data:`_MISSING`
+                sentinel (no argument) to get the raising behaviour.
 
         Returns:
-            UUID: The removed ID.
+            UUID: The removed ID, or ``default`` when index is invalid
+            and a default was supplied.
 
         Raises:
-            ItemNotFoundError: If the index is invalid or out of range.
+            ItemNotFoundError: If the index is invalid or out of range
+                and no default was provided.
         """
         try:
             if index == -1 or index == len(self.order) - 1:
@@ -320,6 +327,8 @@ class Progression(Element, Ordering[T], Generic[T]):
                 self._members.discard(uid)
             return uid
         except Exception as e:
+            if default is not _MISSING:
+                return default
             raise ItemNotFoundError(str(e)) from e
 
     def popleft(self) -> UUID:

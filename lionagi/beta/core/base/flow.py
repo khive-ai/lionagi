@@ -16,7 +16,7 @@ from lionagi.ln._utils import extract_types, synchronized
 
 from .element import Element
 from .pile import Pile
-from .progression import Progression
+from lionagi.protocols.generic.progression import Progression
 
 __all__ = ("Flow",)
 

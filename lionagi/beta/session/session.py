@@ -19,9 +19,9 @@ from uuid import UUID
 from pydantic import Field, PrivateAttr, field_serializer, model_validator
 
 from lionagi.beta.core.base.element import Element
-from lionagi.beta.core.base.flow import Flow
+from lionagi.protocols.generic.flow import Flow
 from lionagi.beta.core.base.pile import Pile
-from lionagi.beta.core.base.progression import Progression
+from lionagi.protocols.generic.progression import Progression
 from lionagi.beta.core.types import Capability, Principal
 from lionagi._errors import NotFoundError
 from lionagi.beta.resource import Calling, ResourceRegistry, iModel

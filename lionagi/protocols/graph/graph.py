@@ -457,6 +457,10 @@ class Graph(Element, Relational, Generic[T]):
         edges now originate from ``new_node``. The old node is
         removed from the graph and returned.
 
+        Each transferred edge is replaced by an immutable copy (new
+        ``Edge`` instance) so callers who hold a reference to the
+        original edge are not silently mutated.
+
         Args:
             old: The node or node ID to replace.
             new_node: The replacement node (must not already be in the graph).
@@ -464,6 +468,8 @@ class Graph(Element, Relational, Generic[T]):
         Returns:
             The removed old node.
         """
+        from .edge import Edge as _Edge  # avoid circular at module level
+
         old_id = ID.get_id(old)
         if old_id not in self.internal_nodes:
             raise RelationError(f"Node {old_id} not found in graph")
@@ -477,17 +483,52 @@ class Graph(Element, Relational, Generic[T]):
 
         mapping = self.node_edge_mapping[old_id]
 
-        for edge_id, head_id in list(mapping["in"].items()):
-            edge = self.internal_edges[edge_id]
-            edge.tail = new_id
-            self.node_edge_mapping[new_id]["in"][edge_id] = head_id
-            self.node_edge_mapping[head_id]["out"][edge_id] = new_id
+        # Snapshot before iteration so we can remove-and-replace safely
+        in_items = list(mapping["in"].items())
+        out_items = list(mapping["out"].items())
 
-        for edge_id, tail_id in list(mapping["out"].items()):
-            edge = self.internal_edges[edge_id]
-            edge.head = new_id
-            self.node_edge_mapping[new_id]["out"][edge_id] = tail_id
-            self.node_edge_mapping[tail_id]["in"][edge_id] = new_id
+        for edge_id, head_id in in_items:
+            old_edge = self.internal_edges[edge_id]
+            # Build a fresh copy pointing tail to new_id
+            new_edge = _Edge(
+                head=old_edge.head,
+                tail=new_id,
+                condition=old_edge.condition,
+                label=list(old_edge.label) if old_edge.label else None,
+                **{
+                    k: v
+                    for k, v in old_edge.properties.items()
+                    if k not in {"condition", "label"}
+                },
+            )
+            # Remove old edge and insert new one in the internal pile
+            self.internal_edges.pop(edge_id)
+            self.internal_edges.insert(len(self.internal_edges), new_edge)
+            self.node_edge_mapping[new_id]["in"][new_edge.id] = head_id
+            self.node_edge_mapping[head_id]["out"][new_edge.id] = new_id
+            # Remove old edge from head node's outbound mapping
+            self.node_edge_mapping[head_id]["out"].pop(edge_id, None)
+
+        for edge_id, tail_id in out_items:
+            old_edge = self.internal_edges[edge_id]
+            # Build a fresh copy pointing head to new_id
+            new_edge = _Edge(
+                head=new_id,
+                tail=old_edge.tail,
+                condition=old_edge.condition,
+                label=list(old_edge.label) if old_edge.label else None,
+                **{
+                    k: v
+                    for k, v in old_edge.properties.items()
+                    if k not in {"condition", "label"}
+                },
+            )
+            self.internal_edges.pop(edge_id)
+            self.internal_edges.insert(len(self.internal_edges), new_edge)
+            self.node_edge_mapping[new_id]["out"][new_edge.id] = tail_id
+            self.node_edge_mapping[tail_id]["in"][new_edge.id] = new_id
+            # Remove old edge from tail node's inbound mapping
+            self.node_edge_mapping[tail_id]["in"].pop(edge_id, None)
 
         self.node_edge_mapping.pop(old_id)
         return self.internal_nodes.pop(old_id)

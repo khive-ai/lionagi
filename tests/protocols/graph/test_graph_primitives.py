@@ -211,7 +211,11 @@ def test_edge_setter_rejects_non_condition():
 
 
 def test_graph_replace_node_rewires_inbound_and_outbound_edges():
-    """replace_node transfers all edges from old node to new node."""
+    """replace_node transfers all edges from old node to new node.
+
+    New edges (with fresh IDs) are created for each transferred connection
+    so that external references to old edges are not silently mutated.
+    """
     g = Graph()
     a, b, c = Node(), Node(), Node()
     for n in (a, b, c):
@@ -230,12 +234,23 @@ def test_graph_replace_node_rewires_inbound_and_outbound_edges():
     assert b.id not in g.internal_nodes
     assert new_b.id in g.internal_nodes
 
-    # Edge that was a->b should now point to new_b
-    assert g.internal_edges[e_ab.id].tail == new_b.id
-    # Edge that was b->c should now originate from new_b
-    assert g.internal_edges[e_bc.id].head == new_b.id
+    # Old edge IDs are removed (new copies with fresh IDs replace them)
+    assert e_ab.id not in g.internal_edges
+    assert e_bc.id not in g.internal_edges
 
-    # new_b has one inbound and one outbound edge in the adjacency mapping
+    # new_b has exactly one inbound and one outbound edge
     mapping = g.node_edge_mapping[new_b.id]
-    assert e_ab.id in mapping["in"]
-    assert e_bc.id in mapping["out"]
+    assert len(mapping["in"]) == 1
+    assert len(mapping["out"]) == 1
+
+    # The replacement inbound edge points to new_b from a
+    in_edge_id = next(iter(mapping["in"]))
+    in_edge = g.internal_edges[in_edge_id]
+    assert in_edge.head == a.id
+    assert in_edge.tail == new_b.id
+
+    # The replacement outbound edge goes from new_b to c
+    out_edge_id = next(iter(mapping["out"]))
+    out_edge = g.internal_edges[out_edge_id]
+    assert out_edge.head == new_b.id
+    assert out_edge.tail == c.id

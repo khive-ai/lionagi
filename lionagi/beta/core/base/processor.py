@@ -14,7 +14,7 @@ from lionagi.ln import concurrency
 from .event import Event, EventStatus
 from .flow import Flow
 from .pile import Pile
-from .progression import Progression
+from lionagi.protocols.generic.progression import Progression
 
 if TYPE_CHECKING:
     from uuid import UUID

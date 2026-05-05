@@ -139,7 +139,12 @@ def _validate_progression(value: Any, collections: dict[UUID, T], /) -> Progress
 def _validate_collections(
     value: Any, item_type: set | None, strict_type: bool, /
 ) -> dict[str, T]:
-    if not value:
+    # Treat None / empty non-Element collections as "nothing to add".
+    # Importantly, an Element that evaluates to False (e.g. an empty
+    # Progression) must NOT be skipped — it is a valid item.
+    if value is None:
+        return {}
+    if not isinstance(value, Element) and not value:
         return {}
 
     value = to_list_type(value)

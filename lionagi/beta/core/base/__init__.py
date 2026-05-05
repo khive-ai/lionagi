@@ -3,6 +3,6 @@ from .event import Event
 from lionagi.protocols.generic.eventbus import EventBus
 from .node import Node
 from .pile import Pile
-from .progression import Progression
+from lionagi.protocols.generic.progression import Progression
 
 __all__ = ("Element", "Event", "EventBus", "Node", "Pile", "Progression")

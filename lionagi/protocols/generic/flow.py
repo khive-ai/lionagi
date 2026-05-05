@@ -7,7 +7,7 @@ import threading
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from pydantic import Field, PrivateAttr, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from typing_extensions import Self  # noqa: UP035
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError
@@ -20,6 +20,8 @@ __all__ = ("Flow",)
 
 E = TypeVar("E", bound=Element)
 P = TypeVar("P", bound=Progression)
+
+_MISSING = object()
 
 
 class Flow(Element, Generic[E, P]):
@@ -61,6 +63,63 @@ class Flow(Element, Generic[E, P]):
     _progression_names: dict[str, UUID] = PrivateAttr(default_factory=dict)
     _lock: threading.RLock = PrivateAttr(default_factory=threading.RLock)
 
+    def __init__(
+        self,
+        items: Any = _MISSING,
+        progressions: Any = _MISSING,
+        *,
+        name: str | None = None,
+        item_type: type | set[type] | None = None,
+        strict_type: bool = False,
+        **data: Any,
+    ) -> None:
+        """Initialize Flow with optional item type constraints.
+
+        Args:
+            items: Initial items (Element, list, Pile, or serialized dict).
+            progressions: Initial progressions (list or Pile).
+            name: Optional flow identifier.
+            item_type: Allowed type(s) for ``items`` pile. Passed through
+                to :class:`Pile` when constructing the internal items store.
+            strict_type: If True, reject :class:`Element` subclasses that
+                are not exactly ``item_type``.
+            **data: Additional Pydantic fields forwarded to the model.
+        """
+        # Build the items Pile early so Pydantic never re-validates it via
+        # the field validator (passing an already-built Pile bypasses the
+        # field-level validator when mode="wrap" short-circuits it).
+        if item_type is not None or strict_type:
+            source = items if items is not _MISSING else None
+            if not isinstance(source, Pile):
+                data["items"] = Pile(
+                    collections=source,
+                    item_type=item_type,
+                    strict_type=strict_type,
+                )
+            else:
+                data["items"] = source
+        elif items is not _MISSING:
+            data["items"] = items
+
+        if progressions is not _MISSING:
+            data["progressions"] = progressions
+        if name is not None:
+            data["name"] = name
+
+        super().__init__(**data)
+
+    @field_validator("items", "progressions", mode="wrap")
+    @classmethod
+    def _coerce_piles(cls, v: Any, handler: Any) -> Any:
+        """Accept pre-built Pile instances; coerce dicts and lists."""
+        if isinstance(v, Pile):
+            return v
+        if isinstance(v, dict):
+            return Pile.from_dict(v)
+        if isinstance(v, list):
+            return Pile(collections=v)
+        return handler(v)
+
     @model_validator(mode="after")
     def _validate_referential_integrity(self) -> Self:
         """Validate all progression UUIDs exist in items pile."""
@@ -87,14 +146,14 @@ class Flow(Element, Generic[E, P]):
 
         Ensures ``items`` and ``progressions`` are serialized via their
         own ``to_dict`` so that ``lion_class`` metadata is preserved for
-        polymorphic deserialization.
+        polymorphic deserialization.  The ``mode`` parameter is forwarded
+        to both nested Piles so that JSON / DB serialization is applied
+        consistently throughout the object tree.
         """
-        if mode == "python":
-            dict_ = self._to_dict(**kw)
-            dict_["items"] = self.items.to_dict()
-            dict_["progressions"] = self.progressions.to_dict()
-            return dict_
-        return super().to_dict(mode=mode, **kw)
+        dict_ = self._to_dict(**kw)
+        dict_["items"] = self.items.to_dict(mode=mode)
+        dict_["progressions"] = self.progressions.to_dict(mode=mode)
+        return dict_
 
     @classmethod
     def _coerce_pile(cls, value: Any) -> Pile:
