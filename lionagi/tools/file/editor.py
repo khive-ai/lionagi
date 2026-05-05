@@ -14,6 +14,8 @@ from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
 
+_file_states: dict[str, float] = {}
+
 # Finding 6/7: deny access to common secret/credential filenames
 _DENIED_NAMES: frozenset[str] = frozenset(
     {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
@@ -130,11 +132,26 @@ def _write_sync(file_path: str, content: str, workspace_root: Path) -> EditorRes
         p = _resolve_workspace_path(file_path, workspace_root)
     except PermissionError as e:
         return EditorResponse(success=False, error=str(e))
+    key = str(p)
+    if p.exists() and key in _file_states:
+        try:
+            current_mtime = p.stat().st_mtime_ns
+        except OSError:
+            current_mtime = 0
+        if current_mtime != _file_states[key]:
+            return EditorResponse(
+                success=False,
+                error=f"File changed since last read: {file_path}. Read again.",
+            )
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
     except OSError as e:
         return EditorResponse(success=False, error=f"Write error: {e}")
+    try:
+        _file_states[key] = p.stat().st_mtime_ns
+    except OSError:
+        _file_states[key] = 0
     return EditorResponse(success=True, content=f"Written: {p}")
 
 
@@ -152,6 +169,18 @@ def _edit_sync(
         return EditorResponse(success=False, error=str(e))
     except FileNotFoundError:
         return EditorResponse(success=False, error=f"File not found: {file_path}")
+
+    key = str(p)
+    if key in _file_states:
+        try:
+            current_mtime = p.stat().st_mtime_ns
+        except OSError:
+            current_mtime = 0
+        if current_mtime != _file_states[key]:
+            return EditorResponse(
+                success=False,
+                error=f"File changed since last read: {file_path}. Read again.",
+            )
 
     try:
         original = p.read_text(encoding="utf-8")
@@ -180,6 +209,11 @@ def _edit_sync(
         _write_text_no_follow(p, updated)
     except OSError as e:
         return EditorResponse(success=False, error=f"Write error: {e}")
+
+    try:
+        _file_states[key] = p.stat().st_mtime_ns
+    except OSError:
+        _file_states[key] = 0
 
     idx = updated.find(new_string)
     if idx == -1:

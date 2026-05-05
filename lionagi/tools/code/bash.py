@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import re
@@ -10,10 +11,10 @@ import shlex
 import signal
 import subprocess
 import threading
+import time
 
 from pydantic import BaseModel, Field
 
-from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
@@ -159,11 +160,19 @@ def _subprocess_sync(
         proc.wait(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
         # Finding 4: kill the entire process group, not just the leader
+        # Send SIGTERM first to allow graceful shutdown, then SIGKILL if needed
         with contextlib.suppress(ProcessLookupError, OSError):
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                os.killpg(proc.pid, signal.SIGTERM)
             except AttributeError:
-                proc.kill()
+                proc.terminate()
+        time.sleep(2)
+        if proc.poll() is None:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except AttributeError:
+                    proc.kill()
         proc.wait()
         t_out.join(timeout=1)
         t_err.join(timeout=1)
@@ -180,6 +189,117 @@ def _subprocess_sync(
     return BashResponse(
         stdout=_decode_output(stdout_buf, stdout_truncated[0]),
         stderr=_decode_output(stderr_buf, stderr_truncated[0]),
+        return_code=proc.returncode,
+        timed_out=False,
+    )
+
+
+async def _read_bounded_async(
+    stream: asyncio.StreamReader,
+    max_bytes: int,
+) -> tuple[str, bool]:
+    buf = bytearray()
+    truncated = False
+    while True:
+        chunk = await stream.read(8192)
+        if not chunk:
+            break
+        remaining = max_bytes - len(buf)
+        if remaining > 0:
+            buf.extend(chunk[:remaining])
+        if len(buf) >= max_bytes:
+            truncated = True
+    text = bytes(buf).decode("utf-8", errors="replace")
+    if truncated:
+        text += f"\n\n[... output truncated at {max_bytes} bytes ...]\n"
+    return text, truncated
+
+
+def _kill_pgroup(proc: asyncio.subprocess.Process) -> None:
+    with contextlib.suppress(ProcessLookupError, OSError):
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except AttributeError:
+            proc.terminate()
+    with contextlib.suppress(ProcessLookupError, OSError):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except AttributeError:
+            proc.kill()
+
+
+async def _subprocess_async(
+    cmd: str | list[str],
+    shell: bool,
+    timeout_sec: float,
+    timeout_ms: int,
+    cwd: str | None,
+) -> BashResponse:
+    if shell:
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                start_new_session=True,
+            )
+        except Exception as e:
+            return BashResponse(stdout="", stderr=f"Execution error: {e}", return_code=-1)
+    else:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                start_new_session=True,
+            )
+        except Exception as e:
+            return BashResponse(stdout="", stderr=f"Execution error: {e}", return_code=-1)
+
+    out_task = asyncio.create_task(
+        _read_bounded_async(proc.stdout, _MAX_OUTPUT_BYTES)
+    )
+    err_task = asyncio.create_task(
+        _read_bounded_async(proc.stderr, _MAX_OUTPUT_BYTES)
+    )
+
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=timeout_sec)
+    except (TimeoutError, asyncio.TimeoutError):
+        with contextlib.suppress(ProcessLookupError, OSError):
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except AttributeError:
+                proc.terminate()
+        await asyncio.sleep(2)
+        if proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except AttributeError:
+                    proc.kill()
+        await proc.wait()
+        stdout, _ = await out_task
+        stderr, _ = await err_task
+        return BashResponse(
+            stdout=stdout,
+            stderr=f"Command timed out after {timeout_ms} ms",
+            return_code=-1,
+            timed_out=True,
+        )
+    except asyncio.CancelledError:
+        _kill_pgroup(proc)
+        out_task.cancel()
+        err_task.cancel()
+        raise
+
+    stdout, _ = await out_task
+    stderr, _ = await err_task
+    return BashResponse(
+        stdout=stdout,
+        stderr=stderr,
         return_code=proc.returncode,
         timed_out=False,
     )
@@ -205,8 +325,7 @@ class BashTool(LionTool):
         except PermissionError as e:
             return BashResponse(stdout="", stderr=str(e), return_code=-1)
 
-        return await run_sync(
-            _subprocess_sync,
+        return await _subprocess_async(
             cmd,
             shell,
             timeout_sec,

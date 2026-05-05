@@ -120,12 +120,12 @@ def _apply_permissions(config: AgentConfig) -> None:
     if not config.permissions:
         return
 
-    from .permissions import PermissionPolicy
+    from .permissions import PermissionGuard
 
-    if isinstance(config.permissions, PermissionPolicy):
+    if isinstance(config.permissions, PermissionGuard):
         policy = config.permissions
     elif isinstance(config.permissions, dict):
-        policy = PermissionPolicy.from_dict(config.permissions)
+        policy = PermissionGuard.from_dict(config.permissions)
     else:
         return
 

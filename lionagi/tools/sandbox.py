@@ -1,26 +1,222 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Sandbox execution via git worktrees.
+"""Sandbox and local-effect policies for tools.
 
-Agent works in an isolated worktree branch. Changes are tracked as git diff.
-If approved, merge the branch back. If rejected, delete the worktree.
+This module contains two separate concerns used by agent tools:
+- PathGuard / ProcessGuard: local filesystem and subprocess effect gates.
+- SandboxSession helpers: git-worktree isolation for larger code changes.
 
-Why worktrees over tempdir:
-- Based on real repo state (same files, same history)
-- Changes are a proper git branch (reviewable, mergeable)
-- No need to copy files — worktree shares the git objects
-- Agent sees the real codebase, not a synthetic environment
+Path/process policies are intentionally separate from beta.core.policy:
+core policy answers "may this Principal invoke this action"; these policies
+answer "is this particular path/process effect safe inside the workspace".
 """
 
 from __future__ import annotations
 
+import contextlib
+import os
 import subprocess
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from lionagi.ln.concurrency import run_sync
+
+__all__ = (
+    "PathGuard",
+    "ProcessGuard",
+    "SandboxSession",
+    "create_sandbox",
+    "sandbox_commit",
+    "sandbox_diff",
+    "sandbox_discard",
+    "sandbox_merge",
+)
+
+_DEFAULT_DENY_NAMES: frozenset[str] = frozenset(
+    {
+        ".env",
+        ".env.local",
+        ".netrc",
+        ".htpasswd",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+    }
+)
+
+_DEFAULT_DENY_GLOBS: tuple[str, ...] = (
+    ".ssh/*",
+    ".aws/*",
+    ".config/**/credentials*",
+    ".git/config",
+    ".git-credentials",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "secrets.*",
+)
+
+_SAFE_ENV: dict[str, str] = {
+    "PATH": "/usr/local/bin:/usr/bin:/bin",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "HOME": "/tmp",
+}
+
+_PRIVILEGED_COMMANDS: frozenset[str] = frozenset(
+    {
+        "bash",
+        "sh",
+        "zsh",
+        "python",
+        "python3",
+        "node",
+        "perl",
+        "ruby",
+        "curl",
+        "wget",
+        "ssh",
+        "scp",
+        "sudo",
+        "su",
+        "apt",
+        "brew",
+        "pip",
+        "npm",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PathGuard:
+    root: Path
+    deny_names: frozenset[str] = _DEFAULT_DENY_NAMES
+    deny_globs: tuple[str, ...] = _DEFAULT_DENY_GLOBS
+    allow_symlinks: bool = False
+    max_read_bytes: int = 5_000_000
+    max_write_bytes: int = 5_000_000
+    max_image_bytes: int = 10_000_000
+
+    def resolve(self, path: str) -> Path:
+        raw = Path(path).expanduser()
+        root_resolved = self.root.resolve()
+        candidate = raw if raw.is_absolute() else root_resolved / raw
+        if not self.allow_symlinks and candidate.is_symlink():
+            raise PermissionError(f"Refusing symlink: {path!r}")
+        resolved = candidate.resolve(strict=False)
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError as e:
+            raise PermissionError(f"Path escapes workspace: {path!r}") from e
+        if resolved.name in self.deny_names:
+            raise PermissionError(f"Access denied: {resolved.name!r}")
+        for glob in self.deny_globs:
+            if resolved.match(glob):
+                raise PermissionError(f"Access denied by pattern: {glob!r}")
+        return resolved
+
+    def open_read(self, path: str) -> tuple[int, os.stat_result]:
+        p = self.resolve(path)
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        if not self.allow_symlinks and hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(p, flags)
+        st = os.fstat(fd)
+        if st.st_size > self.max_read_bytes:
+            os.close(fd)
+            raise PermissionError(
+                f"File too large: {st.st_size} bytes > {self.max_read_bytes}"
+            )
+        return fd, st
+
+    def atomic_write(self, path: Path, text: str, mode: int = 0o644) -> None:
+        size = len(text.encode("utf-8"))
+        if size > self.max_write_bytes:
+            raise PermissionError(
+                f"Content too large: {size} bytes > {self.max_write_bytes}"
+            )
+        tmp = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex[:8]}")
+        fd = os.open(
+            tmp,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+            mode,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
+
+    def validate_dir(self, path: str) -> Path:
+        p = self.resolve(path)
+        if not p.is_dir():
+            raise PermissionError(f"Not a directory: {path!r}")
+        return p
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessGuard:
+    workspace_root: Path
+    allowed_commands: frozenset[str] | None = None
+    denied_commands: frozenset[str] = field(
+        default=frozenset(
+            {
+                "rm",
+                "rmdir",
+                "mkfs",
+                "dd",
+                "shutdown",
+                "reboot",
+                "kill",
+                "killall",
+            }
+        )
+    )
+    privileged_commands: frozenset[str] = _PRIVILEGED_COMMANDS
+    extra_env: dict[str, str] = field(default_factory=dict)
+    max_output_bytes: int = 100_000
+    default_timeout_s: float = 30.0
+    max_timeout_s: float = 300.0
+
+    def safe_env(self) -> dict[str, str]:
+        env = dict(_SAFE_ENV)
+        env.update(self.extra_env)
+        return env
+
+    def validate_cwd(self, cwd: str | None) -> str:
+        root_resolved = self.workspace_root.resolve()
+        if cwd is None:
+            return str(root_resolved)
+        resolved = Path(cwd).resolve()
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError as e:
+            raise PermissionError(f"cwd escapes workspace: {cwd!r}") from e
+        if not resolved.is_dir():
+            raise PermissionError(f"cwd is not a directory: {cwd!r}")
+        return str(resolved)
+
+    def check_command(self, argv: list[str]) -> None:
+        if not argv:
+            raise PermissionError("Empty command")
+        cmd = Path(argv[0]).name
+        if cmd in self.denied_commands:
+            raise PermissionError(f"Command denied: {cmd!r}")
+        if self.allowed_commands is not None and cmd not in self.allowed_commands:
+            raise PermissionError(f"Command not in allowlist: {cmd!r}")
+
+    def clamp_timeout(self, timeout_ms: int | None) -> float:
+        if timeout_ms is None:
+            return self.default_timeout_s
+        t = max(1, min(timeout_ms, int(self.max_timeout_s * 1000)))
+        return t / 1000.0
 
 
 @dataclass

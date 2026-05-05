@@ -3,12 +3,12 @@
 
 from .config import AgentConfig
 from .factory import create_agent
-from .permissions import PermissionPolicy
+from .permissions import PermissionGuard
 from .settings import apply_hooks_from_settings, load_settings
 
 __all__ = (
     "AgentConfig",
-    "PermissionPolicy",
+    "PermissionGuard",
     "create_agent",
     "load_settings",
     "apply_hooks_from_settings",

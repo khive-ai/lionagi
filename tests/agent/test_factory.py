@@ -84,10 +84,10 @@ async def test_create_agent_coding_all_tools_async():
 
 
 async def test_create_agent_with_permissions_sets_preprocessor():
-    from lionagi.agent.permissions import PermissionPolicy
+    from lionagi.agent.permissions import PermissionGuard
 
     config = AgentConfig.coding()
-    config.permissions = PermissionPolicy.read_only()
+    config.permissions = PermissionGuard.read_only()
     branch = await _make(config)
 
     # Only coding tools get permission preprocessors (MCP tools from ambient env are unaffected)
@@ -99,10 +99,10 @@ async def test_create_agent_with_permissions_sets_preprocessor():
 
 async def test_create_agent_permission_deny_all_preprocessor_raises():
     """If deny_all policy is set, preprocessor on any tool should raise PermissionError."""
-    from lionagi.agent.permissions import PermissionPolicy
+    from lionagi.agent.permissions import PermissionGuard
 
     config = AgentConfig.coding()
-    config.permissions = PermissionPolicy.deny_all()
+    config.permissions = PermissionGuard.deny_all()
     branch = await _make(config)
 
     reader_tool = branch.acts.registry["reader"]
@@ -115,10 +115,10 @@ async def test_create_agent_permission_deny_all_preprocessor_raises():
 
 async def test_create_agent_coding_permissions_recheck_user_mutated_args(tmp_path):
     """User pre-hooks must not be able to rewrite safe args after permission checks."""
-    from lionagi.agent.permissions import PermissionPolicy
+    from lionagi.agent.permissions import PermissionGuard
 
     config = AgentConfig.coding(cwd=str(tmp_path))
-    config.permissions = PermissionPolicy(
+    config.permissions = PermissionGuard(
         mode="rules",
         allow={"bash": ["echo *"]},
         deny={"bash": ["rm *"]},
@@ -137,10 +137,10 @@ async def test_create_agent_coding_permissions_recheck_user_mutated_args(tmp_pat
 
 async def test_create_agent_standalone_permissions_recheck_user_mutated_args():
     """Standalone tools get the same post-mutation permission validation."""
-    from lionagi.agent.permissions import PermissionPolicy
+    from lionagi.agent.permissions import PermissionGuard
 
     config = AgentConfig(tools=["bash"])
-    config.permissions = PermissionPolicy(
+    config.permissions = PermissionGuard(
         mode="rules",
         allow={"bash": ["echo *"]},
         deny={"bash": ["rm *"]},
@@ -396,7 +396,7 @@ async def test_create_agent_system_prompt_without_lion_system():
 
 
 # ---------------------------------------------------------------------------
-# _apply_permissions: non-PermissionPolicy non-dict → returns early (lines 127-130)
+# _apply_permissions: non-PermissionGuard non-dict → returns early (lines 127-130)
 # ---------------------------------------------------------------------------
 
 

@@ -1146,17 +1146,17 @@ class CodingToolkit(LionTool):
             - allow_all: full access (use for trusted implementation tasks)
             """
             from lionagi.agent.config import AgentConfig
-            from lionagi.agent.permissions import PermissionPolicy
+            from lionagi.agent.permissions import PermissionGuard
 
             max_turns = min(max(1, max_turns), 50)
             sub_cwd = cwd or (str(workspace_root) if workspace_root else None)
 
             perm_map = {
-                "read_only": PermissionPolicy.read_only(),
-                "safe": PermissionPolicy.safe(),
-                "allow_all": PermissionPolicy.allow_all(),
+                "read_only": PermissionGuard.read_only(),
+                "safe": PermissionGuard.safe(),
+                "allow_all": PermissionGuard.allow_all(),
             }
-            sub_permissions = perm_map.get(permissions, PermissionPolicy.read_only())
+            sub_permissions = perm_map.get(permissions, PermissionGuard.read_only())
 
             try:
                 model_spec = None

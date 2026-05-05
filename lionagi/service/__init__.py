@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .connections.endpoint import Endpoint, EndpointConfig
     from .imodel import iModel
     from .manager import iModelManager
+    from .rate_limiter import RateLimitConfig, TokenBucket
     from .rate_limited_processor import RateLimitedAPIExecutor
     from .token_calculator import TokenCalculator
 
@@ -34,6 +35,8 @@ _LAZY_MAP: dict[str, tuple[str, str | None]] = {
     "APICalling": ("connections.api_calling", "APICalling"),
     "TokenCalculator": ("token_calculator", "TokenCalculator"),
     "Broadcaster": ("broadcaster", "Broadcaster"),
+    "RateLimitConfig": ("rate_limiter", "RateLimitConfig"),
+    "TokenBucket": ("rate_limiter", "TokenBucket"),
 }
 
 
@@ -53,7 +56,9 @@ __all__ = (
     "HookRegistry",
     "HookedEvent",
     "RateLimitedAPIExecutor",
+    "RateLimitConfig",
     "TokenCalculator",
+    "TokenBucket",
     "global_hook_logger",
     "iModel",
     "iModelManager",

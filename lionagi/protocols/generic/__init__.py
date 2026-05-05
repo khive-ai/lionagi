@@ -3,6 +3,7 @@
 
 from .element import ID, Element
 from .event import Event, EventStatus, Execution
+from .eventbus import EventBus, Handler
 from .flow import Flow
 from .log import DataLogger, DataLoggerConfig, Log
 from .pile import Pile
@@ -13,6 +14,7 @@ __all__ = (
     "Element",
     "ID",
     "Event",
+    "EventBus",
     "Execution",
     "Flow",
     "Log",
@@ -23,4 +25,5 @@ __all__ = (
     "Processor",
     "Executor",
     "EventStatus",
+    "Handler",
 )

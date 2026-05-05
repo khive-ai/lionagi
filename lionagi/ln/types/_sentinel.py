@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Final, Literal, TypeVar, Union
+from collections.abc import Callable
+from dataclasses import MISSING
+from typing import Any, Final, Literal, TypeAlias, TypeGuard, TypeVar
 
 __all__ = (
     "Undefined",
@@ -8,10 +10,13 @@ __all__ = (
     "MaybeUndefined",
     "MaybeUnset",
     "MaybeSentinel",
+    "AdditionalSentinels",
     "SingletonType",
     "UndefinedType",
     "UnsetType",
     "is_sentinel",
+    "is_undefined",
+    "is_unset",
     "not_sentinel",
     "T",
 )
@@ -122,33 +127,69 @@ Undefined: Final = UndefinedType()
 Unset: Final = UnsetType()
 """A key present but value not yet provided."""
 
-MaybeUndefined = Union[T, UndefinedType]
-MaybeUnset = Union[T, UnsetType]
-MaybeSentinel = Union[T, UndefinedType, UnsetType]
+MaybeUndefined: TypeAlias = T | UndefinedType
+MaybeUnset: TypeAlias = T | UnsetType
+MaybeSentinel: TypeAlias = T | UndefinedType | UnsetType
 
 _EMPTY_TUPLE = (tuple(), set(), frozenset(), dict(), list(), "")
+AdditionalSentinels = Literal["none", "empty", "pydantic", "dataclass"]
+
+
+def is_undefined(value: Any) -> bool:
+    return isinstance(value, UndefinedType)
+
+
+def is_unset(value: Any) -> bool:
+    return isinstance(value, UnsetType)
+
+
+def _is_builtin_sentinel(value: Any) -> bool:
+    return is_undefined(value) or is_unset(value)
+
+
+def _is_pydantic_sentinel(value: Any) -> bool:
+    from pydantic_core import PydanticUndefinedType
+
+    return isinstance(value, PydanticUndefinedType)
+
+
+SENTINEL_HANDLERS: dict[str, Callable[[Any], bool]] = {
+    "none": lambda value: value is None,
+    "empty": lambda value: value in _EMPTY_TUPLE,
+    "pydantic": _is_pydantic_sentinel,
+    "dataclass": lambda value: value is MISSING,
+}
 
 
 def is_sentinel(
     value: Any,
     *,
+    additions: set[AdditionalSentinels] = frozenset(),
     none_as_sentinel: bool = False,
     empty_as_sentinel: bool = False,
 ) -> bool:
     """Check if a value is any sentinel (Undefined or Unset)."""
-    if none_as_sentinel and value is None:
+    active = set(additions)
+    if none_as_sentinel:
+        active.add("none")
+    if empty_as_sentinel:
+        active.add("empty")
+    if _is_builtin_sentinel(value):
         return True
-    if empty_as_sentinel and value in _EMPTY_TUPLE:
-        return True
-    return value is Undefined or value is Unset
+    return any(SENTINEL_HANDLERS[key](value) for key in active)
 
 
 def not_sentinel(
-    value: Any, none_as_sentinel: bool = False, empty_as_sentinel: bool = False
-) -> bool:
+    value: T | UndefinedType | UnsetType,
+    none_as_sentinel: bool = False,
+    empty_as_sentinel: bool = False,
+    *,
+    additions: set[AdditionalSentinels] = frozenset(),
+) -> TypeGuard[T]:
     """Check if a value is NOT a sentinel. Useful for filtering operations."""
     return not is_sentinel(
         value,
+        additions=additions,
         none_as_sentinel=none_as_sentinel,
         empty_as_sentinel=empty_as_sentinel,
     )

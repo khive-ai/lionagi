@@ -1,19 +1,19 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from lionagi._errors import ValidationError
 
 from ..types import KeysLike
 from ._extract_json import extract_json
-from ._fuzzy_match import FuzzyMatchKeysParams, fuzzy_match_keys
-from ._string_similarity import SIMILARITY_TYPE
+from ._fuzzy_match import FuzzyMatchKeysParams, HandleUnmatched, fuzzy_match_keys
+from ._string_similarity import SIMILARITY_TYPE, SimilarityAlgo
 from ._to_dict import to_dict
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 
-__all__ = ("fuzzy_validate_pydantic",)
+__all__ = ("fuzzy_validate_mapping", "fuzzy_validate_pydantic")
 
 
 def fuzzy_validate_pydantic(
@@ -59,10 +59,10 @@ def fuzzy_validate_mapping(
     keys: KeysLike,
     /,
     *,
-    similarity_algo: SIMILARITY_TYPE | Callable[[str, str], float] = "jaro_winkler",
+    similarity_algo: SIMILARITY_TYPE | SimilarityAlgo | Callable[[str, str], float] = "jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,
-    handle_unmatched: Literal["ignore", "raise", "remove", "fill", "force"] = "ignore",
+    handle_unmatched: HandleUnmatched | str = HandleUnmatched.IGNORE,
     fill_value: Any = None,
     fill_mapping: dict[str, Any] | None = None,
     strict: bool = False,

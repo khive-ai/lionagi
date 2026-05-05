@@ -12,6 +12,7 @@ from __future__ import annotations
 import inspect
 import os
 import threading
+import warnings
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -102,6 +103,7 @@ class ModelParams(Params):
     # Private computed state
     _final_fields: dict[str, FieldInfo] = dc_field(default_factory=dict, init=False)
     _validators: dict[str, Callable] = dc_field(default_factory=dict, init=False)
+    _deprecation_warned: ClassVar[bool] = False
 
     def _validate(self) -> None:
         """Validate types and setup model configuration.
@@ -112,6 +114,16 @@ class ModelParams(Params):
         Raises:
             ValueError: If base_type is not a BaseModel subclass
         """
+        cls = type(self)
+        if not cls._deprecation_warned:
+            warnings.warn(
+                "lionagi.models.ModelParams is deprecated and will be removed in a future release. "
+                "Use lionagi.ln.types.Spec/Operable with spec adapters for new dynamic schemas.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            cls._deprecation_warned = True
+
         # Let parent handle basic Unset population
         Params._validate(self)
 

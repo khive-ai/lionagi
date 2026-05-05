@@ -1,4 +1,5 @@
 import contextlib
+import copy as _copy
 import importlib
 import importlib.util
 import uuid
@@ -14,11 +15,14 @@ from anyio import Path as AsyncPath
 
 P = ParamSpec("P")
 R = TypeVar("R")
+T = TypeVar("T")
 
 __all__ = (
     "acreate_path",
     "async_synchronized",
     "coerce_created_at",
+    "copy",
+    "create_path",
     "extract_types",
     "get_bins",
     "import_module",
@@ -120,6 +124,51 @@ async def acreate_path(
     if cancel_scope.cancelled_caught:
         raise TimeoutError(f"acreate_path timed out after {timeout}s")
     return result
+
+
+def create_path(
+    directory: StdPath | str,
+    filename: str,
+    extension: str | None = None,
+    timestamp: bool = False,
+    dir_exist_ok: bool = True,
+    file_exist_ok: bool = False,
+    time_prefix: bool = False,
+    timestamp_format: str | None = None,
+    random_hash_digits: int = 0,
+) -> StdPath:
+    if "/" in filename:
+        parts = filename.split("/")
+        directory = StdPath(directory).joinpath(*parts[:-1])
+        filename = parts[-1]
+
+    if "\\" in filename:
+        raise ValueError("Filename cannot contain directory separators.")
+
+    directory = StdPath(directory)
+    if "." in filename:
+        name, ext = filename.rsplit(".", 1)
+    else:
+        name = filename
+        ext = extension or ""
+    ext = f".{ext.lstrip('.')}" if ext else ""
+
+    if timestamp:
+        ts_str = datetime.now().strftime(timestamp_format or "%Y%m%d%H%M%S")
+        name = f"{ts_str}_{name}" if time_prefix else f"{name}_{ts_str}"
+
+    if random_hash_digits > 0:
+        name = f"{name}-{uuid.uuid4().hex[:random_hash_digits]}"
+
+    full_path = directory / f"{name}{ext}"
+    full_path.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
+
+    if full_path.exists() and not file_exist_ok:
+        raise FileExistsError(
+            f"File {full_path} already exists and file_exist_ok is False."
+        )
+
+    return full_path
 
 
 def get_bins(input_: list[str], upper: int) -> list[list[int]]:
@@ -416,3 +465,10 @@ def async_synchronized(
             return await func(*args, **kwargs)
 
     return wrapper
+
+
+def copy(obj: T, /, *, deep: bool = True, num: int = 1) -> T | list[T]:
+    if num < 1:
+        raise ValueError("Number of copies must be at least 1")
+    copy_func = _copy.deepcopy if deep else _copy.copy
+    return [copy_func(obj) for _ in range(num)] if num > 1 else copy_func(obj)

@@ -162,6 +162,7 @@ def flatten(
     *,
     sep: str = "|",
     max_depth: int | None = None,
+    preserve_empty: bool = True,
 ) -> dict[str, Any]:
     """Flatten nested dict/list to flat dict with sep-joined path keys."""
     result: dict[str, Any] = {}
@@ -173,6 +174,8 @@ def flatten(
             result[key_str] = obj
             continue
         if isinstance(obj, Mapping):
+            if preserve_empty and not obj and parent_key:
+                result[sep.join(parent_key)] = {}
             for k, v in obj.items():
                 new_key = parent_key + (str(k),)
                 if isinstance(v, (Mapping, Sequence)) and not isinstance(
@@ -182,6 +185,8 @@ def flatten(
                 else:
                     result[sep.join(new_key)] = v
         elif isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
+            if preserve_empty and not obj and parent_key:
+                result[sep.join(parent_key)] = []
             for i, v in enumerate(obj):
                 new_key = parent_key + (str(i),)
                 if isinstance(v, (Mapping, Sequence)) and not isinstance(
@@ -196,11 +201,16 @@ def flatten(
     return result
 
 
-def unflatten(data: dict[str, Any], sep: str = "|") -> dict[str, Any]:
+def unflatten(
+    data: dict[str, Any],
+    sep: str = "|",
+    *,
+    infer_lists: bool = True,
+) -> dict[str, Any]:
     """Reverse flatten; auto-detects list keys (consecutive integer strings)."""
 
-    def _convert(d: dict) -> dict | list:
-        if d and all(k.isdigit() for k in d):
+    def _convert(d: dict, *, root: bool = False) -> dict | list:
+        if infer_lists and not root and d and all(k.isdigit() for k in d):
             if all(str(i) in d for i in range(len(d))):
                 return [
                     _convert(d[str(i)]) if isinstance(d[str(i)], dict) else d[str(i)]
@@ -218,7 +228,7 @@ def unflatten(data: dict[str, Any], sep: str = "|") -> dict[str, Any]:
                 current[part] = {}
             current = current[part]
         current[parts[-1]] = value
-    return _convert(intermediate)
+    return _convert(intermediate, root=True)
 
 
 def deep_update(original: dict[Any, Any], update: dict[Any, Any]) -> dict[Any, Any]:

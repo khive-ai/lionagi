@@ -77,15 +77,14 @@ class DependencyAwareExecutor:
         self._op_start_times = {}  # operation_id -> monotonic start time
 
         # Initialize completion events for all operations
-        # and check for already completed operations
+        # and mark already-terminal operations as done.
         for node in graph.internal_nodes.values():
             if isinstance(node, Operation):
                 self.completion_events[node.id] = ConcurrencyEvent()
 
-                # If operation is already completed, mark it and store results
-                if node.execution.status == EventStatus.COMPLETED:
+                if node.execution.status in Event._TERMINAL_STATUSES:
                     self.completion_events[node.id].set()
-                    if hasattr(node, "response"):
+                    if hasattr(node, "response") and node.response is not None:
                         self.results[node.id] = node.response
 
     async def execute(self) -> dict[str, Any]:
@@ -108,10 +107,18 @@ class DependencyAwareExecutor:
         )
         limiter = CapacityLimiter(capacity)
 
+        # Only dispatch operations that still need execution — terminal
+        # ops from prior executor runs already have their completion events
+        # set and results stored from __init__, so dependents can resolve
+        # without re-dispatching the completed work.
         nodes = [
-            n for n in self.graph.internal_nodes.values() if isinstance(n, Operation)
+            n
+            for n in self.graph.internal_nodes.values()
+            if isinstance(n, Operation)
+            and n.execution.status not in Event._TERMINAL_STATUSES
         ]
-        await self._alcall(nodes, self._execute_operation, limiter=limiter)
+        if nodes:
+            await self._alcall(nodes, self._execute_operation, limiter=limiter)
 
         # Return results - only include actually completed operations
         completed_ops = [

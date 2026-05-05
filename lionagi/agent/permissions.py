@@ -13,7 +13,7 @@ Escalation lets a worker agent request permission from its orchestrator.
 
 Usage::
 
-    policy = PermissionPolicy(
+    policy = PermissionGuard(
         mode="rules",
         allow={"reader": ["*"], "search": ["*"], "bash": ["git *", "cargo *"]},
         deny={"bash": ["rm *", "sudo *"], "editor": [".env", "*.key"]},
@@ -85,7 +85,7 @@ class PermissionDecision:
 
 
 @dataclass
-class PermissionPolicy:
+class PermissionGuard:
     mode: str = "allow_all"  # "allow_all" | "deny_all" | "rules"
     allow: dict[str, list[str]] = field(default_factory=dict)
     deny: dict[str, list[str]] = field(default_factory=dict)
@@ -99,7 +99,7 @@ class PermissionPolicy:
         self.escalate = _normalize_rules(self.escalate)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> PermissionPolicy:
+    def from_dict(cls, data: dict[str, Any]) -> PermissionGuard:
         return cls(
             mode=data.get("mode", "allow_all"),
             allow=data.get("allow", {}),
@@ -108,15 +108,15 @@ class PermissionPolicy:
         )
 
     @classmethod
-    def allow_all(cls) -> PermissionPolicy:
+    def allow_all(cls) -> PermissionGuard:
         return cls(mode="allow_all")
 
     @classmethod
-    def deny_all(cls) -> PermissionPolicy:
+    def deny_all(cls) -> PermissionGuard:
         return cls(mode="deny_all")
 
     @classmethod
-    def read_only(cls) -> PermissionPolicy:
+    def read_only(cls) -> PermissionGuard:
         return cls(
             mode="rules",
             allow={"reader": ["*"], "search": ["*"], "context": ["*"]},
@@ -124,7 +124,7 @@ class PermissionPolicy:
         )
 
     @classmethod
-    def safe(cls) -> PermissionPolicy:
+    def safe(cls) -> PermissionGuard:
         return cls(
             mode="rules",
             allow={

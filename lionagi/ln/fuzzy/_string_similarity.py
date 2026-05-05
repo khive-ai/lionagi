@@ -3,6 +3,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -17,7 +18,7 @@ except ImportError:
     _HAS_RAPIDFUZZ = False
 
 
-__all__ = ("string_similarity",)
+__all__ = ("SimilarityAlgo", "string_similarity")
 
 
 def cosine_similarity(s1: str, s2: str) -> float:
@@ -231,6 +232,28 @@ def sequence_matcher_similarity(s1: str, s2: str) -> float:
     from difflib import SequenceMatcher
 
     return SequenceMatcher(None, s1, s2).ratio()
+
+
+class SimilarityAlgo(str, Enum):
+    JARO_WINKLER = "jaro_winkler"
+    LEVENSHTEIN = "levenshtein"
+    SEQUENCE_MATCHER = "sequence_matcher"
+    HAMMING = "hamming"
+    COSINE = "cosine"
+
+    @classmethod
+    def from_potential_valid(cls, v: "SimilarityAlgo | str") -> "SimilarityAlgo":
+        if isinstance(v, cls):
+            return v
+        try:
+            return cls(v)
+        except ValueError as e:
+            raise ValueError(f"Invalid similarity algorithm: {v}") from e
+
+    cosine_similarity = staticmethod(cosine_similarity)
+    hamming_similarity = staticmethod(hamming_similarity)
+    jaro_winkler_similarity = staticmethod(jaro_winkler_similarity)
+    sequence_matcher_similarity = staticmethod(sequence_matcher_similarity)
 
 
 # Map of available similarity algorithms

@@ -1,21 +1,29 @@
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal
+from enum import Enum
+from typing import Any, ClassVar
 
 from ..types import KeysLike, ModelConfig, Params, Unset
 from ._string_similarity import (
     SIMILARITY_ALGO_MAP,
     SIMILARITY_TYPE,
+    SimilarityAlgo,
     SimilarityFunc,
     string_similarity,
 )
 
 __all__ = (
+    "HandleUnmatched",
     "fuzzy_match_keys",
     "FuzzyMatchKeysParams",
 )
 
 
-HandleUnmatched = Literal["ignore", "raise", "remove", "fill", "force"]
+class HandleUnmatched(str, Enum):
+    IGNORE = "ignore"
+    RAISE = "raise"
+    REMOVE = "remove"
+    FILL = "fill"
+    FORCE = "force"
 
 
 def fuzzy_match_keys(
@@ -23,10 +31,10 @@ def fuzzy_match_keys(
     keys: KeysLike,
     /,
     *,
-    similarity_algo: SIMILARITY_TYPE | SimilarityFunc = "jaro_winkler",
+    similarity_algo: SIMILARITY_TYPE | SimilarityAlgo | SimilarityFunc = "jaro_winkler",
     similarity_threshold: float = 0.85,
     fuzzy_match: bool = True,
-    handle_unmatched: HandleUnmatched = "ignore",
+    handle_unmatched: HandleUnmatched | str = HandleUnmatched.IGNORE,
     fill_value: Any = None,
     fill_mapping: dict[str, Any] | None = None,
     strict: bool = False,
@@ -67,7 +75,12 @@ def fuzzy_match_keys(
         raise ValueError("similarity_threshold must be between 0.0 and 1.0")
 
     # Extract expected keys
-    fields_set = set(keys) if isinstance(keys, list) else set(keys.keys())
+    if isinstance(keys, (list, tuple)):
+        fields_set = set(keys)
+    elif hasattr(keys, "keys"):
+        fields_set = set(keys.keys())
+    else:
+        fields_set = set(keys)
     if not fields_set:
         return d_.copy()  # Return copy of original if no expected keys
 
@@ -77,12 +90,16 @@ def fuzzy_match_keys(
     matched_input = set()
 
     # Get similarity function
-    if isinstance(similarity_algo, str):
+    if isinstance(similarity_algo, SimilarityAlgo):
+        similarity_func = SIMILARITY_ALGO_MAP[similarity_algo.value]
+    elif isinstance(similarity_algo, str):
         if similarity_algo not in SIMILARITY_ALGO_MAP:
             raise ValueError(f"Unknown similarity algorithm: {similarity_algo}")
         similarity_func = SIMILARITY_ALGO_MAP[similarity_algo]
     else:
         similarity_func = similarity_algo
+
+    handle_unmatched = HandleUnmatched(handle_unmatched)
 
     # First pass: exact matches
     for key in d_:
@@ -114,21 +131,21 @@ def fuzzy_match_keys(
                 matched_expected.add(match)
                 matched_input.add(key)
                 remaining_expected.remove(match)
-            elif handle_unmatched == "ignore":
+            elif handle_unmatched == HandleUnmatched.IGNORE:
                 corrected_out[key] = d_[key]
 
     # Handle unmatched keys based on handle_unmatched parameter
     unmatched_input = set(d_.keys()) - matched_input
     unmatched_expected = fields_set - matched_expected
 
-    if handle_unmatched == "raise" and unmatched_input:
+    if handle_unmatched == HandleUnmatched.RAISE and unmatched_input:
         raise ValueError(f"Unmatched keys found: {unmatched_input}")
 
-    elif handle_unmatched == "ignore":
+    elif handle_unmatched == HandleUnmatched.IGNORE:
         for key in unmatched_input:
             corrected_out[key] = d_[key]
 
-    elif handle_unmatched in ("fill", "force"):
+    elif handle_unmatched in (HandleUnmatched.FILL, HandleUnmatched.FORCE):
         # Fill missing expected keys
         for key in unmatched_expected:
             if fill_mapping and key in fill_mapping:
@@ -137,7 +154,7 @@ def fuzzy_match_keys(
                 corrected_out[key] = fill_value
 
         # For "fill" mode, also keep unmatched original keys
-        if handle_unmatched == "fill":
+        if handle_unmatched == HandleUnmatched.FILL:
             for key in unmatched_input:
                 corrected_out[key] = d_[key]
 
@@ -153,11 +170,11 @@ class FuzzyMatchKeysParams(Params):
     _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=False)
     _func: ClassVar[Any] = fuzzy_match_keys
 
-    similarity_algo: SIMILARITY_TYPE | SimilarityFunc = "jaro_winkler"
+    similarity_algo: SIMILARITY_TYPE | SimilarityAlgo | SimilarityFunc = "jaro_winkler"
     similarity_threshold: float = 0.85
 
     fuzzy_match: bool = True
-    handle_unmatched: HandleUnmatched = "ignore"
+    handle_unmatched: HandleUnmatched | str = HandleUnmatched.IGNORE
 
     fill_value: Any = Unset
     fill_mapping: dict[str, Any] | Any = Unset

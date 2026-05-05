@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from typing import Any, TypeVar
+import warnings
+from typing import Any, ClassVar, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.fields import FieldInfo
@@ -13,11 +14,11 @@ from lionagi.utils import UNDEFINED, is_same_dtype
 
 from .field_model import FieldModel
 from .hashable_model import HashableModel
-
-logger = logging.getLogger(__name__)
 from .model_params import ModelParams
 
 FieldName = TypeVar("FieldName", bound=str)
+
+logger = logging.getLogger(__name__)
 
 
 __all__ = ("OperableModel",)
@@ -68,6 +69,19 @@ class OperableModel(HashableModel):
         description="Dictionary of field models for dynamic fields",
         exclude=True,
     )
+    _deprecation_warned: ClassVar[bool] = False
+
+    def model_post_init(self, __context: Any) -> None:
+        super().model_post_init(__context)
+        cls = type(self)
+        if not cls._deprecation_warned:
+            warnings.warn(
+                "lionagi.models.OperableModel is deprecated and will be removed in a future release. "
+                "Use lionagi.ln.types.Spec/Operable with spec adapters for new dynamic schemas.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            cls._deprecation_warned = True
 
     def _serialize_extra_fields(
         self,
@@ -580,7 +594,7 @@ class OperableModel(HashableModel):
         if update_forward_refs:
             try:
                 model_cls.model_rebuild()
-            except Exception:
-                pass  # Ignore rebuild errors for forward refs that can't be resolved yet
+            except Exception as exc:
+                logger.debug("Ignoring model_rebuild failure for %s: %s", model_cls, exc)
 
         return model_cls

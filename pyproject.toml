@@ -74,6 +74,10 @@ li = "lionagi.cli.main:main"
 
 [project.optional-dependencies]
 
+beta = [
+    "rapidfuzz>=3.0",
+]
+
 reader = [
     "docling>=2.91.0",
 ]
@@ -127,6 +131,7 @@ sandbox = [
 ]
 
 all = [
+    "lionagi[beta]",
     "lionagi[reader]",
     "lionagi[ollama]",
     "lionagi[mcp]",

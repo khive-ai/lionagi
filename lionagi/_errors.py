@@ -19,15 +19,21 @@ __all__ = (
     "AccessError",
     "ConfigurationError",
     "TimeoutError",
+    "ConnectionError",
+    "NotAllowedError",
+    "QueueFullError",
     "ItemNotFoundError",
     "ItemExistsError",
+    "LionTimeoutError",
+    "LionConnectionError",
 )
 
 
 class LionError(Exception):
     default_message: ClassVar[str] = "LionAGI error"
     default_status_code: ClassVar[int] = 500
-    __slots__ = ("message", "details", "status_code")
+    default_retryable: ClassVar[bool] = True
+    __slots__ = ("message", "details", "status_code", "retryable")
 
     def __init__(
         self,
@@ -35,6 +41,7 @@ class LionError(Exception):
         *,
         details: dict[str, Any] | None = None,
         status_code: int | None = None,
+        retryable: bool | None = None,
         cause: Exception | None = None,
     ):
         super().__init__(message or self.default_message)
@@ -43,6 +50,7 @@ class LionError(Exception):
         self.message = message or self.default_message
         self.details = details or {}
         self.status_code = status_code or type(self).default_status_code
+        self.retryable = retryable if retryable is not None else type(self).default_retryable
 
     def to_dict(self, *, include_cause: bool = False) -> dict[str, Any]:
         data = {
@@ -84,6 +92,7 @@ class ValidationError(LionError):
 
     default_message = "Validation failed"
     default_status_code = 422
+    default_retryable = False
     __slots__ = ()
 
 
@@ -92,6 +101,7 @@ class NotFoundError(LionError):
 
     default_message = "Item not found"
     default_status_code = 404
+    default_retryable = False
     __slots__ = ()
 
 
@@ -100,6 +110,7 @@ class ExistsError(LionError):
 
     default_message = "Item already exists"
     default_status_code = 409
+    default_retryable = False
     __slots__ = ()
 
 
@@ -146,6 +157,7 @@ class AccessError(LionError):
 
     default_message = "Access denied"
     default_status_code = 403
+    default_retryable = False
     __slots__ = ()
 
 
@@ -154,6 +166,7 @@ class ConfigurationError(LionError):
 
     default_message = "Invalid configuration"
     default_status_code = 500
+    default_retryable = False
     __slots__ = ()
 
 
@@ -165,5 +178,26 @@ class TimeoutError(LionError):  # noqa: A001 — intentional shadowing of builti
     __slots__ = ()
 
 
+class ConnectionError(LionError):  # noqa: A001
+    default_message = "Connection failed"
+    default_status_code = 503
+    __slots__ = ()
+
+
+class NotAllowedError(LionError):
+    default_message = "Operation not allowed"
+    default_status_code = 405
+    default_retryable = False
+    __slots__ = ()
+
+
+class QueueFullError(LionError):
+    default_message = "Queue is full"
+    default_status_code = 503
+    __slots__ = ()
+
+
 ItemNotFoundError = NotFoundError
 ItemExistsError = ExistsError
+LionTimeoutError = TimeoutError
+LionConnectionError = ConnectionError

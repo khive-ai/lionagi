@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import MISSING as _DATACLASS_MISSING
 from dataclasses import dataclass, field
 from enum import Enum as _Enum
 from typing import Any, ClassVar
@@ -46,6 +47,9 @@ class ModelConfig:
         use_enum_values: If True, use enum values instead of enum instances in to_dict().
     """
 
+    # Extended sentinel handling
+    sentinel_additions: frozenset[str] = frozenset()
+
     # Sentinel handling (controls what gets excluded from to_dict)
     none_as_sentinel: bool = False
     empty_as_sentinel: bool = False
@@ -81,14 +85,23 @@ class Params:
 
     def __init__(self, **kwargs: Any):
         """Initialize the Params object with keyword arguments."""
-        # Set all attributes from kwargs, allowing for sentinel values
+        allowed = self.allowed()
         for k, v in kwargs.items():
-            if k in self.allowed():
+            if k in allowed:
                 object.__setattr__(self, k, v)
             else:
                 raise ValueError(f"Invalid parameter: {k}")
 
-        # Validate after setting all attributes
+        # Apply dataclass field defaults for fields not in kwargs
+        for k in allowed:
+            if k not in kwargs:
+                fld = self.__dataclass_fields__.get(k)
+                if fld is not None:
+                    if fld.default is not _DATACLASS_MISSING:
+                        object.__setattr__(self, k, fld.default)
+                    elif fld.default_factory is not _DATACLASS_MISSING:
+                        object.__setattr__(self, k, fld.default_factory())
+
         self._validate()
 
     @classmethod
@@ -132,6 +145,10 @@ class Params:
 
         for k in self.allowed():
             _validate_strict(k)
+
+    def is_sentinel_field(self, name: str) -> bool:
+        """Check if a field's current value is a sentinel."""
+        return self._is_sentinel(getattr(self, name, Undefined))
 
     def default_kw(self) -> Any:
         # create a partial function with the current parameters

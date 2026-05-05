@@ -81,15 +81,36 @@ class SearchResponse(BaseModel):
     )
 
 
+_DEFAULT_GREP_EXCLUDES = [
+    "--exclude-dir=.git",
+    "--exclude-dir=node_modules",
+    "--exclude-dir=.venv",
+    "--exclude-dir=__pycache__",
+    "--exclude-dir=.mypy_cache",
+    "--exclude-dir=.pytest_cache",
+    "--binary-files=without-match",
+]
+
+_DEFAULT_FIND_EXCLUDES = (
+    "-not", "-path", "*/.git/*",
+    "-not", "-path", "*/node_modules/*",
+    "-not", "-path", "*/.venv/*",
+    "-not", "-path", "*/__pycache__/*",
+    "-not", "-path", "*/.mypy_cache/*",
+    "-not", "-path", "*/.pytest_cache/*",
+)
+
+
 def _grep_sync(
     pattern: str,
     path: str,
     include: str | None,
     max_results: int,
 ) -> SearchResponse:
-    cmd = ["grep", "-rn", "-E", pattern, path]
+    cmd = ["grep", "-rn", "-E"] + _DEFAULT_GREP_EXCLUDES
     if include:
         cmd += ["--include", include]
+    cmd += ["-e", pattern, "--", path]
 
     try:
         result = subprocess.run(
@@ -120,7 +141,7 @@ def _grep_sync(
 
 
 def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
-    cmd = ["find", path, "-name", pattern]
+    cmd = ["find", path, "-name", pattern] + list(_DEFAULT_FIND_EXCLUDES)
 
     try:
         result = subprocess.run(
@@ -159,6 +180,8 @@ class SearchTool(LionTool):
     async def handle_request(self, request: SearchRequest) -> SearchResponse:
         if isinstance(request, dict):
             request = SearchRequest(**request)
+        if isinstance(request.max_results, int):
+            request.max_results = max(1, min(request.max_results, 1000))
         if request.action == SearchAction.grep:
             return await run_sync(
                 _grep_sync,

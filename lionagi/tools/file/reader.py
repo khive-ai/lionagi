@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import base64
 import time
 from enum import Enum
+from itertools import islice
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -21,6 +23,18 @@ _DENIED_NAMES: frozenset[str] = frozenset(
 )
 # Finding 9: allowed document extensions for the 'open' action
 _DOC_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".pptx", ".docx", ".html", ".htm"})
+_IMAGE_EXTENSIONS: frozenset[str] = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp"}
+)
+_IMAGE_MEDIA_TYPES: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+}
 # Finding 9: max document size for 'open' (50 MB)
 _MAX_DOC_BYTES = 50 * 1024 * 1024
 # Finding 8: max files returned by list_dir
@@ -113,6 +127,19 @@ class ReaderResponse(BaseModel):
     )
 
 
+def _read_image_sync(p: Path) -> ReaderResponse:
+    ext = p.suffix.lower()
+    media_type = _IMAGE_MEDIA_TYPES.get(ext, "image/png")
+    try:
+        raw = p.read_bytes()
+    except OSError as e:
+        return ReaderResponse(success=False, error=f"Cannot read image: {e}")
+    encoded = base64.b64encode(raw).decode("ascii")
+    return ReaderResponse(
+        success=True, content=f"data:{media_type};base64,{encoded}"
+    )
+
+
 def _read_sync(
     path: str,
     offset: int | None,
@@ -134,6 +161,9 @@ def _read_sync(
     if not p.is_file():
         return ReaderResponse(success=False, error=f"Path is not a file: {path}")
 
+    if p.suffix.lower() in _IMAGE_EXTENSIONS:
+        return _read_image_sync(p)
+
     try:
         with open(p, "rb") as fbin:
             chunk = fbin.read(8192)
@@ -149,11 +179,10 @@ def _read_sync(
 
     try:
         with open(p, encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+            selected = list(islice(f, start, start + max_lines))
     except OSError as e:
         return ReaderResponse(success=False, error=f"Read error: {e}")
 
-    selected = lines[start : start + max_lines]
     numbered = "".join(f"{start + i + 1}\t{line}" for i, line in enumerate(selected))
     return ReaderResponse(success=True, content=numbered)
 

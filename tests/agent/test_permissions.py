@@ -1,15 +1,15 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for PermissionPolicy: modes, rules, fnmatch, and pre-hook."""
+"""Tests for PermissionGuard: modes, rules, fnmatch, and pre-hook."""
 
 import pytest
 
-from lionagi.agent.permissions import PermissionPolicy
+from lionagi.agent.permissions import PermissionGuard
 
 
 def test_allow_all_permits_any_tool():
-    p = PermissionPolicy.allow_all()
+    p = PermissionGuard.allow_all()
     for tool, action, args in [
         ("bash", "run", {"command": "rm -rf /"}),
         ("editor", "write", {"file_path": "/etc/passwd"}),
@@ -19,7 +19,7 @@ def test_allow_all_permits_any_tool():
 
 
 def test_deny_all_rejects_any_tool():
-    p = PermissionPolicy.deny_all()
+    p = PermissionGuard.deny_all()
     for tool, action, args in [
         ("reader", "read", {"path": "/tmp/file.txt"}),
         ("search", "grep", {"pattern": "foo"}),
@@ -43,7 +43,7 @@ def test_deny_all_rejects_any_tool():
     ],
 )
 def test_read_only_allows(tool, action, args):
-    p = PermissionPolicy.read_only()
+    p = PermissionGuard.read_only()
     assert p.check(tool, action, args).behavior == "allow"
 
 
@@ -55,7 +55,7 @@ def test_read_only_allows(tool, action, args):
     ],
 )
 def test_read_only_denies(tool, action, args):
-    p = PermissionPolicy.read_only()
+    p = PermissionGuard.read_only()
     assert p.check(tool, action, args).behavior == "deny"
 
 
@@ -74,13 +74,13 @@ def test_read_only_denies(tool, action, args):
     ],
 )
 def test_safe_bash_behaviors(cmd, expected):
-    p = PermissionPolicy.safe()
+    p = PermissionGuard.safe()
     d = p.check("bash", "run", {"command": cmd})
     assert d.behavior == expected
 
 
 def test_safe_allows_non_bash():
-    p = PermissionPolicy.safe()
+    p = PermissionGuard.safe()
     assert p.check("reader", "read", {"path": "/tmp/f.py"}).behavior == "allow"
     assert p.check("editor", "write", {"file_path": "/tmp/f.py"}).behavior == "allow"
 
@@ -91,21 +91,21 @@ def test_safe_allows_non_bash():
 
 
 def test_deny_beats_allow_when_both_match():
-    p = PermissionPolicy(
+    p = PermissionGuard(
         mode="rules", allow={"bash": ["git *"]}, deny={"bash": ["git *"]}
     )
     assert p.check("bash", "run", {"command": "git status"}).behavior == "deny"
 
 
 def test_allow_beats_escalate():
-    p = PermissionPolicy(
+    p = PermissionGuard(
         mode="rules", allow={"bash": ["cargo *"]}, escalate={"bash": ["*"]}
     )
     assert p.check("bash", "run", {"command": "cargo build"}).behavior == "allow"
 
 
 def test_default_deny_when_no_rule_matches():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["git *"]})
+    p = PermissionGuard(mode="rules", allow={"bash": ["git *"]})
     d = p.check("bash", "run", {"command": "pytest tests/"})
     assert d.behavior == "deny"
     assert "no matching rule" in d.reason
@@ -117,22 +117,22 @@ def test_default_deny_when_no_rule_matches():
 
 
 def test_fnmatch_wildcard_matches_any():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["*"]})
+    p = PermissionGuard(mode="rules", allow={"bash": ["*"]})
     assert p.check("bash", "run", {"command": "uv run pytest"}).behavior == "allow"
 
 
 def test_fnmatch_prefix_pattern_matches():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["git *"]})
+    p = PermissionGuard(mode="rules", allow={"bash": ["git *"]})
     assert p.check("bash", "run", {"command": "git log --oneline"}).behavior == "allow"
 
 
 def test_fnmatch_prefix_pattern_no_match():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["git *"]})
+    p = PermissionGuard(mode="rules", allow={"bash": ["git *"]})
     assert p.check("bash", "run", {"command": "uv run pytest"}).behavior != "allow"
 
 
 def test_shell_control_operator_denied():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["*"]})
+    p = PermissionGuard(mode="rules", allow={"bash": ["*"]})
     d = p.check("bash", "run", {"command": "echo hi; rm /tmp/x"})
     assert d.behavior == "deny"
 
@@ -143,18 +143,18 @@ def test_shell_control_operator_denied():
 
 
 async def test_pre_hook_raises_on_deny():
-    hook = PermissionPolicy.deny_all().to_pre_hook()
+    hook = PermissionGuard.deny_all().to_pre_hook()
     with pytest.raises(PermissionError):
         await hook("bash", "run", {"command": "echo hi"})
 
 
 async def test_pre_hook_returns_none_on_allow():
-    hook = PermissionPolicy.allow_all().to_pre_hook()
+    hook = PermissionGuard.allow_all().to_pre_hook()
     assert await hook("bash", "run", {"command": "echo hi"}) is None
 
 
 async def test_pre_hook_escalate_without_handler_raises():
-    hook = PermissionPolicy.safe().to_pre_hook()
+    hook = PermissionGuard.safe().to_pre_hook()
     with pytest.raises(PermissionError, match="escalation"):
         await hook("bash", "run", {"command": "uv run pytest"})
 
@@ -165,7 +165,7 @@ async def test_pre_hook_escalate_without_handler_raises():
 
 
 def test_tool_aliases_normalized_at_init():
-    p = PermissionPolicy(
+    p = PermissionGuard(
         mode="rules",
         deny={"bash_tool": ["*"]},
         allow={"editor_tool": ["*"]},
@@ -182,7 +182,7 @@ def test_tool_aliases_normalized_at_init():
 
 
 def test_permission_policy_rules_default_denies_unmatched_tool():
-    p = PermissionPolicy(mode="rules", allow={"reader": ["*"]})
+    p = PermissionGuard(mode="rules", allow={"reader": ["*"]})
     d = p.check("bash", "run", {"command": "pwd"})
     assert d.behavior == "deny"
     assert "no matching rule" in d.reason
@@ -194,7 +194,7 @@ def test_permission_policy_rules_default_denies_unmatched_tool():
 
 
 def test_permission_policy_rejects_shell_control_before_wildcard_allow():
-    p = PermissionPolicy(mode="rules", allow={"bash": ["*"]})
+    p = PermissionGuard(mode="rules", allow={"bash": ["*"]})
     d = p.check("bash", "run", {"command": "git status && rm -rf /tmp/x"})
     assert d.behavior == "deny"
     assert "Shell control operator" in d.reason

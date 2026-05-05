@@ -8,7 +8,7 @@ from pydantic import SecretStr
 AUTH_TYPES = Literal["bearer", "x-api-key", "none"]
 
 
-__all__ = ("HeaderFactory",)
+__all__ = ("AUTH_TYPES", "HeaderFactory")
 
 
 class HeaderFactory:
@@ -38,16 +38,18 @@ class HeaderFactory:
             dict_ = HeaderFactory.get_content_type_header(content_type)
 
         if auth_type == "none":
-            # No authentication needed
             pass
-        elif not api_key:
-            raise ValueError("API key is required for authentication")
         else:
             api_key = (
                 api_key.get_secret_value()
                 if isinstance(api_key, SecretStr)
                 else api_key
             )
+            if not api_key or not str(api_key).strip():
+                raise ValueError("API key is required for authentication")
+
+            api_key = api_key.strip()
+
             if auth_type == "bearer":
                 dict_.update(HeaderFactory.get_bearer_auth_header(api_key))
             elif auth_type == "x-api-key":

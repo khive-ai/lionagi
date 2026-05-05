@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 import orjson
 import yaml
+
+__all__ = ("minimal_yaml",)
+
+MAX_PRUNE_DEPTH = 100
 
 # --- YAML Dumper with minimal, readable settings --------------------------------
 
@@ -44,20 +49,40 @@ def _is_empty(x: Any) -> bool:
     return False
 
 
-def _prune(x: Any) -> Any:
+def _prune(x: Any, *, _depth: int = 0, _max_depth: int = MAX_PRUNE_DEPTH) -> Any:
     """Recursively remove empty leaves and empty containers produced thereby."""
+    if _depth > _max_depth:
+        msg = f"Pruning depth exceeds maximum ({_max_depth})"
+        raise RecursionError(msg)
+
     if isinstance(x, dict):
-        pruned = {k: _prune(v) for k, v in x.items() if not _is_empty(v)}
+        pruned = {
+            k: _prune(v, _depth=_depth + 1, _max_depth=_max_depth)
+            for k, v in x.items()
+            if not _is_empty(v)
+        }
         # Remove keys that became empty after recursion
         return {k: v for k, v in pruned.items() if not _is_empty(v)}
     if isinstance(x, list):
-        pruned_list = [_prune(v) for v in x if not _is_empty(v)]
+        pruned_list = [
+            _prune(v, _depth=_depth + 1, _max_depth=_max_depth)
+            for v in x
+            if not _is_empty(v)
+        ]
         return [v for v in pruned_list if not _is_empty(v)]
     if isinstance(x, tuple):
-        pruned_list = [_prune(v) for v in x if not _is_empty(v)]
+        pruned_list = [
+            _prune(v, _depth=_depth + 1, _max_depth=_max_depth)
+            for v in x
+            if not _is_empty(v)
+        ]
         return tuple(v for v in pruned_list if not _is_empty(v))
     if isinstance(x, set):
-        pruned_set = {_prune(v) for v in x if not _is_empty(v)}
+        pruned_set = {
+            _prune(v, _depth=_depth + 1, _max_depth=_max_depth)
+            for v in x
+            if not _is_empty(v)
+        }
         return {v for v in pruned_set if not _is_empty(v)}
     return x
 
@@ -72,6 +97,7 @@ def minimal_yaml(
     indent: int = 2,
     line_width: int = 2**31 - 1,  # avoid PyYAML inserting line-wraps
     sort_keys: bool = False,
+    unescape_html: bool = False,
 ) -> str:
     """
     Convert any Python value (dict/list/scalars) to a minimal, readable YAML string.
@@ -82,10 +108,11 @@ def minimal_yaml(
     - No aliases/anchors
     """
     if isinstance(value, str):
-        value = orjson.loads(value)
+        with contextlib.suppress(orjson.JSONDecodeError):
+            value = orjson.loads(value)
 
     data = _prune(value) if drop_empties else value
-    return yaml.dump(
+    str_ = yaml.dump(
         data,
         Dumper=MinimalDumper,
         default_flow_style=False,  # block style
@@ -94,3 +121,8 @@ def minimal_yaml(
         indent=indent,
         width=line_width,
     )
+    if unescape_html:
+        import html
+
+        return html.unescape(str_)
+    return str_
