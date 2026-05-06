@@ -1,6 +1,6 @@
 import pytest
 
-from lionagi.beta.session.session import Session
+from lionagi.session.session import Session
 
 
 def _required_model_right(params, **_):

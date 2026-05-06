@@ -5,7 +5,7 @@
 
 import pytest
 
-from lionagi.session.branch import Branch
+from lionagi.session.session import Branch
 from lionagi.tools.context.context import ContextTool
 
 

@@ -87,7 +87,7 @@ def _build_round_notification(
 
     # Branch is session-layer; import lazily to avoid circular dependency.
     try:
-        from lionagi.beta.session.session import Branch  # type: ignore[import]
+        from lionagi.session.session import Branch  # type: ignore[import]
 
         if isinstance(progression, Branch):
             capabilities = getattr(progression, "capabilities", set())

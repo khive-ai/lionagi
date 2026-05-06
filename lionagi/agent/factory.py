@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from lionagi.session.branch import Branch
+from lionagi.session.session import Branch
 
 from .config import AgentConfig
 

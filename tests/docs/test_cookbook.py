@@ -11,7 +11,7 @@ import asyncio
 import pytest
 from pydantic import BaseModel, Field
 
-from lionagi.session.branch import Branch
+from lionagi.session.session import Branch
 from lionagi.session.session import Session
 from tests.utils.mock_factory import LionAGIMockFactory
 
@@ -156,7 +156,7 @@ class TestCodeReviewCrew:
 
     def test_builder_exists(self):
         """OperationGraphBuilder (Builder) exists for workflow construction."""
-        from lionagi.operations.builder import OperationGraphBuilder
+        from lionagi.work.builder import OperationGraphBuilder
 
         assert OperationGraphBuilder is not None
 

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
 _DEFAULT_CONTEXT_WINDOW = 128_000
 

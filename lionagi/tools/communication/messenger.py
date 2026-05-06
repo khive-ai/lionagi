@@ -16,7 +16,7 @@ from lionagi.protocols.action.tool import Tool
 from ..base import LionTool
 
 if TYPE_CHECKING:
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
     from lionagi.session.exchange import Exchange
 
 __all__ = ("LionMessenger",)

@@ -1,113 +1,190 @@
-# tests/operations/test_ReAct.py
-from unittest.mock import AsyncMock, patch
+# Copyright (c) 2025 - 2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for beta/operations/react.py — ReActParams, ReActAnalysis, helpers."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
 
 import pytest
 
-# We'll import or define the ReActAnalysis class to create a real instance:
-from lionagi.operations.ReAct.utils import ReActAnalysis
-from lionagi.protocols.generic.event import EventStatus
-from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
-from lionagi.service.connections.api_calling import APICalling
-from lionagi.service.connections.endpoint import Endpoint
-from lionagi.service.connections.endpoint_config import EndpointConfig
-from lionagi.service.imodel import iModel
+from lionagi.operations.generate import GenerateParams
+from lionagi.operations.react import (
+    Analysis,
+    PlannedAction,
+    ReActAnalysis,
+    ReActParams,
+    _needs_extension,
+)
+from lionagi.ln.types import Operable, Spec
+
+# ---------------------------------------------------------------------------
+# PlannedAction
+# ---------------------------------------------------------------------------
 
 
-def _get_oai_config(
-    name: str = "openai_chat/completions",
-    endpoint: str = "chat/completions",
-    request_options=None,
-    kwargs: dict | None = None,
-) -> EndpointConfig:
-    return EndpointConfig(
-        name=name,
-        provider="openai",
-        base_url="https://api.openai.com/v1",
-        endpoint=endpoint,
-        api_key="dummy-key-for-testing",
-        request_options=request_options,
-        auth_type="bearer",
-        content_type="application/json",
-        method="POST",
-        requires_tokens=True,
-        kwargs=kwargs or {},
-    )
+class TestPlannedAction:
+    def test_defaults(self):
+        p = PlannedAction()
+        assert p.action_type is None
+        assert p.description is None
+
+    def test_with_values(self):
+        p = PlannedAction(action_type="search", description="Search the web")
+        assert p.action_type == "search"
 
 
-from lionagi.session.branch import Branch
+# ---------------------------------------------------------------------------
+# ReActAnalysis
+# ---------------------------------------------------------------------------
 
 
-def make_mocked_branch_for_react():
-    branch = Branch(user="tester_fixture", name="BranchForTests_ReAct")
+class TestReActAnalysis:
+    def test_basic_construction(self):
+        a = ReActAnalysis(analysis="thinking...")
+        assert a.analysis == "thinking..."
+        assert a.extension_needed is False
 
-    async def _fake_invoke(**kwargs):
-        config = _get_oai_config(
-            name="oai_chat",
-            endpoint="chat/completions",
-            request_options=OpenAIChatCompletionsRequest,
-            kwargs={"model": "gpt-4.1-mini"},
+    def test_extension_needed_true(self):
+        a = ReActAnalysis(analysis="not done yet", extension_needed=True)
+        assert a.extension_needed is True
+
+    def test_class_vars_present(self):
+        assert "{max_rounds}" in ReActAnalysis.FIRST_ROUND_PROMPT
+        assert "{remaining}" in ReActAnalysis.CONTINUE_PROMPT
+        assert "{instruction}" in ReActAnalysis.ANSWER_PROMPT
+
+    def test_first_round_prompt_format(self):
+        prompt = ReActAnalysis.FIRST_ROUND_PROMPT.format(max_rounds=5)
+        assert "5" in prompt
+
+    def test_continue_prompt_format(self):
+        prompt = ReActAnalysis.CONTINUE_PROMPT.format(remaining=2)
+        assert "2" in prompt
+
+    def test_answer_prompt_format(self):
+        prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction="tell me a joke")
+        assert "tell me a joke" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Analysis
+# ---------------------------------------------------------------------------
+
+
+class TestAnalysis:
+    def test_default_answer_none(self):
+        a = Analysis()
+        assert a.answer is None
+
+    def test_with_answer(self):
+        a = Analysis(answer="42")
+        assert a.answer == "42"
+
+    def test_whitespace_only_becomes_none(self):
+        a = Analysis(answer="   ")
+        assert a.answer is None
+
+    def test_empty_string_becomes_none(self):
+        a = Analysis(answer="")
+        assert a.answer is None
+
+    def test_non_string_raises(self):
+        with pytest.raises(Exception):
+            Analysis(answer=12345)
+
+    def test_answer_stripped(self):
+        a = Analysis(answer="  hello  ")
+        assert a.answer == "hello"
+
+
+# ---------------------------------------------------------------------------
+# _needs_extension
+# ---------------------------------------------------------------------------
+
+
+class TestNeedsExtension:
+    def test_true_when_extension_needed_true(self):
+        analysis = ReActAnalysis(analysis="...", extension_needed=True)
+        assert _needs_extension(analysis) is True
+
+    def test_false_when_extension_needed_false(self):
+        analysis = ReActAnalysis(analysis="...", extension_needed=False)
+        assert _needs_extension(analysis) is False
+
+    def test_dict_with_extension_needed(self):
+        d = {"extension_needed": True}
+        assert _needs_extension(d) is True
+
+    def test_dict_without_extension_needed(self):
+        d = {"analysis": "done"}
+        assert _needs_extension(d) is False
+
+    def test_object_without_attribute(self):
+        assert _needs_extension("plain string") is False
+
+    def test_none_returns_false(self):
+        assert _needs_extension(None) is False
+
+
+# ---------------------------------------------------------------------------
+# ReActParams
+# ---------------------------------------------------------------------------
+
+
+class TestReActParams:
+    def setup_method(self):
+        self.gen = GenerateParams(primary="test")
+        self.op = Operable([Spec(str, name="answer")])
+
+    def test_basic_construction(self):
+        p = ReActParams(
+            instruction="What is 2+2?",
+            operable=self.op,
+            generate_params=self.gen,
         )
-        endpoint = Endpoint(config=config)
-        fake_call = APICalling(
-            payload={"model": "gpt-4.1-mini", "messages": []},
-            headers={"Authorization": "Bearer test"},
-            endpoint=endpoint,
+        assert p.instruction == "What is 2+2?"
+        assert p.max_rounds == 3
+        assert p.invoke_actions is True
+
+    def test_custom_max_rounds(self):
+        p = ReActParams(
+            instruction="x",
+            operable=self.op,
+            generate_params=self.gen,
+            max_rounds=5,
         )
-        fake_call.execution.response = "mocked_response_string"
-        fake_call.execution.status = EventStatus.COMPLETED
-        return fake_call
+        assert p.max_rounds == 5
 
-    mock_invoke = AsyncMock(side_effect=_fake_invoke)
-    mock_chat_model = iModel(
-        provider="openai", model="gpt-4.1-mini", api_key="test_key"
-    )
-    mock_chat_model.invoke = mock_invoke
-
-    branch.chat_model = mock_chat_model
-    return branch
-
-
-@pytest.mark.asyncio
-async def test_react_basic_flow():
-    """
-    ReAct(...) => calls branch.operate for analysis, then for final answer.
-    We'll patch branch.operate to yield a real ReActAnalysis -> Analysis object.
-    """
-    from lionagi.operations.ReAct.utils import Analysis
-
-    branch = make_mocked_branch_for_react()
-
-    # 1) Create a mock ReActAnalysis object with extension_needed=False so we skip expansions:
-    class FakeAnalysis(ReActAnalysis):
-        extension_needed: bool = False
-
-    # 2) Create call counter to return different values for different calls
-    call_count = 0
-
-    async def mock_operate(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            # First call - return ReActAnalysis
-            return FakeAnalysis(
-                analysis="intermediate_reasoning",
-                extension_needed=False,
-                planned_actions=[],
-            )
-        else:
-            # Second call - return final Analysis
-            return Analysis(answer="final_answer_mock")
-
-    # 3) Patch operate
-    with patch(
-        "lionagi.operations.operate.operate.operate",
-        new=AsyncMock(side_effect=mock_operate),
-    ):
-        res = await branch.ReAct(
-            instruct={"instruction": "Solve a puzzle with ReAct strategy"},
-            interpret=False,
-            extension_allowed=False,
+    def test_persist_default(self):
+        p = ReActParams(
+            instruction="x",
+            operable=self.op,
+            generate_params=self.gen,
         )
+        assert p.persist is True
 
-    # 4) Confirm we got the final answer as a string
-    assert res == "final_answer_mock"
+    def test_request_model_default_none(self):
+        p = ReActParams(
+            instruction="x",
+            operable=self.op,
+            generate_params=self.gen,
+        )
+        assert p.request_model is None
+
+    def test_auto_fix_default(self):
+        p = ReActParams(
+            instruction="x",
+            operable=self.op,
+            generate_params=self.gen,
+        )
+        assert p.auto_fix is True
+
+    def test_toolkits_default_none(self):
+        p = ReActParams(
+            instruction="x",
+            operable=self.op,
+            generate_params=self.gen,
+        )
+        assert p.toolkits is None

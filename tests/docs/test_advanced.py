@@ -247,7 +247,7 @@ class TestFlowComposition:
     def test_builder_is_operation_graph_builder(self):
         """Builder is the same class as OperationGraphBuilder."""
         from lionagi import Builder
-        from lionagi.operations.builder import OperationGraphBuilder
+        from lionagi.work.builder import OperationGraphBuilder
 
         assert Builder is OperationGraphBuilder
 

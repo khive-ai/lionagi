@@ -16,25 +16,24 @@ if TYPE_CHECKING:
     from .ln import alcall, json_dumps, lcall, to_dict, to_list
     from .models.field_model import FieldModel
     from .models.operable_model import OperableModel
-    from .operations.builder import OperationGraphBuilder as Builder
-    from .operations.node import Operation
     from .protocols.action.manager import load_mcp_tools
     from .protocols.types import Edge, Element, Event, Graph, Node, Pile, Progression
     from .service.broadcaster import Broadcaster
     from .service.hooks import HookedEvent, HookRegistry
     from .service.imodel import iModel
-    from .session.branch import Branch
-    from .session.session import Session
+    from .session.session import Branch, Session
+    from .work.builder import OperationGraphBuilder as Builder
+    from .work.node import Operation
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 _LAZY_MAP: dict[str, tuple[str, str | None]] = {
     "Session": ("session.session", "Session"),
-    "Branch": ("session.branch", "Branch"),
+    "Branch": ("session.session", "Branch"),
     "iModel": ("service.imodel", "iModel"),
-    "Builder": ("operations.builder", "OperationGraphBuilder"),
-    "Operation": ("operations.node", "Operation"),
+    "Builder": ("work.builder", "OperationGraphBuilder"),
+    "Operation": ("work.node", "Operation"),
     "load_mcp_tools": ("protocols.action.manager", "load_mcp_tools"),
     "FieldModel": ("models.field_model", "FieldModel"),
     "OperableModel": ("models.operable_model", "OperableModel"),

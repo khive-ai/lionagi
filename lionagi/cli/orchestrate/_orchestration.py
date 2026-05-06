@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lionagi import Branch, Session
-from lionagi.operations.builder import OperationGraphBuilder
+from lionagi.work.builder import OperationGraphBuilder
 from lionagi.protocols.generic.log import DataLoggerConfig
 
 from .._agents import AgentProfile, load_agent_profile

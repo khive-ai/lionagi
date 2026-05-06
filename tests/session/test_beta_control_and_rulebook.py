@@ -1,12 +1,12 @@
 import pytest
 
-from lionagi.beta.core.graph import OpGraph, OpNode
-from lionagi.beta.core.morphism import MorphismAdapter
-from lionagi.beta.core.runner import Runner
-from lionagi.beta.core.types import Principal
-from lionagi.beta.rules import RuleBook, Validator
-from lionagi.beta.session.session import Session
-from lionagi.beta.work.builder import OperationGraphBuilder
+from lionagi.core.graph import OpGraph, OpNode
+from lionagi.core.morphism import MorphismAdapter
+from lionagi.core.runner import Runner
+from lionagi.core.types import Principal
+from lionagi.rules import RuleBook, Validator
+from lionagi.session.session import Session
+from lionagi.work.builder import OperationGraphBuilder
 
 
 @pytest.mark.asyncio
@@ -82,6 +82,6 @@ async def test_work_builder_control_compiles_to_runner_control():
     assert "blocked" not in result["results_by_name"]
 
 
-def test_validator_rejects_distinct_registry_and_rulebook():
-    with pytest.raises(ValueError, match="registry or rulebook"):
-        Validator(registry=RuleBook(), rulebook=RuleBook())
+def test_validator_accepts_registry():
+    v = Validator(registry=RuleBook())
+    assert v.registry is not None

@@ -1,0 +1,467 @@
+================================================================================
+LIONAGI BETA — VISION, INTENT, AND EXECUTION BRIEF
+================================================================================
+
+Branch: beta
+Status: in-progress rewrite, will replace main when mature
+Author: Ocean (HaiyangLi)
+Brief written: 2026-05-05
+Audience: future Claude sessions, contributors, reviewers
+
+
+================================================================================
+1. WHY THIS BRANCH EXISTS
+================================================================================
+
+`main` lionagi grew incrementally over years. Layers accumulated:
+
+  - A `Branch` facade composed of four managers (Message, Action, iModel,
+    DataLogger). Useful initially; obscuring once the substrate matured.
+  - An operations system organized as both flat files (`builder.py`,
+    `node.py`, `flow.py`) and capitalized subdirs (`ReAct/`, `Operate/`)
+    inconsistently mixed.
+  - A `Middle` protocol layered between `branch.operate()` and the LLM call,
+    dispatching through `communicate()` which dispatches through `chat()`+
+    `parse()`. The dispatch hierarchy is opaque from the outside — you
+    cannot read top-down and see what computation actually happens.
+  - An `iModel` class tightly coupled to specific provider endpoint configs,
+    with rate limiting + hooks + provider session tracking + CLI provider
+    wrapping all in one ~533-LOC class.
+  - LNDL bolted onto operate.py as 400+ LOC of inline orchestration.
+  - Validators retrofitted as a parallel concern instead of woven through.
+  - Capability boundaries implicit — fields and operations don't declare
+    their capability requirements; the runner doesn't enforce them.
+
+The core problem: lionagi/main has too many invisible abstractions. You
+cannot answer "what does this do" by reading; you have to trace.
+
+`beta` is the rewrite. The rules of the rewrite are stated in §4 below.
+
+
+================================================================================
+2. PERMISSION SCOPE — READ THIS FIRST
+================================================================================
+
+This branch will replace main when mature. There is NO backward-compatibility
+obligation. Operate accordingly:
+
+  (a) DELETE FREELY. If a consumer of an old abstraction is now broken, the
+      consumer is dead until rewritten on the new substrate. Half-finished
+      migrations — old code coexisting with new code "for now" — are not
+      allowed to ship.
+
+  (b) NO SHIMS. Do not re-export `OperationGraphBuilder` from
+      `operations/builder.py` "for old callers." Either move the caller or
+      delete it. Stub re-export modules calcify into permanent legacy.
+
+  (c) NO `_legacy`, `_v2`, OR `_old` SUFFIXES IN FINAL STATE. Transitional
+      names are admissions of incomplete work. Use them only as in-flight
+      markers; never ship them as the canonical name. (As of this writing
+      `service/imodel_v2.py` exists — that is a TODO, not a destination.)
+
+  (d) NO "KEPT FOR COMPAT" COMMENTS. If code exists in the file, it has a
+      current reason. If you can't write a current reason, delete it.
+
+  (e) TESTS FOR DEAD CODE ARE DEAD. Delete them; do not contort them to pass
+      against the new code's surface.
+
+  (f) DO NOT PRESERVE THE PUBLIC CLI/AGENT/TOOLS SURFACE UNLESS IT WORKS ON
+      THE NEW SUBSTRATE. The `li` command shrinking is acceptable. A broken
+      surface is worse than a missing surface.
+
+  (g) BREAK PROVIDERS THAT NEED REWRITING. The 339-caller iModel surface in
+      providers/ and tests/ does not constrain the new design. Rewrite
+      providers against the new iModel; do not preserve the old API to
+      avoid touching them.
+
+  (h) ONE WAY TO SPELL EACH CONCEPT. If beta has both a `Branch` and a
+      `Session` and they overlap 80%, decide. If beta has both `Operable`
+      and `OperationDecl`, decide. Don't keep parallel spellings.
+
+The ONLY hard constraint: `lionagi.ln` (utilities, types, sentinels) and
+`lionagi.protocols` (Element, Pile, Progression, Graph, Node, Edge, Message)
+are stable substrate. Don't rewrite them in this branch.
+
+
+================================================================================
+3. CURRENT STATE (POST-2026-05-05 MIGRATION SESSION)
+================================================================================
+
+What's done:
+
+  Phase A — beta promoted to top-level
+    - lionagi/beta/{core,lndl,operations,resource,rules,session,work}/
+      moved to lionagi/{core,lndl,operations,rules,session,work}/.
+    - lionagi/beta/ deleted.
+    - Old lionagi/operations/ and lionagi/session/ deleted.
+    - All `lionagi.beta.X` imports rewritten to `lionagi.X` across the repo.
+    - lionagi/__init__.py lazy_map updated: Branch from session.session,
+      Builder from work.builder, Operation from work.node.
+
+  Phase B — resource/ folded into service/
+    - lionagi/resource/{backend,imodel,processor,registry,service,toolkit,
+      utilities}/ moved into lionagi/service/.
+    - Naming collisions resolved with TEMPORARY suffixes:
+        resource/imodel.py    → service/imodel_v2.py     (NEW design)
+        resource/service.py   → service/resource.py      (renamed to avoid
+                                                          lionagi.service.service
+                                                          triple-namespace)
+        resource/registry.py  → service/resource_registry.py
+        resource/backend.py   → service/backend.py
+        resource/processor.py → service/processor.py
+        resource/toolkit.py   → service/toolkit.py
+        resource/utilities/   → service/utilities/
+    - lionagi/resource/ deleted.
+    - All 35 `lionagi.resource.X` consumers rewritten.
+
+  Phase C — beta cleanup (prior session, kept)
+    - operations/operate.py reduced 684 → 262 LOC; LNDL drive loop
+      extracted to lndl/orchestrator.py (444 LOC, public API:
+      run_with_tools, run_continuation, extract_lvars,
+      build_continuation_prompt).
+    - Symbolic LNDL parser (3 files, 902 LOC) ported, OUT{} sugar bug fixed.
+    - operations/round_outcome.py: dead `Exhausted` variant removed.
+    - operations/react.py `_safe_round` fallback bug fixed (was constructing
+      ReActAnalysis with non-existent fields).
+    - rules/validator.py decomposed into focused helpers.
+    - core/runner.py observer install + parallel exec deduplicated.
+
+What passes:
+    1207 tests in tests/{core,lndl,operations,resource,rules,session,work,
+    test_coverage_gaps.py}.
+
+What's broken (intentionally, not yet ported):
+
+  Layer 1 — agent/cli/tools (built on deleted old API)
+    lionagi/agent/factory.py            → uses old Branch, LION_SYSTEM_MESSAGE
+    lionagi/cli/_agents.py              → uses LION_SYSTEM_MESSAGE
+    lionagi/cli/orchestrate/_common.py  → uses Instruct
+    lionagi/cli/orchestrate/_orchestration.py → uses old Builder (path-fixed,
+                                                  may have other breakage)
+    lionagi/cli/orchestrate/fanout.py   → uses Instruct
+    lionagi/cli/orchestrate/flow.py     → uses Instruct, _visualize_graph
+    lionagi/service/token_budget.py     → TYPE_CHECKING old Branch (cosmetic)
+    lionagi/tools/coding.py             → uses old Branch
+    lionagi/tools/communication/messenger.py → uses old Branch, Exchange
+    lionagi/tools/context/context.py    → uses old Branch
+    Plus tests under tests/agent/, tests/cli/, tests/tools/, tests/docs/,
+    tests/protocols/, tests/service/, tests/utils/.
+
+  Layer 2 — service/imodel.py vs service/imodel_v2.py duplication
+    The new iModel (Element-based, ResourceBackend-driven, from_provider
+    factory) lives at imodel_v2.py. The old iModel (provider/endpoint/
+    api_key constructor, used by ~339 callsites in providers/ and tests/)
+    lives at imodel.py. Both are exported. This is a TODO state, not the
+    final state. See §5.B.
+
+  Layer 3 — old test directories preserved as .moved-aside
+    /tmp/lionagi_old_test_operations_* — old tests/operations/
+    /tmp/lionagi_old_test_beta_*       — old tests/beta/
+    /tmp/lionagi_old_operations_*      — old lionagi/operations/
+    /tmp/lionagi_old_session_*         — old lionagi/session/
+    /tmp/resource_leftover_*           — empty resource/ shell
+    These can be deleted at any point. They were preserved only because
+    the `rm -rf` hook blocked outright deletion mid-migration.
+
+
+================================================================================
+4. ARCHITECTURAL PRINCIPLES (NON-NEGOTIABLE)
+================================================================================
+
+These are the rules that distinguish beta from main. Violating them
+recreates the problems beta exists to solve.
+
+  P1. SUBSTRATE FIRST.
+      Every higher layer composes from `core/`. Specifically:
+        Principal      — actor identity, capability set
+        Capability     — frozenset[str], algebraic
+        Morphism       — atomic executable unit, requires/provides
+        OpGraph/OpNode — DAG with capability satisfiability check at
+                         construction
+        Runner         — wave-level executor with ctx isolation
+        IPU            — invariant protection unit, policy enforcement
+      If a feature can't be expressed in these terms, the feature is wrong,
+      not the substrate.
+
+  P2. CAPABILITY ALGEBRA IS LOAD-BEARING.
+      requires/provides are checked at construction time. If a Morphism
+      requires a capability not provided by upstream Morphisms in its
+      OpGraph, construction fails. This is the type system for the runtime.
+      Do not silently inject capabilities. Do not bypass with `**kwargs`.
+
+  P3. ELEMENT-BASED SERIALIZATION.
+      Every public object inherits from `Element` (UUID + timestamp +
+      metadata) or composes one. Pile-storable. JSON-roundtrippable via
+      `to_dict(mode="python"|"json"|"db")`. If you need a class that's not
+      an Element, justify it in a comment.
+
+  P4. LNDL IS INTEGRATED, NOT BOLTED.
+      `lndl/orchestrator.py` is the public drive loop. `operations/
+      operate.py` is a thin dispatcher (~260 LOC). The symbolic AST
+      (lndl/symbolic_*.py) and the value AST (lndl/ast.py) coexist; both
+      are first-class. Do not let operate.py grow back into a god-function.
+
+  P5. ONE WAY TO SPELL EACH CONCEPT.
+      If two modules define overlapping classes (e.g. iModel in
+      service/imodel.py and service/imodel_v2.py), one is wrong. Decide.
+      Do not export both as `iModel`. Do not let "transitional" coexistence
+      become the steady state.
+
+  P6. VALIDATORS ARE FIRST-CLASS.
+      `rules/Validator` owns rule lookup, defaulting, custom validators.
+      Specs declare their validation; the validator drives. Do not
+      retrofit validation as decorators or after-the-fact checks.
+
+  P7. NO STUBS. EVER.
+      Quoting Ocean: "Horse runs, dog barks, and LLM hallucinates. You can
+      cry and break down, but using stubs is stupidity forever."
+      If you don't know how to implement something, research until you do.
+      A stub is technical debt disguised as output.
+
+  P8. DON'T GUESS APIs — READ SOURCE.
+      lionagi's libraries (pydapter, pynector, lionrs, krons) evolve faster
+      than any training cutoff. If you haven't Read the file in this
+      session, you don't know the current signature.
+
+  P9. MEASURE COMPLEXITY EARLY.
+      C(τ) ≥ 0.6 → use multi_reasoning, full structured analysis,
+                   verbose sampling if uncertain.
+      C(τ) < 0.3 → direct execution; do not over-architect.
+
+  P10. NO PREMATURE ABSTRACTION.
+       Three similar lines beats a premature helper. Don't design for
+       hypothetical future requirements. A bug fix doesn't need
+       surrounding refactor.
+
+
+================================================================================
+5. WHAT REMAINS (NEXT SESSIONS)
+================================================================================
+
+Listed in priority order. Each is a discrete unit of work.
+
+  A. iModel UNIFICATION (HIGH — blocks everything else clean)
+     ----------------------------------------------------------------
+     Decision needed: which iModel is canonical?
+       - service/imodel.py:    old design. provider/endpoint/api_key
+                               constructor. 339 callers.
+       - service/imodel_v2.py: new design. Element-based.
+                               iModel.from_provider("provider/model").
+                               Backend-driven.
+     The new design is strictly better (Element, serializable, factory
+     parses model spec strings). The old design has provider session
+     tracking (CLI bots like claude_code, codex) that needs porting.
+     ACTION:
+       1. Port provider session tracking from imodel.py into imodel_v2.py.
+       2. Verify new iModel can drive all providers in service/connections/.
+          (Read each provider's endpoint.py, confirm match_endpoint() flow
+          is compatible with backend= construction.)
+       3. Rename imodel_v2.py → imodel.py, deleting the old.
+       4. Rewrite all 339 callsites. Most are
+          `from lionagi.service.imodel import iModel` then `iModel(...)`.
+          Pattern: replace constructor call with iModel.from_provider().
+       5. Update lionagi/__init__.py top-level iModel export.
+
+  B. AGENT/CLI/TOOLS PORT (MEDIUM — user-visible surface)
+     ----------------------------------------------------------------
+     The `li agent`, `li team`, `li o flow/fanout` commands and
+     lionagi.tools.coding/messenger/context are all built on deleted
+     symbols (Branch from session.branch, Exchange, Instruct, _visualize_
+     graph, LION_SYSTEM_MESSAGE).
+     ACTION (per consumer):
+       1. Read what the consumer uses from the deleted symbol.
+       2. Decide: does the new substrate (work/, session/, operations/)
+          provide the equivalent? If yes, port. If no, the consumer is
+          dead — delete it.
+       3. For `Instruct` specifically: the new equivalent is `Operable`/
+          `Spec`. Update fanout/flow.py to construct Operables.
+       4. For `_visualize_graph`: write a new visualizer over `OpGraph`
+          if the visualization is still wanted; otherwise delete.
+       5. For `LION_SYSTEM_MESSAGE`: this was a string constant. Move to
+          a config or delete; decide whether to keep system message
+          presets.
+       6. For `Exchange` (session/exchange.py): no obvious replacement
+          in beta. Probably dead. Verify with Ocean before keeping any
+          consumer.
+
+  C. BRANCH/SESSION SURFACE NORMALIZATION (MEDIUM)
+     ----------------------------------------------------------------
+     New `Branch(Progression)` and `Session(Element)` live in
+     session/session.py. Both have OperationRegistry and ResourceRegistry.
+     There is overlap — a single-branch Session is functionally a Branch.
+     DECISION NEEDED: collapse to one class, or keep both with a clear
+     ownership boundary?
+     If collapsing: Branch becomes the unit; Session becomes a multi-
+     branch coordinator that holds Branches and shared resources.
+     If keeping both: write the boundary explicitly in module docstring.
+     Read session/session.py top-down. Decide. Document.
+
+  D. OPERATIONS LAYER REVIEW (LOW)
+     ----------------------------------------------------------------
+     operations/{act,generate,llm_reparse,operate,parse,react,run,specs,
+     structure,utils}.py — flat, much cleaner than main's tangle.
+     But verify:
+       - Is each module a Morphism factory or a free-function family?
+       - Do all paths flow through operate.py's dispatcher, or do some
+         bypass? (Bypassing = problem.)
+       - Are there still helpers in utils.py that should be inlined or
+         renamed?
+     Read each file. Trim what's unused. No structural changes unless
+     justified.
+
+  E. RULES / VALIDATION INTERFACE POLISH (LOW)
+     ----------------------------------------------------------------
+     rules/validator.py is decomposed but slightly larger (216→263 LOC).
+     The decomposition is the win — single-purpose methods.
+     Review whether the `_resolve_missing` short_circuit tuple return is
+     the cleanest API. Consider a `Resolution` named tuple or sentinel
+     instead of `(value, bool)`.
+
+  F. CORE RUNNER POLISH (LOW)
+     ----------------------------------------------------------------
+     core/runner.py: 588 LOC. Observer install deduplicated, parallel
+     exec via _maybe_limit context manager. Tests dependent on
+     _unwrap_exception_group as a primitive — kept.
+     Review whether the wave loop's edge cases (control actions, halt
+     propagation, ctx isolation) are tested at the wave level rather
+     than via end-to-end Runner.run() alone.
+
+  G. PROTOCOLS/MESSAGES INTEGRATION (LOW)
+     ----------------------------------------------------------------
+     lionagi/protocols/messages/prepare.py imports
+     lionagi.session.session.Branch under TYPE_CHECKING. Good. But
+     verify the prepare() flow still produces messages compatible with
+     the new Branch's progression.
+
+  H. DOCUMENTATION (BLOCKED ON A-G)
+     ----------------------------------------------------------------
+     CLAUDE.md at lionagi/CLAUDE.md still describes the OLD architecture.
+     Rewrite from scratch once A-G stabilize. Do not edit incrementally —
+     it'll just become stale faster than it gets corrected.
+
+
+================================================================================
+6. VERIFICATION GATES
+================================================================================
+
+A piece of work is "done" only when:
+
+  G1. Tests covering the changed code pass under `uv run pytest
+      tests/<area>`.
+  G2. Imports resolve: `uv run python -c "import lionagi"` exits 0.
+  G3. The change does not introduce a new `_v2`, `_legacy`, or `_old`
+      file.
+  G4. The change does not introduce a re-export shim ("from .new import
+      X as OldName").
+  G5. A reader can answer "what does this module do" from the docstring +
+      the public API, without tracing through callers.
+
+A whole-branch milestone ("beta replaces main") is only met when:
+
+  M1. All tests in tests/ pass (currently: 1207/8440 from migrated tree;
+      ~7000 in agent/cli/tools/providers/docs are broken or testing dead
+      code).
+  M2. `from lionagi import Branch, Session, Builder, Operation, iModel,
+      load_mcp_tools, FieldModel, OperableModel` all import without
+      error and produce working classes.
+  M3. The CLI (`li agent`, `li o flow`) executes a hello-world end-to-
+      end OR is explicitly removed from this branch.
+  M4. No `_v2` files remain.
+  M5. lionagi/CLAUDE.md describes the actual current architecture.
+
+
+================================================================================
+7. ANTI-PATTERNS TO AVOID
+================================================================================
+
+These are mistakes prior sessions have made or are likely to make.
+
+  AP1. Adding shims to "fix" import errors instead of porting consumers.
+       The shim becomes the API; the port never happens.
+
+  AP2. Solving naming collisions with `_v2`, `_old`, `_legacy` and
+       leaving them in. They calcify. Either pick a winner or use an
+       explicit submodule (e.g. `service.legacy.imodel`) you commit to
+       deleting on a date.
+
+  AP3. Patching tests to make them pass against changed behavior, when
+       the test was for behavior that no longer exists. Delete the test.
+
+  AP4. Reading "you can apply new designs" as "rewrite everything." It
+       means "don't preserve dead spellings." Apply judgment to what's
+       worth a redesign.
+
+  AP5. Reporting work as complete without running the relevant test
+       subset. "Should pass" ≠ "passes."
+
+  AP6. Sycophancy on architectural disagreement. If Ocean proposes a
+       structure that conflicts with these principles, hold the position,
+       state the conflict, ask for the override or the resolution.
+
+  AP7. Forgetting that this is the BETA branch. Asking "should I preserve
+       backward compat" defeats the purpose of the branch. The purpose is
+       to NOT preserve it.
+
+  AP8. Treating CLAUDE.md (lionagi/CLAUDE.md, project_root/CLAUDE.md) as
+       authoritative when it describes the OLD architecture. It's stale
+       until rewritten.
+
+  AP9. Working from the file tree alone without grepping for the symbol's
+       consumers. A class/function is its callers as much as its
+       definition. Always grep before refactoring.
+
+  AP10. Skipping `uv run` for python execution. The PreToolUse hook will
+        block naked python; using it anyway burns iteration time.
+
+
+================================================================================
+8. CONTEXT FOR NEW SESSIONS
+================================================================================
+
+Before resuming work on this branch, read:
+
+  - This file (BETA_INTENT.txt) — start here.
+  - lionagi/__init__.py — current top-level surface, lazy map.
+  - lionagi/core/__init__.py — substrate exports.
+  - lionagi/core/types.py — Principal, Capability core.
+  - lionagi/core/runner.py — execution model.
+  - lionagi/lndl/orchestrator.py — LNDL drive loop.
+  - lionagi/operations/operate.py — current dispatcher (note: thin).
+  - lionagi/session/session.py — Branch + Session unified file.
+  - lionagi/work/builder.py — OperationGraphBuilder.
+  - lionagi/rules/validator.py — Validator class.
+
+  Then look at lionagi/CLAUDE.md ONLY to understand what NOT to do.
+  That file describes main; this branch deviates from it deliberately.
+
+  Run the test sanity check:
+      cd /Users/lion/projects/libs/opensrc/lionagi
+      uv run pytest tests/core tests/lndl tests/operations tests/resource \
+                    tests/rules tests/session tests/work \
+                    tests/test_coverage_gaps.py
+  Expect: 1207 passed.
+
+  If that count differs (regression or new tests added), reconcile before
+  starting new work.
+
+
+================================================================================
+9. SUCCESS CRITERIA (HIGH-LEVEL)
+================================================================================
+
+  - You can read lionagi/__init__.py and the top of every submodule's
+    __init__.py, and predict what the package does.
+  - A new contributor can write a useful Morphism in <30 minutes after
+    reading core/ and one example.
+  - Capability errors are caught at OpGraph construction time, not at
+    Runner.run() time.
+  - LNDL works end-to-end (parse → bind → execute → revalidate) without
+    operate.py knowing LNDL exists.
+  - Replacing main with beta does not introduce a single new "transitional"
+    name.
+
+When all of the above hold, the merge is ready.
+
+================================================================================
+END OF BRIEF
+================================================================================

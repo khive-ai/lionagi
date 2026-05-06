@@ -14,7 +14,7 @@ from lionagi.service.token_calculator import TokenCalculator
 from ..base import LionTool
 
 if TYPE_CHECKING:
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
 
 class ContextAction(str, Enum):

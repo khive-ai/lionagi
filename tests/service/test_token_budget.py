@@ -268,7 +268,7 @@ class TestGetContextWindowModelLookup:
 class TestGetTokenBudget:
     def test_returns_token_budget_instance(self):
         """get_token_budget returns TokenBudget with non-negative used and positive limit."""
-        from lionagi.session.branch import Branch
+        from lionagi.session.session import Branch
 
         branch = Branch()
         budget = get_token_budget(branch)
@@ -278,7 +278,7 @@ class TestGetTokenBudget:
 
     def test_used_increases_after_message_added(self):
         """get_token_budget counts tokens for messages in the progression."""
-        from lionagi.session.branch import Branch
+        from lionagi.session.session import Branch
 
         branch = Branch()
         before = get_token_budget(branch)
@@ -290,7 +290,7 @@ class TestGetTokenBudget:
 
     def test_model_field_from_chat_model_endpoint(self):
         """get_token_budget extracts model name from branch.chat_model.endpoint.config.kwargs."""
-        from lionagi.session.branch import Branch
+        from lionagi.session.session import Branch
 
         branch = Branch()
         budget = get_token_budget(branch)

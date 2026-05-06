@@ -7,7 +7,7 @@ import pytest
 
 from lionagi.agent.config import AgentConfig
 from lionagi.agent.factory import create_agent
-from lionagi.session.branch import Branch
+from lionagi.session.session import Branch
 
 # ---------------------------------------------------------------------------
 # Helpers

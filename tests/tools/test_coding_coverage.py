@@ -302,7 +302,7 @@ def test_coding_toolkit_to_tool_raises():
 
 
 async def test_security_pre_hook_runs_before_user_hooks(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     order = []
 
@@ -327,7 +327,7 @@ async def test_security_pre_hook_runs_before_user_hooks(tmp_path):
 
 
 async def test_build_postprocessor_chains_post_hooks(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     calls = []
 
@@ -347,7 +347,7 @@ async def test_build_postprocessor_chains_post_hooks(tmp_path):
 
 
 async def test_build_preprocessor_no_hooks_returns_none():
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False)
@@ -363,7 +363,7 @@ async def test_build_preprocessor_no_hooks_returns_none():
 
 
 async def test_context_get_messages_returns_summaries(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -379,7 +379,7 @@ async def test_context_get_messages_returns_summaries(tmp_path):
 
 
 async def test_context_evict_action_results_all_kept_when_below_threshold(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -393,7 +393,7 @@ async def test_context_evict_action_results_all_kept_when_below_threshold(tmp_pa
 
 async def test_context_evict_action_results_removes_old(tmp_path):
     from lionagi.protocols.messages import ActionRequest, ActionResponse
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -410,7 +410,7 @@ async def test_context_evict_action_results_removes_old(tmp_path):
 
 
 async def test_context_unknown_action_returns_error(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -430,7 +430,7 @@ async def test_context_unknown_action_returns_error(tmp_path):
 async def test_reader_list_dir_with_file_types(tmp_path):
     (tmp_path / "a.py").write_text("x")
     (tmp_path / "b.txt").write_text("y")
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -445,7 +445,7 @@ async def test_reader_list_dir_with_file_types(tmp_path):
 
 
 async def test_reader_unknown_action_returns_error(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -463,7 +463,7 @@ async def test_reader_unknown_action_returns_error(tmp_path):
 
 
 async def test_editor_write_no_content_returns_error(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -478,7 +478,7 @@ async def test_editor_write_no_content_returns_error(tmp_path):
 
 
 async def test_editor_unknown_action_returns_error(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -500,7 +500,7 @@ async def test_editor_unknown_action_returns_error(tmp_path):
 async def test_search_grep_with_include_filter(tmp_path):
     (tmp_path / "a.py").write_text("def foo(): pass\n")
     (tmp_path / "b.txt").write_text("def foo(): pass\n")
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -515,7 +515,7 @@ async def test_search_grep_with_include_filter(tmp_path):
 
 
 async def test_search_unknown_action_returns_error(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -533,7 +533,7 @@ async def test_search_unknown_action_returns_error(tmp_path):
 
 
 async def test_bash_shell_control_rejected_in_toolkit(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -546,7 +546,7 @@ async def test_bash_shell_control_rejected_in_toolkit(tmp_path):
 
 
 async def test_bash_malformed_command_returns_error(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -564,7 +564,7 @@ async def test_bash_malformed_command_returns_error(tmp_path):
 
 
 async def test_sandbox_no_active_session_error(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -581,7 +581,7 @@ async def test_sandbox_no_active_session_error(tmp_path):
 async def test_sandbox_unknown_action_returns_error(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
 
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -606,7 +606,7 @@ async def test_sandbox_unknown_action_returns_error(tmp_path, monkeypatch):
 async def test_sandbox_already_active_blocks_create(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
 
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=False, workspace_root=str(tmp_path))
@@ -630,7 +630,7 @@ async def test_sandbox_already_active_blocks_create(tmp_path, monkeypatch):
 
 
 async def test_system_status_emitted_via_postprocessor(tmp_path):
-    from lionagi.session.branch import Branch
+    from lionagi.session.session import Branch
 
     b = Branch()
     tk = CodingToolkit(notify=True, workspace_root=str(tmp_path))
