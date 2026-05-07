@@ -97,6 +97,8 @@ async def _act(
     branch.msgs.add_message(
         action_request=action_request,
         action_output=func_call.response,
+        sender=func_call.func_tool.id,
+        recipient=branch.id,
     )
 
     return ActionResponseModel(
