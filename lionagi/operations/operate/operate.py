@@ -150,7 +150,7 @@ def prepare_operate_kw(
         # Create response model
         operative = Step.respond_operative(operative)
 
-    final_response_format = operative.response_type if operative else response_format
+    final_response_format = operative.request_type if operative else response_format
 
     # Choose ChatParam vs RunParam. RunParam is required when the middle
     # streams via run() (CLI endpoints, explicit stream_persist, or when
@@ -307,11 +307,11 @@ async def operate(
         )
         operative = Step.respond_operative(operative)
 
-        # Update contexts
-        response_fmt = operative.response_type or model_class
-        if response_fmt:
-            _cctx = _cctx.with_updates(response_format=response_fmt)
-            _pctx = _pctx.with_updates(response_format=response_fmt)
+        # Update contexts — use request_type (excludes action_responses)
+        request_fmt = operative.request_type or model_class
+        if request_fmt:
+            _cctx = _cctx.with_updates(response_format=request_fmt)
+            _pctx = _pctx.with_updates(response_format=request_fmt)
 
     if middle is None:
         if isinstance(_cctx, RunParam) or getattr(branch.chat_model, "is_cli", False):
