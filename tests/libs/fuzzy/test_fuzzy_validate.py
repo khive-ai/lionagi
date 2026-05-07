@@ -42,9 +42,8 @@ class TestFuzzyValidatePydantic:
         assert result.email == "alice@example.com"
 
     def test_extract_json_exception(self):
-        """Test extract_json raising exception (lines 29-30)."""
-        # Pass None to cause extract_json to fail
-        with pytest.raises(ValidationError, match="Failed to extract valid JSON"):
+        """Test invalid input raises TypeError."""
+        with pytest.raises(TypeError, match="Input must be a string or a dictionary"):
             fuzzy_validate_pydantic(None, SimpleModel)
 
     def test_json_with_fuzzy_parse(self):

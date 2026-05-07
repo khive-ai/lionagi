@@ -38,6 +38,7 @@ def fuzzy_validate_pydantic(
     else:
         raise TypeError("Input must be a string or a dictionary")
 
+    model_data = d
     if fuzzy_match:
         if fuzzy_match_params is None:
             model_data = fuzzy_match_keys(
