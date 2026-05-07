@@ -214,7 +214,7 @@ exclude = [
 # Force minimum versions for transitive deps with known vulnerabilities
 constraint-dependencies = [
     "authlib>=1.6.11",      # CVE: CSRF when using cache
-    "python-multipart>=0.0.26",  # CVE: DoS via large multipart preamble/epilogue
+    "python-multipart>=0.0.27",  # CVE: DoS via unbounded multipart part headers
     "pytest>=9.0.3",        # CVE: vulnerable tmpdir handling
     "pillow>=12.2.0",       # CVE: FITS GZIP decompression bomb
     "pyjwt>=2.12.0",        # CVE: unknown crit header extensions
@@ -224,4 +224,6 @@ constraint-dependencies = [
     "requests>=2.33.0",     # CVE: insecure temp file reuse in extract_zipped_paths
     "pygments>=2.20.0",     # CVE: ReDoS in GUID regex
     "lxml>=6.1.0",          # CVE-2026-41066: XXE via default iterparse / ETCompatXMLParser config
+    # starlette>=0.47.2 needed for CVE fix but blocked by ag2's fastapi pin — monitor
+    "gitpython>=3.1.49",    # CVE: RCE via config_writer + path traversal in reference APIs
 ]
