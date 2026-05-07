@@ -208,18 +208,33 @@ class InstructionContent(MessageContent):
         if self.plain_content:
             return self.plain_content
 
-        doc: dict[str, Any] = {
-            "Guidance": self.guidance,
-            "Instruction": self.instruction,
-            "Context": self.prompt_context,
-            "Tools": self.tool_schemas,
-        }
+        parts: list[str] = []
+        tf = self.prompt_transformer
+
+        if self.guidance:
+            parts.append(f"## Guidance\n{self.guidance}")
+
+        if self.instruction:
+            parts.append(f"## Task Instruction\n{self.instruction}")
+
+        if self.prompt_context:
+            ctx_yaml = minimal_yaml(self.prompt_context).strip()
+            parts.append(f"## Context\n{ctx_yaml}")
+
+        if self.tool_schemas:
+            tools_display = tf.render_tools(self.tool_schemas)
+            if tools_display:
+                parts.append(f"## Tools\n{tools_display}")
+            else:
+                parts.append(f"## Tools\n{minimal_yaml(self.tool_schemas).strip()}")
 
         if not self._is_sentinel(self.response_format):
-            doc["ResponseFormat"] = self.prompt_transformer.render(self.response_format)
+            schema = tf.render_schema(self.response_format)
+            if schema:
+                parts.append(f"## Schema\n{schema}")
+            parts.append(f"## ResponseFormat\n{tf.render_format(self.response_format)}")
 
-        doc = {k: v for k, v in doc.items() if v not in (None, "", [], {})}
-        return minimal_yaml(doc).strip()
+        return "\n\n".join(parts)
 
     @staticmethod
     def _format_image_item(idx: str, detail: str) -> dict[str, Any]:
