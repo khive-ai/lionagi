@@ -4,71 +4,72 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.24.0] - 2026-05-07
+
+### Added
+
+- **`Formatter` protocol** — pluggable instruction rendering (`render_schema`, `render_format`, `render_tools`, `parse`); `JsonTransformer` as default, slot for LNDL
+- **TypeScript-style schema display** — ~47% smaller than raw `model_json_schema()`, preserves all field descriptions and constraints
+- **TypeScript-style tool signatures** — one-line function notation replaces 12-line YAML blocks
+- Markdown section headers (`## Task Instruction`, `## Tools`, `## Schema`, `## ResponseFormat`) for prompt layout
+
+### Changed
+
+- `InstructionContent` uses `prompt_transformer` field instead of internal `_schema_dict`/`_model_class`
+- Deprecated `response_model_cls`, `schema_dict`, `request_model` properties (removed in v1.0)
+
+### Fixed
+
+- `operate()` leaked `action_responses` field into LLM prompt — now uses `request_type` (excludes action_responses)
+- `ActionResponse` messages had `None` sender/recipient — now `sender=tool_id, recipient=branch_id`
+- `fuzzy_validate_pydantic` crashed when `fuzzy_match=False` (unbound `model_data`)
+
 ## [0.23.1] - 2026-05-02
 
 ### Added
 
-- **Provider registry architecture** — `EndpointRegistry`, `ProviderConfig`, and `@register` decorator; providers self-register on import, enabling `iModel(provider="openai", endpoint="chat")` lookups
-- **AG2 GroupChat endpoint** — `lionagi.providers.ag2.groupchat`; install with `pip install lionagi[ag2]`
-- **Note model** — `lionagi.models.note.Note` with `deep_update()` for recursive dict merging and nested path access utilities
+- Provider registry (`EndpointRegistry`, `@register` decorator, `iModel(provider=..., endpoint=...)`)
+- AG2 GroupChat endpoint (`pip install lionagi[ag2]`)
+- `Note` model with `deep_update()` and nested path access
 
 ### Changed
 
-- **Provider modules reorganized** from flat files (`connections/providers/oai_.py`) to `providers/{company}/{endpoint}/` package structure; old import paths still work but are superseded
-- **`CLIEndpoint` renamed to `AgenticEndpoint`** — reflects broader use beyond CLI-only subprocess providers; alias kept for one minor version
+- Provider modules reorganized to `providers/{company}/{endpoint}/` packages
+- `CLIEndpoint` → `AgenticEndpoint` (alias kept one version)
 
 ### Fixed
 
-- Registry thread-safety — concurrent `iModel` instantiation no longer races on endpoint lookup
-- Endpoint matching for single-endpoint providers — `iModel(provider="pi")` resolves without requiring `endpoint=` kwarg
+- Registry thread-safety on concurrent `iModel` instantiation
+- Single-endpoint provider matching without `endpoint=` kwarg
 
 ## [0.23.0] - 2026-04-27
 
 ### Added
 
-- **Coding agent infrastructure** (`lionagi/agent/`) — `AgentConfig` presets, `create_agent()` factory, `PermissionPolicy` (allowlist/denylist/confirm), built-in hooks, `.lionagi/settings.yaml` loading
-- **Sandbox tool** — `SandboxSession` for git-worktree-isolated development (create/diff/commit/merge/discard)
-- **DeepSeek native provider** — direct API support with reasoning effort mapping
-- **Pi CLI endpoint** — Pi Code subprocess integration with NDJSON streaming
-- `li play NAME --help` — playbook-specific help (description + args)
-- 250+ new tests (agent infrastructure, operations, regression)
+- Coding agent infrastructure — `AgentConfig` presets, `create_agent()`, `PermissionPolicy`, hooks, settings
+- `SandboxSession` — git-worktree-isolated editing
+- DeepSeek native provider, Pi CLI endpoint
+- `li play NAME --help`, 250+ new tests
 
 ### Fixed
 
-- `li o flow --save` regression from 0.22.6 — agent results now written in both flow and fanout paths
-- Flaky timing-based tests replaced with event barriers
-- `ValidationError` kwargs bug in test infrastructure
+- `li o flow --save` regression, flaky timing tests, `ValidationError` kwargs
 
 ## [0.22.9] - 2026-04-24
 
 ### Security
 
-- Symlink containment on `li skill` + `li play` — hostile per-entry symlinks blocked
-- `FlowAgent.id` / `FlowOp.id` validated (`^[A-Za-z0-9_-]{1,64}$`) — prevents path escape
-- `--max-ops` enforced cumulatively across re-plan rounds
-- Save-path containment — `--save DIR` must live under `cwd` or `$HOME`
-- Pin `lxml>=6.1.0` (CVE-2026-41066), `python-dotenv>=1.2.2` (CVE-2026-28684)
+- Symlink containment, FlowAgent/FlowOp ID validation, `--max-ops` enforcement, save-path containment
+- Pin `lxml>=6.1.0`, `python-dotenv>=1.2.2`
 
 ### Added
 
-- `li skill NAME` — read skill files from `~/.lionagi/skills/`. Also `li skill list`
-- `li play NAME [args]` — load and run playbooks from `~/.lionagi/playbooks/`
-- Playbook args schema (typed `args:` or `argument-hint:` fallback) with template interpolation
-- `--team-attach NAME` — attach to existing team (preserves message history)
-- `--bypass` flag — bypass all codex approvals/sandbox (for cloud/codespace)
-- `--add-dir` auto-injected for project root (codex workers can write source files)
-- Agent directory layout (`<name>/<name>.md` resolved before flat `<name>.md`)
-- `examples/` directory with agent, skill, and playbook templates
-
-### Changed
-
-- `--max-agents` renamed to `--max-ops` (deprecated alias kept)
-- Effort/synthesis spec validation accepts full CLI value range
+- `li skill NAME`, `li play NAME [args]` with typed args schema
+- `--team-attach`, `--bypass`, `--add-dir`, agent directory layout, `examples/`
 
 ### Fixed
 
-- Playbook args collision with base CLI flags
-- Codex workers sandboxed to artifact dir only — now get project root via `--add-dir`
+- Playbook args collision, codex worker sandbox scope
 
 ## [0.22.8] - 2026-04-21
 
