@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import re
 
+from .extract import extract_lndl_blocks
+
 __all__ = ("normalize_lndl_text",)
 
 _XML_ATTR_RE = re.compile(r'\b\w+=["\'][^"\']*["\']')
@@ -32,6 +34,11 @@ def normalize_lndl_text(text: str) -> str:
     """
     if not text:
         return text
+
+    # 0) If the model wrapped LNDL in ```lndl fenced blocks, prefer those.
+    blocks = extract_lndl_blocks(text)
+    if blocks:
+        text = "\n\n".join(blocks)
 
     # 1) Curly-brace tags → angle-bracket tags
     text = re.sub(r"\{(lvar|lact)(\s+[^}]*)\}", r"<\1\2>", text)

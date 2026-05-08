@@ -111,6 +111,25 @@ async def _try_finalize_lndl_once(
     if not output:
         return raw, "OUT{} is empty after parsing."
 
+    # Required-field check: every non-optional, non-action field on the target
+    # must appear in OUT{} (or be filled by execution later).
+    target_cls = target_type if isinstance(target_type, type) else type(target_type) if target_type else None
+    if target_cls is not None and hasattr(target_cls, "model_fields"):
+        skip_action = {"action_required", "action_requests", "action_responses"}
+        missing = []
+        for fname, finfo in target_cls.model_fields.items():
+            if fname in skip_action:
+                continue
+            if not finfo.is_required():
+                continue
+            if fname not in output:
+                missing.append(fname)
+        if missing:
+            return raw, (
+                f"OUT{{}} missing required field(s): {', '.join(missing)}. "
+                f"Every required spec must appear in OUT{{}}."
+            )
+
     placeholders = collect_actions(output)
     action_requests = []
     action_responses_models = []

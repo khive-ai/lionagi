@@ -399,6 +399,7 @@ async def case_11():
         ),
         actions=True,
         lndl=True,
+        lndl_retries=2,
         response_format=ResearchReport,
     )
     show(out, branch)
