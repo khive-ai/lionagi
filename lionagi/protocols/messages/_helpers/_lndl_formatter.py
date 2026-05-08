@@ -17,6 +17,7 @@ from lionagi.lndl import (
     Parser,
     assemble,
     collect_actions,
+    normalize_lndl_text,
     replace_actions,
 )
 from lionagi.lndl.prompt import LNDL_SYSTEM_PROMPT
@@ -304,6 +305,7 @@ class LndlFormatter:
         Values may include ``ActionCall`` placeholders for <lact> aliases.
         Caller is responsible for executing actions and replacing placeholders.
         """
+        text = normalize_lndl_text(text)
         try:
             lexer = Lexer(text)
             tokens = lexer.tokenize()

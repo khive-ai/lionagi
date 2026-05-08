@@ -90,9 +90,11 @@ async def _try_finalize_lndl_once(
         Parser,
         assemble,
         collect_actions,
+        normalize_lndl_text,
         replace_actions,
     )
 
+    raw = normalize_lndl_text(raw)
     try:
         lexer = Lexer(raw)
         tokens = lexer.tokenize()

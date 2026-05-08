@@ -23,6 +23,7 @@ from .errors import (
 )
 from .extract import extract_lndl_blocks
 from .lexer import Lexer, Token, TokenType
+from .normalize import normalize_lndl_text
 from .parser import ParseError, Parser
 from .prompt import LNDL_SYSTEM_PROMPT, get_lndl_system_prompt
 from .types import ActionCall, LNDLOutput, LvarMetadata, RLvarMetadata, Scalar
@@ -57,5 +58,6 @@ __all__ = (
     "collect_actions",
     "extract_lndl_blocks",
     "get_lndl_system_prompt",
+    "normalize_lndl_text",
     "replace_actions",
 )

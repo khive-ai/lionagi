@@ -159,6 +159,10 @@ def assemble_spec_value(
     """Resolve OUT{}-listed aliases into a value matching ``target_type``."""
     parts: list[tuple[str | None, Any]] = []
     for alias in refs:
+        # Defensive: aliases must be hashable strings. Skip nested structures
+        # or scalar literals that slipped through (e.g. a malformed OUT block).
+        if not isinstance(alias, str):
+            continue
         found, value = _alias_value(alias, lvars_by_alias, lacts_by_alias, action_results)
         if not found:
             continue
