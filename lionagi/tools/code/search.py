@@ -154,7 +154,7 @@ def _grep_sync(
     if result.returncode == 2:
         return SearchResponse(success=False, error=result.stderr.strip(), count=0)
 
-    lines = [l for l in result.stdout.splitlines() if l][:max_results]
+    lines = [ln for ln in result.stdout.splitlines() if ln][:max_results]
     return SearchResponse(
         success=True,
         content="\n".join(lines),
@@ -189,7 +189,7 @@ def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
     if result.returncode != 0 and result.stderr.strip():
         return SearchResponse(success=False, error=result.stderr.strip(), count=0)
 
-    lines = [l for l in result.stdout.splitlines() if l][:max_results]
+    lines = [ln for ln in result.stdout.splitlines() if ln][:max_results]
     return SearchResponse(
         success=True,
         content="\n".join(lines),

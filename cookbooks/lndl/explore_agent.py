@@ -13,7 +13,7 @@ them fails at lookup — defense in depth, not just a prompt promise.
 
 Run::
 
-    uv run python cookbooks/_lndl_explore_agent.py [--task=N]
+    uv run python cookbooks/lndl/explore_agent.py [--task=N]
 
 Tasks (each scoped to the lionagi repo):
     1. Locate: "Find files implementing LNDL parsing"
@@ -34,7 +34,7 @@ from lionagi.tools.coding import CodingToolkit
 
 load_dotenv()
 
-WORKSPACE = Path("/Users/lion/projects/libs/opensrc/lionagi").resolve()
+WORKSPACE = Path(__file__).resolve().parents[2]
 
 
 # ─── Output schema ──────────────────────────────────────────────────────────

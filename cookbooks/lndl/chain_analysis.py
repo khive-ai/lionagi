@@ -16,9 +16,9 @@ chat history — the final synthesis can reference them.
 
 Run::
 
-    uv run python cookbooks/_lndl_react_analysis.py [--model openai/gpt-5.4-mini]
-                                                    [--rounds 8]
-                                                    [--out OUT.json]
+    uv run python cookbooks/lndl/chain_analysis.py [--model openai/gpt-5.4-mini]
+                                                   [--rounds 8]
+                                                   [--out OUT.json]
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from lionagi.tools.coding import CodingToolkit
 
 load_dotenv()
 
-WORKSPACE = Path("/Users/lion/projects/libs/opensrc/lionagi").resolve()
+WORKSPACE = Path(__file__).resolve().parents[2]
 
 
 # ─── Phase schemas ──────────────────────────────────────────────────────────

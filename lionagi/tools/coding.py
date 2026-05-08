@@ -748,8 +748,9 @@ class CodingToolkit(LionTool):
         call_count = [0]
         msgs = branch.msgs
         notify = self.notify
-        threshold = self.notify_threshold
-        max_tokens = self.notify_max_tokens
+        warn_threshold = self.notify_threshold
+        critical_threshold = min(warn_threshold + 0.2, 0.95)
+        max_tokens_override = self.notify_max_tokens
         # Finding 14: capture workspace root for use in all sync file helpers
         workspace_root = self.workspace_root
 
@@ -761,6 +762,14 @@ class CodingToolkit(LionTool):
             from lionagi.service.token_budget import get_token_budget
 
             budget = get_token_budget(branch)
+            # Use the caller-configured max_tokens as the limit when the
+            # budget module fell back to its default (model not recognised).
+            limit = (
+                max_tokens_override
+                if budget.limit == 128_000 and max_tokens_override != 128_000
+                else budget.limit
+            )
+            usage_pct = budget.used / limit if limit > 0 else 0.0
             n_active = len(branch.progression)
             n_total = len(msgs.progression)
             n_files = len(file_state)
@@ -772,7 +781,7 @@ class CodingToolkit(LionTool):
                     n_action_results += 1
 
             parts = [
-                f"context {budget.used // 1000}k/{budget.limit // 1000}k tokens ({budget.usage_pct:.0%})"
+                f"context {budget.used // 1000}k/{limit // 1000}k tokens ({usage_pct:.0%})"
             ]
             parts.append(f"{n_active} messages")
             if n_action_results > 0:
@@ -784,10 +793,16 @@ class CodingToolkit(LionTool):
 
             status = f"[System: {', '.join(parts)}]"
 
-            if budget.is_critical:
-                status += " ⚠️ Context nearly full — evict old action results now."
-            elif budget.is_warning:
-                status += " Consider evicting earlier action results to free space."
+            if usage_pct >= critical_threshold:
+                status += (
+                    " ⚠️ Context nearly full — use the context tool to evict "
+                    "old action results now."
+                )
+            elif usage_pct >= warn_threshold:
+                status += (
+                    " Consider using the context tool to evict earlier "
+                    "action results and free space."
+                )
 
             return status
 

@@ -1,6 +1,6 @@
 """Runner for LNDL test cases. Executes each case, prints raw + parsed output.
 
-Run with: uv run python cookbooks/_lndl_cases_runner.py
+Run with: uv run python cookbooks/lndl/_cases_runner.py
 Set CASE=N to run a single case (e.g. CASE=3).
 """
 

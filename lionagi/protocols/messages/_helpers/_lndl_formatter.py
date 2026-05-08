@@ -19,9 +19,7 @@ from lionagi.lndl import (
     assemble,
     collect_actions,
     normalize_lndl_text,
-    replace_actions,
 )
-from lionagi.lndl.types import ActionCall
 
 from ._json_formatter import _referenced_schemas_display, _tool_schemas_display
 

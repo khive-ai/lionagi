@@ -225,7 +225,7 @@ class InstructionContent(MessageContent):
             from ._helpers import _tool_schemas_display
 
             if all(isinstance(t, str) for t in self.tool_schemas):
-                parts.append(f"## Tools\n" + "\n".join(self.tool_schemas))
+                parts.append("## Tools\n" + "\n".join(self.tool_schemas))
             else:
                 tools_display = _tool_schemas_display(self.tool_schemas)
                 parts.append(
