@@ -4,6 +4,29 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.25.0] - 2026-05-08
+
+### Changed
+
+- **0.24.0 yanked** — LNDL (Language Network Directive Language) was released experimentally in 0.24.0 and has been reverted. LNDL will return in a future version once the language spec stabilises across implementations. See `feat/lndl-integration` branch and the v0.24.0 tag for the work-in-progress.
+
+### Fixed
+
+- **SSE streaming parser** (`endpoint.py`) — rewrote the line-level SSE parser to correctly handle multi-line events, `[DONE]` frames, and Anthropic `content_block_delta` events. Fixes silent data corruption on streaming for all HTTP providers.
+- **Handler leak in CLI providers** — `claude_code`, `codex`, `gemini_code`, `pi` endpoints leaked handler dicts into the HTTP request body. Handlers now live on private instance attributes.
+- **`messages` default** — CLI endpoints defaulted to `KeyError` on missing messages key; now defaults to `[]`.
+- **`call_kwargs` transport** — new `call_kwargs` field on `APICalling` enables multipart file transport (audio, images) without leaking binary data into the JSON payload. `transport_arg_keys` class variable on endpoints declares which kwargs are transport-only.
+- **Request model wiring** — `openai/embed`, `openai/response`, `nvidia_nim/embed` configs now wire request models, preventing internal kwargs from reaching the HTTP body.
+
+### Security
+
+- Bump `python-multipart>=0.0.27` (DoS via unbounded multipart part headers)
+- Bump `gitpython>=3.1.49` (RCE via config_writer + path traversal)
+
+### Added
+
+- **Endpoint contract consistency test** — validates transport_arg_keys, handler isolation, and payload field-filtering across all providers.
+
 ## [0.23.1] - 2026-05-02
 
 ### Added
