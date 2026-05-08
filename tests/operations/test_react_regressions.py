@@ -37,9 +37,6 @@ async def test_react_returns_answer_string_not_analysis_object():
         # First call returns ReActAnalysis with planned actions
         first_analysis = ReActAnalysis(
             analysis="I need to multiply 5 by 3",
-            planned_actions=[
-                PlannedAction(action_type="multiply", description="multiply 5 by 3")
-            ],
             extension_needed=False,  # Will still do actions, then final answer
         )
 
@@ -75,9 +72,7 @@ async def test_react_honors_custom_response_format():
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         # First call returns ReActAnalysis (no more extensions)
-        analysis = ReActAnalysis(
-            analysis="Complete", planned_actions=[], extension_needed=False
-        )
+        analysis = ReActAnalysis(analysis="Complete", extension_needed=False)
 
         # Final call should use custom response format
         custom_result = CustomAnswer(result=15.0, explanation="5 times 3 equals 15")
@@ -108,9 +103,7 @@ async def test_react_forwards_response_kwargs():
         from lionagi.operations.ReAct.utils import Analysis
 
         # First call
-        first = ReActAnalysis(
-            analysis="Done", planned_actions=[], extension_needed=False
-        )
+        first = ReActAnalysis(analysis="Done", extension_needed=False)
         # Final call returns Analysis
         final = Analysis(answer="Result")
         mock_operate.side_effect = [first, final]

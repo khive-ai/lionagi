@@ -129,7 +129,6 @@ async def test_invalid_tool_response_handling():
     ):
         analysis = ReActAnalysis(
             analysis="Call tool",
-            planned_actions=[PlannedAction(action_type="multiply", description="Test")],
             extension_needed=False,
         )
 
@@ -157,7 +156,6 @@ async def test_all_none_response_recovery():
         # First call returns analysis
         analysis = ReActAnalysis(
             analysis="Analysis",
-            planned_actions=[],
             extension_needed=False,
         )
 
@@ -185,9 +183,7 @@ async def test_continue_after_failed_response():
         # First call returns all None
         failed_response = {"field1": None, "field2": None}
         # Second call returns valid response
-        valid_analysis = ReActAnalysis(
-            analysis="Recovered", planned_actions=[], extension_needed=False
-        )
+        valid_analysis = ReActAnalysis(analysis="Recovered", extension_needed=False)
         final = Analysis(answer="Success")
 
         mock_operate.side_effect = [
@@ -208,18 +204,17 @@ async def test_continue_after_failed_response():
 
 
 @pytest.mark.asyncio
-async def test_empty_planned_actions():
-    """Test ReAct when analysis has no planned actions."""
+async def test_analysis_without_planned_actions_field():
+    """ReActAnalysis no longer carries planned_actions; ReAct should still
+    complete on a minimal analysis with no actions."""
     branch = make_mocked_branch_for_react()
 
     with (
         patch("lionagi.operations.operate.operate.operate") as mock_operate,
         patch("lionagi.operations.act.act.act") as mock_act,
     ):
-        # Analysis with empty planned_actions list
         analysis = ReActAnalysis(
             analysis="No actions needed",
-            planned_actions=[],  # Empty
             extension_needed=False,
         )
 
@@ -252,7 +247,6 @@ async def test_react_with_custom_response_format():
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         analysis = ReActAnalysis(
             analysis="Complete",
-            planned_actions=[],
             extension_needed=False,
         )
 
@@ -279,12 +273,8 @@ async def test_return_analysis_parameter():
     branch = make_mocked_branch_for_react()
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
-        round1 = ReActAnalysis(
-            analysis="Step 1", planned_actions=[], extension_needed=True
-        )
-        round2 = ReActAnalysis(
-            analysis="Step 2", planned_actions=[], extension_needed=False
-        )
+        round1 = ReActAnalysis(analysis="Step 1", extension_needed=True)
+        round2 = ReActAnalysis(analysis="Step 2", extension_needed=False)
         final = Analysis(answer="Final")
 
         mock_operate.side_effect = [round1, round2, final]
@@ -311,12 +301,9 @@ async def test_reasoning_effort_parameter():
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         analysis = ReActAnalysis(
             analysis="High effort reasoning",
-            planned_actions=[],
             extension_needed=True,
         )
-        round2 = ReActAnalysis(
-            analysis="Continue", planned_actions=[], extension_needed=False
-        )
+        round2 = ReActAnalysis(analysis="Continue", extension_needed=False)
         final = Analysis(answer="Result")
 
         mock_operate.side_effect = [analysis, round2, final]
@@ -341,7 +328,6 @@ async def test_verbose_analysis_output():
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         analysis = ReActAnalysis(
             analysis="Analysis text",
-            planned_actions=[],
             extension_needed=False,
         )
         final = Analysis(answer="Final answer")
@@ -375,7 +361,6 @@ async def test_react_with_many_extensions():
             rounds.append(
                 ReActAnalysis(
                     analysis=f"Round {i + 1}",
-                    planned_actions=[],
                     extension_needed=(True if i < 9 else False),  # Last one stops
                 )
             )
@@ -409,10 +394,6 @@ async def test_react_with_many_tools():
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         analysis = ReActAnalysis(
             analysis="Using tools",
-            planned_actions=[
-                PlannedAction(action_type="multiply", description="First"),
-                PlannedAction(action_type="divide", description="Second"),
-            ],
             extension_needed=False,
         )
         final = Analysis(answer="Done with tools")

@@ -19,6 +19,14 @@ from .assembler import (
     replace_actions,
 )
 from .ast import Identifier, Lact, Literal, Lvar, OutBlock, Program, RLvar
+from .diagnostics import (
+    LndlChunkHealth,
+    LndlRoundRecord,
+    LndlTrace,
+    classify_chunk,
+    classify_result,
+    extract_lndl_chunks,
+)
 from .errors import (
     AmbiguousMatchError,
     InvalidConstructorError,
@@ -51,6 +59,9 @@ __all__ = (
     "Lact",
     "Lexer",
     "Literal",
+    "LndlChunkHealth",
+    "LndlRoundRecord",
+    "LndlTrace",
     "Lvar",
     "LvarMetadata",
     "MissingFieldError",
@@ -71,9 +82,12 @@ __all__ = (
     "TypeMismatchError",
     "assemble",
     "assemble_spec_value",
+    "classify_chunk",
+    "classify_result",
     "collect_actions",
     "collect_notes",
     "extract_lndl_blocks",
+    "extract_lndl_chunks",
     "get_lndl_system_prompt",
     "normalize_lndl_text",
     "replace_actions",

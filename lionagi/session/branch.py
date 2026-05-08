@@ -774,6 +774,27 @@ class Branch(Element, Relational):
 
         return await parse(self, **prepare_parse_kws(self, **_pms))
 
+    def lndl_chunks(self, since: int = 0) -> list[str]:
+        """Extract raw LNDL strings from assistant messages.
+
+        Looks at messages from index ``since`` onward and returns the raw
+        ``assistant_response`` text of every message that contains LNDL
+        syntax markers (``<lact``, ``<lvar``, ``OUT{``, ``OUT [``).
+
+        Useful pattern for capturing the LNDL emitted by a single call::
+
+            start = len(branch.messages)
+            await branch.operate(lndl=True, ...)
+            chunks = branch.lndl_chunks(since=start)
+
+        For per-round structured telemetry (outcome, error, schema), pass
+        an ``lionagi.lndl.LndlTrace`` via ``trace=`` to ``operate`` /
+        ``ReActStream`` instead.
+        """
+        from lionagi.lndl.diagnostics import extract_lndl_chunks
+
+        return extract_lndl_chunks(self.messages, since=since)
+
     async def operate(
         self,
         *,
@@ -811,6 +832,7 @@ class Branch(Element, Relational):
         lndl: bool = None,
         lndl_retries: int = 0,
         lndl_rounds: int = 1,
+        trace: Any = None,
         **kwargs,
     ) -> list | BaseModel | None | dict | str:
         """
@@ -1234,6 +1256,10 @@ class Branch(Element, Relational):
         display_as: Literal["json", "yaml"] = "yaml",
         verbose_length: int = None,
         include_token_usage_to_model: bool = True,
+        lndl: bool = False,
+        lndl_rounds: int = 1,
+        lndl_retries: int = 0,
+        trace: Any = None,
         **kwargs,
     ) -> AsyncGenerator:
         from lionagi.ln.fuzzy import FuzzyMatchKeysParams
@@ -1332,6 +1358,10 @@ class Branch(Element, Relational):
             display_as=display_as,
             verbose_length=verbose_length,
             continue_after_failed_response=False,
+            lndl=lndl,
+            lndl_rounds=lndl_rounds,
+            lndl_retries=lndl_retries,
+            trace=trace,
         ):
             if verbose:
                 analysis, str_ = result

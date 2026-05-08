@@ -200,6 +200,7 @@ nav:
   - Reference:
       - Advanced: reference/advanced.md
       - Providers: reference/providers.md
+      - LNDL: reference/lndl.md
       - Troubleshooting: reference/troubleshooting.md
 
   - Migration:

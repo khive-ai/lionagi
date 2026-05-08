@@ -183,12 +183,18 @@ def _render_lndl_response_structure(
     counter = [0]
 
     def alias_gen() -> str:
+        # Use 2-character aliases with explicit numeric suffix from index 0:
+        # a1, b1, c1, ... z1, a2, b2, ...  This produces 676 distinct aliases
+        # without any collision risk and trains the model — by example — that
+        # aliases are multi-character. The earlier scheme started with single
+        # letters (a, b, c) which models often duplicated mid-response on
+        # large schemas (>10 fields). Two-char aliases are still short enough
+        # to keep the OUT{} block readable.
         i = counter[0]
         counter[0] += 1
-        a = chr(ord("a") + (i % 26))
-        if i >= 26:
-            a = a + str(i // 26)
-        return a
+        letter = chr(ord("a") + (i % 26))
+        suffix = (i // 26) + 1
+        return f"{letter}{suffix}"
 
     for spec_name, info in fields.items():
         if spec_name in skip:

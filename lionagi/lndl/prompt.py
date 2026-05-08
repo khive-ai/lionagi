@@ -45,6 +45,11 @@ RULES
    <lact alias fn(args)></lact>          # WRONG: > is in the wrong place
 7. Tag attributes are SPACE-separated identifiers. Do NOT use XML
    attributes like name="..." or type="...".
+8. ALIASES MUST BE UNIQUE within a single response. Reusing an alias
+   (e.g. <lvar a x>1</lvar> and later <lvar a y>2</lvar>) causes a
+   parse error. For schemas with many fields, pick distinct multi-character
+   aliases — copy the pattern from the example (a1, b1, c1, ... a2, b2,
+   ...). NEVER reuse 'a', 'i', 'r' or any short letter twice.
 
 EXAMPLE 1 — scalar specs filled by tool calls
 

@@ -51,8 +51,12 @@ _LNDL_REPARSE_PROMPT = (
     "Error: {error}\n\n"
     "Original output:\n{original}\n\n"
     "Rules:\n"
+    "- Preserve the SAME <lact> tool calls you intended originally — only fix\n"
+    "  syntax/aliases. Do NOT replace tool calls with prose plans.\n"
     "- OUT{{}} spec names must exactly match the schema's field names\n"
     "- Every alias in OUT{{}} must have a matching <lvar> or <lact> declaration\n"
+    "- Aliases must be UNIQUE within the response — never reuse 'a', 'i', etc.\n"
+    "  Use multi-character aliases (a1, b1, c1, a2, ...) for large schemas.\n"
     "- Tag attributes are SPACE-separated identifiers, the body sits between > and </tag>\n"
     "- Tool arguments must be literal values, not alias references\n"
     "Respond with corrected LNDL only — no explanation."
@@ -102,7 +106,11 @@ def _build_lndl_continuation(
     remaining = max_rounds - next_round
     parts = [f"Round {next_round} of {max_rounds} ({remaining} remaining)."]
     if last_error:
-        parts.append(f"Previous round failed: {last_error}")
+        parts.append(
+            f"Previous round failed: {last_error}\n"
+            "Re-issue your tool calls (<lact>) — do NOT just describe plans. "
+            "The runtime needs real <lact> tags to execute tools."
+        )
     if remaining <= 0:
         parts.append(
             "FINAL ROUND. You MUST produce a complete OUT{} block this round. "
@@ -115,8 +123,9 @@ def _build_lndl_continuation(
         )
     elif not last_error:
         parts.append(
-            "Continue. Read any tool results above, declare more <lvar>/<lact> "
-            "as needed, and produce OUT{} when ready."
+            "Continue. Read any tool results above, then issue real <lact> tool "
+            "calls if you need more data — do NOT just describe plans. "
+            "Produce OUT{} when ready. Use UNIQUE alias names (a1, b1, c1, ...)."
         )
     return "\n\n".join(parts)
 
@@ -312,12 +321,17 @@ async def _finalize_lndl(
     lndl_retries: int = 0,
     handle_validation: HandleValidation = "return_value",
     middle: Middle | None = None,
+    trace: Any = None,
 ) -> Any:
     """Assemble LNDL output with optional retry (single-round mode).
 
     On parse/validation failure, sends the error back to the model and asks
     for a fix, up to ``lndl_retries`` extra attempts. Routes retries through
     the same ``middle`` as the original call for CLI/streaming consistency.
+
+    If ``trace`` is an ``LndlTrace`` instance, one ``LndlRoundRecord`` is
+    appended per attempt (initial + retries). Default ``trace=None`` means
+    zero overhead.
     """
     raw = _get_raw_assistant_response(branch, result)
     if not raw:
@@ -326,6 +340,9 @@ async def _finalize_lndl(
     last_output: Any = result
     last_error: str | None = None
     attempts = lndl_retries + 1
+    schema_name = (
+        getattr(model_class, "__name__", None) if model_class is not None else None
+    )
 
     for attempt in range(attempts):
         out, err = await _try_finalize_lndl_once(
@@ -336,6 +353,22 @@ async def _finalize_lndl(
             operative=operative,
             model_class=model_class,
         )
+        if trace is not None:
+            from lionagi.lndl.diagnostics import LndlRoundRecord
+
+            trace.append(
+                LndlRoundRecord(
+                    raw=raw,
+                    outcome=(
+                        "success"
+                        if err is None
+                        else ("retry" if attempt + 1 < attempts else "failed")
+                    ),
+                    error=err,
+                    actions_executed=_count_action_responses(out),
+                    schema=schema_name,
+                )
+            )
         if err is None:
             return out
         last_output = out
@@ -352,6 +385,16 @@ async def _finalize_lndl(
     return _apply_lndl_handle_validation(
         last_output, last_error, handle_validation, target=model_class
     )
+
+
+def _count_action_responses(out: Any) -> int:
+    """Best-effort count of executed actions on an LNDL output."""
+    if out is None:
+        return 0
+    arr = getattr(out, "action_responses", None)
+    if arr is None and isinstance(out, dict):
+        arr = out.get("action_responses")
+    return len(arr) if isinstance(arr, list) else 0
 
 
 def _apply_lndl_handle_validation(
@@ -406,6 +449,7 @@ async def _run_lndl_react(
     max_rounds: int,
     handle_validation: HandleValidation = "return_value",
     middle: Middle | None = None,
+    trace: Any = None,
 ) -> Any:
     """Multi-round LNDL — ReAct flavor.
 
@@ -436,6 +480,24 @@ async def _run_lndl_react(
     scratchpad: dict[str, Any] = {}
     last_error: str | None = None
     last_partial: Any = result
+    schema_name = (
+        getattr(model_class, "__name__", None) if model_class is not None else None
+    )
+
+    def _record(raw_text: str, outcome: Any, err: str | None, out_value: Any) -> None:
+        if trace is None:
+            return
+        from lionagi.lndl.diagnostics import LndlRoundRecord
+
+        trace.append(
+            LndlRoundRecord(
+                raw=raw_text,
+                outcome=type(outcome).__name__.lower(),
+                error=err,
+                actions_executed=_count_action_responses(out_value),
+                schema=schema_name,
+            )
+        )
 
     for round_num in range(max_rounds):
         outcome = await _run_one_lndl_round(
@@ -449,14 +511,18 @@ async def _run_lndl_react(
         )
 
         if isinstance(outcome, Success):
+            _record(raw, outcome, None, outcome.output)
             return outcome.output
         if isinstance(outcome, Failed):
+            _record(raw, outcome, str(outcome.error), None)
             raise outcome.error
         if isinstance(outcome, Retry):
             last_error = outcome.error
+            _record(raw, outcome, outcome.error, None)
         elif isinstance(outcome, Continue):
             last_error = None
             last_partial = result
+            _record(raw, outcome, None, None)
 
         if round_num + 1 >= max_rounds:
             break
@@ -651,6 +717,7 @@ def prepare_operate_kw(
     lndl: bool = False,
     lndl_retries: int = 0,
     lndl_rounds: int = 1,
+    trace: Any = None,
     actions: bool = False,
     reason: bool = False,
     call_params: AlcallParams = None,
@@ -831,6 +898,7 @@ def prepare_operate_kw(
         "middle": middle,
         "lndl_retries": lndl_retries if lndl else 0,
         "lndl_rounds": max(1, lndl_rounds) if lndl else 1,
+        "trace": trace if lndl else None,
         "_lndl_prior_system": lndl_prior_system,
     }
 
@@ -914,6 +982,7 @@ async def operate(
     middle: Middle | None = None,
     lndl_retries: int = 0,
     lndl_rounds: int = 1,
+    trace: Any = None,
     _lndl_prior_system: Any = _NO_RESTORE,
 ) -> BaseModel | dict | str | None:
     """Execute operation with optional action handling.
@@ -952,6 +1021,7 @@ async def operate(
             middle=middle,
             lndl_retries=lndl_retries,
             lndl_rounds=lndl_rounds,
+            trace=trace,
         )
     finally:
         _restore_lndl_system_prompt(branch, _lndl_prior_system)
@@ -973,6 +1043,7 @@ async def _operate_inner(
     middle: Middle | None = None,
     lndl_retries: int = 0,
     lndl_rounds: int = 1,
+    trace: Any = None,
 ) -> BaseModel | dict | str | None:
     _cctx = chat_param
     _is_lndl_pre = chat_param.formatter is LndlFormatter
@@ -1107,6 +1178,7 @@ async def _operate_inner(
                 max_rounds=lndl_rounds,
                 handle_validation=handle_validation,
                 middle=middle,
+                trace=trace,
             )
         return await _finalize_lndl(
             branch=branch,
@@ -1118,6 +1190,7 @@ async def _operate_inner(
             lndl_retries=lndl_retries,
             handle_validation=handle_validation,
             middle=middle,
+            trace=trace,
         )
 
     if not invoke_actions:
