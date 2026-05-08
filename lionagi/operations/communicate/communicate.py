@@ -9,11 +9,11 @@ from pydantic import JsonValue
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 from lionagi.ln.types import Undefined
+from lionagi.protocols.messages import Instruction, JsonFormatter, LndlFormatter
 
 from ..types import ChatParam, ParseParam
 
 if TYPE_CHECKING:
-    from lionagi.protocols.messages.instruction import Instruction
     from lionagi.session.branch import Branch
 
 
@@ -41,6 +41,7 @@ def prepare_communicate_kw(
     clear_messages=False,
     operative_model=None,
     include_token_usage_to_model: bool = False,
+    lndl=False,
     **kwargs,
 ):
     # Handle deprecated parameters
@@ -90,6 +91,7 @@ def prepare_communicate_kw(
         include_token_usage_to_model=include_token_usage_to_model,
         imodel=imodel,
         imodel_kw=kwargs,
+        formatter=LndlFormatter if lndl else JsonFormatter,
     )
 
     parse_param = None
@@ -110,7 +112,7 @@ def prepare_communicate_kw(
             ),
             imodel=parse_model,
             imodel_kw={},
-            formatter=chat_param.formatter,
+            formatter=LndlFormatter if lndl else JsonFormatter,
         )
 
     return {

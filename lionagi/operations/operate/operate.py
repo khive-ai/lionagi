@@ -11,7 +11,12 @@ from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.types import Spec
 from lionagi.models import FieldModel
 from lionagi.protocols.generic import Progression
-from lionagi.protocols.messages import Instruction, SenderRecipient
+from lionagi.protocols.messages import (
+    Instruction,
+    JsonFormatter,
+    LndlFormatter,
+    SenderRecipient,
+)
 
 from ..fields import Instruct
 from ..types import (
@@ -52,6 +57,7 @@ def prepare_operate_kw(
     tools: "ToolRef" = None,
     operative: "Operative" = None,
     response_format: type[BaseModel] = None,
+    lndl: bool = False,
     actions: bool = False,
     reason: bool = False,
     call_params: AlcallParams = None,
@@ -137,21 +143,29 @@ def prepare_operate_kw(
 
     # Build Operative if needed
     operative = None
-    if instruct.reason or instruct.actions or response_format or fields_dict:
+    _has_actions = instruct.actions or actions
+    _actions_for_request = _has_actions and not lndl  # LNDL: no action fields in prompt
+    _actions_for_response = _has_actions  # but still need them in response model
+    _need_operative = instruct.reason or _has_actions or fields_dict or response_format
+    if _need_operative and (
+        response_format or _has_actions or fields_dict or instruct.reason
+    ):
         from .step import Step
 
         operative = Step.request_operative(
             base_type=response_format,
             reason=instruct.reason,
-            actions=instruct.actions or actions,
+            actions=_has_actions,  # always True when actions requested (for response model)
             fields=fields_dict,
         )
-
-        # Create response model
         operative = Step.respond_operative(operative)
 
-    final_response_format = operative.request_type if operative else response_format
-
+    # LNDL: prompt uses the clean user model (no action fields)
+    # JSON: prompt uses the request model (with action_required/action_requests)
+    if lndl:
+        final_response_format = response_format
+    else:
+        final_response_format = operative.request_type if operative else response_format
     # Choose ChatParam vs RunParam. RunParam is required when the middle
     # streams via run() (CLI endpoints, explicit stream_persist, or when
     # caller passes a middle that needs persist_dir). Defaulting to
@@ -166,6 +180,7 @@ def prepare_operate_kw(
         sender=sender or branch.user or "user",
         recipient=recipient or branch.id,
         response_format=final_response_format,
+        formatter=LndlFormatter if lndl else JsonFormatter,
         progression=progression,
         tool_schemas=tool_schemas,
         images=images,
@@ -298,13 +313,15 @@ async def operate(
                 fields_dict[spec.name] = spec
 
     # Create operative if needed
-    if not operative and (model_class or action_param or fields_dict):
+    _is_lndl = chat_param.formatter is LndlFormatter
+    _actions_here = bool(action_param) and not _is_lndl
+    if not operative and (model_class or _actions_here or fields_dict):
         from .step import Step
 
         operative = Step.request_operative(
             base_type=model_class,
             reason=reason,
-            actions=bool(action_param),
+            actions=_actions_here,
             fields=fields_dict,
         )
         operative = Step.respond_operative(operative)
@@ -337,7 +354,15 @@ async def operate(
     if skip_validation:
         return result
 
-    if model_class and not isinstance(result, model_class):
+    # For LNDL with ActionCalls, defer model validation until after execution
+    _is_lndl = chat_param.formatter is LndlFormatter
+    _has_action_calls = False
+    if _is_lndl and isinstance(result, dict):
+        from lionagi.lndl.types import ActionCall as _AC
+
+        _has_action_calls = any(isinstance(v, _AC) for v in result.values())
+
+    if model_class and not isinstance(result, model_class) and not _has_action_calls:
         match handle_validation:
             case "return_value":
                 return result
@@ -356,9 +381,162 @@ async def operate(
     if not invoke_actions:
         return result
 
-    # Handle actions. Middle may return a BaseModel (structured), a dict
-    # (fuzzy-parsed), or a raw str (CLI text path with no response_format).
-    # Only dicts and BaseModels can carry action_requests — raw text can't.
+    # LNDL path: parse <lact> tags from raw text, or execute ActionCalls from parsed dict
+    _is_lndl = chat_param.formatter is LndlFormatter
+
+    # Case: LNDL parse already returned dict with ActionCall values
+    if _is_lndl and isinstance(result, dict) and action_param:
+        from lionagi.lndl.types import ActionCall
+
+        from ..act.act import act
+        from ..fields import ActionRequestModel
+
+        action_calls = {k: v for k, v in result.items() if isinstance(v, ActionCall)}
+        if action_calls:
+            action_requests = [
+                ActionRequestModel(function=ac.function, arguments=ac.arguments)
+                for ac in action_calls.values()
+            ]
+            action_responses = await act(branch, action_requests, action_param)
+            action_responses = [r for r in (action_responses or []) if r is not None]
+
+            # Find the spec names from OUT{} via the assistant's raw response
+            # The dict keys from parse are aliases — need to map back to spec names
+            # Get the raw response to re-parse OUT{}
+            raw_response = None
+            for m in branch.messages:
+                if hasattr(m.content, "assistant_response"):
+                    raw_response = m.content.assistant_response
+
+            if raw_response:
+                from lionagi.lndl import Lexer, Parser
+
+                lexer = Lexer(raw_response)
+                tokens = lexer.tokenize()
+                parser = Parser(tokens, source_text=raw_response)
+                program = parser.parse()
+
+                # Build alias → spec_name mapping from OUT{}
+                alias_to_spec = {}
+                if program.out_block:
+                    for spec_name, refs in program.out_block.fields.items():
+                        if isinstance(refs, list):
+                            for alias in refs:
+                                alias_to_spec[alias] = spec_name
+
+                output = {}
+                # Non-ActionCall values (lvars already resolved)
+                for k, v in result.items():
+                    if not isinstance(v, ActionCall):
+                        spec = alias_to_spec.get(k, k)
+                        output[spec] = v
+
+                # ActionCall results mapped to spec names
+                for (alias, ac), resp in zip(action_calls.items(), action_responses):
+                    spec = alias_to_spec.get(alias, alias)
+                    output[spec] = resp.output if hasattr(resp, "output") else resp
+
+                # Assemble into operative response model (has action fields)
+                output["action_requests"] = action_requests
+                output["action_responses"] = action_responses
+
+                # Only validate into operative response model if user provided
+                # a real response_format (base_type). Otherwise the operative
+                # response_type only has action fields and would drop the
+                # LNDL-declared specs (q1, q2, etc).
+                if operative and operative.base_type is not None:
+                    try:
+                        return operative.response_type.model_validate(output)
+                    except Exception:
+                        pass
+
+                return output
+
+    if _is_lndl and isinstance(result, str) and action_param:
+        from lionagi.lndl import Lexer, Parser
+        from lionagi.lndl._parse_function_call import parse_function_call
+        from lionagi.lndl.types import ActionCall
+
+        from ..act.act import act
+        from ..fields import ActionRequestModel
+
+        lexer = Lexer(result)
+        tokens = lexer.tokenize()
+        parser = Parser(tokens, source_text=result)
+        program = parser.parse()
+
+        out_aliases = set()
+        if program.out_block:
+            for v in program.out_block.fields.values():
+                if isinstance(v, list):
+                    out_aliases.update(v)
+
+        # Build ordered list of (alias, lact_node, action_request)
+        active_lacts = []
+        action_requests = []
+        for lact in program.lacts:
+            if lact.alias not in out_aliases:
+                continue
+            try:
+                parsed = parse_function_call(lact.call)
+                req = ActionRequestModel(
+                    function=parsed["operation"],
+                    arguments=parsed["arguments"],
+                )
+                active_lacts.append(lact)
+                action_requests.append(req)
+            except ValueError:
+                pass
+
+        action_responses = None
+        if action_requests:
+            action_responses = await act(branch, action_requests, action_param)
+            action_responses = [r for r in (action_responses or []) if r is not None]
+
+        # Resolve: alias → result, keyed by alias
+        alias_to_result = {}
+        if action_responses:
+            for lact_node, resp in zip(active_lacts, action_responses):
+                alias_to_result[lact_node.alias] = (
+                    resp.output if hasattr(resp, "output") else resp
+                )
+
+        # Build output using spec names from OUT{}, not aliases
+        output = {}
+
+        # Map OUT{spec: [aliases]} → resolve each alias to its value
+        if program.out_block:
+            for spec_name, refs in program.out_block.fields.items():
+                if isinstance(refs, list):
+                    for alias in refs:
+                        if alias in alias_to_result:
+                            output[spec_name] = alias_to_result[alias]
+                        else:
+                            # Check lvars
+                            for lvar in program.lvars:
+                                if lvar.alias == alias and lvar.alias in out_aliases:
+                                    output[spec_name] = lvar.content
+                                    break
+                else:
+                    output[spec_name] = refs
+
+        if action_requests:
+            output["action_requests"] = action_requests
+        if action_responses:
+            output["action_responses"] = action_responses
+
+        # Only validate into operative response model if user provided
+        # a real response_format (base_type). Otherwise operative.response_type
+        # only has action fields and would drop LNDL-declared specs.
+        if operative and operative.base_type is not None:
+            try:
+                return operative.response_type.model_validate(output)
+            except Exception:
+                pass
+
+        return output
+
+    # JSON path: look for action_requests on the parsed result
     if model_class:
         requests = getattr(result, "action_requests", None)
     elif isinstance(result, dict):

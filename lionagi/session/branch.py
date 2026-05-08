@@ -808,6 +808,7 @@ class Branch(Element, Relational):
         stream_persist: bool = False,
         persist_dir: str | None = None,
         middle: "Middle | None" = None,
+        lndl: bool = None,
         **kwargs,
     ) -> list | BaseModel | None | dict | str:
         """
@@ -883,6 +884,7 @@ class Branch(Element, Relational):
                 How to handle parsing failures (default: "return_value").
             include_token_usage_to_model:
                 If `True`, includes token usage in the model messages.
+            lndl: bool = None
             **kwargs:
                 Additional keyword arguments passed to the LLM via `branch.chat()`.
 
@@ -926,6 +928,7 @@ class Branch(Element, Relational):
         num_parse_retries: int = 3,
         clear_messages: bool = False,
         include_token_usage_to_model: bool = False,
+        lndl: bool = None,
         **kwargs,
     ) -> BaseModel | dict | str | None:
         """

@@ -57,6 +57,8 @@ class InstructionContent(MessageContent):
             prompt_context = context
 
         if response_format is not None and formatter is None:
+            from ._helpers import JsonFormatter
+
             formatter = JsonFormatter
 
         data = {
@@ -69,7 +71,6 @@ class InstructionContent(MessageContent):
             "formatter": formatter,
             "images": images if images is not None else [],
             "image_detail": image_detail,
-            "formatter": formatter,
         }
 
         for key, value in data.items():
@@ -193,12 +194,12 @@ class InstructionContent(MessageContent):
             )
             if valid:
                 inst.response_format = response_format
-
         if pt := data.get("formatter"):
             inst.formatter = pt
         elif inst.response_format is not None and inst.formatter is None:
-            inst.formatter = JsonFormatter
+            from ._helpers import JsonFormatter
 
+            inst.formatter = JsonFormatter
         return inst
 
     def _format_text_content(self) -> str:
@@ -236,6 +237,8 @@ class InstructionContent(MessageContent):
             if schema:
                 parts.append(f"## Schema\n{schema}")
             parts.append(f"## ResponseFormat\n{tf.render_format(self.response_format)}")
+        elif tf is not None and tf is not JsonFormatter:
+            parts.append(f"## ResponseFormat\n{tf.render_format(None)}")
 
         return "\n\n".join(parts)
 
