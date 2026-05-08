@@ -154,7 +154,9 @@ async def run_task(task_id: int, question: str) -> None:
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=int, default=None, help="Run only task N (1, 2, or 3)")
+    parser.add_argument(
+        "--task", type=int, default=None, help="Run only task N (1, 2, or 3)"
+    )
     args = parser.parse_args()
     if args.task is not None:
         if args.task not in TASKS:

@@ -95,7 +95,19 @@ OUT{items: [[n1, s1], [n2, s2], [n3, s3]]}
 
 Each inner array is one item. Aliases must be UNIQUE across the whole response.
 
-EXAMPLE 5 — choosing among candidate tool calls
+EXAMPLE 5 — dict[K, V] field
+
+The second segment is the actual dictionary KEY for that entry; the alias
+is the third token.
+
+Specs: scores(dict[str, float])
+
+<lvar scores.precision p>0.92</lvar>
+<lvar scores.recall r>0.81</lvar>
+
+OUT{scores: [p, r]}     # → {"precision": 0.92, "recall": 0.81}
+
+EXAMPLE 6 — choosing among candidate tool calls
 
 You can sketch several tool calls in scratch and commit only the best
 one. Lacts NOT in OUT{} never run — they're zero-cost planning.
@@ -119,10 +131,10 @@ ERRORS TO AVOID
 
 <lvar x><lact fn>fn()</lact></lvar>        # WRONG: nested tags
 OUT{report: {title: "X"}}                  # WRONG: use arrays, not dicts
-<lvar findings a>...</lvar>                # WRONG: "findings" is the spec, use raw form
 <lvar a.name>django</lvar>                 # WRONG: missing alias, use Finding.name n1
 <lact add j>add(number1=b, number2=e)</lact>  # WRONG: lact args must be LITERALS, not alias refs
 <lact a search_web(...)</lact>             # WRONG: opening tag must end with > before the body
+<lvar items.<key> a>...</lvar>             # WRONG: angle brackets are markup; use a real key (items.foo)
 
 MULTI-ROUND MODE
 

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import re
 import subprocess
 from enum import Enum
 
@@ -14,8 +13,18 @@ from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
 
-# Reject patterns containing shell metacharacters before invoking grep/find.
-_SHELL_CONTROL = re.compile(r"(;|&&|\|\||\||`|\$\(|[<>]|\n)")
+
+# grep/find run with shell=False, so shell metacharacters in the pattern are
+# inert — they're literal regex/glob bytes. The real safety boundary is the
+# ``-e pattern --`` argv separator below, which forbids the pattern from being
+# parsed as an option.  Embedded NUL bytes raise ValueError inside subprocess
+# itself, so we don't pre-filter those either.
+def _reject_unsafe_pattern(pattern: str) -> str | None:
+    """Return an error message if ``pattern`` is unsafe to pass to argv, else None."""
+    if "\x00" in pattern:
+        return "Pattern contains NUL byte"
+    return None
+
 
 # Default vendor / build directories that grep/find should always skip.
 _DEFAULT_EXCLUDE_DIRS: tuple[str, ...] = (
@@ -107,12 +116,9 @@ def _grep_sync(
     include: str | None,
     max_results: int,
 ) -> SearchResponse:
-    if _SHELL_CONTROL.search(pattern):
-        return SearchResponse(
-            success=False,
-            error=f"Shell operators in pattern rejected: {pattern!r}",
-            count=0,
-        )
+    err = _reject_unsafe_pattern(pattern)
+    if err:
+        return SearchResponse(success=False, error=err, count=0)
     # ``-e pattern --`` blocks the pattern from being interpreted as an
     # option (e.g. a model writing ``-rf`` as a regex). ``--exclude-dir``
     # defaults skip vendored / build directories so the model isn't
@@ -157,12 +163,9 @@ def _grep_sync(
 
 
 def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
-    if _SHELL_CONTROL.search(pattern):
-        return SearchResponse(
-            success=False,
-            error=f"Shell operators in pattern rejected: {pattern!r}",
-            count=0,
-        )
+    err = _reject_unsafe_pattern(pattern)
+    if err:
+        return SearchResponse(success=False, error=err, count=0)
     cmd = ["find", path, "-name", pattern, "-type", "f"]
     for d in _DEFAULT_EXCLUDE_DIRS:
         cmd += ["-not", "-path", f"*/{d}/*"]

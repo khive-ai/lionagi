@@ -112,11 +112,19 @@ async def case_1():
     )
     show(out, branch)
     expect("returned a model (not dict)", not isinstance(out, dict))
-    expect("has q1 field", hasattr(out, "q1") if not isinstance(out, dict) else "q1" in out)
-    expect("has q2 field", hasattr(out, "q2") if not isinstance(out, dict) else "q2" in out)
+    expect(
+        "has q1 field", hasattr(out, "q1") if not isinstance(out, dict) else "q1" in out
+    )
+    expect(
+        "has q2 field", hasattr(out, "q2") if not isinstance(out, dict) else "q2" in out
+    )
     expect(
         "has action_responses",
-        hasattr(out, "action_responses") if not isinstance(out, dict) else "action_responses" in out,
+        (
+            hasattr(out, "action_responses")
+            if not isinstance(out, dict)
+            else "action_responses" in out
+        ),
     )
 
 
@@ -197,7 +205,9 @@ async def case_4():
     expect("returned FindingsList", isinstance(out, FindingsList))
     if isinstance(out, FindingsList):
         expect("findings is list", isinstance(out.findings, list))
-        expect("findings has 3 items", len(out.findings) == 3, f"got {len(out.findings)}")
+        expect(
+            "findings has 3 items", len(out.findings) == 3, f"got {len(out.findings)}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +260,11 @@ async def case_6():
     show(out, branch)
     expect("returned OptDoc", isinstance(out, OptDoc))
     if isinstance(out, OptDoc):
-        expect("required == 'hello'", out.required.lower().strip() == "hello", repr(out.required))
+        expect(
+            "required == 'hello'",
+            out.required.lower().strip() == "hello",
+            repr(out.required),
+        )
         expect("optional is None", out.optional is None, repr(out.optional))
 
 
@@ -276,7 +290,10 @@ async def case_7():
     expect("returned a model (not dict)", is_model)
     if is_model:
         expect("has q", hasattr(out, "q"))
-        expect("has reason", hasattr(out, "reason") and getattr(out, "reason", None) is not None)
+        expect(
+            "has reason",
+            hasattr(out, "reason") and getattr(out, "reason", None) is not None,
+        )
         expect("has action_responses", hasattr(out, "action_responses"))
 
 
@@ -416,7 +433,9 @@ async def case_11():
         expect("has summary", isinstance(getattr(out, "summary", None), Summary))
         expect(
             "summary has key_points list",
-            isinstance(getattr(getattr(out, "summary", None), "key_points", None), list),
+            isinstance(
+                getattr(getattr(out, "summary", None), "key_points", None), list
+            ),
         )
         expect("has action_responses", hasattr(out, "action_responses"))
         if hasattr(out, "action_responses"):

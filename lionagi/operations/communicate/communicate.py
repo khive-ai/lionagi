@@ -9,7 +9,7 @@ from pydantic import JsonValue
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 from lionagi.ln.types import Undefined
-from lionagi.protocols.messages import Instruction, JsonFormatter, LndlFormatter
+from lionagi.protocols.messages import Instruction, JsonFormatter
 
 from ..types import ChatParam, ParseParam
 
@@ -53,6 +53,20 @@ def prepare_communicate_kw(
             stacklevel=2,
         )
 
+    if lndl:
+        # ``communicate(lndl=True)`` would set the LndlFormatter but skip
+        # the LNDL system-prompt injection, the action-execution loop, the
+        # multi-round ReAct path, and the retry/validation policies that
+        # ``operate(lndl=True)`` provides. Routing it through here would
+        # silently produce dicts on parse error. Surface that mismatch as
+        # a clear migration error instead of a half-working flag.
+        raise NotImplementedError(
+            "communicate(lndl=True) is not supported — it would skip the LNDL "
+            "system-prompt injection, action execution, multi-round retries, "
+            "and handle_validation policy that operate() provides. "
+            "Use branch.operate(lndl=True, ...) for LNDL-formatted output."
+        )
+
     if (
         (operative_model and response_format)
         or (operative_model and request_model)
@@ -91,7 +105,7 @@ def prepare_communicate_kw(
         include_token_usage_to_model=include_token_usage_to_model,
         imodel=imodel,
         imodel_kw=kwargs,
-        formatter=LndlFormatter if lndl else JsonFormatter,
+        formatter=JsonFormatter,
     )
 
     parse_param = None
@@ -112,7 +126,7 @@ def prepare_communicate_kw(
             ),
             imodel=parse_model,
             imodel_kw={},
-            formatter=LndlFormatter if lndl else JsonFormatter,
+            formatter=JsonFormatter,
         )
 
     return {

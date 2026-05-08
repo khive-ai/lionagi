@@ -243,7 +243,7 @@ class Parser:
         self.expect(TokenType.LVAR_CLOSE)
 
         if is_raw:
-            return RLvar(alias=alias, content=content)
+            return RLvar(alias=alias, content=content, extra_id=extra_id)
         return Lvar(model=model, field=field, alias=alias, content=content)
 
     def parse_lact(self) -> Lact:
@@ -333,7 +333,7 @@ class Parser:
                 stacklevel=2,
             )
 
-        return Lact(model=model, field=field, alias=alias, call=call)
+        return Lact(model=model, field=field, alias=alias, call=call, extra_id=extra_id)
 
     def _parse_out_list(self) -> list:
         """Parse one bracketed list (refs or nested groups) starting at LBRACKET.
@@ -375,15 +375,22 @@ class Parser:
     def _resolve_alias_to_spec(self, alias: str) -> str | None:
         """Look up an alias in already-parsed lvars/lacts and return its implied spec name.
 
-        Rule: prefer declared field (Model.field form), fall back to declared model
-        (single-token spec form). Returns None for raw aliases with no spec context.
+        Resolution priority (most-specific first):
+          1. Declared field on a ``Model.field`` form   → returns the field name
+          2. Declared model on a ``Model.field`` form   → returns the model name
+          3. Two-token hint on a ``<l_ hint alias>`` form → returns the hint
+        Returns None when the alias has no spec context (single-token raw form).
         """
         for la in getattr(self, "_lacts_so_far", []) or []:
             if la.alias == alias:
-                return la.field or la.model
+                return la.field or la.model or getattr(la, "extra_id", None)
         for lv in getattr(self, "_lvars_so_far", []) or []:
             if lv.alias == alias:
-                return getattr(lv, "field", None) or getattr(lv, "model", None)
+                return (
+                    getattr(lv, "field", None)
+                    or getattr(lv, "model", None)
+                    or getattr(lv, "extra_id", None)
+                )
         return None
 
     def parse_out_block(self) -> OutBlock:

@@ -40,6 +40,11 @@ class Lvar(Stmt):
 class RLvar(Stmt):
     alias: str
     content: str
+    # Two-token raw form ``<lvar hint alias>...</lvar>`` records the leading
+    # token here so the OUT-shortcut path can resolve ``alias`` back to
+    # ``hint`` (the implied spec name).  ``None`` for the single-token
+    # ``<lvar alias>`` form.
+    extra_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -48,6 +53,10 @@ class Lact(Stmt):
     field: str | None
     alias: str
     call: str
+    # Two-token form ``<lact hint alias>fn(...)</lact>`` — same role as
+    # ``RLvar.extra_id``: a hint that ``alias`` is meant to fill the spec
+    # named ``hint``. Used by OUT-shortcut resolution.
+    extra_id: str | None = None
 
 
 @dataclass(slots=True)

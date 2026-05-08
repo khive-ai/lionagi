@@ -59,11 +59,27 @@ _LNDL_REPARSE_PROMPT = (
 )
 
 
-async def _request_lndl_fix(branch: "Branch", original: str, error: str) -> str | None:
-    """Ask the model to fix malformed LNDL using the existing branch context."""
+async def _request_lndl_fix(
+    branch: "Branch",
+    original: str,
+    error: str,
+    *,
+    chat_param: ChatParam | None = None,
+) -> str | None:
+    """Ask the model to fix malformed LNDL using the existing branch context.
+
+    Reuses the original ``chat_param`` (model, model kwargs, tool schemas)
+    so a retry doesn't silently switch to ``branch.chat_model`` — that bug
+    surfaced as retries running on a different provider than the original.
+    """
     prompt = _LNDL_REPARSE_PROMPT.format(error=error, original=original[:2000])
     try:
-        _, resp = await branch.chat(instruction=prompt, return_ins_res_message=True)
+        kwargs: dict[str, Any] = {"return_ins_res_message": True}
+        if chat_param is not None:
+            kwargs["chat_model"] = chat_param.imodel
+            if chat_param.imodel_kw:
+                kwargs.update(chat_param.imodel_kw)
+        _, resp = await branch.chat(instruction=prompt, **kwargs)
         return resp.response
     except Exception:
         return None
@@ -141,9 +157,14 @@ async def _execute_program_lacts(
         return {}
 
     responses = await act(branch, requests, action_param)
-    responses = [r for r in (responses or []) if r is not None]
+    responses = list(responses or [])
+    # Preserve alias→response identity *before* dropping Nones. Filtering first
+    # would shift later results onto earlier aliases when an action returns
+    # None (e.g. permission-denied or skipped tools).
     results: dict[str, Any] = {}
     for alias, resp in zip(aliases, responses, strict=False):
+        if resp is None:
+            continue
         results[alias] = resp.output if hasattr(resp, "output") else resp
     return results
 
@@ -224,12 +245,17 @@ async def _try_finalize_lndl_once(
             ActionRequestModel(function=ac.function, arguments=ac.arguments)
             for ac in placeholders
         ]
-        responses = await act(branch, action_requests, action_param)
-        responses = [r for r in (responses or []) if r is not None]
-        action_responses_models = responses
+        responses = list(await act(branch, action_requests, action_param) or [])
+        # Pair before filtering so a None response doesn't shift downstream
+        # placeholders onto the wrong alias.
         results_by_name = {}
-        for ac, resp in zip(placeholders, responses):
+        kept_responses: list[Any] = []
+        for ac, resp in zip(placeholders, responses, strict=False):
+            if resp is None:
+                continue
             results_by_name[ac.name] = resp.output if hasattr(resp, "output") else resp
+            kept_responses.append(resp)
+        action_responses_models = kept_responses
         output = replace_actions(output, results_by_name)
 
     if action_requests:
@@ -267,11 +293,15 @@ async def _finalize_lndl(
     operative: Union["Operative", None],
     model_class: type[BaseModel] | None,
     lndl_retries: int = 0,
+    handle_validation: HandleValidation = "return_value",
 ) -> Any:
     """Assemble LNDL output with optional retry (single-round mode).
 
     On parse/validation failure, sends the error back to the model and asks
-    for a fix, up to ``lndl_retries`` extra attempts.
+    for a fix, up to ``lndl_retries`` extra attempts. If retries are
+    exhausted with ``handle_validation="raise"``, raises ``ValueError``;
+    with ``"return_none"``, returns ``None``; default ``"return_value"``
+    returns the last partial result.
     """
     raw = _get_raw_assistant_response(branch, result)
     if not raw:
@@ -296,12 +326,35 @@ async def _finalize_lndl(
         last_error = err
         if attempt + 1 >= attempts:
             break
-        fixed = await _request_lndl_fix(branch, raw, err)
+        fixed = await _request_lndl_fix(branch, raw, err, chat_param=chat_param)
         if not fixed:
             break
         raw = fixed
 
-    return last_output
+    return _apply_lndl_handle_validation(
+        last_output, last_error, handle_validation, target=model_class
+    )
+
+
+def _apply_lndl_handle_validation(
+    output: Any,
+    error: str | None,
+    policy: HandleValidation,
+    *,
+    target: type[BaseModel] | None,
+) -> Any:
+    """Apply ``handle_validation`` to a possibly-failed LNDL final result."""
+    if error is None:
+        return output
+    match policy:
+        case "return_value":
+            return output
+        case "return_none":
+            return None
+        case "raise":
+            target_name = getattr(target, "__name__", repr(target))
+            raise ValueError(f"LNDL failed to produce valid {target_name}: {error}")
+    return output
 
 
 def _schema_field_hint(target_type: Any) -> str | None:
@@ -333,6 +386,7 @@ async def _run_lndl_react(
     operative: Union["Operative", None],
     model_class: type[BaseModel] | None,
     max_rounds: int,
+    handle_validation: HandleValidation = "return_value",
 ) -> Any:
     """Multi-round LNDL — ReAct flavor.
 
@@ -396,7 +450,9 @@ async def _run_lndl_react(
             if hint:
                 cont = cont + "\n\n" + hint
         try:
-            ins, resp = await branch.chat(instruction=cont, return_ins_res_message=True)
+            ins, resp = await _lndl_continuation_chat(
+                branch, cont, chat_param=chat_param
+            )
             branch.msgs.add_message(instruction=cont)
             branch.msgs.add_message(assistant_response=resp)
             raw = resp.response
@@ -404,8 +460,33 @@ async def _run_lndl_react(
             last_error = f"chat failed: {e}"
             break
 
-    # Exhausted without Success — return last partial (or raise via handle_validation later)
-    return last_partial
+    # Exhausted without Success — apply handle_validation to the last
+    # partial result so callers can opt into raising/None semantics.
+    return _apply_lndl_handle_validation(
+        last_partial,
+        last_error
+        or "Multi-round LNDL exhausted without producing a valid OUT{} block.",
+        handle_validation,
+        target=model_class,
+    )
+
+
+async def _lndl_continuation_chat(
+    branch: "Branch", instruction: str, *, chat_param: ChatParam
+):
+    """Drive the next LNDL round using the same imodel/kwargs as the original call.
+
+    ``branch.chat`` would otherwise default to ``branch.chat_model`` and drop
+    any custom imodel / model_kwargs / tool_schemas the operate caller passed
+    in. We forward ``chat_param.imodel`` and ``imodel_kw`` so multi-round
+    continuations stay model-coherent.
+    """
+    return await branch.chat(
+        instruction=instruction,
+        chat_model=chat_param.imodel,
+        return_ins_res_message=True,
+        **(chat_param.imodel_kw or {}),
+    )
 
 
 async def _run_one_lndl_round(
@@ -724,8 +805,7 @@ def prepare_operate_kw(
             verbose_action=verbose_action,
         )
 
-    if lndl:
-        _ensure_lndl_system_prompt(branch)
+    lndl_prior_system = _ensure_lndl_system_prompt(branch) if lndl else None
 
     return {
         "instruction": instruct.instruction,
@@ -740,15 +820,26 @@ def prepare_operate_kw(
         "middle": middle,
         "lndl_retries": lndl_retries if lndl else 0,
         "lndl_rounds": max(1, lndl_rounds) if lndl else 1,
+        "_lndl_prior_system": lndl_prior_system,
     }
 
 
-def _ensure_lndl_system_prompt(branch: "Branch") -> None:
-    """Idempotently ensure the LNDL syntax block is in the branch system message.
+# Sentinel returned by ``_ensure_lndl_system_prompt`` when no restore is
+# needed (LNDL prompt was already present, or branch had no system message
+# we mutated). Distinct from ``None``, which means "restore to no system".
+_NO_RESTORE = object()
+
+
+def _ensure_lndl_system_prompt(branch: "Branch") -> Any:
+    """Inject the LNDL syntax block into the branch system message.
+
+    Returns a token for ``_restore_lndl_system_prompt``:
+      * ``_NO_RESTORE``  — no mutation happened (marker already present, etc.)
+      * the prior ``System`` instance (or ``None``) — restore to this on exit
 
     Searches the existing system message for the LNDL marker; if absent,
-    appends the prompt. This way every ``operate(lndl=True)`` call sees the
-    syntax rules without bloating each user-side instruction.
+    appends the prompt. The mutation is restored once the operate call
+    returns, so non-LNDL calls on the same branch don't see this prompt.
     """
     from lionagi.lndl.prompt import LNDL_SYSTEM_PROMPT
 
@@ -762,7 +853,7 @@ def _ensure_lndl_system_prompt(branch: "Branch") -> None:
             existing_text = ""
 
     if marker in existing_text:
-        return  # already injected — nothing to do
+        return _NO_RESTORE  # already injected — nothing to do or restore
 
     if not existing_text.strip():
         new_text = LNDL_SYSTEM_PROMPT.strip()
@@ -771,6 +862,28 @@ def _ensure_lndl_system_prompt(branch: "Branch") -> None:
 
     new_system = branch.msgs.create_system(system=new_text)
     branch.msgs.set_system(new_system)
+    return existing_system  # may be None — caller restores faithfully
+
+
+def _restore_lndl_system_prompt(branch: "Branch", token: Any) -> None:
+    """Undo a previous ``_ensure_lndl_system_prompt`` injection.
+
+    Called from a ``finally`` so the LNDL system prompt does not leak into
+    later non-LNDL calls on the same branch.
+    """
+    if token is _NO_RESTORE:
+        return
+    if token is None:
+        # We injected over an empty/missing system. Best we can do without
+        # exposing a "delete system" API on MessageManager is to overwrite
+        # with an empty system, then drop it from the progression. Since
+        # the API surface only supports ``set_system`` (replace), we leave
+        # an empty system in place — operationally indistinguishable from
+        # "no system" for downstream callers.
+        empty = branch.msgs.create_system(system="")
+        branch.msgs.set_system(empty)
+        return
+    branch.msgs.set_system(token)
 
 
 async def operate(
@@ -789,6 +902,7 @@ async def operate(
     middle: Middle | None = None,
     lndl_retries: int = 0,
     lndl_rounds: int = 1,
+    _lndl_prior_system: Any = _NO_RESTORE,
 ) -> BaseModel | dict | str | None:
     """Execute operation with optional action handling.
 
@@ -809,17 +923,64 @@ async def operate(
     Returns:
         Result of operation
     """
-    _cctx = chat_param
-    _pctx = (
-        parse_param.with_updates(handle_validation="return_value")
-        if parse_param
-        else ParseParam(
-            response_format=chat_param.response_format,
-            imodel=branch.parse_model,
-            handle_validation="return_value",
-            formatter=chat_param.formatter,
+    try:
+        return await _operate_inner(
+            branch,
+            instruction=instruction,
+            chat_param=chat_param,
+            action_param=action_param,
+            parse_param=parse_param,
+            handle_validation=handle_validation,
+            invoke_actions=invoke_actions,
+            skip_validation=skip_validation,
+            clear_messages=clear_messages,
+            reason=reason,
+            field_models=field_models,
+            operative=operative,
+            middle=middle,
+            lndl_retries=lndl_retries,
+            lndl_rounds=lndl_rounds,
         )
-    )
+    finally:
+        _restore_lndl_system_prompt(branch, _lndl_prior_system)
+
+
+async def _operate_inner(
+    branch: "Branch",
+    instruction: JsonValue | Instruction,
+    chat_param: ChatParam,
+    action_param: ActionParam | None = None,
+    parse_param: ParseParam | None = None,
+    handle_validation: HandleValidation = "return_value",
+    invoke_actions: bool = True,
+    skip_validation: bool = False,
+    clear_messages: bool = False,
+    reason: bool = False,
+    field_models: list[FieldModel | Spec] | None = None,
+    operative: Union["Operative", None] = None,
+    middle: Middle | None = None,
+    lndl_retries: int = 0,
+    lndl_rounds: int = 1,
+) -> BaseModel | dict | str | None:
+    _cctx = chat_param
+    _is_lndl_pre = chat_param.formatter is LndlFormatter
+    if _is_lndl_pre:
+        # LNDL owns its own parse / retry / handle_validation pipeline in
+        # ``_finalize_lndl`` and ``_run_lndl_react``. Skip the JSON-style
+        # parse layer to avoid (a) double-parsing and (b) the parse layer
+        # spending an LLM-side retry call before our LNDL finalizer ever runs.
+        _pctx = None
+    else:
+        _pctx = (
+            parse_param.with_updates(handle_validation="return_value")
+            if parse_param
+            else ParseParam(
+                response_format=chat_param.response_format,
+                imodel=branch.parse_model,
+                handle_validation="return_value",
+                formatter=chat_param.formatter,
+            )
+        )
 
     # Update tool schemas
     if tools := (action_param.tools or True) if action_param else None:
@@ -869,7 +1030,8 @@ async def operate(
         request_fmt = operative.request_type or model_class
         if request_fmt:
             _cctx = _cctx.with_updates(response_format=request_fmt)
-            _pctx = _pctx.with_updates(response_format=request_fmt)
+            if _pctx is not None:
+                _pctx = _pctx.with_updates(response_format=request_fmt)
 
     if middle is None:
         if isinstance(_cctx, RunParam) or getattr(branch.chat_model, "is_cli", False):
@@ -928,6 +1090,7 @@ async def operate(
                 operative=operative,
                 model_class=model_class,
                 max_rounds=lndl_rounds,
+                handle_validation=handle_validation,
             )
         return await _finalize_lndl(
             branch=branch,
@@ -937,6 +1100,7 @@ async def operate(
             operative=operative,
             model_class=model_class,
             lndl_retries=lndl_retries,
+            handle_validation=handle_validation,
         )
 
     # JSON path: look for action_requests on the parsed result

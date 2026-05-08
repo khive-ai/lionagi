@@ -232,13 +232,20 @@ class InstructionContent(MessageContent):
                     f"## Tools\n{tools_display or minimal_yaml(self.tool_schemas).strip()}"
                 )
 
+        has_tools = bool(self.tool_schemas)
+
         if not self._is_sentinel(self.response_format):
             schema = tf.render_schema(self.response_format)
             if schema:
                 parts.append(f"## Schema\n{schema}")
-            parts.append(f"## ResponseFormat\n{tf.render_format(self.response_format)}")
+            parts.append(
+                "## ResponseFormat\n"
+                f"{tf.render_format(self.response_format, has_tools=has_tools)}"
+            )
         elif tf is not None and tf is not JsonFormatter:
-            parts.append(f"## ResponseFormat\n{tf.render_format(None)}")
+            parts.append(
+                f"## ResponseFormat\n{tf.render_format(None, has_tools=has_tools)}"
+            )
 
         return "\n\n".join(parts)
 

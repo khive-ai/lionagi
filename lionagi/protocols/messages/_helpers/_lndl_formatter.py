@@ -111,14 +111,20 @@ def _render_field_example(
             lines.append(f"<lvar {a}>...</lvar>")
         return lines, f"{field_name}: [{', '.join(aliases)}]", None
 
-    # dict[K, V]
+    # dict[K, V] — declare as ``<lvar field.key alias>...</lvar>`` where the
+    # second segment is the actual dictionary key the model picks for each
+    # entry. Show two concrete sample keys so the model doesn't drift to
+    # angle-bracket placeholders (which the lexer would treat as markup).
     if origin is dict:
         lines = []
         aliases = []
-        for _ in range(2):
+        for i in range(2):
             a = alias_gen()
             aliases.append(a)
-            lines.append(f"<lvar {field_name}.<key> {a}>...</lvar>")
+            lines.append(
+                f"<lvar {field_name}.key{i+1} {a}>...</lvar>  "
+                "(replace 'key1'/'key2' with the actual dict key)"
+            )
         return lines, f"{field_name}: [{', '.join(aliases)}]", None
 
     # nested model

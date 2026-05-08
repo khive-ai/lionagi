@@ -950,10 +950,10 @@ class CodingToolkit(LionTool):
             Results are capped at max_results to prevent context overflow.
             """
             if action == "grep":
-                if _SHELL_CONTROL.search(pattern):
+                if "\x00" in pattern:
                     return {
                         "success": False,
-                        "error": f"Shell operators in pattern rejected: {pattern!r}",
+                        "error": "Pattern contains NUL byte",
                     }
                 try:
                     search_path = str(
@@ -988,10 +988,10 @@ class CodingToolkit(LionTool):
                     "shown": min(total, limit),
                 }
             elif action == "find":
-                if _SHELL_CONTROL.search(pattern):
+                if "\x00" in pattern:
                     return {
                         "success": False,
-                        "error": f"Shell operators in pattern rejected: {pattern!r}",
+                        "error": "Pattern contains NUL byte",
                     }
                 try:
                     search_path = str(

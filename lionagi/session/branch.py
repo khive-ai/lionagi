@@ -930,7 +930,6 @@ class Branch(Element, Relational):
         num_parse_retries: int = 3,
         clear_messages: bool = False,
         include_token_usage_to_model: bool = False,
-        lndl: bool = None,
         **kwargs,
     ) -> BaseModel | dict | str | None:
         """

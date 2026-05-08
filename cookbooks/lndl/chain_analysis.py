@@ -248,7 +248,7 @@ Cite EXACT path:line numbers from real tool output; never invent them.
 async def run_pipeline(
     model: str,
     rounds: int,
-    out_path: Optional[Path] = None,
+    out_path: Path | None = None,
 ) -> dict:
     model_kwargs: dict = {}
     if model.startswith("openrouter/"):
@@ -308,8 +308,10 @@ async def run_pipeline(
     def _attr(obj, name, default):
         if obj is None:
             return default
-        return getattr(obj, name, default) if hasattr(obj, name) else (
-            obj.get(name, default) if isinstance(obj, dict) else default
+        return (
+            getattr(obj, name, default)
+            if hasattr(obj, name)
+            else (obj.get(name, default) if isinstance(obj, dict) else default)
         )
 
     report = FullReport(
@@ -323,7 +325,9 @@ async def run_pipeline(
     )
 
     # ── Print report ──
-    print(f"\n{'='*70}\nFINAL REPORT  ({elapsed:.1f}s total, {len(branch.messages)} messages)\n{'='*70}")
+    print(
+        f"\n{'='*70}\nFINAL REPORT  ({elapsed:.1f}s total, {len(branch.messages)} messages)\n{'='*70}"
+    )
     print(f"\nTitle: {report.title}")
     print(f"\nSummary:\n  {report.summary}")
     print(f"\nConfidence: {report.confidence}")
