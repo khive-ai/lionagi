@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import ClassVar, Literal
+from typing import ClassVar
 
 from pydantic import Field, field_validator
 
@@ -34,9 +34,8 @@ class ReActAnalysis(HashableModel):
     """
     Captures the ReAct chain-of-thought output each round:
     1) The LLM's 'analysis' (reasoning),
-    2) A list of planned actions to perform before finalizing,
-    3) Indication whether more expansions/rounds are needed,
-    4) Additional tuning knobs: how to handle validation, how to execute actions, etc.
+    2) Indication whether more expansions/rounds are needed,
+    3) An optional milestone hint for the next round.
 
     Note:
     - Retain from repeating yourself
@@ -70,15 +69,6 @@ class ReActAnalysis(HashableModel):
         ),
     )
 
-    planned_actions: list[PlannedAction] = Field(
-        default_factory=list,
-        description=(
-            "One or more short descriptors of the tool calls or operations "
-            "the LLM wants to perform this round. For example, read the doc, "
-            "then run a search."
-        ),
-    )
-
     extension_needed: bool = Field(
         False,
         description="Set True if more expansions are needed. If False, final answer is next.",
@@ -89,15 +79,6 @@ class ReActAnalysis(HashableModel):
         description=(
             "A sub-goal or mini-checkpoint to reach before finalizing. "
             "E.g. 'Validate results from search_exa, then summarize outcomes.'"
-        ),
-    )
-
-    action_strategy: Literal["sequential", "concurrent"] = Field(
-        "concurrent",
-        description=(
-            "Specifies how to invoke the planned actions:\n"
-            "'sequential' => Each action is run in order, \n"
-            "'concurrent' => All actions run in parallel, \n"
         ),
     )
 

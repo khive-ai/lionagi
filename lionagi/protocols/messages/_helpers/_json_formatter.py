@@ -336,7 +336,7 @@ class Formatter(Protocol):
     def render_schema(format: ResponseFormat) -> str | None: ...
 
     @staticmethod
-    def render_format(format: ResponseFormat) -> str: ...
+    def render_format(format: ResponseFormat, has_tools: bool = False) -> str: ...
 
     @staticmethod
     def render_tools(tool_schemas: list[dict[str, Any]]) -> str | None: ...
@@ -352,7 +352,11 @@ class JsonFormatter:
         return _referenced_schemas_display(format)
 
     @staticmethod
-    def render_format(format: ResponseFormat) -> str:
+    def render_format(format: ResponseFormat, has_tools: bool = False) -> str:
+        # has_tools is part of the Formatter protocol; JSON rendering already
+        # surfaces tools in a separate ``## Tools`` section, so the response
+        # format itself is independent of tool presence.
+        del has_tools
         return _response_format_display(format)
 
     @staticmethod

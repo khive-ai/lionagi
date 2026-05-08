@@ -327,13 +327,55 @@ async def ReActStream(
     verbose_length: int = None,
     continue_after_failed_response: bool = False,
     between_rounds: Callable[["Branch", int], Awaitable[str | None]] | None = None,
+    lndl: bool = False,
+    lndl_rounds: int = 1,
+    lndl_retries: int = 0,
+    trace: Any = None,
 ) -> AsyncGenerator:
-    """Core ReAct streaming implementation with context-based architecture."""
+    """Core ReAct streaming implementation with context-based architecture.
+
+    LNDL mode (``lndl=True``): each ReAct round (and the final answer) runs
+    through the LNDL formatter+finalizer instead of native JSON. ``lndl_rounds``
+    controls how many internal LNDL rounds happen *within* one ReAct beat;
+    ``lndl_retries`` controls LNDL parse-error retries per beat.
+
+    ``trace`` (opt-in): pass an ``lionagi.lndl.LndlTrace`` to capture per-round
+    diagnostics across all beats. Default ``None`` = zero overhead.
+    """
 
     # Validate and clamp max_extensions
     if max_extensions and max_extensions > 100:
         logger.warning("max_extensions should not exceed 100; defaulting to 100.")
         max_extensions = 100
+
+    # LNDL mode: swap in the LndlFormatter on the chat/parse params, and
+    # inject the LNDL system prompt once for the duration of the stream.
+    # The system-prompt injection is idempotent (marker check), so the
+    # downstream ``operate()`` calls won't double-inject. ``operate()`` only
+    # treats a call as LNDL when ``chat_param.formatter is LndlFormatter``,
+    # so flipping the formatter here is what threads LNDL through.
+    _lndl_prior_system = None
+    if lndl:
+        from lionagi.operations.operate.operate import (
+            _ensure_lndl_system_prompt,
+            _restore_lndl_system_prompt,
+        )
+        from lionagi.protocols.messages._helpers._lndl_formatter import LndlFormatter
+
+        _lndl_prior_system = _ensure_lndl_system_prompt(branch)
+        chat_param = chat_param.with_updates(formatter=LndlFormatter)
+        if parse_param is not None:
+            parse_param = parse_param.with_updates(formatter=LndlFormatter)
+
+    _lndl_kw: dict = (
+        {
+            "lndl_rounds": max(1, lndl_rounds),
+            "lndl_retries": max(0, lndl_retries),
+            "trace": trace,
+        }
+        if lndl
+        else {}
+    )
 
     def verbose_yield(title, s_):
         if verbose_analysis:
@@ -395,6 +437,7 @@ async def ReActStream(
         clear_messages=clear_messages,
         reason=reason,
         field_models=fms,
+        **_lndl_kw,
     )
 
     out = verbose_yield("\n### ReAct Round No.1 Analysis:\n", analysis)
@@ -487,6 +530,7 @@ async def ReActStream(
                     clear_messages=False,
                     reason=reason,
                     field_models=fms,
+                    **_lndl_kw,
                 )
                 round_count += 1
                 out = verbose_yield(
@@ -520,6 +564,7 @@ async def ReActStream(
             clear_messages=False,  # Keep messages to maintain context
             reason=kwargs.get("reason", True),
             field_models=kwargs.get("field_models"),
+            **_lndl_kw,
         )
         round_count += 1
 
@@ -574,6 +619,7 @@ async def ReActStream(
         # Defaults that can be overridden by resp_ctx
         "handle_validation": handle_validation,
         "skip_validation": False,
+        **_lndl_kw,
     }
 
     # Honor response_kwargs for final answer generation
@@ -606,3 +652,10 @@ async def ReActStream(
     # Don't extract .answer - return the full Analysis object
     _o = verbose_yield("\n### ReAct Final Answer:\n", out)
     yield _o
+
+    # Restore the branch's prior system message if we injected the LNDL prompt.
+    # Runs after the final yield, so a caller iterating to completion gets a
+    # clean branch back. (Early-break callers can call ``aclose()`` to trigger
+    # the implicit GC path; we do best-effort cleanup either way.)
+    if lndl:
+        _restore_lndl_system_prompt(branch, _lndl_prior_system)

@@ -57,6 +57,8 @@ class InstructionContent(MessageContent):
             prompt_context = context
 
         if response_format is not None and formatter is None:
+            from ._helpers import JsonFormatter
+
             formatter = JsonFormatter
 
         data = {
@@ -69,7 +71,6 @@ class InstructionContent(MessageContent):
             "formatter": formatter,
             "images": images if images is not None else [],
             "image_detail": image_detail,
-            "formatter": formatter,
         }
 
         for key, value in data.items():
@@ -193,12 +194,12 @@ class InstructionContent(MessageContent):
             )
             if valid:
                 inst.response_format = response_format
-
         if pt := data.get("formatter"):
             inst.formatter = pt
         elif inst.response_format is not None and inst.formatter is None:
-            inst.formatter = JsonFormatter
+            from ._helpers import JsonFormatter
 
+            inst.formatter = JsonFormatter
         return inst
 
     def _format_text_content(self) -> str:
@@ -224,18 +225,29 @@ class InstructionContent(MessageContent):
             from ._helpers import _tool_schemas_display
 
             if all(isinstance(t, str) for t in self.tool_schemas):
-                parts.append(f"## Tools\n" + "\n".join(self.tool_schemas))
+                parts.append("## Tools\n" + "\n".join(self.tool_schemas))
             else:
                 tools_display = _tool_schemas_display(self.tool_schemas)
                 parts.append(
                     f"## Tools\n{tools_display or minimal_yaml(self.tool_schemas).strip()}"
                 )
 
+        has_tools = bool(self.tool_schemas)
+
+        def _render(fmt):
+            try:
+                return tf.render_format(fmt, has_tools=has_tools)
+            except TypeError:
+                # Back-compat: custom formatters that don't accept has_tools
+                return tf.render_format(fmt)
+
         if not self._is_sentinel(self.response_format):
             schema = tf.render_schema(self.response_format)
             if schema:
                 parts.append(f"## Schema\n{schema}")
-            parts.append(f"## ResponseFormat\n{tf.render_format(self.response_format)}")
+            parts.append(f"## ResponseFormat\n{_render(self.response_format)}")
+        elif tf is not None and tf is not JsonFormatter:
+            parts.append(f"## ResponseFormat\n{_render(None)}")
 
         return "\n\n".join(parts)
 

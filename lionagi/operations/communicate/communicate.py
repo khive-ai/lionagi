@@ -9,11 +9,11 @@ from pydantic import JsonValue
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.ln.fuzzy._fuzzy_validate import fuzzy_validate_mapping
 from lionagi.ln.types import Undefined
+from lionagi.protocols.messages import Instruction, JsonFormatter
 
 from ..types import ChatParam, ParseParam
 
 if TYPE_CHECKING:
-    from lionagi.protocols.messages.instruction import Instruction
     from lionagi.session.branch import Branch
 
 
@@ -41,6 +41,7 @@ def prepare_communicate_kw(
     clear_messages=False,
     operative_model=None,
     include_token_usage_to_model: bool = False,
+    lndl=False,
     **kwargs,
 ):
     # Handle deprecated parameters
@@ -50,6 +51,20 @@ def prepare_communicate_kw(
             "Use 'response_format' instead.",
             DeprecationWarning,
             stacklevel=2,
+        )
+
+    if lndl:
+        # ``communicate(lndl=True)`` would set the LndlFormatter but skip
+        # the LNDL system-prompt injection, the action-execution loop, the
+        # multi-round ReAct path, and the retry/validation policies that
+        # ``operate(lndl=True)`` provides. Routing it through here would
+        # silently produce dicts on parse error. Surface that mismatch as
+        # a clear migration error instead of a half-working flag.
+        raise NotImplementedError(
+            "communicate(lndl=True) is not supported — it would skip the LNDL "
+            "system-prompt injection, action execution, multi-round retries, "
+            "and handle_validation policy that operate() provides. "
+            "Use branch.operate(lndl=True, ...) for LNDL-formatted output."
         )
 
     if (
@@ -90,6 +105,7 @@ def prepare_communicate_kw(
         include_token_usage_to_model=include_token_usage_to_model,
         imodel=imodel,
         imodel_kw=kwargs,
+        formatter=JsonFormatter,
     )
 
     parse_param = None
@@ -110,7 +126,7 @@ def prepare_communicate_kw(
             ),
             imodel=parse_model,
             imodel_kw={},
-            formatter=chat_param.formatter,
+            formatter=JsonFormatter,
         )
 
     return {

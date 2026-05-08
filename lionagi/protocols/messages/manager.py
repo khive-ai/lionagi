@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, JsonValue
 
+from lionagi.protocols.messages import Formatter
+
 from .._concepts import Manager
 from ..generic.pile import Pile
 from ..generic.progression import Progression
@@ -96,7 +98,7 @@ class MessageManager(Manager):
         request_model: BaseModel | type[BaseModel] = None,
         response_format: BaseModel | type[BaseModel] = None,
         tool_schemas: dict = None,
-        formatter=None,
+        formatter: type[Formatter] = None,
         sender: SenderRecipient = None,
         recipient: SenderRecipient = None,
     ) -> Instruction:
@@ -320,6 +322,7 @@ class MessageManager(Manager):
         images: list = None,
         image_detail: Literal["low", "high", "auto"] = None,
         tool_schemas: dict = None,
+        formatter: type[Formatter] = None,
         # system
         system: Any = None,
         system_datetime: bool | str = None,
@@ -398,6 +401,7 @@ class MessageManager(Manager):
                 tool_schemas=tool_schemas,
                 sender=sender,
                 recipient=recipient,
+                formatter=formatter,
             )
 
         if metadata:
