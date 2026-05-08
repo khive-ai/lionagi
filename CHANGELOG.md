@@ -4,23 +4,31 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.24.0] - 2026-05-07
+## [0.24.0] - 2026-05-08
 
 ### Added
 
-- **`Formatter` protocol** — pluggable instruction rendering (`render_schema`, `render_format`, `render_tools`, `parse`); `JsonTransformer` as default, slot for LNDL
-- **TypeScript-style schema display** — ~47% smaller than raw `model_json_schema()`, preserves all field descriptions and constraints
-- **TypeScript-style tool signatures** — one-line function notation replaces 12-line YAML blocks
-- Markdown section headers (`## Task Instruction`, `## Tools`, `## Schema`, `## ResponseFormat`) for prompt layout
+- **LNDL** — tag-based structured-output protocol; `branch.operate(lndl=True, lndl_rounds=N, lndl_retries=K)` collapses many parallel tool calls into one response. Three `OUT{}` forms (explicit, shortcut, nested groups), `note.X` cross-round scratchpad, auto-injected system prompt
+- **`branch.ReActStream(lndl=True)`** — LNDL threaded through every internal operate call; `lndl_rounds` controls within-beat exploration, `max_extensions` controls outer ReAct loop
+- **`LndlTrace`** opt-in diagnostics — pass `trace=LndlTrace()` to record per-round outcomes, errors, schema, action counts. `classify_chunk()` (syntactic), `classify_result()` (final), `branch.lndl_chunks(since=)` helpers. `trace=None` (default) = zero overhead
+- **`Formatter` protocol** — `JsonFormatter` (default) and `LndlFormatter`; pluggable `render_schema`/`render_format`/`render_tools`/`parse`
+- **TypeScript-style schema display** — ~47% smaller than raw `model_json_schema()`; one-line tool signatures replace 12-line YAML blocks
+- **CodingToolkit hardening** — bounded `islice` reads, deny-globs (`*.pem`, `.ssh/*`, `secrets.*`), `--exclude-dir` defaults, grep `-e --` injection guard, `find -prune` (~10x faster), `READ_ONLY` bind whitelist
+- **Cookbooks** — `lndl/_cases_runner.py` (15 cases), `lndl/explore_agent.py`, `lndl/chain_analysis.py` (phased pipeline), `lndl/react_analysis.py` (ReActStream + trace)
+- **Docs** — `docs/reference/lndl.md` (when to use vs JSON, three modes, syntax, diagnostics, failure modes)
 
 ### Changed
 
-- `InstructionContent` uses `prompt_transformer` field instead of internal `_schema_dict`/`_model_class`
-- Deprecated `response_model_cls`, `schema_dict`, `request_model` properties (removed in v1.0)
+- `ReActAnalysis` trimmed — removed `planned_actions` (unconsumed) and `action_strategy: Literal[...]` (LNDL-fragile); actions always concurrent. `PlannedAction` still exported for back-compat
+- `LndlFormatter` alias generator emits 2-char aliases (`a1, b1, c1, ...`) from the start — 676 collision-free, prevents single-letter reuse on large schemas
+- LNDL system prompt adds Rule 8 (aliases must be unique within a response)
+- LNDL reparse prompt preserves intended `<lact>` tool calls (anti-fix-mode-contagion); continuation prompt requires real tool calls vs prose plans
+- `InstructionContent` uses `prompt_transformer` instead of internal `_schema_dict`/`_model_class`; `response_model_cls`/`schema_dict`/`request_model` deprecated (removed in v1.0)
+- Markdown section headers (`## Task Instruction`, `## Tools`, `## Schema`, `## ResponseFormat`) for prompt layout
 
 ### Fixed
 
-- `operate()` leaked `action_responses` field into LLM prompt — now uses `request_type` (excludes action_responses)
+- `operate()` leaked `action_responses` field into LLM prompt — now uses `request_type`
 - `ActionResponse` messages had `None` sender/recipient — now `sender=tool_id, recipient=branch_id`
 - `fuzzy_validate_pydantic` crashed when `fuzzy_match=False` (unbound `model_data`)
 
@@ -227,10 +235,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [0.1.0] - 2024-04-10
 
 - `Branch` and tree-node architecture; tool manager; async queue; knowledge graph; form/report system
-
----
-
-See git history for the 0.0.x series (v0.0.102–v0.0.316).
 
 ---
 
