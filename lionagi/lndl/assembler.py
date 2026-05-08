@@ -188,14 +188,14 @@ def _alias_value(
         if action_results and alias in action_results:
             return True, action_results[alias]
         # Build an ActionCall placeholder for deferred execution
-        from ._parse_function_call import parse_function_call
+        from ._parse_function_call import parse_function_call, qualified_name
 
         node = lacts_by_alias[alias]
         try:
             parsed = parse_function_call(node.call)
             return True, ActionCall(
                 name=alias,
-                function=parsed["operation"],
+                function=qualified_name(parsed),
                 arguments=parsed["arguments"],
                 raw_call=node.call,
             )

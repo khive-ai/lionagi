@@ -87,7 +87,16 @@ def show(out, branch=None, label="result"):
                 print(f"    | {line}")
 
 
+_pass_count = 0
+_fail_count = 0
+
+
 def expect(label: str, cond: bool, detail: str = ""):
+    global _pass_count, _fail_count
+    if cond:
+        _pass_count += 1
+    else:
+        _fail_count += 1
     mark = "PASS" if cond else "FAIL"
     print(f"  [{mark}] {label}{(' — ' + detail) if detail else ''}")
     return cond
@@ -636,14 +645,24 @@ CASES = [
 
 
 async def main():
+    errors = 0
     for label, fn in CASES:
         if ONLY and label != ONLY:
             continue
         try:
             await fn()
         except Exception as e:
+            errors += 1
             print(f"  [ERROR] case {label}: {e!r}")
             traceback.print_exc()
+
+    total = _pass_count + _fail_count
+    print(f"\n{'='*70}")
+    print(
+        f"SUMMARY: {_pass_count}/{total} passed, {_fail_count} failed, {errors} errors"
+    )
+    if _fail_count or errors:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

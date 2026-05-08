@@ -174,7 +174,19 @@ def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
         if prune_args:
             prune_args.append("-o")
         prune_args.extend(["-path", f"*/{d}", "-prune"])
-    cmd = ["find", path, "(", *prune_args, ")", "-o", "-type", "f", "-name", pattern, "-print"]
+    cmd = [
+        "find",
+        path,
+        "(",
+        *prune_args,
+        ")",
+        "-o",
+        "-type",
+        "f",
+        "-name",
+        pattern,
+        "-print",
+    ]
 
     try:
         result = subprocess.run(

@@ -68,6 +68,7 @@ __all__ = (
     "Success",
     "Token",
     "TokenType",
+    "TypeMismatchError",
     "assemble",
     "assemble_spec_value",
     "collect_actions",

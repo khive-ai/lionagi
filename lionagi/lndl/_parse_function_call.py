@@ -1,10 +1,14 @@
 # Copyright (c) 2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Function call parser with khive-mcp extensions for unified tool paradigm.
+"""Function call parser for LNDL <lact> bodies.
 
-Core parsing with support for:
-- Service namespacing: cognition.remember_episodic(...)
+Parses Python-style function calls into a dict with 'operation', optional
+'service', and 'arguments'.  When a service prefix is present (e.g.
+``svc.tool(...)``), ``qualified_name`` returns ``"svc.tool"`` — this is the
+name that should be used for tool-registry lookup so namespaced tools work.
+
+Also supports:
 - Batch parsing: [call1(...), call2(...)]
 - Reserved keyword handling: from= -> from_= (Python keywords as args)
 """
@@ -37,7 +41,19 @@ _RESERVED_KWARG_PATTERN = re.compile(
 __all__ = (
     "parse_batch_function_calls",
     "parse_function_call",
+    "qualified_name",
 )
+
+
+def qualified_name(parsed: dict[str, Any]) -> str:
+    """Return the tool name suitable for registry lookup.
+
+    When the parsed call has a service prefix, returns ``"service.action"``;
+    otherwise returns just ``"action"``.
+    """
+    svc = parsed.get("service")
+    act = parsed["action"]
+    return f"{svc}.{act}" if svc else act
 
 
 def _escape_reserved_keywords(call_str: str) -> str:
@@ -99,83 +115,57 @@ def _ast_to_value(node: ast.AST) -> Any:
 
 
 def parse_function_call(call_str: str) -> dict[str, Any]:
-    """Parse Python function call syntax into unified tool format.
+    """Parse a Python-style function call string.
 
-    Supports service namespacing for unified tool paradigm:
-        - Simple: search("query") -> {operation: "search", arguments: {...}}
-        - Namespaced: cognition.remember("...") -> {service: "cognition", ...}
-        - Deep: recall.search("...") -> {service: "recall", operation: "search", ...}
+    Handles optional service prefix (``service.action(...)``):
+        - Simple: ``search("q")`` → ``{action: "search", ...}``
+        - Namespaced: ``svc.tool("x")`` → ``{service: "svc", action: "tool", ...}``
 
-    Examples:
-        >>> parse_function_call('search("AI news")')
-        {'operation': 'search', 'arguments': {'query': 'AI news'}}
-
-        >>> parse_function_call('cognition.remember_episodic(content="...")')
-        {'service': 'cognition', 'operation': 'remember_episodic', 'arguments': {'content': '...'}}
-
-    Args:
-        call_str: Python function call as string
+    Use ``qualified_name(parsed)`` to get the registry-lookup name
+    (``"svc.action"`` when service is present, else ``"action"``).
 
     Returns:
-        Dict with 'operation', optional 'service', and 'arguments' keys
-        Legacy 'tool' key also included for backward compatibility
+        Dict with ``action``, optional ``service``, and ``arguments``.
 
     Raises:
-        ValueError: If the string is not a valid function call
+        ValueError: If the string is not a valid function call.
     """
     try:
-        # Escape reserved keywords before parsing (e.g., from= -> from_=)
         escaped_str = _escape_reserved_keywords(call_str)
 
-        # Parse the call as a Python expression
         tree = ast.parse(escaped_str, mode="eval")
         call = tree.body
 
         if not isinstance(call, ast.Call):
             raise ValueError("Not a function call")
 
-        # Extract function name and service namespace
         service = None
-        operation = None
+        action = None
 
         if isinstance(call.func, ast.Name):
-            # Simple call: search(...)
-            operation = call.func.id
+            action = call.func.id
         elif isinstance(call.func, ast.Attribute):
-            # Namespaced call: cognition.remember(...) or recall.search(...)
-            operation = call.func.attr
-
-            # Walk up the attribute chain to get service name
+            action = call.func.attr
             node = call.func.value
             if isinstance(node, ast.Name):
                 service = node.id
             elif isinstance(node, ast.Attribute):
-                # Multi-level: could be module.service.operation
-                # For now, take the last attribute as service
                 service = node.attr
         else:
             raise ValueError(f"Unsupported function type: {type(call.func)}")
 
-        # Extract arguments
         arguments = {}
-
-        # Positional arguments (will be mapped by parameter order in schema)
         for i, arg in enumerate(call.args):
-            # For now, use position-based keys; will be mapped to param names later
             arguments[f"_pos_{i}"] = _ast_to_value(arg)
 
-        # Keyword arguments
         for keyword in call.keywords:
             if keyword.arg is None:
-                # **kwargs syntax
                 raise ValueError("**kwargs not supported")
             arguments[keyword.arg] = _ast_to_value(keyword.value)
 
-        # Build result with new unified format
-        result = {
-            "operation": operation,
+        result: dict[str, Any] = {
+            "action": action,
             "arguments": arguments,
-            "tool": operation,  # Backward compatibility
         }
 
         if service:
@@ -188,33 +178,12 @@ def parse_function_call(call_str: str) -> dict[str, Any]:
 
 
 def parse_batch_function_calls(batch_str: str) -> list[dict[str, Any]]:
-    """Parse batch function calls (array of function calls).
+    """Parse an array of function calls: ``[fn1(...), fn2(...)]``.
 
-    Supports:
-        - Same service batch: [remember(...), recall(...)]
-        - Cross-service batch: [cognition.remember(...), waves.check_in()]
-
-    Examples:
-        >>> parse_batch_function_calls('[search("A"), search("B")]')
-        [
-            {'operation': 'search', 'arguments': {'query': 'A'}},
-            {'operation': 'search', 'arguments': {'query': 'B'}}
-        ]
-
-        >>> parse_batch_function_calls('[cognition.remember(...), waves.check_in()]')
-        [
-            {'service': 'cognition', 'operation': 'remember', 'arguments': {...}},
-            {'service': 'waves', 'operation': 'check_in', 'arguments': {}}
-        ]
-
-    Args:
-        batch_str: String containing array of function calls
-
-    Returns:
-        List of parsed function call dicts
+    Returns a list of dicts in the same shape as ``parse_function_call``.
 
     Raises:
-        ValueError: If the string is not a valid array of function calls
+        ValueError: If the string is not a valid array of function calls.
     """
     try:
         # Remove whitespace for easier parsing

@@ -1021,9 +1021,17 @@ class CodingToolkit(LionTool):
                         prune_args.append("-o")
                     prune_args.extend(["-path", f"*/{d}", "-prune"])
                 cmd = [
-                    "find", search_path,
-                    "(", *prune_args, ")",
-                    "-o", "-type", "f", "-name", pattern, "-print",
+                    "find",
+                    search_path,
+                    "(",
+                    *prune_args,
+                    ")",
+                    "-o",
+                    "-type",
+                    "f",
+                    "-name",
+                    pattern,
+                    "-print",
                 ]
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode", 0) != 0 and raw.get("stderr", "").strip():

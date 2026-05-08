@@ -1,25 +1,23 @@
-"""LNDL coding agent — codebase exploration with read-only tools.
+"""LNDL coding agent -- codebase exploration with read-only tools.
 
 Multi-round LNDL (``lndl_rounds=4``): the model issues tool calls in
 early rounds without an OUT block, sees results in chat history, then
-commits OUT once it has enough information. ReAct-flavored LNDL — the
-right shape for codebase exploration where the answer depends on tool
-output.
+commits OUT once it has enough information.
 
-Tools come from ``lionagi.tools.coding.CodingToolkit`` filtered to its
-``READ_ONLY`` subset (``reader``, ``search``, ``context``). Editor /
-bash / sandbox / subagent are NOT registered, so any attempt to call
-them fails at lookup — defense in depth, not just a prompt promise.
+Tools come from ``CodingToolkit`` filtered to ``READ_ONLY`` (reader,
+search, context).  Editor / bash / sandbox / subagent are NOT registered.
 
 Run::
 
-    uv run python cookbooks/lndl/explore_agent.py [--task=N]
+    uv run python cookbooks/lndl/explore_agent.py [--task=N] [--rounds=4]
 
-Tasks (each scoped to the lionagi repo):
-    1. Locate: "Find files implementing LNDL parsing"
-    2. Summarize: "Summarize what operate.py does in 3 bullets"
-    3. Survey: "Map operations/ — list each file's purpose"
+Tasks:
+    1. Locate: find files implementing LNDL parsing
+    2. Summarize: what does operate.py do (3 bullets)
+    3. Survey: map operations/ -- one-line purpose per file
 """
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -37,28 +35,32 @@ load_dotenv()
 WORKSPACE = Path(__file__).resolve().parents[2]
 
 
-# ─── Output schema ──────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
 
 
 class ExploreFindings(BaseModel):
     summary: str = Field(description="2-5 sentence summary of what was found.")
     files: list[str] = Field(
         default_factory=list,
-        description="Workspace-relative paths inspected during exploration.",
+        description="Workspace-relative paths inspected.",
     )
     key_lines: list[str] = Field(
         default_factory=list,
-        description="Notable 'path:line: snippet' strings worth a human read.",
+        description="Notable 'path:line: snippet' strings.",
     )
     confidence: float = Field(default=0.5, description="Self-rated 0.0-1.0.")
 
 
-# ─── Agent setup ────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
 
 
 SYSTEM_PROMPT = f"""You are a code-exploration agent with READ-ONLY access to {WORKSPACE}.
 
-You have a coding toolkit filtered to read-only actions:
+Tools (coding toolkit, read-only subset):
 - reader(action='read', path=..., offset=0, limit=200)
 - reader(action='list_dir', path=..., recursive=False)
 - search(action='grep', pattern=..., path=..., include='*.py', max_results=50)
@@ -66,32 +68,25 @@ You have a coding toolkit filtered to read-only actions:
 - context(action='status' | 'get_messages' | 'evict' | 'evict_action_results')
 
 Multi-round LNDL strategy:
-1. First rounds — issue <lact> calls to gather information. No OUT yet.
-2. Middle rounds — read specific files or narrow the grep. Use
-   ``<lvar note.X ...>`` to jot findings to reference later.
-3. Final round — synthesize via <lvar> declarations and a single OUT.
+1. First rounds -- <lact> calls to gather info. No OUT yet.
+2. Middle rounds -- narrow reads, use <lvar note.X> to jot findings.
+3. Final round -- synthesize via <lvar> and commit OUT.
 
-Cite EXACT path:line numbers from real tool output; never invent them.
+Cite EXACT path:line from tool output; never invent them.
 """
 
 
 TASKS = {
-    1: (
-        "Find all files that implement LNDL parsing in lionagi. List entry "
-        "points and what each does in one sentence each."
-    ),
-    2: (
-        "Summarize what lionagi/operations/operate/operate.py does in 3 "
-        "bullets. Cite specific function names and line numbers."
-    ),
-    3: (
-        "Survey lionagi/operations/. For each .py file, give a one-line "
-        "purpose statement. Order by importance."
-    ),
+    1: "Find all files that implement LNDL parsing in lionagi. List entry "
+    "points and what each does in one sentence each.",
+    2: "Summarize what lionagi/operations/operate/operate.py does in 3 "
+    "bullets. Cite specific function names and line numbers.",
+    3: "Survey lionagi/operations/. For each .py file, give a one-line "
+    "purpose statement. Order by importance.",
 }
 
 
-def build_branch() -> Branch:
+def _build_branch() -> Branch:
     chat_model = iModel(model="openai/gpt-5.4-mini")
     branch = Branch(system=SYSTEM_PROMPT, chat_model=chat_model)
     toolkit = CodingToolkit(workspace_root=WORKSPACE, notify=False)
@@ -99,73 +94,58 @@ def build_branch() -> Branch:
     return branch
 
 
-# ─── Runner ─────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------
 
 
-def _print_quality(result: ExploreFindings) -> None:
-    def looks_like_path(s: str) -> bool:
-        return isinstance(s, str) and len(s) <= 500 and "\n" not in s
-
-    real = [f for f in (result.files or []) if looks_like_path(f)]
-    exist = [f for f in real if (WORKSPACE / f).exists()]
-    print("\n── quality ──")
-    print(f"  files cited:   {len(result.files or [])}")
-    print(f"  files exist:   {len(exist)}/{len(real)}")
-    if hallucinated := [f for f in real if f not in exist]:
-        print(f"  hallucinated:  {hallucinated[:3]}")
-
-
-async def run_task(task_id: int, question: str) -> None:
-    print(f"\n{'=' * 70}\nTASK {task_id}: {question}\n{'=' * 70}")
-    branch = build_branch()
+async def run_task(task_id: int, question: str, rounds: int) -> None:
+    print(f"\n{'='*70}\nTASK {task_id}: {question}\n{'='*70}")
+    branch = _build_branch()
     t0 = time.time()
+
     try:
         result = await branch.operate(
             instruction=question,
             actions=True,
             lndl=True,
-            lndl_rounds=4,
+            lndl_rounds=rounds,
             response_format=ExploreFindings,
         )
     except Exception as e:
-        print(f"[FAILED after {time.time() - t0:.1f}s] {type(e).__name__}: {e}")
+        print(f"[FAILED {time.time()-t0:.1f}s] {type(e).__name__}: {e}")
         return
 
     elapsed = time.time() - t0
-    print(f"[duration {elapsed:.1f}s, messages {len(branch.messages)}]")
+    print(f"[{elapsed:.1f}s, {len(branch.messages)} messages]")
 
     if not hasattr(result, "summary"):
-        print(f"Unexpected result type: {type(result).__name__}")
-        print(repr(result)[:400])
+        print(f"Unexpected: {type(result).__name__} | {repr(result)[:400]}")
         return
 
     print(f"\nSummary:\n  {result.summary}")
-    print(f"\nConfidence: {result.confidence}")
-    if result.files:
-        print("\nFiles cited:")
-        for f in result.files[:10]:
-            print(f"  - {f}")
-    if result.key_lines:
-        print("\nKey lines:")
-        for line in result.key_lines[:10]:
-            print(f"  {line}")
-    _print_quality(result)
+    print(f"Confidence: {result.confidence}")
+    for label, items in [("Files", result.files), ("Key lines", result.key_lines)]:
+        if items:
+            print(f"\n{label}:")
+            for item in items[:10]:
+                print(f"  - {item}")
+
+    # Citation check
+    real = [f for f in (result.files or []) if isinstance(f, str) and "\n" not in f]
+    exist = [f for f in real if (WORKSPACE / f).exists()]
+    print(f"\nCitation accuracy: {len(exist)}/{len(real)}")
 
 
 async def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--task", type=int, default=None, help="Run only task N (1, 2, or 3)"
-    )
-    args = parser.parse_args()
-    if args.task is not None:
-        if args.task not in TASKS:
-            print(f"Unknown task {args.task}. Available: {list(TASKS)}")
-            return
-        await run_task(args.task, TASKS[args.task])
-    else:
-        for tid, q in TASKS.items():
-            await run_task(tid, q)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task", type=int, default=None, help="Run task N (1-3)")
+    ap.add_argument("--rounds", type=int, default=4)
+    args = ap.parse_args()
+
+    tasks = {args.task: TASKS[args.task]} if args.task else TASKS
+    for tid, q in tasks.items():
+        await run_task(tid, q, args.rounds)
 
 
 if __name__ == "__main__":

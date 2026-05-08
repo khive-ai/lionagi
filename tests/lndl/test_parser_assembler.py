@@ -19,17 +19,10 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from lionagi.lndl import (
-    Lexer,
-    Parser,
-    assemble,
-    collect_notes,
-    normalize_lndl_text,
-)
+from lionagi.lndl import Lexer, Parser, assemble, collect_notes, normalize_lndl_text
 from lionagi.lndl.assembler import NOTE_NAMESPACE, _coerce_str_to_list
-from lionagi.lndl.ast import Lact, Lvar, RLvar
+from lionagi.lndl.ast import Lact, RLvar
 from lionagi.lndl.normalize import _fix_missing_gt
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -235,7 +228,9 @@ class TestNoteNamespace:
 
         text = "<lvar result b>Final result</lvar>\nOUT{plan: [note.outline]}"
         prog = _parse(text)
-        result = assemble(prog, PlanModel, scratchpad={"outline": "Prior round outline"})
+        result = assemble(
+            prog, PlanModel, scratchpad={"outline": "Prior round outline"}
+        )
 
         assert result == {"plan": "Prior round outline"}
 
@@ -518,3 +513,86 @@ class TestCoerceStrToList:
         # Must be preserved as one item, not split at every comma
         assert len(result) == 1
         assert result[0] == prose
+
+
+# ===========================================================================
+# 9. parse_function_call and qualified_name
+# ===========================================================================
+
+
+class TestParseFunctionCall:
+    def test_simple_call(self):
+        from lionagi.lndl._parse_function_call import parse_function_call
+
+        result = parse_function_call('search(query="AI")')
+        assert result["action"] == "search"
+        assert result["arguments"] == {"query": "AI"}
+        assert "service" not in result
+
+    def test_namespaced_call(self):
+        from lionagi.lndl._parse_function_call import parse_function_call
+
+        result = parse_function_call('memory.recall(query="context")')
+        assert result["service"] == "memory"
+        assert result["action"] == "recall"
+        assert result["arguments"] == {"query": "context"}
+
+    def test_qualified_name_simple(self):
+        from lionagi.lndl._parse_function_call import (
+            parse_function_call,
+            qualified_name,
+        )
+
+        parsed = parse_function_call('search(query="x")')
+        assert qualified_name(parsed) == "search"
+
+    def test_qualified_name_namespaced(self):
+        from lionagi.lndl._parse_function_call import (
+            parse_function_call,
+            qualified_name,
+        )
+
+        parsed = parse_function_call("svc.tool(x=1)")
+        assert qualified_name(parsed) == "svc.tool"
+
+    def test_reserved_keyword_escaping(self):
+        from lionagi.lndl._parse_function_call import parse_function_call
+
+        result = parse_function_call('search(from="2024-01-01")')
+        assert result["arguments"]["from_"] == "2024-01-01"
+
+    def test_invalid_call_raises(self):
+        from lionagi.lndl._parse_function_call import parse_function_call
+
+        with pytest.raises(ValueError, match="Invalid function call"):
+            parse_function_call("not a call at all")
+
+    def test_nested_dict_arg(self):
+        from lionagi.lndl._parse_function_call import parse_function_call
+
+        result = parse_function_call('fn(config={"key": "val"})')
+        assert result["arguments"]["config"] == {"key": "val"}
+
+    def test_batch_parse(self):
+        from lionagi.lndl._parse_function_call import parse_batch_function_calls
+
+        results = parse_batch_function_calls('[search(q="a"), search(q="b")]')
+        assert len(results) == 2
+        assert results[0]["action"] == "search"
+        assert results[1]["arguments"]["q"] == "b"
+
+
+class TestNullableFieldPrompt:
+    def test_nullable_required_prompt_says_must_appear(self):
+        """Nullable-required fields should be told they MUST appear in OUT{}."""
+        from lionagi.protocols.messages._helpers._lndl_formatter import (
+            _render_lndl_response_structure,
+        )
+
+        class NullableRequired(BaseModel):
+            maybe: str | None
+
+        text = _render_lndl_response_structure(NullableRequired)
+        assert "MUST appear" in text or "must" in text.lower()
+        # Should NOT say "optional unless annotation includes None"
+        assert "none is optional" not in text.lower()

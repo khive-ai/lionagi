@@ -13,13 +13,7 @@ from pydantic import BaseModel
 
 from lionagi.libs.schema.breakdown_pydantic_annotation import _is_pydantic_model_cls
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
-from lionagi.lndl import (
-    Lexer,
-    Parser,
-    assemble,
-    collect_actions,
-    normalize_lndl_text,
-)
+from lionagi.lndl import Lexer, Parser, assemble, collect_actions, normalize_lndl_text
 
 from ._json_formatter import _referenced_schemas_display, _tool_schemas_display
 
@@ -219,8 +213,9 @@ def _render_lndl_response_structure(
     text = f"Specs: {', '.join(spec_parts)}\n\n"
     text += (
         "Declare each field with <lvar> or <lact>, then commit aliases in OUT{}.\n"
-        "Every spec listed above MUST appear in OUT{} — none is optional unless its "
-        "annotation includes None.\n\n"
+        "Every spec MUST appear in OUT{} unless the schema gives it a default value. "
+        "Nullable specs (those that accept None) may use null/None as the value, "
+        "but they must still be present in OUT{} if they have no default.\n\n"
     )
     text += "\n".join(decl_lines) + "\n\n"
 

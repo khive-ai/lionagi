@@ -80,9 +80,7 @@ async def _request_lndl_fix(
             )
             return raw if isinstance(raw, str) else (str(raw) if raw else None)
         # Fallback when middle not available (shouldn't happen in practice)
-        _, resp = await branch.chat(
-            instruction=prompt, return_ins_res_message=True
-        )
+        _, resp = await branch.chat(instruction=prompt, return_ins_res_message=True)
         return resp.response
     except Exception:
         return None
@@ -138,7 +136,7 @@ async def _execute_program_lacts(
     if not action_param or not program.lacts:
         return {}, []
 
-    from lionagi.lndl._parse_function_call import parse_function_call
+    from lionagi.lndl._parse_function_call import parse_function_call, qualified_name
 
     from ..act.act import act
     from ..fields import ActionRequestModel
@@ -156,7 +154,7 @@ async def _execute_program_lacts(
             continue
         requests.append(
             ActionRequestModel(
-                function=parsed["operation"],
+                function=qualified_name(parsed),
                 arguments=parsed["arguments"],
             )
         )

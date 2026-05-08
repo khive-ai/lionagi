@@ -12,13 +12,12 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel
 
 from lionagi.lndl import Lexer, Parser, normalize_lndl_text
-from lionagi.lndl.assembler import collect_actions
 from lionagi.operations.operate.operate import (
     _NO_RESTORE,
     _apply_lndl_handle_validation,
@@ -26,7 +25,6 @@ from lionagi.operations.operate.operate import (
     _restore_lndl_system_prompt,
     _try_finalize_lndl_once,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -138,10 +136,7 @@ class TestFinalizeWithoutActions:
     @pytest.mark.asyncio
     async def test_lact_placeholders_become_none(self):
         """When action_param=None, ActionCall should be replaced with None."""
-        raw = (
-            '<lact answer a>lookup(query="weather")</lact>\n'
-            "OUT{answer: [a]}"
-        )
+        raw = '<lact answer a>lookup(query="weather")</lact>\n' "OUT{answer: [a]}"
         chat_param = MagicMock()
         chat_param.response_format = AnswerResponse
 
