@@ -20,7 +20,6 @@ from lionagi.lndl import (
     normalize_lndl_text,
     replace_actions,
 )
-from lionagi.lndl.prompt import LNDL_SYSTEM_PROMPT
 from lionagi.lndl.types import ActionCall
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 
@@ -286,9 +285,10 @@ class LndlFormatter:
 
     @staticmethod
     def render_format(format: Any, has_tools: bool = False) -> str:
-        parts = [LNDL_SYSTEM_PROMPT.strip(), ""]
-        parts.append(_render_lndl_response_structure(format, has_tools=has_tools))
-        return "\n".join(parts)
+        # The full LNDL syntax/rules live in the system prompt (auto-injected
+        # by operate when ``lndl=True``). The per-call instruction only
+        # carries the schema — keeping it terse and stable across rounds.
+        return _render_lndl_response_structure(format, has_tools=has_tools)
 
     @staticmethod
     def render_tools(tool_schemas: list[dict[str, Any]]) -> str | None:

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
 from lionagi.ln.types import Operable
+from lionagi.ln.concurrency import ExceptionGroup
 
 from ._parse_function_call import parse_function_call
 

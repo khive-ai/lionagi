@@ -402,11 +402,29 @@ class Parser:
 
             field_name = self.current_token().value
             self.advance()
+            # Consume dotted continuation (e.g. ``note.X``) so it stays one
+            # logical ref through the shortcut path.
+            while self.match(TokenType.DOT):
+                self.advance()
+                if not self.match(TokenType.ID):
+                    break
+                field_name = f"{field_name}.{self.current_token().value}"
+                self.advance()
             self.skip_newlines()
 
             # Shortcut: OUT{a, b}  — bare alias, no colon. Resolve to its declared spec.
             if not self.match(TokenType.COLON):
+                # ``note.X`` shortcut: routes to the schema field whose
+                # declared spec name was set when the lvar was parsed
+                # (``<lvar Field.name … note.X …>`` is unusual, so the typical
+                # path is to look up which spec the note was declared under).
                 spec = self._resolve_alias_to_spec(field_name)
+                if spec is None and "." in field_name:
+                    # Pure note.X with no host spec — caller must use explicit
+                    # OUT{spec: [note.X]} form. We still surface it under its
+                    # last segment so a downstream tool can hint the user.
+                    head = field_name.split(".", 1)[0]
+                    spec = head
                 if spec is None:
                     spec = field_name  # fall back: treat the bare ID as a literal spec
                 fields.setdefault(spec, [])

@@ -3,13 +3,17 @@
 
 LNDL_SYSTEM_PROMPT = """LNDL — Structured Output with Natural Thinking
 
+You produce LNDL: tag-based structured output that mixes free reasoning with
+declared values and tool calls. The runtime parses your tags and assembles
+the typed result.
+
 SYNTAX
 
 Variables — declare a value:
 <lvar spec.field alias>value</lvar>      — namespaced (fills a model field)
 <lvar alias>value</lvar>                 — raw scalar (alias only)
 
-Actions — declare a tool call (result fills the field):
+Actions — declare a tool call (the result fills the field/alias):
 <lact spec.field alias>fn(arg="val")</lact>  — namespaced
 <lact alias>fn(arg="val")</lact>             — direct (alias only)
 
@@ -23,14 +27,24 @@ Use the shortest form that's unambiguous.
 RULES
 
 1. Tags are SIBLINGS — never nest <lvar> inside <lact> or vice versa.
-2. ONLY aliases listed in OUT{} are committed. Everything else is scratch.
+2. ONLY aliases listed in OUT{} are committed to the final result.
+   Lacts NOT in OUT{} are scratch (zero-cost planning, never executed
+   in single-round mode).
 3. Each spec in OUT{} is one of:
    - a scalar spec (int, float, str, bool) → one alias
    - a model spec (multiple fields) → one alias per field, namespaced as Model.field
    - a list of scalars → many aliases, all raw
    - a list of models → many aliases, repeating Model.field for each item
 4. <lact> body is a Python function call: fn(arg1="val", arg2=123).
+   Arguments must be LITERAL values. Aliases like `b` are NOT substituted
+   into tool arguments — that's why aggregations across tool results cannot
+   be computed inside one LNDL response.
 5. Use the EXACT spec names declared in the schema you are given.
+6. Always close the opening tag with > before the body:
+   <lact alias>fn(args)</lact>           # right
+   <lact alias fn(args)></lact>          # WRONG: > is in the wrong place
+7. Tag attributes are SPACE-separated identifiers. Do NOT use XML
+   attributes like name="..." or type="...".
 
 EXAMPLE 1 — scalar specs filled by tool calls
 
@@ -81,9 +95,6 @@ OUT{items: [[n1, s1], [n2, s2], [n3, s3]]}
 
 Each inner array is one item. Aliases must be UNIQUE across the whole response.
 
-(A flat array `OUT{items: [n1, s1, n2, s2, n3, s3]}` also works — items are
-split when a field name repeats — but nested groups are clearer.)
-
 EXAMPLE 5 — choosing among candidate tool calls
 
 You can sketch several tool calls in scratch and commit only the best
@@ -113,14 +124,38 @@ OUT{report: {title: "X"}}                  # WRONG: use arrays, not dicts
 <lact add j>add(number1=b, number2=e)</lact>  # WRONG: lact args must be LITERALS, not alias refs
 <lact a search_web(...)</lact>             # WRONG: opening tag must end with > before the body
 
-CRITICAL
+MULTI-ROUND MODE
 
-- Arguments inside <lact> must be literal values (numbers, strings, booleans).
-  Aliases like `b` are NOT substituted into tool arguments — that's why aggregations
-  across tool results cannot be computed inside one LNDL response.
-- Always close the opening tag with > before the body:
-  <lact alias>fn(args)</lact>           # right
-  <lact alias fn(args)></lact>          # WRONG: > is in the wrong place
+If the runtime tells you "Round N of M" in a continuation message, you are
+in MULTI-ROUND mode. Each round is one chat turn:
+
+  - In intermediate rounds, you can issue tool calls (<lact>) WITHOUT an
+    OUT{} block to gather information. Tools execute every round; their
+    results appear as tool messages in the chat history before your next
+    turn — you can read and reason over them.
+  - Commit OUT{} when (and only when) you have enough information to fill
+    every required spec. The runtime stops the loop at the first valid OUT{}.
+  - The final round must produce OUT{} or the run fails.
+
+Use this when the answer depends on tool output (codebase exploration,
+multi-step research). For tasks where you can predict your output before
+tools run (math, structured extraction), single-round LNDL is enough.
+
+NOTE NAMESPACE
+
+`note.X` is a scratchpad shared across rounds. Write `<lvar note.draft d>...</lvar>`
+to persist a value, then reference it as `note.draft` INSIDE an OUT entry
+keyed by the actual schema field:
+
+  Round 1: <lvar note.outline o>1) intro 2) body 3) close</lvar>
+  Round 3: OUT{plan: [note.outline]}        # right — note.outline goes into the `plan` field
+            OUT{note.outline}                # WRONG — schema has no field "note"
+
+Lvars in the `note` namespace do NOT need a declared schema field — they're
+free-form scratch values keyed by name. Use them when you want to commit
+something now and reference it many rounds later. But OUT{} must ALWAYS
+key its entries by the spec/field names from your schema; note.X is only
+valid as a VALUE inside those entries.
 """
 
 

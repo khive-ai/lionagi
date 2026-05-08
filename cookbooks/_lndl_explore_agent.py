@@ -1,12 +1,10 @@
 """LNDL coding agent — codebase exploration with read-only tools.
 
-Single-round LNDL: the model writes ONE structured response containing tool
-calls and final OUT in one go. This works when the model can predict its
-output before tools execute (e.g. counting balls, doing math) but is weak
-for codebase exploration — the model commits OUT before it can interpret
-tool results. For true exploration agents, multi-round LNDL (the krons
-``react`` pattern) is needed: model issues tools, observes results in the
-next turn, then commits OUT.
+Multi-round LNDL (``lndl_rounds=4``): the model is allowed to issue tool
+calls in early rounds without committing OUT, see results in chat history,
+and then commit a final OUT block once it has enough information. This is
+the ReAct flavor of LNDL — the right shape for codebase exploration where
+the answer depends on tool output.
 
 Run:
     uv run python cookbooks/_lndl_explore_agent.py [--task=N]
@@ -179,15 +177,18 @@ Workspace: {WORKSPACE}
 All paths are RELATIVE to the workspace root. You may NOT write, edit, or run
 shell commands beyond the provided tools.
 
-Strategy:
-1. Start by listing the relevant directory to orient yourself.
-2. Use grep / find_files to locate candidates by name or content.
-3. Read the most relevant files to confirm.
-4. Cite EXACT paths and line numbers — never invent them.
+Strategy (multi-round LNDL — issue tools in early rounds, commit OUT in a
+later round once you have enough information):
 
-Use LNDL: <lact alias>tool(args)</lact> for tool calls, <lvar Field.name a>...</lvar>
-for direct values. Bind tool results to fields via <lact Field.name a>tool(...)</lact>.
-Commit your final answer in OUT{{summary: [s], files: [...], key_lines: [...], confidence: [c]}}.
+1. Round 1: list the relevant directory or grep for candidates. DO NOT commit
+   OUT yet — write only <lact> calls.
+2. Round 2-3: based on what you saw in tool results, read specific files or
+   grep with narrower patterns. Use <lvar note.X> to jot down findings you
+   want to reference later.
+3. Final round: write the synthesized answer with <lvar Field.name ...>
+   based on what you learned, then OUT{{...}}.
+
+Cite EXACT paths and line numbers — never invent them.
 """
 
 
@@ -218,7 +219,7 @@ async def run_task(task_id: int, question: str) -> None:
             instruction=question,
             actions=True,
             lndl=True,
-            lndl_retries=2,
+            lndl_rounds=4,
             response_format=ExploreFindings,
         )
         elapsed = time.time() - t0

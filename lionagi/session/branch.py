@@ -810,6 +810,7 @@ class Branch(Element, Relational):
         middle: "Middle | None" = None,
         lndl: bool = None,
         lndl_retries: int = 0,
+        lndl_rounds: int = 1,
         **kwargs,
     ) -> list | BaseModel | None | dict | str:
         """

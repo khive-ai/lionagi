@@ -26,6 +26,34 @@ from typing import Any, Union, get_args, get_origin
 from .ast import Lact, Lvar, Program, RLvar
 from .types import ActionCall
 
+NOTE_NAMESPACE = "note"
+
+
+def _is_note_ref(ref: str) -> bool:
+    """An OUT{} ref like 'note.draft' addresses the cross-round scratchpad."""
+    return ref.startswith(f"{NOTE_NAMESPACE}.") and len(ref) > len(NOTE_NAMESPACE) + 1
+
+
+def _note_key(ref: str) -> str:
+    """Strip the 'note.' prefix from a ref like 'note.draft' → 'draft'."""
+    return ref[len(NOTE_NAMESPACE) + 1 :]
+
+
+def collect_notes(program: Program) -> dict[str, Any]:
+    """Pull every <lvar note.X alias>...</lvar> out of a parsed program.
+
+    Returns a dict keyed by the note name (without the 'note.' prefix). Used
+    by the multi-round operate loop to populate the scratchpad each round —
+    note values written this round become referenceable in later rounds.
+    """
+    notes: dict[str, Any] = {}
+    for lv in program.lvars:
+        if isinstance(lv, Lvar) and lv.model and lv.model.lower() == NOTE_NAMESPACE:
+            field = getattr(lv, "field", None)
+            if field:
+                notes[field] = lv.content
+    return notes
+
 
 def _is_model_cls(t: Any) -> bool:
     return isinstance(t, type) and hasattr(t, "model_fields")
@@ -54,10 +82,11 @@ def _coerce_str_to_list(s: str) -> list[Any]:
             return parsed
     except Exception:
         pass
-    # Strip outer brackets, split on commas
+    # Strip outer brackets, split on commas (or semicolons if no commas)
     if s.startswith("[") and s.endswith("]"):
         s = s[1:-1]
-    items = [p.strip().strip('"').strip("'") for p in s.split(",") if p.strip()]
+    sep = "," if "," in s else (";" if ";" in s else ",")
+    items = [p.strip().strip('"').strip("'") for p in s.split(sep) if p.strip()]
     return items
 
 
@@ -119,13 +148,22 @@ def _alias_value(
     lvars_by_alias: dict[str, Lvar | RLvar],
     lacts_by_alias: dict[str, Lact],
     action_results: dict[str, Any] | None,
+    scratchpad: dict[str, Any] | None = None,
 ) -> tuple[bool, Any]:
     """Return (found, value) for an alias.
 
     For a lact alias:
     - if action_results has its result → return the result
     - else return the ActionCall placeholder (caller will execute later)
+
+    For an OUT-side ``note.X`` ref: pull the value from ``scratchpad``.
     """
+    if _is_note_ref(alias):
+        if scratchpad is not None:
+            key = _note_key(alias)
+            if key in scratchpad:
+                return True, scratchpad[key]
+        return False, None
     if alias in lacts_by_alias:
         if action_results and alias in action_results:
             return True, action_results[alias]
@@ -155,6 +193,7 @@ def assemble_spec_value(
     lvars_by_alias: dict[str, Lvar | RLvar],
     lacts_by_alias: dict[str, Lact],
     action_results: dict[str, Any] | None = None,
+    scratchpad: dict[str, Any] | None = None,
 ) -> Any:
     """Resolve OUT{}-listed aliases into a value matching ``target_type``."""
     parts: list[tuple[str | None, Any]] = []
@@ -163,7 +202,9 @@ def assemble_spec_value(
         # or scalar literals that slipped through (e.g. a malformed OUT block).
         if not isinstance(alias, str):
             continue
-        found, value = _alias_value(alias, lvars_by_alias, lacts_by_alias, action_results)
+        found, value = _alias_value(
+            alias, lvars_by_alias, lacts_by_alias, action_results, scratchpad
+        )
         if not found:
             continue
         node = lacts_by_alias.get(alias) or lvars_by_alias.get(alias)
@@ -248,6 +289,7 @@ def _assemble_grouped_list(
     lvars_by_alias: dict[str, Lvar | RLvar],
     lacts_by_alias: dict[str, Lact],
     action_results: dict[str, Any] | None,
+    scratchpad: dict[str, Any] | None = None,
 ) -> list[Any]:
     """Assemble explicit nested groups: ``[[n1, s1], [n2, s2]]`` → 2 items.
 
@@ -266,6 +308,7 @@ def _assemble_grouped_list(
                 lvars_by_alias,
                 lacts_by_alias,
                 action_results,
+                scratchpad,
             )
         )
     return items
@@ -275,6 +318,7 @@ def assemble(
     program: Program,
     target: Any,
     action_results: dict[str, Any] | None = None,
+    scratchpad: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a dict from a parsed LNDL program suitable for ``target.model_validate``.
 
@@ -290,6 +334,12 @@ def assemble(
     lvars_by_alias = {lv.alias: lv for lv in program.lvars}
     lacts_by_alias = {la.alias: la for la in program.lacts}
     model_fields = getattr(target, "model_fields", None)
+
+    # Merge in any new note.X declarations from this round so their values
+    # are immediately available to OUT{} resolution.
+    scratchpad = dict(scratchpad) if scratchpad else {}
+    for k, v in collect_notes(program).items():
+        scratchpad[k] = v
 
     out: dict[str, Any] = {}
     for spec_name, refs in program.out_block.fields.items():
@@ -313,6 +363,7 @@ def assemble(
                     lvars_by_alias,
                     lacts_by_alias,
                     action_results,
+                    scratchpad,
                 )
                 continue
 
@@ -322,8 +373,15 @@ def assemble(
                 lvars_by_alias,
                 lacts_by_alias,
                 action_results,
+                scratchpad,
             )
         else:
+            # Bare scalar literal in OUT — but if it's a note.X ref, resolve.
+            if isinstance(refs, str) and _is_note_ref(refs):
+                key = _note_key(refs)
+                if key in scratchpad:
+                    out[spec_name] = scratchpad[key]
+                    continue
             out[spec_name] = refs
     return out
 
@@ -363,8 +421,10 @@ def replace_actions(value: Any, results_by_name: dict[str, Any]) -> Any:
 
 
 __all__ = (
+    "NOTE_NAMESPACE",
     "assemble",
     "assemble_spec_value",
     "collect_actions",
+    "collect_notes",
     "replace_actions",
 )

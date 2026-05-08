@@ -69,6 +69,85 @@ async def _request_lndl_fix(branch: "Branch", original: str, error: str) -> str 
         return None
 
 
+def _build_lndl_continuation(
+    round_num: int,
+    max_rounds: int,
+    last_error: str | None = None,
+) -> str:
+    """Build the user-side continuation message that drives the NEXT round.
+
+    ``round_num`` is the index of the round that just completed. The
+    continuation header tells the model which round it is about to run
+    (1-indexed) and how many remain. Tool results from prior rounds already
+    live in chat history, so we don't echo them.
+    """
+    next_round = round_num + 2  # 1-indexed, next round about to be driven
+    remaining = max_rounds - next_round
+    parts = [f"Round {next_round} of {max_rounds} ({remaining} remaining)."]
+    if last_error:
+        parts.append(f"Previous round failed: {last_error}")
+    if remaining <= 0:
+        parts.append(
+            "FINAL ROUND. You MUST produce a complete OUT{} block this round. "
+            "Use everything you've learned from prior tool results. Do not "
+            "issue more tool calls — synthesize and commit now."
+        )
+    elif remaining == 1:
+        parts.append(
+            "Running low on rounds. Synthesize what you have and produce OUT{}."
+        )
+    elif not last_error:
+        parts.append(
+            "Continue. Read any tool results above, declare more <lvar>/<lact> "
+            "as needed, and produce OUT{} when ready."
+        )
+    return "\n\n".join(parts)
+
+
+async def _execute_program_lacts(
+    branch: "Branch",
+    program,
+    action_param: "ActionParam | None",
+) -> dict[str, Any]:
+    """Execute every <lact> in the program — regardless of OUT membership.
+
+    Returns ``{alias: result_value}``. ActionRequest/ActionResponse messages
+    are appended to the branch via ``act()`` so the next round sees them.
+    """
+    if not action_param or not program.lacts:
+        return {}
+
+    from lionagi.lndl._parse_function_call import parse_function_call
+
+    from ..act.act import act
+    from ..fields import ActionRequestModel
+
+    requests: list = []
+    aliases: list[str] = []
+    for la in program.lacts:
+        try:
+            parsed = parse_function_call(la.call)
+        except Exception:
+            continue
+        requests.append(
+            ActionRequestModel(
+                function=parsed["operation"],
+                arguments=parsed["arguments"],
+            )
+        )
+        aliases.append(la.alias)
+
+    if not requests:
+        return {}
+
+    responses = await act(branch, requests, action_param)
+    responses = [r for r in (responses or []) if r is not None]
+    results: dict[str, Any] = {}
+    for alias, resp in zip(aliases, responses, strict=False):
+        results[alias] = resp.output if hasattr(resp, "output") else resp
+    return results
+
+
 async def _try_finalize_lndl_once(
     *,
     branch: "Branch",
@@ -182,7 +261,7 @@ async def _finalize_lndl(
     model_class: type[BaseModel] | None,
     lndl_retries: int = 0,
 ) -> Any:
-    """Assemble LNDL output with optional retry.
+    """Assemble LNDL output with optional retry (single-round mode).
 
     On parse/validation failure, sends the error back to the model and asks
     for a fix, up to ``lndl_retries`` extra attempts.
@@ -218,6 +297,228 @@ async def _finalize_lndl(
     return last_output
 
 
+def _schema_field_hint(target_type: Any) -> str | None:
+    """Render a one-line reminder of the schema's field names.
+
+    Used by the final-round continuation to nudge the model toward the
+    correct OUT{} structure when it has been writing only scratch.
+    """
+    cls = target_type if isinstance(target_type, type) else type(target_type) if target_type else None
+    if cls is None or not hasattr(cls, "model_fields"):
+        return None
+    skip = {"action_required", "action_requests", "action_responses"}
+    names = [n for n in cls.model_fields if n not in skip]
+    if not names:
+        return None
+    return "Schema fields to fill in OUT{}: " + ", ".join(names)
+
+
+async def _run_lndl_react(
+    *,
+    branch: "Branch",
+    result: Any,
+    chat_param: ChatParam,
+    action_param: ActionParam | None,
+    operative: Union["Operative", None],
+    model_class: type[BaseModel] | None,
+    max_rounds: int,
+) -> Any:
+    """Multi-round LNDL — ReAct flavor.
+
+    Each round:
+      1. parse the most recent assistant response
+      2. execute ALL <lact>s (regardless of OUT membership) so tool results
+         land in chat history before the next round
+      3. collect any <lvar note.X> declarations into the cross-round scratchpad
+      4. classify the round outcome — Success / Continue / Retry — and either
+         return, advance with a continuation prompt, or feed the error back
+
+    The first round consumes the assistant response that ``operate`` already
+    triggered. Subsequent rounds drive ``branch.chat`` with a continuation
+    message; tool messages from prior rounds remain visible to the model.
+    """
+    from lionagi.lndl import Continue, Failed, Retry, Success
+
+    raw = _get_raw_assistant_response(branch, result)
+    if not raw:
+        return result
+
+    scratchpad: dict[str, Any] = {}
+    last_error: str | None = None
+    last_partial: Any = result
+
+    for round_num in range(max_rounds):
+        outcome = await _run_one_lndl_round(
+            branch=branch,
+            raw=raw,
+            chat_param=chat_param,
+            action_param=action_param,
+            operative=operative,
+            model_class=model_class,
+            scratchpad=scratchpad,
+        )
+
+        if isinstance(outcome, Success):
+            return outcome.output
+        if isinstance(outcome, Failed):
+            raise outcome.error
+        if isinstance(outcome, Retry):
+            last_error = outcome.error
+        elif isinstance(outcome, Continue):
+            last_error = None
+            last_partial = result
+
+        if round_num + 1 >= max_rounds:
+            break
+
+        # Drive the next round with a continuation prompt. Tool messages from
+        # this round are already persisted by ``act()``. Both the continuation
+        # user message and the model's response must be persisted so the
+        # following round sees a coherent chat history (branch.chat alone
+        # does not persist).
+        cont = _build_lndl_continuation(round_num, max_rounds, last_error=last_error)
+        # On the final round, append the schema field reminder so the model
+        # can't drift to a malformed OUT{}.
+        is_final = (round_num + 2) >= max_rounds
+        if is_final:
+            hint = _schema_field_hint(chat_param.response_format)
+            if hint:
+                cont = cont + "\n\n" + hint
+        try:
+            ins, resp = await branch.chat(instruction=cont, return_ins_res_message=True)
+            branch.msgs.add_message(instruction=cont)
+            branch.msgs.add_message(assistant_response=resp)
+            raw = resp.response
+        except Exception as e:
+            last_error = f"chat failed: {e}"
+            break
+
+    # Exhausted without Success — return last partial (or raise via handle_validation later)
+    return last_partial
+
+
+async def _run_one_lndl_round(
+    *,
+    branch: "Branch",
+    raw: str,
+    chat_param: ChatParam,
+    action_param: ActionParam | None,
+    operative: Union["Operative", None],
+    model_class: type[BaseModel] | None,
+    scratchpad: dict[str, Any],
+):
+    """Run a single LNDL round and return a RoundOutcome.
+
+    Mutates ``scratchpad`` in-place when <lvar note.X> declarations are seen
+    so the next round can reference them.
+    """
+    from pydantic import ValidationError
+
+    from lionagi.lndl import (
+        Continue,
+        Failed,
+        Lexer,
+        Parser,
+        Retry,
+        Success,
+        assemble,
+        collect_actions,
+        collect_notes,
+        normalize_lndl_text,
+        replace_actions,
+    )
+
+    _ = Continue  # variant referenced only for type-doc clarity
+
+    raw = normalize_lndl_text(raw)
+
+    try:
+        lexer = Lexer(raw)
+        tokens = lexer.tokenize()
+        parser = Parser(tokens, source_text=raw)
+        program = parser.parse()
+    except Exception as e:
+        return Retry(error=f"LNDL syntax error: {e}")
+
+    # Promote note.X lvars into scratchpad — visible to this round's OUT and
+    # any later round's continuation.
+    for k, v in collect_notes(program).items():
+        scratchpad[k] = v
+
+    # Eagerly execute every lact this round. Tool messages persist on the
+    # branch so the next round's chat sees them.
+    action_results = await _execute_program_lacts(branch, program, action_param)
+
+    if not program.out_block:
+        # No commit yet — model is still thinking. Continue.
+        return Continue()
+
+    target_type = chat_param.response_format
+    output = assemble(program, target_type, action_results=action_results, scratchpad=scratchpad)
+    if not output:
+        return Retry(error="OUT{} is empty after parsing.")
+
+    # Required-field check — only fail if a required spec is missing.
+    target_cls = (
+        target_type
+        if isinstance(target_type, type)
+        else type(target_type)
+        if target_type
+        else None
+    )
+    if target_cls is not None and hasattr(target_cls, "model_fields"):
+        skip_action = {"action_required", "action_requests", "action_responses"}
+        missing = []
+        for fname, finfo in target_cls.model_fields.items():
+            if fname in skip_action:
+                continue
+            if not finfo.is_required():
+                continue
+            if fname not in output:
+                missing.append(fname)
+        if missing:
+            return Retry(
+                error=(
+                    f"OUT{{}} missing required field(s): {', '.join(missing)}. "
+                    f"Every required spec must appear in OUT{{}}."
+                )
+            )
+
+    # Any leftover ActionCall placeholders from `assemble` belong to lacts
+    # that didn't execute (parse error etc). Substitute with the executed
+    # results we already have on hand.
+    if action_results:
+        output = replace_actions(output, action_results)
+
+    # Surface any unresolved placeholders (lacts that failed parsing).
+    leftover = collect_actions(output)
+    if leftover:
+        return Retry(
+            error=(
+                "Some <lact> calls did not execute: "
+                f"{[a.name for a in leftover]}. Check that arguments are literal "
+                f"values and the function name matches a registered tool."
+            )
+        )
+
+    if operative is not None and operative.base_type is not None:
+        try:
+            return Success(operative.response_type.model_validate(output))
+        except ValidationError as ve:
+            return Retry(error=f"Validation against {operative.base_type.__name__} failed: {ve}")
+        except Exception as e:
+            return Failed(e)
+    if model_class is not None:
+        try:
+            return Success(model_class.model_validate(output))
+        except ValidationError as ve:
+            return Retry(error=f"Validation against {model_class.__name__} failed: {ve}")
+        except Exception as e:
+            return Failed(e)
+
+    return Success(output)
+
+
 def prepare_operate_kw(
     branch: "Branch",
     *,
@@ -242,6 +543,7 @@ def prepare_operate_kw(
     response_format: type[BaseModel] = None,
     lndl: bool = False,
     lndl_retries: int = 0,
+    lndl_rounds: int = 1,
     actions: bool = False,
     reason: bool = False,
     call_params: AlcallParams = None,
@@ -407,6 +709,9 @@ def prepare_operate_kw(
             verbose_action=verbose_action,
         )
 
+    if lndl:
+        _ensure_lndl_system_prompt(branch)
+
     return {
         "instruction": instruct.instruction,
         "chat_param": chat_param,
@@ -419,7 +724,38 @@ def prepare_operate_kw(
         "operative": operative,
         "middle": middle,
         "lndl_retries": lndl_retries if lndl else 0,
+        "lndl_rounds": max(1, lndl_rounds) if lndl else 1,
     }
+
+
+def _ensure_lndl_system_prompt(branch: "Branch") -> None:
+    """Idempotently ensure the LNDL syntax block is in the branch system message.
+
+    Searches the existing system message for the LNDL marker; if absent,
+    appends the prompt. This way every ``operate(lndl=True)`` call sees the
+    syntax rules without bloating each user-side instruction.
+    """
+    from lionagi.lndl.prompt import LNDL_SYSTEM_PROMPT
+
+    marker = "LNDL — Structured Output with Natural Thinking"
+    existing_system = branch.msgs.system
+    existing_text: str = ""
+    if existing_system is not None:
+        try:
+            existing_text = existing_system.content.system_message or ""
+        except Exception:
+            existing_text = ""
+
+    if marker in existing_text:
+        return  # already injected — nothing to do
+
+    if not existing_text.strip():
+        new_text = LNDL_SYSTEM_PROMPT.strip()
+    else:
+        new_text = existing_text.rstrip() + "\n\n" + LNDL_SYSTEM_PROMPT.strip()
+
+    new_system = branch.msgs.create_system(system=new_text)
+    branch.msgs.set_system(new_system)
 
 
 async def operate(
@@ -437,6 +773,7 @@ async def operate(
     operative: Union["Operative", None] = None,
     middle: Middle | None = None,
     lndl_retries: int = 0,
+    lndl_rounds: int = 1,
 ) -> BaseModel | dict | str | None:
     """Execute operation with optional action handling.
 
@@ -567,6 +904,16 @@ async def operate(
     # LNDL path: re-parse raw assistant response, assemble via lndl.assembler,
     # execute any ActionCall placeholders, validate into operative response.
     if _is_lndl:
+        if lndl_rounds and lndl_rounds > 1:
+            return await _run_lndl_react(
+                branch=branch,
+                result=result,
+                chat_param=chat_param,
+                action_param=action_param,
+                operative=operative,
+                model_class=model_class,
+                max_rounds=lndl_rounds,
+            )
         return await _finalize_lndl(
             branch=branch,
             result=result,
