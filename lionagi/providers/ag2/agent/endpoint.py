@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from copy import deepcopy
 from typing import Any
 
 from pydantic import BaseModel
@@ -35,31 +36,109 @@ class AG2BetaEndpoint(AgenticEndpoint):
     DEFAULT_CONCURRENCY_LIMIT = 1
     DEFAULT_QUEUE_CAPACITY = 3
 
+    transport_arg_keys = ("agent_config", "llm_config", "tool_registry")
+
+    # Keys consumed by this endpoint — must not leak into EndpointConfig.kwargs
+    _AG2_KEYS = frozenset({"agent_config", "llm_config", "tool_registry"})
+
     def __init__(self, config: EndpointConfig | None = None, **kwargs):
+        # Pop AG2-specific kwargs before they reach EndpointConfig
+        ag2_kw = {k: kwargs.pop(k) for k in list(kwargs) if k in self._AG2_KEYS}
         super().__init__(config=config, **kwargs)
-        self._agent_config: dict[str, Any] = kwargs.get("agent_config", {})
-        self._llm_config: Any = kwargs.get("llm_config", None)
-        self._tool_registry: dict[str, Any] = kwargs.get("tool_registry", {})
+        config_ag2_kw = {
+            k: self.config.kwargs.pop(k)
+            for k in list(self.config.kwargs)
+            if k in self._AG2_KEYS
+        }
+        ag2_kw = {**config_ag2_kw, **ag2_kw}
+        self._agent_config: dict[str, Any] = ag2_kw.get("agent_config", {})
+        self._llm_config: Any = ag2_kw.get("llm_config", None)
+        self._tool_registry: dict[str, Any] = ag2_kw.get("tool_registry", {})
+
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, AG2BetaEndpoint):
+            other._agent_config = _copy_runtime_value(self._agent_config)
+            other._llm_config = _copy_runtime_value(self._llm_config)
+            other._tool_registry = _copy_runtime_value(self._tool_registry)
 
     async def _call(self, payload, headers, **kwargs):
-        raise NotImplementedError(
-            "AG2 beta Agent is stream-only. Use stream() to iterate events."
-        )
+        """Collect all stream events and return a structured result dict.
+
+        Accumulates every StreamChunk from stream() into a rich result dict
+        mirroring the claude_code / codex pattern:
+          {
+            "result":       str  — final text from the agent response,
+            "transcript":   list — ordered list of all events,
+            "tool_calls":   list — tool_use entries (name + args),
+            "tool_results": list — tool_result entries (output),
+          }
+        """
+        transcript: list[dict] = []
+        text_parts: list[str] = []
+        tool_calls: list[dict] = []
+        tool_results: list[dict] = []
+
+        async for chunk in self.stream(payload, **kwargs):
+            agent = (chunk.metadata or {}).get("agent", "unknown")
+
+            if chunk.type == "text":
+                if chunk.content:
+                    text_parts.append(chunk.content)
+                entry: dict = {"type": "text", "agent": agent}
+                if chunk.content:
+                    entry["content"] = chunk.content
+                typed_result = (chunk.metadata or {}).get("typed_result")
+                if typed_result is not None:
+                    entry["typed_result"] = typed_result
+                transcript.append(entry)
+
+            elif chunk.type == "tool_use":
+                entry = {
+                    "type": "tool_use",
+                    "agent": agent,
+                    "name": chunk.tool_name,
+                    "id": chunk.tool_id,
+                    "args": chunk.tool_input,
+                }
+                tool_calls.append(entry)
+                transcript.append(entry)
+
+            elif chunk.type == "tool_result":
+                entry = {
+                    "type": "tool_result",
+                    "agent": agent,
+                    "output": chunk.tool_output,
+                    "tool_name": (chunk.metadata or {}).get("tool_name"),
+                }
+                tool_results.append(entry)
+                transcript.append(entry)
+
+            elif chunk.type == "system":
+                entry = {"type": "system"}
+                if chunk.content:
+                    entry["content"] = chunk.content
+                meta = chunk.metadata or {}
+                if meta:
+                    entry["metadata"] = meta
+                transcript.append(entry)
+
+            # "result" chunk is the terminal sentinel — skip it; we build our own
+
+        return {
+            "result": "\n".join(text_parts),
+            "transcript": transcript,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+        }
 
     def create_payload(self, request: dict | BaseModel, **kwargs):
         from .models import AG2AgentRequest
 
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages", [])
-        prompt = req_dict.pop("prompt", "")
-        agent_config = req_dict.pop("agent_config", None)
-        return {
-            "request": AG2AgentRequest(
-                messages=messages,
-                prompt=prompt,
-                agent_config=agent_config,
-            )
-        }, {}
+        req_dict = {
+            k: v for k, v in req_dict.items() if k in AG2AgentRequest.model_fields
+        }
+        return {"request": AG2AgentRequest.model_validate(req_dict)}, {}
 
     async def stream(
         self, request: dict | BaseModel, **kwargs
@@ -71,6 +150,8 @@ class AG2BetaEndpoint(AgenticEndpoint):
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
+        if isinstance(request_obj, dict):
+            request_obj = AG2AgentRequest.model_validate(request_obj)
 
         prompt = request_obj.prompt or (
             request_obj.messages[-1]["content"] if request_obj.messages else ""
@@ -161,8 +242,15 @@ def _resolve_model_config(llm_config: Any) -> Any:
     if not isinstance(llm_config, dict):
         return llm_config
 
-    api_type = llm_config.get("api_type", "openai")
-    model = llm_config.get("model", "gpt-4o-mini")
+    api_type = llm_config.get("api_type")
+    model = llm_config.get("model")
+    if not api_type:
+        raise ValueError(
+            "AG2BetaEndpoint llm_config dict requires explicit 'api_type'."
+        )
+    if not model:
+        raise ValueError("AG2BetaEndpoint llm_config dict requires explicit 'model'.")
+
     api_key = llm_config.get("api_key")
     temperature = llm_config.get("temperature")
 
@@ -196,3 +284,10 @@ def _resolve_model_config(llm_config: Any) -> Any:
         return OllamaConfig(**kwargs)
 
     raise ValueError(f"Unknown api_type: {api_type}")
+
+
+def _copy_runtime_value(value):
+    try:
+        return deepcopy(value)
+    except Exception:
+        return value

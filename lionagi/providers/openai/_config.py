@@ -21,7 +21,7 @@ class OpenAIConfigs(ProviderConfig, Enum):
         "responses",
         ["response"],
         EndpointType.API,
-        None,
+        LazyType("lionagi.providers.openai.response.models:OpenAIResponsesRequest"),
         "https://api.openai.com/v1",
         "bearer",
     )
@@ -29,7 +29,7 @@ class OpenAIConfigs(ProviderConfig, Enum):
         "embeddings",
         ["embed"],
         EndpointType.API,
-        None,
+        LazyType("lionagi.providers.openai.embed.models:OpenAIEmbeddingRequest"),
         "https://api.openai.com/v1",
         "bearer",
     )

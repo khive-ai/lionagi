@@ -49,27 +49,52 @@ def _validate_handlers(handlers: dict[str, Callable | None], /) -> None:
 
 @CodexConfigs.CLI.register
 class CodexCLIEndpoint(AgenticEndpoint):
+    transport_arg_keys = _CODEX_HANDLER_PARAMS
+
     def __init__(self, config: EndpointConfig = None, **kwargs):
+        handlers = kwargs.pop("codex_handlers", None)
         super().__init__(config=config, **kwargs)
+        config_handlers = self.config.kwargs.pop("codex_handlers", None)
+        self._codex_handlers = {k: None for k in _CODEX_HANDLER_PARAMS}
+        if config_handlers is not None:
+            _validate_handlers(config_handlers)
+            self._codex_handlers.update(config_handlers)
+        if handlers is not None:
+            _validate_handlers(handlers)
+            self._codex_handlers.update(handlers)
 
     @property
     def codex_handlers(self):
-        handlers = {k: None for k in _CODEX_HANDLER_PARAMS}
-        return self.config.kwargs.get("codex_handlers", handlers)
+        return self._codex_handlers
 
     @codex_handlers.setter
     def codex_handlers(self, value: dict):
         _validate_handlers(value)
-        self.config.kwargs["codex_handlers"] = value
+        self._codex_handlers = {k: None for k in _CODEX_HANDLER_PARAMS}
+        self._codex_handlers.update(value)
 
     def update_handlers(self, **kwargs):
         _validate_handlers(kwargs)
         handlers = {**self.codex_handlers, **kwargs}
         self.codex_handlers = handlers
 
+    def copy_runtime_state_to(self, other):
+        if isinstance(other, CodexCLIEndpoint):
+            other.codex_handlers = self.codex_handlers.copy()
+
+    def _runtime_handlers(self, kwargs: dict) -> dict:
+        handlers = self.codex_handlers.copy()
+        call_handlers = {
+            k: kwargs.pop(k) for k in list(kwargs) if k in _CODEX_HANDLER_PARAMS
+        }
+        if call_handlers:
+            _validate_handlers(call_handlers)
+            handlers.update(call_handlers)
+        return {k: v for k, v in handlers.items() if v is not None}
+
     def create_payload(self, request: dict | BaseModel, **kwargs):
         req_dict = {**self.config.kwargs, **to_dict(request), **kwargs}
-        messages = req_dict.pop("messages")
+        messages = req_dict.pop("messages", [])
         req_dict = {
             k: v for k, v in req_dict.items() if k in CodexCodeRequest.model_fields
         }
@@ -79,12 +104,15 @@ class CodexCLIEndpoint(AgenticEndpoint):
     async def stream(
         self, request: dict | BaseModel, **kwargs
     ) -> AsyncIterator[StreamChunk]:
+        handlers = self._runtime_handlers(kwargs)
         if isinstance(request, dict) and "request" in request:
             request_obj = request["request"]
         else:
             payload, _ = self.create_payload(request, **kwargs)
             request_obj = payload["request"]
-        async with contextlib.aclosing(stream_codex_cli(request_obj)) as gen:
+        async with contextlib.aclosing(
+            stream_codex_cli(request_obj, **handlers)
+        ) as gen:
             async for item in gen:
                 if isinstance(item, CodexSession):
                     continue
@@ -137,9 +165,10 @@ class CodexCLIEndpoint(AgenticEndpoint):
         responses = []
         request: CodexCodeRequest = payload["request"]
         session: CodexSession = CodexSession()
+        handlers = self._runtime_handlers(kwargs)
 
         async with contextlib.aclosing(
-            stream_codex_cli(request, session, **self.codex_handlers, **kwargs)
+            stream_codex_cli(request, session, **handlers)
         ) as gen:
             async for chunk in gen:
                 if isinstance(chunk, dict):

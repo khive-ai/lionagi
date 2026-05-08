@@ -3,7 +3,7 @@
 
 from enum import Enum
 
-from lionagi.service.connections.provider_config import ProviderConfig
+from lionagi.service.connections.provider_config import LazyType, ProviderConfig
 from lionagi.service.connections.registry import EndpointType
 
 
@@ -13,7 +13,7 @@ class NvidiaNimConfigs(ProviderConfig, Enum):
         "chat/completions",
         ["chat"],
         EndpointType.API,
-        None,
+        LazyType("lionagi.providers.openai.chat.models:OpenAIChatCompletionsRequest"),
         "https://integrate.api.nvidia.com/v1",
         "bearer",
     )
@@ -21,7 +21,7 @@ class NvidiaNimConfigs(ProviderConfig, Enum):
         "embeddings",
         ["embed"],
         EndpointType.API,
-        None,
+        LazyType("lionagi.providers.nvidia_nim.embed.models:NvidiaNimEmbeddingRequest"),
         "https://integrate.api.nvidia.com/v1",
         "bearer",
     )

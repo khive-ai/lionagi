@@ -36,6 +36,12 @@ class APICalling(HookedEvent):
         exclude=True,
     )
 
+    call_kwargs: dict = Field(
+        default_factory=dict,
+        description="Transport/runtime kwargs to pass to the endpoint call",
+        exclude=True,
+    )
+
     cache_control: bool = Field(
         default=False,
         description="Whether to use cache control for this request",
@@ -63,7 +69,7 @@ class APICalling(HookedEvent):
                 required_tokens = self.required_tokens
                 content = self.payload["messages"][-1]["content"]
                 # Model token limit mapping
-                TOKEN_LIMITS = {
+                token_limits = {
                     # OpenAI models
                     "gpt-4": 128_000,
                     "o1": 200_000,
@@ -83,7 +89,7 @@ class APICalling(HookedEvent):
                 # Find matching token limit
                 if "model" in self.payload:
                     model = self.payload["model"]
-                    for model_prefix, limit in TOKEN_LIMITS.items():
+                    for model_prefix, limit in token_limits.items():
                         if model_prefix in model.lower():
                             token_msg += f"/{limit:,}"
                             break
@@ -147,12 +153,14 @@ class APICalling(HookedEvent):
             cache_control=self.cache_control,
             skip_payload_creation=True,
             extra_headers=self.headers if self.headers else None,
+            **self.call_kwargs,
         )
 
     async def _core_stream(self):
         async for i in self.endpoint.stream(
             request=self.payload,
             extra_headers=self.headers if self.headers else None,
+            **self.call_kwargs,
         ):
             yield i
 

@@ -57,7 +57,7 @@ class SandboxManager:
 
     api_key: str | None = None
     target: str = "us"
-    model: str = "gpt-5.4-mini"
+    model: str | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
     _sandboxes: list[SandboxAgent] = field(default_factory=list)
     _daytona: Any = None
@@ -87,6 +87,13 @@ class SandboxManager:
 
         Returns a SandboxAgent with the URL ready for nlip_url.
         """
+        model_name = model or self.model
+        if not model_name:
+            raise ValueError(
+                "SandboxManager requires an explicit model. Pass model=... to "
+                "SandboxManager or create_agent_sandbox()."
+            )
+
         from daytona import CreateSandboxFromImageParams, Image, Resources
 
         daytona = self._get_daytona()
@@ -114,7 +121,7 @@ class SandboxManager:
         script = NLIP_SERVER_SCRIPT.format(
             name=name.replace('"', '\\"'),
             system_message=system_message.replace('"""', '\\"""'),
-            model=model or self.model,
+            model=model_name,
         )
 
         sandbox.process.code_run(script)

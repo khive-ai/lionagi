@@ -22,7 +22,7 @@ from .hooks import (
 from .rate_limited_processor import RateLimitedAPIExecutor
 
 
-class iModel:
+class iModel:  # noqa: N801
     """Manages API calls for a specific provider with optional rate-limiting.
 
     The iModel class encapsulates a specific endpoint configuration (e.g.,
@@ -55,7 +55,7 @@ class iModel:
         provider_metadata: dict | None = None,
         hook_registry: HookRegistry | dict | None = None,
         exit_hook: bool = False,
-        id: UUID | str = None,
+        id: UUID | str = None,  # noqa: A002
         created_at: float | None = None,
         **kwargs,
     ) -> None:
@@ -261,6 +261,11 @@ class iModel:
         ):
             kwargs["resume"] = self.endpoint.session_id
 
+        transport_arg_keys = getattr(self.endpoint, "transport_arg_keys", ())
+        call_kwargs = {
+            k: kwargs.pop(k) for k in list(kwargs) if k in transport_arg_keys
+        }
+
         # The new Endpoint.create_payload returns (payload, headers)
         payload, headers = self.endpoint.create_payload(request=kwargs)
 
@@ -271,6 +276,7 @@ class iModel:
             payload=payload,
             headers=headers,
             endpoint=self.endpoint,
+            call_kwargs=call_kwargs,
             cache_control=cache_control,
             include_token_usage_to_model=include_token_usage_to_model,
         )
@@ -469,6 +475,7 @@ class iModel:
             circuit_breaker=self.endpoint.circuit_breaker,
             retry_config=self.endpoint.retry_config,
         )
+        self.endpoint.copy_runtime_state_to(new_endpoint)
         if (
             share_session
             and isinstance(new_endpoint, CLIEndpoint)

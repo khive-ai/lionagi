@@ -17,7 +17,6 @@ from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
 from .._config import OpenAIConfigs
-from .models import AudioSpeechRequest, AudioTranscriptionRequest
 
 __all__ = ("OpenaiAudioSpeechEndpoint", "OpenaiAudioTranscriptionEndpoint")
 
@@ -94,6 +93,8 @@ class OpenaiAudioTranscriptionEndpoint(Endpoint):
                 filename="audio.mp3",
             )
     """
+
+    transport_arg_keys = ("file", "filename")
 
     def __init__(self, config: EndpointConfig = None, **kwargs):
         if config is None:
