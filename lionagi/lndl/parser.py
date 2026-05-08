@@ -67,7 +67,9 @@ class ParseError(Exception):
     def __init__(self, message: str, token: Token):
         self.message = message
         self.token = token
-        super().__init__(f"Parse error at line {token.line}, column {token.column}: {message}")
+        super().__init__(
+            f"Parse error at line {token.line}, column {token.column}: {message}"
+        )
 
 
 class Parser:
@@ -96,7 +98,9 @@ class Parser:
     def expect(self, token_type: TokenType) -> Token:
         token = self.current_token()
         if token.type != token_type:
-            raise ParseError(f"Expected {token_type.name}, got {token.type.name}", token)
+            raise ParseError(
+                f"Expected {token_type.name}, got {token.type.name}", token
+            )
         self.advance()
         return token
 
@@ -110,7 +114,8 @@ class Parser:
     def parse(self) -> Program:
         if self.source_text is None:
             raise ParseError(
-                "Parser requires source_text for content extraction", self.current_token()
+                "Parser requires source_text for content extraction",
+                self.current_token(),
             )
 
         lvars: list[Lvar] = []
@@ -198,7 +203,8 @@ class Parser:
 
         if not self.source_text:
             raise ParseError(
-                "Parser requires source_text for content extraction", self.current_token()
+                "Parser requires source_text for content extraction",
+                self.current_token(),
             )
 
         if is_raw:
@@ -210,21 +216,28 @@ class Parser:
             if has_explicit_alias:
                 pattern = rf"<lvar\s+{re.escape(model)}\.{re.escape(field)}\s+{re.escape(alias)}\s*>(.*?)</lvar>"
             else:
-                pattern = rf"<lvar\s+{re.escape(model)}\.{re.escape(field)}\s*>(.*?)</lvar>"
+                pattern = (
+                    rf"<lvar\s+{re.escape(model)}\.{re.escape(field)}\s*>(.*?)</lvar>"
+                )
 
         match = re.search(pattern, self.source_text, re.DOTALL)
         if not match:
             if "</lvar>" not in self.source_text:
-                raise ParseError("Unclosed lvar tag - missing </lvar>", self.current_token())
+                raise ParseError(
+                    "Unclosed lvar tag - missing </lvar>", self.current_token()
+                )
             raise ParseError(
-                f"Could not extract lvar content with pattern: {pattern}", self.current_token()
+                f"Could not extract lvar content with pattern: {pattern}",
+                self.current_token(),
             )
 
         content = match.group(1).strip()
 
         while not self.match(TokenType.LVAR_CLOSE):
             if self.match(TokenType.EOF):
-                raise ParseError("Unclosed lvar tag - missing </lvar>", self.current_token())
+                raise ParseError(
+                    "Unclosed lvar tag - missing </lvar>", self.current_token()
+                )
             self.advance()
 
         self.expect(TokenType.LVAR_CLOSE)
@@ -280,25 +293,34 @@ class Parser:
             if has_explicit_alias:
                 pattern = rf"<lact\s+{re.escape(model)}\.{re.escape(field)}\s+{re.escape(alias)}\s*>(.*?)</lact>"
             else:
-                pattern = rf"<lact\s+{re.escape(model)}\.{re.escape(field)}\s*>(.*?)</lact>"
+                pattern = (
+                    rf"<lact\s+{re.escape(model)}\.{re.escape(field)}\s*>(.*?)</lact>"
+                )
         elif extra_id:
-            pattern = rf"<lact\s+{re.escape(extra_id)}\s+{re.escape(alias)}\s*>(.*?)</lact>"
+            pattern = (
+                rf"<lact\s+{re.escape(extra_id)}\s+{re.escape(alias)}\s*>(.*?)</lact>"
+            )
         else:
             pattern = rf"<lact\s+{re.escape(alias)}\s*>(.*?)</lact>"
 
         match = re.search(pattern, self.source_text, re.DOTALL)
         if not match:
             if "</lact>" not in self.source_text:
-                raise ParseError("Unclosed lact tag - missing </lact>", self.current_token())
+                raise ParseError(
+                    "Unclosed lact tag - missing </lact>", self.current_token()
+                )
             raise ParseError(
-                f"Could not extract lact call with pattern: {pattern}", self.current_token()
+                f"Could not extract lact call with pattern: {pattern}",
+                self.current_token(),
             )
 
         call = match.group(1).strip()
 
         while not self.match(TokenType.LACT_CLOSE):
             if self.match(TokenType.EOF):
-                raise ParseError("Unclosed lact tag - missing </lact>", self.current_token())
+                raise ParseError(
+                    "Unclosed lact tag - missing </lact>", self.current_token()
+                )
             self.advance()
 
         self.expect(TokenType.LACT_CLOSE)

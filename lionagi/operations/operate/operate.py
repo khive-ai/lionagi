@@ -192,7 +192,11 @@ async def _try_finalize_lndl_once(
 
     # Required-field check: every non-optional, non-action field on the target
     # must appear in OUT{} (or be filled by execution later).
-    target_cls = target_type if isinstance(target_type, type) else type(target_type) if target_type else None
+    target_cls = (
+        target_type
+        if isinstance(target_type, type)
+        else type(target_type) if target_type else None
+    )
     if target_cls is not None and hasattr(target_cls, "model_fields"):
         skip_action = {"action_required", "action_requests", "action_responses"}
         missing = []
@@ -237,7 +241,10 @@ async def _try_finalize_lndl_once(
         try:
             return operative.response_type.model_validate(output), None
         except ValidationError as ve:
-            return output, f"Validation against {operative.base_type.__name__} failed: {ve}"
+            return (
+                output,
+                f"Validation against {operative.base_type.__name__} failed: {ve}",
+            )
         except Exception as e:
             return output, f"Validation error: {e}"
     elif model_class is not None:
@@ -303,7 +310,11 @@ def _schema_field_hint(target_type: Any) -> str | None:
     Used by the final-round continuation to nudge the model toward the
     correct OUT{} structure when it has been writing only scratch.
     """
-    cls = target_type if isinstance(target_type, type) else type(target_type) if target_type else None
+    cls = (
+        target_type
+        if isinstance(target_type, type)
+        else type(target_type) if target_type else None
+    )
     if cls is None or not hasattr(cls, "model_fields"):
         return None
     skip = {"action_required", "action_requests", "action_responses"}
@@ -454,7 +465,9 @@ async def _run_one_lndl_round(
         return Continue()
 
     target_type = chat_param.response_format
-    output = assemble(program, target_type, action_results=action_results, scratchpad=scratchpad)
+    output = assemble(
+        program, target_type, action_results=action_results, scratchpad=scratchpad
+    )
     if not output:
         return Retry(error="OUT{} is empty after parsing.")
 
@@ -462,9 +475,7 @@ async def _run_one_lndl_round(
     target_cls = (
         target_type
         if isinstance(target_type, type)
-        else type(target_type)
-        if target_type
-        else None
+        else type(target_type) if target_type else None
     )
     if target_cls is not None and hasattr(target_cls, "model_fields"):
         skip_action = {"action_required", "action_requests", "action_responses"}
@@ -505,14 +516,18 @@ async def _run_one_lndl_round(
         try:
             return Success(operative.response_type.model_validate(output))
         except ValidationError as ve:
-            return Retry(error=f"Validation against {operative.base_type.__name__} failed: {ve}")
+            return Retry(
+                error=f"Validation against {operative.base_type.__name__} failed: {ve}"
+            )
         except Exception as e:
             return Failed(e)
     if model_class is not None:
         try:
             return Success(model_class.model_validate(output))
         except ValidationError as ve:
-            return Retry(error=f"Validation against {model_class.__name__} failed: {ve}")
+            return Retry(
+                error=f"Validation against {model_class.__name__} failed: {ve}"
+            )
         except Exception as e:
             return Failed(e)
 

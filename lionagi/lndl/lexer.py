@@ -122,7 +122,9 @@ class Lexer:
                 continue
 
             if char == "\n":
-                self.tokens.append(Token(TokenType.NEWLINE, "\n", self.line, self.column))
+                self.tokens.append(
+                    Token(TokenType.NEWLINE, "\n", self.line, self.column)
+                )
                 self.advance()
                 continue
 
@@ -166,7 +168,9 @@ class Lexer:
                 continue
 
             if self.text[self.pos : self.pos + 4] == "OUT{":
-                self.tokens.append(Token(TokenType.OUT_OPEN, "OUT{", self.line, self.column))
+                self.tokens.append(
+                    Token(TokenType.OUT_OPEN, "OUT{", self.line, self.column)
+                )
                 self.pos += 4
                 self.column += 4
                 in_out_block = True
@@ -176,7 +180,9 @@ class Lexer:
                 start_line = self.line
                 start_column = self.column
                 identifier = self.read_identifier()
-                self.tokens.append(Token(TokenType.ID, identifier, start_line, start_column))
+                self.tokens.append(
+                    Token(TokenType.ID, identifier, start_line, start_column)
+                )
                 continue
 
             if char == "-" and in_out_block:
@@ -186,21 +192,27 @@ class Lexer:
                     start_column = self.column
                     self.advance()
                     number = "-" + self.read_number()
-                    self.tokens.append(Token(TokenType.NUM, number, start_line, start_column))
+                    self.tokens.append(
+                        Token(TokenType.NUM, number, start_line, start_column)
+                    )
                     continue
 
             if char.isdigit():
                 start_line = self.line
                 start_column = self.column
                 number = self.read_number()
-                self.tokens.append(Token(TokenType.NUM, number, start_line, start_column))
+                self.tokens.append(
+                    Token(TokenType.NUM, number, start_line, start_column)
+                )
                 continue
 
             if char in "\"'" and in_out_block:
                 start_line = self.line
                 start_column = self.column
                 string_val = self.read_string()
-                self.tokens.append(Token(TokenType.STR, string_val, start_line, start_column))
+                self.tokens.append(
+                    Token(TokenType.STR, string_val, start_line, start_column)
+                )
                 continue
 
             if char == ".":
@@ -210,15 +222,25 @@ class Lexer:
             elif char == ":":
                 self.tokens.append(Token(TokenType.COLON, char, self.line, self.column))
             elif char == "[":
-                self.tokens.append(Token(TokenType.LBRACKET, char, self.line, self.column))
+                self.tokens.append(
+                    Token(TokenType.LBRACKET, char, self.line, self.column)
+                )
             elif char == "]":
-                self.tokens.append(Token(TokenType.RBRACKET, char, self.line, self.column))
+                self.tokens.append(
+                    Token(TokenType.RBRACKET, char, self.line, self.column)
+                )
             elif char == "(":
-                self.tokens.append(Token(TokenType.LPAREN, char, self.line, self.column))
+                self.tokens.append(
+                    Token(TokenType.LPAREN, char, self.line, self.column)
+                )
             elif char == ")":
-                self.tokens.append(Token(TokenType.RPAREN, char, self.line, self.column))
+                self.tokens.append(
+                    Token(TokenType.RPAREN, char, self.line, self.column)
+                )
             elif char == "}":
-                self.tokens.append(Token(TokenType.OUT_CLOSE, char, self.line, self.column))
+                self.tokens.append(
+                    Token(TokenType.OUT_CLOSE, char, self.line, self.column)
+                )
                 in_out_block = False
             elif char == ">":
                 self.tokens.append(Token(TokenType.GT, char, self.line, self.column))

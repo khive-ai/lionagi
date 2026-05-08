@@ -12,6 +12,7 @@ from typing import Any, get_args, get_origin
 from pydantic import BaseModel
 
 from lionagi.libs.schema.breakdown_pydantic_annotation import _is_pydantic_model_cls
+from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.lndl import (
     Lexer,
     Parser,
@@ -21,10 +22,8 @@ from lionagi.lndl import (
     replace_actions,
 )
 from lionagi.lndl.types import ActionCall
-from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 
 from ._json_formatter import _referenced_schemas_display, _tool_schemas_display
-
 
 # ---------------------------------------------------------------------------
 # Schema-driven LNDL rendering
@@ -86,24 +85,22 @@ def _render_field_example(
                     f_ann = finfo.annotation
                     f_origin = get_origin(f_ann)
                     if f_origin is list:
-                        hint = ' (JSON array)'
+                        hint = " (JSON array)"
                     elif f_origin is dict:
-                        hint = ' (JSON object)'
+                        hint = " (JSON object)"
                     else:
                         hint = ""
                     if has_tools and i == 0:
                         lines.append(
                             f"<lvar {elem.__name__}.{fname} {a}>...{hint}</lvar>  "
-                            f"OR  <lact {elem.__name__}.{fname} {a}>tool(arg=\"val\")</lact>"
+                            f'OR  <lact {elem.__name__}.{fname} {a}>tool(arg="val")</lact>'
                         )
                     else:
                         lines.append(
                             f"<lvar {elem.__name__}.{fname} {a}>...{hint}</lvar>"
                         )
                 grouped.append(item_aliases)
-            groups_str = ", ".join(
-                "[" + ", ".join(g) + "]" for g in grouped
-            )
+            groups_str = ", ".join("[" + ", ".join(g) + "]" for g in grouped)
             return lines, f"{field_name}: [{groups_str}]", None
         # list[scalar]
         lines = []
@@ -143,7 +140,7 @@ def _render_field_example(
             if has_tools:
                 lines.append(
                     f"<lvar {ann.__name__}.{fname} {a}>...{hint}</lvar>  "
-                    f"OR  <lact {ann.__name__}.{fname} {a}>tool(arg=\"val\")</lact>"
+                    f'OR  <lact {ann.__name__}.{fname} {a}>tool(arg="val")</lact>'
                 )
             else:
                 lines.append(f"<lvar {ann.__name__}.{fname} {a}>...{hint}</lvar>")
@@ -154,7 +151,7 @@ def _render_field_example(
     if has_tools:
         line = (
             f"<lvar {field_name} {a}>...</lvar>  "
-            f"OR  <lact {field_name} {a}>tool(arg=\"val\")</lact>"
+            f'OR  <lact {field_name} {a}>tool(arg="val")</lact>'
         )
     else:
         line = f"<lvar {field_name} {a}>...</lvar>"
@@ -239,7 +236,7 @@ def _render_lndl_response_structure(
             "\nIMPORTANT — list[Model] fields use NESTED GROUPS in OUT{}, not a "
             "flat array of strings. Each inner array is one item, with one alias "
             "per model field in declaration order.\n"
-            f"  WRONG: {spec_name}: [\"...\", \"...\"]   (strings instead of aliases)\n"
+            f'  WRONG: {spec_name}: ["...", "..."]   (strings instead of aliases)\n'
             f"  RIGHT: {spec_name}: [[a1, a2, a3], [b1, b2, b3], ...]   "
             f"(aliases for {first_aliases})\n"
             "Apply this to EVERY list[Model] field above. Add as many groups as "
@@ -248,7 +245,7 @@ def _render_lndl_response_structure(
 
     if has_tools:
         text += (
-            "\nTool calls: <lact spec alias>tool(arg=\"val\")</lact> for top-level "
+            '\nTool calls: <lact spec alias>tool(arg="val")</lact> for top-level '
             "scalar specs, <lact Model.field alias>tool(...)</lact> for model fields. "
             "The tool's result becomes the field's value — DON'T also write a separate <lvar>.\n"
         )

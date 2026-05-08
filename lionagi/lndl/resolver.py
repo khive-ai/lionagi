@@ -6,11 +6,10 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from lionagi.ln.types import Operable
 from lionagi.ln.concurrency import ExceptionGroup
+from lionagi.ln.types import Operable
 
 from ._parse_function_call import parse_function_call
-
 from .errors import MissingFieldError, MissingOutBlockError, TypeMismatchError
 from .parser import parse_value
 from .types import ActionCall, LactMetadata, LNDLOutput, LvarMetadata, RLvarMetadata
@@ -26,7 +25,9 @@ def _is_note_ref(ref: str) -> bool:
 def _read_note(ref: str, scratchpad: Any) -> str:
     """Resolve a 'note.X' (or 'note.X.Y') ref to its scratchpad value."""
     if scratchpad is None:
-        raise ValueError(f"Scratchpad reference '{ref}' but no scratchpad available in this round")
+        raise ValueError(
+            f"Scratchpad reference '{ref}' but no scratchpad available in this round"
+        )
     keys = ref.split(".")[1:]  # drop "note"
     try:
         value = scratchpad[keys[0]] if len(keys) == 1 else scratchpad[tuple(keys)]
@@ -84,7 +85,9 @@ def resolve_references_prefixed(
     for spec in operable.get_specs():
         is_required = spec.get("required", True)
         if is_required and spec.name not in out_fields:
-            raise MissingFieldError(f"Required field '{spec.name}' missing from OUT{{}}")
+            raise MissingFieldError(
+                f"Required field '{spec.name}' missing from OUT{{}}"
+            )
 
     validated_fields = {}
     parsed_actions: dict[str, ActionCall] = {}
@@ -164,7 +167,9 @@ def resolve_references_prefixed(
                         else lvar_meta.value
                     )
                 else:
-                    parsed_value = parse_value(value) if isinstance(value, str) else value
+                    parsed_value = (
+                        parse_value(value) if isinstance(value, str) else value
+                    )
 
                 try:
                     validated_value = target_type(parsed_value)
@@ -183,7 +188,9 @@ def resolve_references_prefixed(
 
                 var_list = value
 
-                if not isinstance(target_type, type) or not issubclass(target_type, BaseModel):
+                if not isinstance(target_type, type) or not issubclass(
+                    target_type, BaseModel
+                ):
                     raise TypeError(
                         f"Spec base_type for '{field_name}' must be BaseModel or scalar, got {target_type}"
                     )
@@ -305,10 +312,14 @@ def resolve_references_prefixed(
 
                 validators = spec.get("validator")
                 if validators:
-                    validators = validators if isinstance(validators, list) else [validators]
+                    validators = (
+                        validators if isinstance(validators, list) else [validators]
+                    )
                     for validator in validators:
                         if hasattr(validator, "invoke"):
-                            instance = validator.invoke(field_name, instance, target_type)
+                            instance = validator.invoke(
+                                field_name, instance, target_type
+                            )
                         else:
                             instance = validator(instance)
 
@@ -371,5 +382,9 @@ def parse_lndl(
         raise MissingOutBlockError("No OUT{} block found in response")
 
     return resolve_references_prefixed(
-        program.out_block.fields, lvars_prefixed, lacts_prefixed, operable, scratchpad=scratchpad
+        program.out_block.fields,
+        lvars_prefixed,
+        lacts_prefixed,
+        operable,
+        scratchpad=scratchpad,
     )
