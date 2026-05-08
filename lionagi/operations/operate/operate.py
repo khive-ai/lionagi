@@ -387,6 +387,7 @@ async def _run_lndl_react(
     model_class: type[BaseModel] | None,
     max_rounds: int,
     handle_validation: HandleValidation = "return_value",
+    middle: Middle | None = None,
 ) -> Any:
     """Multi-round LNDL — ReAct flavor.
 
@@ -399,14 +400,20 @@ async def _run_lndl_react(
          return, advance with a continuation prompt, or feed the error back
 
     The first round consumes the assistant response that ``operate`` already
-    triggered. Subsequent rounds drive ``branch.chat`` with a continuation
-    message; tool messages from prior rounds remain visible to the model.
+    triggered. Subsequent rounds dispatch through ``middle`` (the same
+    communicate/run_and_collect selected by the outer operate call) so CLI
+    and streaming paths are honoured.
     """
     from lionagi.lndl import Continue, Failed, Retry, Success
 
     raw = _get_raw_assistant_response(branch, result)
     if not raw:
         return result
+
+    if middle is None:
+        from ..communicate.communicate import communicate
+
+        middle = communicate
 
     scratchpad: dict[str, Any] = {}
     last_error: str | None = None
@@ -436,56 +443,34 @@ async def _run_lndl_react(
         if round_num + 1 >= max_rounds:
             break
 
-        # Drive the next round with a continuation prompt. Tool messages from
-        # this round are already persisted by ``act()``. Both the continuation
-        # user message and the model's response must be persisted so the
-        # following round sees a coherent chat history (branch.chat alone
-        # does not persist).
+        # Drive the next round through the same middle (communicate or
+        # run_and_collect) that the outer operate() used. This ensures
+        # CLI/streaming models go through the right path and that messages
+        # are persisted by the middle itself — no manual add_message needed.
         cont = _build_lndl_continuation(round_num, max_rounds, last_error=last_error)
-        # On the final round, append the schema field reminder so the model
-        # can't drift to a malformed OUT{}.
         is_final = (round_num + 2) >= max_rounds
         if is_final:
             hint = _schema_field_hint(chat_param.response_format)
             if hint:
                 cont = cont + "\n\n" + hint
         try:
-            ins, resp = await _lndl_continuation_chat(
-                branch, cont, chat_param=chat_param
+            # parse_param=None: LNDL handles its own parsing per round.
+            # skip_validation=True: we validate in _run_one_lndl_round.
+            raw = await middle(
+                branch, cont, chat_param, None, False, skip_validation=True
             )
-            branch.msgs.add_message(instruction=cont)
-            branch.msgs.add_message(assistant_response=resp)
-            raw = resp.response
+            if not isinstance(raw, str):
+                raw = str(raw) if raw is not None else ""
         except Exception as e:
             last_error = f"chat failed: {e}"
             break
 
-    # Exhausted without Success — apply handle_validation to the last
-    # partial result so callers can opt into raising/None semantics.
     return _apply_lndl_handle_validation(
         last_partial,
         last_error
         or "Multi-round LNDL exhausted without producing a valid OUT{} block.",
         handle_validation,
         target=model_class,
-    )
-
-
-async def _lndl_continuation_chat(
-    branch: "Branch", instruction: str, *, chat_param: ChatParam
-):
-    """Drive the next LNDL round using the same imodel/kwargs as the original call.
-
-    ``branch.chat`` would otherwise default to ``branch.chat_model`` and drop
-    any custom imodel / model_kwargs / tool_schemas the operate caller passed
-    in. We forward ``chat_param.imodel`` and ``imodel_kw`` so multi-round
-    continuations stay model-coherent.
-    """
-    return await branch.chat(
-        instruction=instruction,
-        chat_model=chat_param.imodel,
-        return_ins_res_message=True,
-        **(chat_param.imodel_kw or {}),
     )
 
 
@@ -805,7 +790,7 @@ def prepare_operate_kw(
             verbose_action=verbose_action,
         )
 
-    lndl_prior_system = _ensure_lndl_system_prompt(branch) if lndl else None
+    lndl_prior_system = _ensure_lndl_system_prompt(branch) if lndl else _NO_RESTORE
 
     return {
         "instruction": instruct.instruction,
@@ -1075,33 +1060,37 @@ async def _operate_inner(
                     f"(e.g. response_format / function-calling) for this provider."
                 )
 
-    if not invoke_actions:
-        return result
-
-    # LNDL path: re-parse raw assistant response, assemble via lndl.assembler,
-    # execute any ActionCall placeholders, validate into operative response.
+    # LNDL path: always parse+assemble the raw LNDL output, even when
+    # invoke_actions=False. LNDL parsing is how we produce the structured
+    # result — skipping it returns raw text. When invoke_actions=False,
+    # pass action_param=None so <lact> placeholders remain unexecuted.
     if _is_lndl:
+        _act = action_param if invoke_actions else None
         if lndl_rounds and lndl_rounds > 1:
             return await _run_lndl_react(
                 branch=branch,
                 result=result,
                 chat_param=chat_param,
-                action_param=action_param,
+                action_param=_act,
                 operative=operative,
                 model_class=model_class,
                 max_rounds=lndl_rounds,
                 handle_validation=handle_validation,
+                middle=middle,
             )
         return await _finalize_lndl(
             branch=branch,
             result=result,
             chat_param=chat_param,
-            action_param=action_param,
+            action_param=_act,
             operative=operative,
             model_class=model_class,
             lndl_retries=lndl_retries,
             handle_validation=handle_validation,
         )
+
+    if not invoke_actions:
+        return result
 
     # JSON path: look for action_requests on the parsed result
     if model_class:
