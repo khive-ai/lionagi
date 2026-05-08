@@ -13,7 +13,6 @@ import subprocess
 import threading
 from collections.abc import Callable
 from enum import Enum
-from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,47 +33,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _DENIED_NAMES: frozenset[str] = frozenset(
-    {
-        ".env",
-        ".env.local",
-        ".env.production",
-        ".netrc",
-        ".htpasswd",
-        "id_rsa",
-        "id_ed25519",
-        "id_ecdsa",
-        ".git-credentials",
-    }
-)
-
-# Glob patterns for sensitive files anywhere in the workspace tree. Distinct
-# from ``_DENIED_NAMES`` (basename match) — these match relative-path globs.
-_DENIED_GLOBS: tuple[str, ...] = (
-    ".ssh/*",
-    ".aws/*",
-    ".config/**/credentials*",
-    ".git/config",
-    "*.pem",
-    "*.key",
-    "*.p12",
-    "*.pfx",
-    "secrets.*",
-)
-
-# Default vendor / build directories to skip in recursive grep / find.
-_DEFAULT_EXCLUDE_DIRS: tuple[str, ...] = (
-    ".git",
-    "node_modules",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".next",
-    "target",
-    "dist",
-    "build",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
+    {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
 )
 
 
@@ -92,11 +51,6 @@ def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
         raise PermissionError(f"Path escapes workspace root: {path!r}") from e
     if resolved.name in _DENIED_NAMES:
         raise PermissionError(f"Refusing to access protected path: {resolved.name!r}")
-    for pattern in _DENIED_GLOBS:
-        if resolved.match(pattern):
-            raise PermissionError(
-                f"Refusing to access path matching {pattern!r}: {path!r}"
-            )
     return resolved
 
 
@@ -368,14 +322,13 @@ def _read_file_sync(
     except OSError as e:
         return {"success": False, "error": str(e)}
 
-    # Bounded read via islice — never loads the full file into memory.
-    selected: list[str] = []
     try:
         with open(p, encoding="utf-8", errors="replace") as f:
-            selected = list(islice(f, offset, offset + max_lines))
+            lines = f.readlines()
     except OSError as e:
         return {"success": False, "error": str(e)}
 
+    selected = lines[offset : offset + max_lines]
     numbered = "".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(selected))
 
     try:
@@ -628,21 +581,6 @@ class CodingToolkit(LionTool):
     is_lion_system_tool = True
     system_tool_name = "coding_toolkit"
 
-    #: Subset of tool names that perform no file or process mutation. Use with
-    #: ``bind(..., include=CodingToolkit.READ_ONLY)`` for exploration agents.
-    READ_ONLY: tuple[str, ...] = ("reader", "search", "context")
-
-    #: All tool names this toolkit exposes, in their bind order.
-    ALL_TOOLS: tuple[str, ...] = (
-        "reader",
-        "editor",
-        "bash",
-        "search",
-        "context",
-        "sandbox",
-        "subagent",
-    )
-
     def security_pre(self, tool_name: str, handler: Callable) -> CodingToolkit:
         """Finding 13: register a security hook that runs before user pre-hooks."""
         self._security_pre_hooks.setdefault(tool_name, []).append(handler)
@@ -727,30 +665,15 @@ class CodingToolkit(LionTool):
         # Finding 14: workspace root for path containment checks
         self.workspace_root = Path(workspace_root or Path.cwd()).expanduser().resolve()
 
-    def bind(
-        self,
-        branch: Branch,
-        include: tuple[str, ...] | list[str] | None = None,
-    ) -> list[Tool]:
-        """Bind tools to ``branch`` and return them as a list.
-
-        Args:
-            branch: The branch to bind. Tools share file-state tracking and
-                hooks via this binding.
-            include: Optional whitelist of tool names. When given, only those
-                tools are returned (e.g. ``CodingToolkit.READ_ONLY`` for an
-                exploration agent that must not mutate the workspace). Unknown
-                names are ignored. ``None`` returns every tool.
-        """
+    def bind(self, branch: Branch) -> list[Tool]:
         from lionagi.protocols.messages import ActionResponse
 
         file_state: dict[str, float] = {}
         call_count = [0]
         msgs = branch.msgs
         notify = self.notify
-        warn_threshold = self.notify_threshold
-        critical_threshold = min(warn_threshold + 0.2, 0.95)
-        max_tokens_override = self.notify_max_tokens
+        threshold = self.notify_threshold
+        max_tokens = self.notify_max_tokens
         # Finding 14: capture workspace root for use in all sync file helpers
         workspace_root = self.workspace_root
 
@@ -762,14 +685,6 @@ class CodingToolkit(LionTool):
             from lionagi.service.token_budget import get_token_budget
 
             budget = get_token_budget(branch)
-            # Use the caller-configured max_tokens as the limit when the
-            # budget module fell back to its default (model not recognised).
-            limit = (
-                max_tokens_override
-                if budget.limit == 128_000 and max_tokens_override != 128_000
-                else budget.limit
-            )
-            usage_pct = budget.used / limit if limit > 0 else 0.0
             n_active = len(branch.progression)
             n_total = len(msgs.progression)
             n_files = len(file_state)
@@ -781,7 +696,7 @@ class CodingToolkit(LionTool):
                     n_action_results += 1
 
             parts = [
-                f"context {budget.used // 1000}k/{limit // 1000}k tokens ({usage_pct:.0%})"
+                f"context {budget.used // 1000}k/{budget.limit // 1000}k tokens ({budget.usage_pct:.0%})"
             ]
             parts.append(f"{n_active} messages")
             if n_action_results > 0:
@@ -793,16 +708,10 @@ class CodingToolkit(LionTool):
 
             status = f"[System: {', '.join(parts)}]"
 
-            if usage_pct >= critical_threshold:
-                status += (
-                    " ⚠️ Context nearly full — use the context tool to evict "
-                    "old action results now."
-                )
-            elif usage_pct >= warn_threshold:
-                status += (
-                    " Consider using the context tool to evict earlier "
-                    "action results and free space."
-                )
+            if budget.is_critical:
+                status += " ⚠️ Context nearly full — evict old action results now."
+            elif budget.is_warning:
+                status += " Consider evicting earlier action results to free space."
 
             return status
 
@@ -965,11 +874,6 @@ class CodingToolkit(LionTool):
             Results are capped at max_results to prevent context overflow.
             """
             if action == "grep":
-                if "\x00" in pattern:
-                    return {
-                        "success": False,
-                        "error": "Pattern contains NUL byte",
-                    }
                 try:
                     search_path = str(
                         _resolve_workspace_path(path or ".", workspace_root)
@@ -977,18 +881,9 @@ class CodingToolkit(LionTool):
                 except PermissionError as e:
                     return {"success": False, "error": str(e)}
                 limit = max_results or 50
-                # ``-e pattern --`` prevents the pattern from being interpreted
-                # as an option (e.g. a model writing ``-rf`` as a regex).
-                cmd = [
-                    "grep",
-                    "-rn",
-                    "-E",
-                    "--binary-files=without-match",
-                    *(f"--exclude-dir={d}" for d in _DEFAULT_EXCLUDE_DIRS),
-                ]
+                cmd = ["grep", "-rn", "-E", pattern, search_path]
                 if include:
-                    cmd += ["--include", include]
-                cmd += [f"--max-count={limit}", "-e", pattern, "--", search_path]
+                    cmd.insert(3, f"--include={include}")
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode") == 2:
                     return {"success": False, "error": raw["stderr"].strip()}
@@ -1003,11 +898,6 @@ class CodingToolkit(LionTool):
                     "shown": min(total, limit),
                 }
             elif action == "find":
-                if "\x00" in pattern:
-                    return {
-                        "success": False,
-                        "error": "Pattern contains NUL byte",
-                    }
                 try:
                     search_path = str(
                         _resolve_workspace_path(path or ".", workspace_root)
@@ -1015,24 +905,7 @@ class CodingToolkit(LionTool):
                 except PermissionError as e:
                     return {"success": False, "error": str(e)}
                 limit = max_results or 100
-                prune_args: list[str] = []
-                for d in _DEFAULT_EXCLUDE_DIRS:
-                    if prune_args:
-                        prune_args.append("-o")
-                    prune_args.extend(["-path", f"*/{d}", "-prune"])
-                cmd = [
-                    "find",
-                    search_path,
-                    "(",
-                    *prune_args,
-                    ")",
-                    "-o",
-                    "-type",
-                    "f",
-                    "-name",
-                    pattern,
-                    "-print",
-                ]
+                cmd = ["find", search_path, "-name", pattern]
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode", 0) != 0 and raw.get("stderr", "").strip():
                     return {"success": False, "error": raw["stderr"].strip()}
@@ -1341,10 +1214,6 @@ class CodingToolkit(LionTool):
             ("sandbox", sandbox, SandboxRequest),
             ("subagent", subagent, SubagentRequest),
         ]
-
-        if include is not None:
-            allowed = set(include)
-            tool_defs = [td for td in tool_defs if td[0] in allowed]
 
         tools = []
         for name, func, request_cls in tool_defs:

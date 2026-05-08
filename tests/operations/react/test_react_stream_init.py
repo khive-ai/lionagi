@@ -123,6 +123,9 @@ async def test_single_tool_invocation():
         # First: ReActAnalysis with tool call
         first_analysis = ReActAnalysis(
             analysis="Need to calculate 6 * 7",
+            planned_actions=[
+                PlannedAction(action_type="multiply", description="Calculate 6 * 7")
+            ],
             extension_needed=False,
         )
 
@@ -143,20 +146,32 @@ async def test_single_tool_invocation():
 
 
 @pytest.mark.asyncio
-async def test_multiple_tool_calls_across_rounds():
-    """ReAct chains multiple rounds, each with its own analysis. Action
-    strategy is fixed to concurrent across all rounds."""
+async def test_multiple_tool_calls_sequential_strategy():
+    """Test ReAct specifying sequential action strategy."""
     branch = make_mocked_branch_for_react()
 
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
+        # Round 1: First tool call with sequential strategy
         round1 = ReActAnalysis(
             analysis="Calculate 100 * 5",
+            planned_actions=[
+                PlannedAction(action_type="multiply", description="100 * 5")
+            ],
             extension_needed=True,
+            action_strategy="sequential",
         )
+
+        # Round 2: Second tool call
         round2 = ReActAnalysis(
             analysis="Now divide by 10",
+            planned_actions=[
+                PlannedAction(action_type="divide", description="500 / 10")
+            ],
             extension_needed=False,
+            action_strategy="sequential",
         )
+
+        # Final answer
         final = Analysis(answer="50")
 
         mock_operate.side_effect = [round1, round2, final]
@@ -169,10 +184,10 @@ async def test_multiple_tool_calls_across_rounds():
         assert result == "50"
         assert mock_operate.call_count == 3
 
-        # Action strategy is hard-coded to concurrent now.
+        # Verify sequential strategy was passed to operate calls
         extension_call = mock_operate.call_args_list[1]
         action_param = extension_call[1]["action_param"]
-        assert action_param.strategy == "concurrent"
+        assert action_param.strategy == "sequential"
 
 
 @pytest.mark.asyncio
@@ -184,7 +199,18 @@ async def test_concurrent_action_strategy():
         # Analysis requesting concurrent execution
         analysis = ReActAnalysis(
             analysis="Check weather in multiple cities",
-            extension_needed=False,  # Concurrent strategy
+            planned_actions=[
+                PlannedAction(
+                    action_type="get_weather",
+                    description="Check NYC weather",
+                ),
+                PlannedAction(
+                    action_type="get_weather",
+                    description="Check SF weather",
+                ),
+            ],
+            extension_needed=False,
+            action_strategy="concurrent",  # Concurrent strategy
         )
 
         final = Analysis(answer="NYC: 72°F sunny, SF: 65°F cloudy")
@@ -209,6 +235,16 @@ async def test_planned_actions_structure():
         # Analysis with detailed planned actions
         analysis = ReActAnalysis(
             analysis="Need to perform multiple actions",
+            planned_actions=[
+                PlannedAction(
+                    action_type="search",
+                    description="Search for information",
+                ),
+                PlannedAction(
+                    action_type="analyze",
+                    description="Analyze search results",
+                ),
+            ],
             extension_needed=False,
         )
 
@@ -236,6 +272,7 @@ async def test_tools_parameter_variations():
     with patch("lionagi.operations.operate.operate.operate") as mock_operate:
         analysis = ReActAnalysis(
             analysis="Complete",
+            planned_actions=[],
             extension_needed=False,
         )
         final = Analysis(answer="Done")

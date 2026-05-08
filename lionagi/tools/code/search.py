@@ -14,35 +14,6 @@ from lionagi.protocols.action.tool import Tool
 from ..base import LionTool
 
 
-# grep/find run with shell=False, so shell metacharacters in the pattern are
-# inert — they're literal regex/glob bytes. The real safety boundary is the
-# ``-e pattern --`` argv separator below, which forbids the pattern from being
-# parsed as an option.  Embedded NUL bytes raise ValueError inside subprocess
-# itself, so we don't pre-filter those either.
-def _reject_unsafe_pattern(pattern: str) -> str | None:
-    """Return an error message if ``pattern`` is unsafe to pass to argv, else None."""
-    if "\x00" in pattern:
-        return "Pattern contains NUL byte"
-    return None
-
-
-# Default vendor / build directories that grep/find should always skip.
-_DEFAULT_EXCLUDE_DIRS: tuple[str, ...] = (
-    ".git",
-    "node_modules",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".next",
-    "target",
-    "dist",
-    "build",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-)
-
-
 class SearchAction(str, Enum):
     grep = "grep"
     find = "find"
@@ -116,23 +87,9 @@ def _grep_sync(
     include: str | None,
     max_results: int,
 ) -> SearchResponse:
-    err = _reject_unsafe_pattern(pattern)
-    if err:
-        return SearchResponse(success=False, error=err, count=0)
-    # ``-e pattern --`` blocks the pattern from being interpreted as an
-    # option (e.g. a model writing ``-rf`` as a regex). ``--exclude-dir``
-    # defaults skip vendored / build directories so the model isn't
-    # drowned in noise.
-    cmd = [
-        "grep",
-        "-rn",
-        "-E",
-        "--binary-files=without-match",
-        *(f"--exclude-dir={d}" for d in _DEFAULT_EXCLUDE_DIRS),
-    ]
+    cmd = ["grep", "-rn", "-E", pattern, path]
     if include:
         cmd += ["--include", include]
-    cmd += [f"--max-count={max_results}", "-e", pattern, "--", path]
 
     try:
         result = subprocess.run(
@@ -154,7 +111,7 @@ def _grep_sync(
     if result.returncode == 2:
         return SearchResponse(success=False, error=result.stderr.strip(), count=0)
 
-    lines = [ln for ln in result.stdout.splitlines() if ln][:max_results]
+    lines = [l for l in result.stdout.splitlines() if l][:max_results]
     return SearchResponse(
         success=True,
         content="\n".join(lines),
@@ -163,30 +120,7 @@ def _grep_sync(
 
 
 def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
-    err = _reject_unsafe_pattern(pattern)
-    if err:
-        return SearchResponse(success=False, error=err, count=0)
-    # Use -prune so excluded directories are not traversed (not just
-    # filtered from results). This makes find ~10x faster on repos with
-    # large .git/node_modules directories.
-    prune_args: list[str] = []
-    for d in _DEFAULT_EXCLUDE_DIRS:
-        if prune_args:
-            prune_args.append("-o")
-        prune_args.extend(["-path", f"*/{d}", "-prune"])
-    cmd = [
-        "find",
-        path,
-        "(",
-        *prune_args,
-        ")",
-        "-o",
-        "-type",
-        "f",
-        "-name",
-        pattern,
-        "-print",
-    ]
+    cmd = ["find", path, "-name", pattern]
 
     try:
         result = subprocess.run(
@@ -207,7 +141,7 @@ def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
     if result.returncode != 0 and result.stderr.strip():
         return SearchResponse(success=False, error=result.stderr.strip(), count=0)
 
-    lines = [ln for ln in result.stdout.splitlines() if ln][:max_results]
+    lines = [l for l in result.stdout.splitlines() if l][:max_results]
     return SearchResponse(
         success=True,
         content="\n".join(lines),

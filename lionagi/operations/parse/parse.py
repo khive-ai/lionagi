@@ -1,22 +1,25 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-from __future__ import annotations
-
 import contextlib
 import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from lionagi.ln import AlcallParams, get_cancelled_exc_class
+from lionagi.ln import (
+    AlcallParams,
+    extract_json,
+    fuzzy_validate_mapping,
+    get_cancelled_exc_class,
+    to_list,
+)
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.protocols.types import AssistantResponse
 
 from ..types import HandleValidation, ParseParam
 
 if TYPE_CHECKING:
-    from lionagi.protocols.messages._helpers import Formatter
     from lionagi.session.branch import Branch
 
 
@@ -24,7 +27,7 @@ _CALL = None  # type: ignore
 
 
 def prepare_parse_kws(
-    branch: Branch,
+    branch: "Branch",
     text: str,
     handle_validation: HandleValidation = "return_value",
     max_retries: int = 3,
@@ -41,7 +44,6 @@ def prepare_parse_kws(
     response_format=None,
     request_fields=None,
     return_res_message: bool = False,
-    formatter: Formatter | None = None,
     **kw,
 ):
     if suppress_conversion_errors:
@@ -77,14 +79,13 @@ def prepare_parse_kws(
             alcall_params=_alcall_params.with_updates(retry_attempts=max_retries),
             imodel=branch.parse_model,
             imodel_kw=kw,
-            formatter=formatter,
         ),
         "return_res_message": return_res_message,
     }
 
 
 async def parse(
-    branch: Branch,
+    branch: "Branch",
     text: str,
     parse_param: ParseParam,
     return_res_message: bool = False,
@@ -92,10 +93,7 @@ async def parse(
     # Try direct validation first
     with contextlib.suppress(Exception):
         result = _validate_dict_or_model(
-            text,
-            parse_param.response_format,
-            parse_param.fuzzy_match_params,
-            formatter=parse_param.formatter,
+            text, parse_param.response_format, parse_param.fuzzy_match_params
         )
         return result if not return_res_message else (result, None)
 
@@ -128,7 +126,6 @@ async def parse(
                 res.response,
                 parse_param.response_format,
                 parse_param.fuzzy_match_params,
-                formatter=parse_param.formatter,
             ),
             res,
         )
@@ -155,22 +152,39 @@ async def parse(
 def _validate_dict_or_model(
     text: str,
     response_format: type[BaseModel] | dict,
-    fuzzy_match_params: FuzzyMatchKeysParams | dict | None = None,
-    formatter=None,
+    fuzzy_match_params: FuzzyMatchKeysParams | dict = None,
 ):
     try:
         if isinstance(fuzzy_match_params, dict):
             fuzzy_match_params = FuzzyMatchKeysParams(**fuzzy_match_params)
 
-        from lionagi.ln.types import is_sentinel
-        from lionagi.protocols.messages._helpers import JsonFormatter
-
-        if is_sentinel(formatter, none_as_sentinel=True):
-            formatter = JsonFormatter
-
-        return formatter.parse(
-            text, response_format, fuzzy_match_params=fuzzy_match_params
-        )
+        d_ = extract_json(text, fuzzy_parse=True, return_one_if_single=False)
+        dict_, keys_ = None, None
+        if d_:
+            dict_ = to_list(d_, flatten=True)[0]
+        if isinstance(fuzzy_match_params, FuzzyMatchKeysParams):
+            keys_ = (
+                response_format.model_fields
+                if isinstance(response_format, type)
+                else response_format
+            )
+            dict_ = fuzzy_validate_mapping(dict_, keys_, **fuzzy_match_params.to_dict())
+        elif fuzzy_match_params:
+            keys_ = (
+                response_format.model_fields
+                if isinstance(response_format, type)
+                else response_format
+            )
+            dict_ = fuzzy_validate_mapping(
+                dict_,
+                keys_,
+                handle_unmatched="force",
+                fill_value=None,
+                strict=False,
+            )
+        if isinstance(response_format, type) and issubclass(response_format, BaseModel):
+            return response_format.model_validate(dict_)
+        return dict_
 
     except Exception as e:
         raise ValueError(f"Failed to parse text: {e}") from e

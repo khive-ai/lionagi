@@ -17,28 +17,21 @@ __all__ = ("fuzzy_validate_pydantic",)
 
 
 def fuzzy_validate_pydantic(
-    text: str | dict[str, Any],
+    text,
     /,
     model_type: "type[BaseModel]",
     fuzzy_parse: bool = True,
     fuzzy_match: bool = False,
     fuzzy_match_params: FuzzyMatchKeysParams | dict = None,
 ):
+    try:
+        model_data = extract_json(text, fuzzy_parse=fuzzy_parse)
+    except Exception as e:
+        raise ValidationError(
+            f"Failed to extract valid JSON from model response: {e}"
+        ) from e
 
-    d = None
-    if isinstance(text, str):
-        try:
-            d = extract_json(text, fuzzy_parse=fuzzy_parse)
-        except Exception as e:
-            raise ValidationError(
-                f"Failed to extract valid JSON from model response: {e}"
-            ) from e
-    elif isinstance(text, dict):
-        d = text
-    else:
-        raise TypeError("Input must be a string or a dictionary")
-
-    model_data = d
+    d = model_data
     if fuzzy_match:
         if fuzzy_match_params is None:
             model_data = fuzzy_match_keys(
@@ -54,6 +47,7 @@ def fuzzy_validate_pydantic(
             raise TypeError(
                 "fuzzy_keys_params must be a dict or FuzzyMatchKeysParams instance"
             )
+
     try:
         return model_type.model_validate(model_data)
     except Exception as e:

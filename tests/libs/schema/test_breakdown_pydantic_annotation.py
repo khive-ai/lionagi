@@ -274,12 +274,12 @@ class TestErrorHandling:
         with pytest.raises(TypeError):
             breakdown_pydantic_annotation({"key": "value"})
 
-    def test_instance_instead_of_class_auto_converts(self):
-        """Test that passing instance auto-converts to class."""
+    def test_instance_instead_of_class_raises_type_error(self):
+        """Test that passing instance instead of class raises TypeError."""
         instance = SimpleModel(name="test", age=25, active=True)
-        result = breakdown_pydantic_annotation(instance)
-        assert isinstance(result, dict)
-        assert "name" in result
+
+        with pytest.raises(TypeError):
+            breakdown_pydantic_annotation(instance)
 
 
 class TestEdgeCases:

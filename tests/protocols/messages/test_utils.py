@@ -45,16 +45,23 @@ def test_systemcontent_from_dict_datetime_handling():
 
 
 def test_instructioncontent_format_response_format():
-    """Test JsonFormatter.render_format produces expected output"""
-    from lionagi.protocols.messages._helpers import JsonFormatter
-
+    """Test InstructionContent._format_response_format static method"""
+    # Test with valid response format
     response_format = {"name": "string", "age": "integer"}
-    result = JsonFormatter.render_format(response_format)
+    result = InstructionContent._format_response_format(response_format)
 
-    assert "JSON-PARSEABLE RESPONSE" in result
+    assert "MUST RETURN JSON-PARSEABLE RESPONSE" in result
     assert "```json" in result
     assert "name" in result
     assert "age" in result
+
+    # Test with None
+    result = InstructionContent._format_response_format(None)
+    assert result is None
+
+    # Test with empty dict
+    result = InstructionContent._format_response_format({})
+    assert result is None
 
 
 def test_instructioncontent_format_image_item():
@@ -106,18 +113,16 @@ def test_instructioncontent_from_dict_with_request_model():
     data = {"response_format": RequestModel, "instruction": "Test"}
     content = InstructionContent.from_dict(data)
 
+    # response_format stores the class
     assert content.response_format == RequestModel
-    import warnings
+    assert content.request_model == RequestModel
+    assert content._model_class == RequestModel
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert content.request_model == RequestModel
-        assert content.response_model_cls == RequestModel
-        schema = content.schema_dict
-        assert schema is not None
-        assert isinstance(schema, dict)
-        assert "name" in schema
-        assert "age" in schema
+    # Test schema dict auto-derivation
+    assert content._schema_dict is not None
+    assert isinstance(content._schema_dict, dict)
+    assert "name" in content._schema_dict
+    assert "age" in content._schema_dict
 
 
 def test_instructioncontent_from_dict_with_images():

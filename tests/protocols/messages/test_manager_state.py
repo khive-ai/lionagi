@@ -128,12 +128,10 @@ def test_create_instruction_with_all_params():
     assert instruction.sender == "user"
     assert instruction.recipient == "assistant"
     assert instruction.content.image_detail == "high"
+    # response_format as BaseModel: stores class internally, returns original
+    assert instruction.content._model_class == RequestModel
+    assert instruction.content.request_model == RequestModel
     assert instruction.content.response_format == RequestModel
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert instruction.content.response_model_cls == RequestModel
 
 
 def test_create_instruction_update_existing():
@@ -187,13 +185,11 @@ def test_create_instruction_response_format_instance(message_manager):
         response_format=InstanceModel(value=3),
     )
 
+    # response_format stores the instance, internal fields handle the rest
     assert isinstance(instruction.content.response_format, InstanceModel)
     assert instruction.content.response_format.value == 3
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert instruction.content.response_model_cls == InstanceModel
+    assert instruction.content._model_class == InstanceModel
+    assert instruction.content.request_model == InstanceModel
 
 
 def test_add_message_instruction_context_extend(message_manager):

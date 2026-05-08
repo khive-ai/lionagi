@@ -49,13 +49,11 @@ class ChatParam(MorphParam):
     """
 
     _config: ClassVar[ModelConfig] = ModelConfig(none_as_sentinel=True)
-
     guidance: JsonValue = None
     context: JsonValue = None
     sender: SenderRecipient = None
     recipient: SenderRecipient = None
     response_format: type[BaseModel] | dict = None
-    formatter: Any = None
     progression: ID.RefSeq = None
     tool_schemas: list[dict] = None
     images: list = None
@@ -103,7 +101,6 @@ class ParseParam(MorphParam):
     alcall_params: AlcallParams | dict = None
     imodel: iModel = None
     imodel_kw: dict = None
-    formatter: Any = None
 
 
 @dataclass(slots=True, frozen=True, init=False)

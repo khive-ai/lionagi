@@ -52,6 +52,8 @@ def _prepare_run_kwargs(
             j = msg.model_copy(update={"content": msg.content.with_updates()})
             j.content.tool_schemas.clear()
             j.content.response_format = None
+            j.content._schema_dict = None
+            j.content._model_class = None
 
             if _act_res:
                 # Convert ActionResponseContent to dicts for proper rendering

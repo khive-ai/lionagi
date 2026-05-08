@@ -167,15 +167,12 @@ def test_message_manager_with_response_format(message_manager):
         recipient="assistant",
     )
 
+    # response_format stores the class
     assert instruction.content.response_format == RequestModel
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert instruction.content.request_model == RequestModel
-        assert instruction.content.response_model_cls == RequestModel
-        assert instruction.content.schema_dict is not None
-        assert isinstance(instruction.content.schema_dict, dict)
+    assert instruction.content.request_model == RequestModel
+    assert instruction.content._model_class == RequestModel
+    assert instruction.content._schema_dict is not None
+    assert isinstance(instruction.content._schema_dict, dict)
 
 
 def test_message_manager_with_request_model(message_manager):

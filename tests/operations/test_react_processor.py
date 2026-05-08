@@ -26,6 +26,7 @@ def _make_branch_mock():
 def _make_react_analysis(extension_needed: bool = False) -> ReActAnalysis:
     return ReActAnalysis(
         analysis="test reasoning",
+        planned_actions=[],
         extension_needed=extension_needed,
     )
 
