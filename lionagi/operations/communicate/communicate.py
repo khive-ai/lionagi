@@ -110,6 +110,7 @@ def prepare_communicate_kw(
             ),
             imodel=parse_model,
             imodel_kw={},
+            formatter=chat_param.formatter,
         )
 
     return {

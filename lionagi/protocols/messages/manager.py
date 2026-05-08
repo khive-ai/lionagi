@@ -96,6 +96,7 @@ class MessageManager(Manager):
         request_model: BaseModel | type[BaseModel] = None,
         response_format: BaseModel | type[BaseModel] = None,
         tool_schemas: dict = None,
+        formatter=None,
         sender: SenderRecipient = None,
         recipient: SenderRecipient = None,
     ) -> Instruction:

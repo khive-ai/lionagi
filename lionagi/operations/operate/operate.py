@@ -192,6 +192,7 @@ def prepare_operate_kw(
             alcall_params=get_default_call(),
             imodel=parse_model,
             imodel_kw={},
+            formatter=chat_param.formatter,
         )
 
     action_param = None
@@ -262,6 +263,7 @@ async def operate(
             response_format=chat_param.response_format,
             imodel=branch.parse_model,
             handle_validation="return_value",
+            formatter=chat_param.formatter,
         )
     )
 

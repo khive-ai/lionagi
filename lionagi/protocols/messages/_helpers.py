@@ -324,7 +324,7 @@ def _tool_schemas_display(tool_schemas: list[dict[str, Any]]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Formatter protocol + JsonTransformer
+# Formatter protocol + JsonFormatter
 # ---------------------------------------------------------------------------
 
 
@@ -345,7 +345,7 @@ class Formatter(Protocol):
     def parse(text: str, format: ResponseFormat, **kw) -> Any: ...
 
 
-class JsonTransformer:
+class JsonFormatter:
 
     @staticmethod
     def render_schema(format: ResponseFormat) -> str | None:
@@ -365,11 +365,14 @@ class JsonTransformer:
         response_format: ResponseFormat,
         fuzzy_match_params: FuzzyMatchKeysParams | dict | None = None,
     ) -> Any:
+        from lionagi.ln import to_list
+
         d_ = extract_json(text, fuzzy_parse=True, return_one_if_single=False)
         if not d_:
             raise ValueError("Failed to extract JSON from text")
 
-        d_ = to_dict(d_[0], recursive=True)
+        d_ = to_list(d_, flatten=True)[0]
+        d_ = to_dict(d_, recursive=True)
 
         if isinstance(fuzzy_match_params, dict):
             fuzzy_match_params = FuzzyMatchKeysParams(**fuzzy_match_params)
@@ -395,7 +398,8 @@ class JsonTransformer:
             d = fuzzy_validate_mapping(
                 d_, response_format, **fuzzy_match_params.to_dict()
             )
-            for k, v in response_format.items():
-                d[k] = _parse_one(d[k], v)
+            for k in list(d.keys()):
+                if k in response_format:
+                    d[k] = _parse_one(d[k], response_format[k])
             return d
         return _parse_one(d_, response_format)

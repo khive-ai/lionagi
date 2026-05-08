@@ -5,7 +5,7 @@ from pydantic import BaseModel, field_validator
 
 from lionagi.ln.types import ModelConfig
 
-from ._helpers import Formatter, JsonTransformer
+from ._helpers import Formatter, JsonFormatter
 from .message import Message, MessageContent, MessageRole
 
 
@@ -20,14 +20,14 @@ class InstructionContent(MessageContent):
         plain_content: Raw text fallback (bypasses structured rendering)
         tool_schemas: Tool specifications for the assistant
         response_format: User's desired response format (BaseModel class, instance, or dict)
-        prompt_transformer: Renderer/parser for the response format (default: JsonTransformer)
+        formatter: Renderer/parser for the response format (default: JsonFormatter)
         images: Image URLs, data URLs, or base64 strings
         image_detail: Detail level for image processing
     """
 
     _config: ClassVar[ModelConfig] = ModelConfig(
         none_as_sentinel=True,
-        serialize_exclude=frozenset({"response_format", "prompt_transformer"}),
+        serialize_exclude=frozenset({"response_format", "formatter"}),
     )
 
     instruction: str | None = None
@@ -36,7 +36,7 @@ class InstructionContent(MessageContent):
     plain_content: str | None = None
     tool_schemas: list[dict[str, Any]] = field(default_factory=list)
     response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = None
-    prompt_transformer: type[Formatter] = field(default=JsonTransformer, repr=False)
+    formatter: type[Formatter] = field(default=None, repr=False)
     images: list[str] = field(default_factory=list)
     image_detail: Literal["low", "high", "auto"] | None = None
 
@@ -49,34 +49,31 @@ class InstructionContent(MessageContent):
         plain_content: str | None = None,
         tool_schemas: list[dict[str, Any]] | None = None,
         response_format: type[BaseModel] | dict[str, Any] | BaseModel | None = None,
-        prompt_transformer: type[Formatter] | None = None,
+        formatter: type[Formatter] | None = None,
         images: list[str] | None = None,
         image_detail: Literal["low", "high", "auto"] | None = None,
     ):
         if context is not None and prompt_context is None:
             prompt_context = context
 
-        object.__setattr__(self, "instruction", instruction)
-        object.__setattr__(self, "guidance", guidance)
-        object.__setattr__(
-            self,
-            "prompt_context",
-            prompt_context if prompt_context is not None else [],
-        )
-        object.__setattr__(self, "plain_content", plain_content)
-        object.__setattr__(
-            self,
-            "tool_schemas",
-            tool_schemas if tool_schemas is not None else [],
-        )
-        object.__setattr__(self, "response_format", response_format)
-        object.__setattr__(
-            self,
-            "prompt_transformer",
-            prompt_transformer or JsonTransformer,
-        )
-        object.__setattr__(self, "images", images if images is not None else [])
-        object.__setattr__(self, "image_detail", image_detail)
+        if response_format is not None and formatter is None:
+            formatter = JsonFormatter
+
+        data = {
+            "instruction": instruction,
+            "guidance": guidance,
+            "prompt_context": prompt_context if prompt_context is not None else [],
+            "plain_content": plain_content,
+            "tool_schemas": tool_schemas if tool_schemas is not None else [],
+            "response_format": response_format,
+            "formatter": formatter,
+            "images": images if images is not None else [],
+            "image_detail": image_detail,
+            "formatter": formatter,
+        }
+
+        for key, value in data.items():
+            object.__setattr__(self, key, value)
 
     @property
     def context(self) -> list[Any]:
@@ -116,7 +113,7 @@ class InstructionContent(MessageContent):
 
     @property
     def schema_dict(self) -> dict[str, Any] | None:
-        """DEPRECATED: Will be removed in v1.0. Use prompt_transformer.render() instead."""
+        """DEPRECATED: Will be removed in v1.0. Use formatter.render() instead."""
         import warnings
 
         from lionagi.libs.schema.breakdown_pydantic_annotation import (
@@ -125,7 +122,7 @@ class InstructionContent(MessageContent):
 
         warnings.warn(
             "InstructionContent.schema_dict is deprecated and will be removed in v1.0. "
-            "Use prompt_transformer.render(response_format) instead.",
+            "Use formatter.render(response_format) instead.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -197,8 +194,10 @@ class InstructionContent(MessageContent):
             if valid:
                 inst.response_format = response_format
 
-        if pt := data.get("prompt_transformer"):
-            inst.prompt_transformer = pt
+        if pt := data.get("formatter"):
+            inst.formatter = pt
+        elif inst.response_format is not None and inst.formatter is None:
+            inst.formatter = JsonFormatter
 
         return inst
 
@@ -209,7 +208,7 @@ class InstructionContent(MessageContent):
             return self.plain_content
 
         parts: list[str] = []
-        tf = self.prompt_transformer
+        tf = self.formatter
 
         if self.guidance:
             parts.append(f"## Guidance\n{self.guidance}")
@@ -222,11 +221,15 @@ class InstructionContent(MessageContent):
             parts.append(f"## Context\n{ctx_yaml}")
 
         if self.tool_schemas:
-            tools_display = tf.render_tools(self.tool_schemas)
-            if tools_display:
-                parts.append(f"## Tools\n{tools_display}")
+            from ._helpers import _tool_schemas_display
+
+            if all(isinstance(t, str) for t in self.tool_schemas):
+                parts.append(f"## Tools\n" + "\n".join(self.tool_schemas))
             else:
-                parts.append(f"## Tools\n{minimal_yaml(self.tool_schemas).strip()}")
+                tools_display = _tool_schemas_display(self.tool_schemas)
+                parts.append(
+                    f"## Tools\n{tools_display or minimal_yaml(self.tool_schemas).strip()}"
+                )
 
         if not self._is_sentinel(self.response_format):
             schema = tf.render_schema(self.response_format)
