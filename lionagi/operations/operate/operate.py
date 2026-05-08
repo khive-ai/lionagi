@@ -247,12 +247,15 @@ async def _try_finalize_lndl_once(
     action_requests = []
     action_responses_models = []
     if placeholders and action_param is None:
-        # invoke_actions=False: replace ActionCall placeholders with their
-        # raw call strings so the output can validate against the target
-        # model. Without this, fields contain ActionCall objects that fail
-        # Pydantic validation and leak internal types to the caller.
-        raw_calls = {ac.name: ac.raw_call for ac in placeholders}
-        output = replace_actions(output, raw_calls)
+        # invoke_actions=False: actions were planned but not executed.
+        # Replace placeholders with None — the field values are genuinely
+        # unknown (the tool call that would have produced them wasn't run).
+        # Validation will fail on required fields (honest — the field IS
+        # unfilled), and handle_validation determines the caller's
+        # experience: return_value → dict with Nones, raise → clear error,
+        # return_none → None.
+        null_map = {ac.name: None for ac in placeholders}
+        output = replace_actions(output, null_map)
     elif placeholders and action_param is not None:
         from ..act.act import act
         from ..fields import ActionRequestModel
@@ -884,14 +887,15 @@ def _restore_lndl_system_prompt(branch: "Branch", token: Any) -> None:
     if token is _NO_RESTORE:
         return
     if token is None:
-        # We injected over an empty/missing system. Best we can do without
-        # exposing a "delete system" API on MessageManager is to overwrite
-        # with an empty system, then drop it from the progression. Since
-        # the API surface only supports ``set_system`` (replace), we leave
-        # an empty system in place — operationally indistinguishable from
-        # "no system" for downstream callers.
-        empty = branch.msgs.create_system(system="")
-        branch.msgs.set_system(empty)
+        # Branch originally had no system message. Remove the LNDL system
+        # we injected — setting it to ``None`` and excluding from the pile
+        # so the branch is back to its pristine state. (``create_system("")``
+        # would trigger the default "helpful AI assistant" prompt via
+        # SystemContent's default, so we can't use that path.)
+        current = branch.msgs.system
+        if current is not None:
+            branch.msgs.messages.exclude(current)
+            branch.msgs.system = None
         return
     branch.msgs.set_system(token)
 
