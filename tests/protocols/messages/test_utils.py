@@ -45,11 +45,11 @@ def test_systemcontent_from_dict_datetime_handling():
 
 
 def test_instructioncontent_format_response_format():
-    """Test JsonTransformer.render_format produces expected output"""
-    from lionagi.protocols.messages._helpers import JsonTransformer
+    """Test JsonFormatter.render_format produces expected output"""
+    from lionagi.protocols.messages._helpers import JsonFormatter
 
     response_format = {"name": "string", "age": "integer"}
-    result = JsonTransformer.render_format(response_format)
+    result = JsonFormatter.render_format(response_format)
 
     assert "JSON-PARSEABLE RESPONSE" in result
     assert "```json" in result
