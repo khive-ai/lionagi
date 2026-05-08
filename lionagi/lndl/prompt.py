@@ -84,19 +84,25 @@ Each inner array is one item. Aliases must be UNIQUE across the whole response.
 (A flat array `OUT{items: [n1, s1, n2, s2, n3, s3]}` also works — items are
 split when a field name repeats — but nested groups are clearer.)
 
-EXAMPLE 5 — drafting: declare many, commit a subset
+EXAMPLE 5 — choosing among candidate tool calls
 
-<lact broad b>search(query="AI", limit=100)</lact>
-<lact focused f>search(query="AI safety", limit=20)</lact>
+You can sketch several tool calls in scratch and commit only the best
+one. Lacts NOT in OUT{} never run — they're zero-cost planning.
 
-I'll go with the focused results.
+Specs: results(list[str])
+Tools: search_web(query, limit)
 
-<lvar Report.title t>AI Safety Analysis</lvar>
-<lvar Report.summary s>Based on focused results...</lvar>
+Two queries to consider; the narrower one will give better signal.
 
-OUT{report: [t, s, f]}
+<lact a>search_web(query="AI", limit=20)</lact>
+<lact b>search_web(query="AI safety alignment", limit=20)</lact>
 
-Only "f" runs. "b" is scratch — never executes.
+OUT{results: [b]}
+
+Only "b" runs. "a" is scratch.
+
+DO NOT pre-write <lvar> values that should come from tool output. The
+tool result IS the value — use <lact> to bind it directly.
 
 ERRORS TO AVOID
 
