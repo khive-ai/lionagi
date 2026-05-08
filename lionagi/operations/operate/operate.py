@@ -65,21 +65,24 @@ async def _request_lndl_fix(
     error: str,
     *,
     chat_param: ChatParam | None = None,
+    middle: Middle | None = None,
 ) -> str | None:
     """Ask the model to fix malformed LNDL using the existing branch context.
 
-    Reuses the original ``chat_param`` (model, model kwargs, tool schemas)
-    so a retry doesn't silently switch to ``branch.chat_model`` — that bug
-    surfaced as retries running on a different provider than the original.
+    Routes through the same ``middle`` (communicate / run_and_collect) that
+    the outer operate call selected, so CLI/streaming paths stay consistent.
     """
     prompt = _LNDL_REPARSE_PROMPT.format(error=error, original=original[:2000])
     try:
-        kwargs: dict[str, Any] = {"return_ins_res_message": True}
-        if chat_param is not None:
-            kwargs["chat_model"] = chat_param.imodel
-            if chat_param.imodel_kw:
-                kwargs.update(chat_param.imodel_kw)
-        _, resp = await branch.chat(instruction=prompt, **kwargs)
+        if middle is not None and chat_param is not None:
+            raw = await middle(
+                branch, prompt, chat_param, None, False, skip_validation=True
+            )
+            return raw if isinstance(raw, str) else (str(raw) if raw else None)
+        # Fallback when middle not available (shouldn't happen in practice)
+        _, resp = await branch.chat(
+            instruction=prompt, return_ins_res_message=True
+        )
         return resp.response
     except Exception:
         return None
@@ -124,14 +127,16 @@ async def _execute_program_lacts(
     branch: "Branch",
     program,
     action_param: "ActionParam | None",
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str]]:
     """Execute every <lact> in the program — regardless of OUT membership.
 
-    Returns ``{alias: result_value}``. ActionRequest/ActionResponse messages
-    are appended to the branch via ``act()`` so the next round sees them.
+    Returns ``({alias: result_value}, [parse_error_messages])``.
+    ActionRequest/ActionResponse messages are appended to the branch via
+    ``act()`` so the next round sees them. Parse errors are collected (not
+    silently swallowed) so the caller can surface them as ``Retry`` hints.
     """
     if not action_param or not program.lacts:
-        return {}
+        return {}, []
 
     from lionagi.lndl._parse_function_call import parse_function_call
 
@@ -140,10 +145,14 @@ async def _execute_program_lacts(
 
     requests: list = []
     aliases: list[str] = []
+    parse_errors: list[str] = []
     for la in program.lacts:
         try:
             parsed = parse_function_call(la.call)
-        except Exception:
+        except Exception as exc:
+            parse_errors.append(
+                f"<lact {la.alias}> parse failed: {exc} (call: {la.call!r:.80})"
+            )
             continue
         requests.append(
             ActionRequestModel(
@@ -154,7 +163,7 @@ async def _execute_program_lacts(
         aliases.append(la.alias)
 
     if not requests:
-        return {}
+        return {}, parse_errors
 
     responses = await act(branch, requests, action_param)
     responses = list(responses or [])
@@ -166,7 +175,7 @@ async def _execute_program_lacts(
         if resp is None:
             continue
         results[alias] = resp.output if hasattr(resp, "output") else resp
-    return results
+    return results, parse_errors
 
 
 async def _try_finalize_lndl_once(
@@ -237,7 +246,14 @@ async def _try_finalize_lndl_once(
     placeholders = collect_actions(output)
     action_requests = []
     action_responses_models = []
-    if placeholders and action_param is not None:
+    if placeholders and action_param is None:
+        # invoke_actions=False: replace ActionCall placeholders with their
+        # raw call strings so the output can validate against the target
+        # model. Without this, fields contain ActionCall objects that fail
+        # Pydantic validation and leak internal types to the caller.
+        raw_calls = {ac.name: ac.raw_call for ac in placeholders}
+        output = replace_actions(output, raw_calls)
+    elif placeholders and action_param is not None:
         from ..act.act import act
         from ..fields import ActionRequestModel
 
@@ -294,14 +310,13 @@ async def _finalize_lndl(
     model_class: type[BaseModel] | None,
     lndl_retries: int = 0,
     handle_validation: HandleValidation = "return_value",
+    middle: Middle | None = None,
 ) -> Any:
     """Assemble LNDL output with optional retry (single-round mode).
 
     On parse/validation failure, sends the error back to the model and asks
-    for a fix, up to ``lndl_retries`` extra attempts. If retries are
-    exhausted with ``handle_validation="raise"``, raises ``ValueError``;
-    with ``"return_none"``, returns ``None``; default ``"return_value"``
-    returns the last partial result.
+    for a fix, up to ``lndl_retries`` extra attempts. Routes retries through
+    the same ``middle`` as the original call for CLI/streaming consistency.
     """
     raw = _get_raw_assistant_response(branch, result)
     if not raw:
@@ -326,7 +341,9 @@ async def _finalize_lndl(
         last_error = err
         if attempt + 1 >= attempts:
             break
-        fixed = await _request_lndl_fix(branch, raw, err, chat_param=chat_param)
+        fixed = await _request_lndl_fix(
+            branch, raw, err, chat_param=chat_param, middle=middle
+        )
         if not fixed:
             break
         raw = fixed
@@ -524,9 +541,17 @@ async def _run_one_lndl_round(
 
     # Eagerly execute every lact this round. Tool messages persist on the
     # branch so the next round's chat sees them.
-    action_results = await _execute_program_lacts(branch, program, action_param)
+    action_results, lact_errors = await _execute_program_lacts(
+        branch, program, action_param
+    )
 
     if not program.out_block:
+        if lact_errors:
+            # No OUT{} yet AND some lacts failed to parse — surface the
+            # errors as a Retry so the continuation prompt tells the model
+            # what went wrong, rather than silently producing a round with
+            # no tool results and no error signal.
+            return Retry(error="; ".join(lact_errors))
         # No commit yet — model is still thinking. Continue.
         return Continue()
 
@@ -1066,11 +1091,14 @@ async def _operate_inner(
     # pass action_param=None so <lact> placeholders remain unexecuted.
     if _is_lndl:
         _act = action_param if invoke_actions else None
+        # Use _cctx (not the original chat_param) — it has tool_schemas and
+        # the updated response_format from the operative, so continuations
+        # and retries reflect the actual request context.
         if lndl_rounds and lndl_rounds > 1:
             return await _run_lndl_react(
                 branch=branch,
                 result=result,
-                chat_param=chat_param,
+                chat_param=_cctx,
                 action_param=_act,
                 operative=operative,
                 model_class=model_class,
@@ -1081,12 +1109,13 @@ async def _operate_inner(
         return await _finalize_lndl(
             branch=branch,
             result=result,
-            chat_param=chat_param,
+            chat_param=_cctx,
             action_param=_act,
             operative=operative,
             model_class=model_class,
             lndl_retries=lndl_retries,
             handle_validation=handle_validation,
+            middle=middle,
         )
 
     if not invoke_actions:

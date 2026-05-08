@@ -7,7 +7,7 @@ Structured output format for LLM responses. Tags allow models to mix
 natural reasoning with structured data.
 
 Core (no external deps beyond lionagi):
-    lexer, parser, ast, resolver, extract, types, errors, prompt
+    lexer, parser, ast, assembler, extract, types, errors, prompt
 """
 
 from .assembler import (

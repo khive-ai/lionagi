@@ -234,18 +234,20 @@ class InstructionContent(MessageContent):
 
         has_tools = bool(self.tool_schemas)
 
+        def _render(fmt):
+            try:
+                return tf.render_format(fmt, has_tools=has_tools)
+            except TypeError:
+                # Back-compat: custom formatters that don't accept has_tools
+                return tf.render_format(fmt)
+
         if not self._is_sentinel(self.response_format):
             schema = tf.render_schema(self.response_format)
             if schema:
                 parts.append(f"## Schema\n{schema}")
-            parts.append(
-                "## ResponseFormat\n"
-                f"{tf.render_format(self.response_format, has_tools=has_tools)}"
-            )
+            parts.append(f"## ResponseFormat\n{_render(self.response_format)}")
         elif tf is not None and tf is not JsonFormatter:
-            parts.append(
-                f"## ResponseFormat\n{tf.render_format(None, has_tools=has_tools)}"
-            )
+            parts.append(f"## ResponseFormat\n{_render(None)}")
 
         return "\n\n".join(parts)
 

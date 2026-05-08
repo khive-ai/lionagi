@@ -1015,9 +1015,16 @@ class CodingToolkit(LionTool):
                 except PermissionError as e:
                     return {"success": False, "error": str(e)}
                 limit = max_results or 100
-                cmd = ["find", search_path, "-name", pattern, "-type", "f"]
+                prune_args: list[str] = []
                 for d in _DEFAULT_EXCLUDE_DIRS:
-                    cmd += ["-not", "-path", f"*/{d}/*"]
+                    if prune_args:
+                        prune_args.append("-o")
+                    prune_args.extend(["-path", f"*/{d}", "-prune"])
+                cmd = [
+                    "find", search_path,
+                    "(", *prune_args, ")",
+                    "-o", "-type", "f", "-name", pattern, "-print",
+                ]
                 raw = await run_sync(_subprocess_sync, cmd, False, 30.0, None)
                 if raw.get("returncode", 0) != 0 and raw.get("stderr", "").strip():
                     return {"success": False, "error": raw["stderr"].strip()}
