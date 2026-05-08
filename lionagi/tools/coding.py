@@ -1356,7 +1356,89 @@ class CodingToolkit(LionTool):
                     postprocessor=self._build_postprocessor(name),
                 )
             )
+
+        # Dotted-form action aliases. Each ``(base, action)`` pair gets a
+        # tool registered as ``base.action`` with the ``action`` field
+        # pre-bound, so the model can call e.g.
+        # ``<lact a>reader.read(path="x", limit=120)</lact>``  instead of
+        # ``<lact a>reader(action="read", path="x", limit=120)</lact>``.
+        # The flat form keeps working — both are registered.
+        # See issue #961.
+        dotted_specs: dict[str, list[str]] = {
+            "reader": ["read", "list_dir", "open"],
+            "search": ["grep", "find"],
+            "context": ["status", "get_messages", "evict", "evict_action_results"],
+        }
+        for base_name, action_values in dotted_specs.items():
+            base_def = next((td for td in tool_defs if td[0] == base_name), None)
+            if base_def is None:
+                continue
+            _, base_func, base_request_cls = base_def
+            for action_value in action_values:
+                dotted = self._make_dotted_action_tool(
+                    base_name, action_value, base_func, base_request_cls
+                )
+                if dotted is not None:
+                    tools.append(dotted)
+
         return tools
+
+    def _make_dotted_action_tool(
+        self,
+        base_name: str,
+        action_value: str,
+        base_func: Callable,
+        base_request_cls: type[BaseModel],
+    ) -> Tool | None:
+        """Build ``base_name.action_value`` as its own Tool with `action` pre-bound.
+
+        The dotted variant has a derived request schema that excludes the
+        ``action`` field — the model doesn't need to supply it. The wrapper
+        callable injects the action value before delegating to the base.
+        """
+        from pydantic import create_model
+
+        from lionagi.libs.schema.function_to_schema import function_to_schema
+
+        # Validate the action value exists in the base request's `action` field.
+        action_info = base_request_cls.model_fields.get("action")
+        if action_info is None:
+            return None  # not action-dispatched
+
+        # Build a derived Pydantic model excluding the `action` field.
+        derived_fields = {
+            fname: (finfo.annotation, finfo)
+            for fname, finfo in base_request_cls.model_fields.items()
+            if fname != "action"
+        }
+        derived_cls = create_model(
+            f"{base_request_cls.__name__}_{action_value}",
+            __base__=BaseModel,
+            **derived_fields,
+        )
+
+        # Wrap the base callable, pre-binding `action`.
+        async def dotted_func(**kwargs):
+            kwargs["action"] = action_value
+            return await base_func(**kwargs)
+
+        dotted_func.__name__ = f"{base_name}_{action_value}"
+        dotted_func.__doc__ = (
+            f"Alias for {base_name}(action='{action_value}', ...). "
+            f"Available as the dotted call ``{base_name}.{action_value}(...)``."
+        )
+
+        # Generate schema, then override the function name to the dotted form.
+        schema = function_to_schema(dotted_func, request_options=derived_cls)
+        schema["function"]["name"] = f"{base_name}.{action_value}"
+
+        return Tool(
+            func_callable=dotted_func,
+            request_options=derived_cls,
+            tool_schema=schema,
+            preprocessor=self._build_preprocessor(base_name),
+            postprocessor=self._build_postprocessor(base_name),
+        )
 
     def to_tool(self) -> Tool:
         raise NotImplementedError(

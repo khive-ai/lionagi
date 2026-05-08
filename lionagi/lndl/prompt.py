@@ -129,6 +129,20 @@ OUT{results: [b]}
 
 Only "b" runs. "a" is scratch.
 
+EXAMPLE 7 — dotted-form action calls
+
+When a tool exposes ``action``-dispatched variants (e.g. a `reader` tool
+with `action="read" | "list_dir"`), the registry may also expose dotted
+aliases for each action — `reader.read`, `reader.list_dir`, etc. — that
+pre-bind the action. Both forms are equivalent and both work:
+
+  <lact a>reader.read(path="src/main.py", limit=200)</lact>      # dotted
+  <lact a>reader(action="read", path="src/main.py", limit=200)</lact>  # flat
+
+The dotted form is shorter and removes the `action` arg as a failure mode.
+Use whichever the tool registry supports — if you see both `reader` and
+`reader.read` advertised, prefer the dotted form.
+
 DO NOT pre-write <lvar> values that should come from tool output. The
 tool result IS the value — use <lact> to bind it directly.
 
@@ -158,21 +172,47 @@ Use this when the answer depends on tool output (codebase exploration,
 multi-step research). For tasks where you can predict your output before
 tools run (math, structured extraction), single-round LNDL is enough.
 
-NOTE NAMESPACE
+NOTE NAMESPACE — for accumulating values across rounds
 
-`note.X` is a scratchpad shared across rounds. Write `<lvar note.draft d>...</lvar>`
-to persist a value, then reference it as `note.draft` INSIDE an OUT entry
-keyed by the actual schema field:
+`note.X` is a free-form scratchpad. Lvars in the `note` namespace do NOT
+need to match a schema field — they're keyed by whatever name you pick
+(`note.draft`, `note.find1`, `note.evidence_a`, etc). Once written, a
+note value persists across rounds and can be referenced from OUT{} or
+from other lvars at any time.
 
-  Round 1: <lvar note.outline o>1) intro 2) body 3) close</lvar>
-  Round 3: OUT{plan: [note.outline]}        # right — note.outline goes into the `plan` field
-            OUT{note.outline}                # WRONG — schema has no field "note"
+The note namespace is the right tool whenever you would otherwise have
+to RETYPE a value, or whenever you want to PRE-WRITE values in early
+rounds and only commit them in a later round. Use it aggressively for
+any list field that holds many or long items.
 
-Lvars in the `note` namespace do NOT need a declared schema field — they're
-free-form scratch values keyed by name. Use them when you want to commit
-something now and reference it many rounds later. But OUT{} must ALWAYS
-key its entries by the spec/field names from your schema; note.X is only
-valid as a VALUE inside those entries.
+CANONICAL PATTERN — building a large list field across rounds:
+
+  # Round 1: write each item once, in note.<name>
+  <lvar note.find1 n1>First finding text…</lvar>
+  <lvar note.find2 n2>Second finding text…</lvar>
+  <lvar note.find3 n3>Third finding text…</lvar>
+
+  # Later rounds: keep appending notes as you discover more
+  <lvar note.find4 n4>Fourth finding text…</lvar>
+  <lvar note.find5 n5>Fifth finding text…</lvar>
+
+  # Final round: commit by referencing the notes — no retyping
+  OUT{findings: [note.find1, note.find2, note.find3, note.find4, note.find5]}
+
+The same pattern works for list[Model] — give each item its own group of
+note.X scratch values, then reference them in nested OUT groups.
+
+Why this matters: writing `<lvar a>long text…</lvar>` inside the OUT
+round means you re-emit every long string under retry pressure. Writing
+`<lvar note.X>long text…</lvar>` once and then `OUT{field: [note.X, …]}`
+keeps the OUT block small and the long values stable across continuations
+or retries.
+
+OUT{} always keys by schema field names. `note.X` is only valid as a
+VALUE inside an OUT entry, never as the key:
+
+  ✓ OUT{findings: [note.find1, note.find2]}     # right
+  ✗ OUT{note.find1, note.find2}                 # wrong — `note` is not a schema field
 """
 
 

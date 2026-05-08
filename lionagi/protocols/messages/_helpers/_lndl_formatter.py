@@ -62,14 +62,17 @@ def _render_field_example(
     origin = get_origin(ann)
     args = get_args(ann)
 
-    # list[X]
+    # list[X] — examples show 3 items; the OUT block placeholder appends
+    # ``...`` so the model knows the list extends as far as needed. The
+    # 3-item width (vs the older 2) measurably nudges models to emit more
+    # entries when the field description asks for many.
     if origin is list:
         elem = args[0] if args else Any
         if _is_pydantic_model_cls(elem):
-            # list[Model] — show 2 sample items with nested-group OUT syntax.
+            # list[Model] — show 3 sample items with nested-group OUT syntax.
             lines: list[str] = []
             grouped: list[list[str]] = []
-            for i in range(2):
+            for i in range(3):
                 item_aliases: list[str] = []
                 for fname, finfo in elem.model_fields.items():
                     a = alias_gen()
@@ -93,15 +96,25 @@ def _render_field_example(
                         )
                 grouped.append(item_aliases)
             groups_str = ", ".join("[" + ", ".join(g) + "]" for g in grouped)
-            return lines, f"{field_name}: [{groups_str}]", None
+            return (
+                lines,
+                f"{field_name}: [{groups_str}, ...]   "
+                "# add as many groups as the field description requires",
+                None,
+            )
         # list[scalar]
         lines = []
         aliases = []
-        for _ in range(2):
+        for _ in range(3):
             a = alias_gen()
             aliases.append(a)
             lines.append(f"<lvar {a}>...</lvar>")
-        return lines, f"{field_name}: [{', '.join(aliases)}]", None
+        return (
+            lines,
+            f"{field_name}: [{', '.join(aliases)}, ...]   "
+            "# add as many <lvar> entries as the field description requires",
+            None,
+        )
 
     # dict[K, V] — declare as ``<lvar field.key alias>...</lvar>`` where the
     # second segment is the actual dictionary key the model picks for each
