@@ -60,11 +60,21 @@ def _is_model_cls(t: Any) -> bool:
 
 
 def _coerce_str_to_list(s: str) -> list[Any]:
-    """Best-effort coerce a string like '["a", "b"]' or '[a, b]' or 'a, b' to a list."""
+    """Best-effort coerce a string to a list.
+
+    Strict order:
+    1. JSON array → use as-is.
+    2. Python list literal → use as-is.
+    3. Newline-separated lines → split on newlines.
+    4. Bracketed comma list (``"[a, b, c]"``) → split inside brackets.
+    5. Otherwise → return ``[s]``: treat the whole string as a single item.
+       This avoids shredding prose by commas (e.g. "Step 1, then step 2, …"
+       used to fragment into noise).
+    """
     s = s.strip()
     if not s:
         return []
-    # Try JSON
+    # 1) JSON
     import json
 
     try:
@@ -73,7 +83,7 @@ def _coerce_str_to_list(s: str) -> list[Any]:
             return parsed
     except Exception:
         pass
-    # Try Python literal
+    # 2) Python literal
     import ast as _ast
 
     try:
@@ -82,12 +92,22 @@ def _coerce_str_to_list(s: str) -> list[Any]:
             return parsed
     except Exception:
         pass
-    # Strip outer brackets, split on commas (or semicolons if no commas)
+    # 3) Newline-separated — recognise common bullet/numbered prefixes
+    if "\n" in s:
+        lines = [ln.rstrip() for ln in s.splitlines() if ln.strip()]
+        if lines:
+            return lines
+    # 4) Explicit "[a, b, c]" envelope
     if s.startswith("[") and s.endswith("]"):
-        s = s[1:-1]
-    sep = "," if "," in s else (";" if ";" in s else ",")
-    items = [p.strip().strip('"').strip("'") for p in s.split(sep) if p.strip()]
-    return items
+        inner = s[1:-1]
+        if inner.strip():
+            items = [
+                p.strip().strip('"').strip("'") for p in inner.split(",") if p.strip()
+            ]
+            if items:
+                return items
+    # 5) Conservative default — single-item list. Prose stays intact.
+    return [s]
 
 
 def _coerce_field_value(value: Any, field_type: Any) -> Any:
@@ -294,23 +314,37 @@ def _assemble_grouped_list(
     """Assemble explicit nested groups: ``[[n1, s1], [n2, s2]]`` → 2 items.
 
     Each inner list is one item; aliases inside are assembled as a single value
-    of ``elem_type``.
+    of ``elem_type``. Inner items that turn out to be string literals (not
+    declared aliases) get dropped onto the model's first string-typed field —
+    a fallback for when the model writes ``[["raw text 1"], ["raw text 2"]]``
+    instead of nested aliases.
     """
     items: list[Any] = []
     for group in groups:
         if not isinstance(group, list):
             # Mixed: a flat alias outside a group — promote into singleton group
             group = [group]
-        items.append(
-            assemble_spec_value(
-                group,
-                elem_type,
-                lvars_by_alias,
-                lacts_by_alias,
-                action_results,
-                scratchpad,
-            )
+        value = assemble_spec_value(
+            group,
+            elem_type,
+            lvars_by_alias,
+            lacts_by_alias,
+            action_results,
+            scratchpad,
         )
+        if value is None and _is_model_cls(elem_type):
+            # All entries in the group were string literals (none of them
+            # registered aliases). Salvage by piping the joined text into
+            # the first string-typed field on the model.
+            target_field = None
+            for fname, finfo in elem_type.model_fields.items():
+                if _unwrap_optional(finfo.annotation) is str:
+                    target_field = fname
+                    break
+            if target_field:
+                joined = " ".join(str(g) for g in group if isinstance(g, str))
+                value = {target_field: joined}
+        items.append(value)
     return items
 
 

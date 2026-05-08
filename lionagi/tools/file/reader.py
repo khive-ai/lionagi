@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 from enum import Enum
+from itertools import islice
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -17,7 +18,29 @@ from ..base import LionTool
 
 # Finding 8/9: deny access to sensitive filenames
 _DENIED_NAMES: frozenset[str] = frozenset(
-    {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
+    {
+        ".env",
+        ".env.local",
+        ".env.production",
+        ".netrc",
+        ".htpasswd",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+        ".git-credentials",
+    }
+)
+# Glob patterns for sensitive files anywhere in the workspace tree.
+_DENIED_GLOBS: tuple[str, ...] = (
+    ".ssh/*",
+    ".aws/*",
+    ".config/**/credentials*",
+    ".git/config",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "secrets.*",
 )
 # Finding 9: allowed document extensions for the 'open' action
 _DOC_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".pptx", ".docx", ".html", ".htm"})
@@ -43,6 +66,11 @@ def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
         raise PermissionError(f"Path escapes workspace root: {path!r}") from e
     if resolved.name in _DENIED_NAMES:
         raise PermissionError(f"Refusing to access protected path: {resolved.name!r}")
+    for pattern in _DENIED_GLOBS:
+        if resolved.match(pattern):
+            raise PermissionError(
+                f"Refusing to access path matching {pattern!r}: {path!r}"
+            )
     return resolved
 
 
@@ -147,13 +175,14 @@ def _read_sync(
     start = max(0, offset or 0)
     max_lines = limit if (limit is not None and limit > 0) else 2000
 
+    # Bounded read via islice — never loads the full file into memory.
+    selected: list[str] = []
     try:
         with open(p, encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+            selected = list(islice(f, start, start + max_lines))
     except OSError as e:
         return ReaderResponse(success=False, error=f"Read error: {e}")
 
-    selected = lines[start : start + max_lines]
     numbered = "".join(f"{start + i + 1}\t{line}" for i, line in enumerate(selected))
     return ReaderResponse(success=True, content=numbered)
 

@@ -20,6 +20,31 @@ __all__ = ("normalize_lndl_text",)
 
 _XML_ATTR_RE = re.compile(r'\b\w+=["\'][^"\']*["\']')
 
+# `<lact alias fn(args)</lact>` — opening tag ate the closing `>`, the body
+# starts immediately. Detect by an opening tag containing `(` before the next
+# `>` and a `</lact>`/`</lvar>` further on.
+_MISSING_GT_RE = re.compile(
+    r"<(lvar|lact)\s+([A-Za-z_][\w.]*(?:\s+[A-Za-z_][\w.]*)?)\s+([^<>]*?\([^<>]*?)</\1>",
+    re.DOTALL,
+)
+
+
+def _fix_missing_gt(text: str) -> str:
+    """Repair ``<lact alias fn(args)</lact>`` → ``<lact alias>fn(args)</lact>``.
+
+    Conservative: only touches tags where (a) the opening had a function
+    call (paren) inside it and (b) the closing tag is present. Common gpt
+    drift; cheap to fix; harmless if it never matches.
+    """
+
+    def repl(m: re.Match) -> str:
+        tag = m.group(1)
+        head = m.group(2).strip()
+        body = m.group(3).strip()
+        return f"<{tag} {head}>{body}</{tag}>"
+
+    return _MISSING_GT_RE.sub(repl, text)
+
 
 def normalize_lndl_text(text: str) -> str:
     """Normalize model-invented syntax before lexing.
@@ -28,9 +53,8 @@ def normalize_lndl_text(text: str) -> str:
     - Curly-brace tags: ``{lact X}fn(){/lact}`` or ``{lact X}fn()</lact>``
       → ``<lact X>fn()</lact>``
     - XML attributes: ``<lact name="X" type="Y">`` → ``<lact X>``
-    - Tag opening missing ``>`` before body when followed by ``</tag>``:
-      ``<lact a fn()</lact>`` is NOT auto-fixed (ambiguous); the retry path
-      catches this and asks the model to fix it.
+    - Tag opening missing ``>`` before body: ``<lact a fn()</lact>`` →
+      ``<lact a>fn()</lact>`` (when the body contains a parenthesised call).
     """
     if not text:
         return text
@@ -40,11 +64,15 @@ def normalize_lndl_text(text: str) -> str:
     if blocks:
         text = "\n\n".join(blocks)
 
-    # 1) Curly-brace tags → angle-bracket tags
+    # 1) Repair missing-`>` opening tags BEFORE other rewrites so the
+    #    subsequent passes see well-formed `<tag attrs>body</tag>` pairs.
+    text = _fix_missing_gt(text)
+
+    # 2) Curly-brace tags → angle-bracket tags
     text = re.sub(r"\{(lvar|lact)(\s+[^}]*)\}", r"<\1\2>", text)
     text = re.sub(r"\{/(lvar|lact)\}", r"</\1>", text)
 
-    # 2) XML attributes inside opening tags → strip and promote `name=` to a token
+    # 3) XML attributes inside opening tags → strip and promote `name=` to a token
     def _clean_tag(m: re.Match) -> str:
         tag = m.group(1)
         body = m.group(2)

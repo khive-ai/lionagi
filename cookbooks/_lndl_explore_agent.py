@@ -1,12 +1,18 @@
 """LNDL coding agent — codebase exploration with read-only tools.
 
-Multi-round LNDL (``lndl_rounds=4``): the model is allowed to issue tool
-calls in early rounds without committing OUT, see results in chat history,
-and then commit a final OUT block once it has enough information. This is
-the ReAct flavor of LNDL — the right shape for codebase exploration where
-the answer depends on tool output.
+Multi-round LNDL (``lndl_rounds=4``): the model issues tool calls in
+early rounds without an OUT block, sees results in chat history, then
+commits OUT once it has enough information. ReAct-flavored LNDL — the
+right shape for codebase exploration where the answer depends on tool
+output.
 
-Run:
+Tools come from ``lionagi.tools.coding.CodingToolkit`` filtered to its
+``READ_ONLY`` subset (``reader``, ``search``, ``context``). Editor /
+bash / sandbox / subagent are NOT registered, so any attempt to call
+them fails at lookup — defense in depth, not just a prompt promise.
+
+Run::
+
     uv run python cookbooks/_lndl_explore_agent.py [--task=N]
 
 Tasks (each scoped to the lionagi repo):
@@ -17,137 +23,18 @@ Tasks (each scoped to the lionagi repo):
 
 import argparse
 import asyncio
-import os
-import subprocess
 import time
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from lionagi import Branch, iModel
+from lionagi.tools.coding import CodingToolkit
 
 load_dotenv()
 
 WORKSPACE = Path("/Users/lion/projects/libs/opensrc/lionagi").resolve()
-
-
-def _safe_path(p: str) -> Path:
-    """Resolve a (possibly relative) path under the workspace, refusing escapes."""
-    raw = Path(p)
-    abs_path = raw if raw.is_absolute() else (WORKSPACE / raw)
-    abs_path = abs_path.resolve()
-    if not str(abs_path).startswith(str(WORKSPACE)):
-        raise ValueError(f"Path '{p}' is outside the workspace")
-    return abs_path
-
-
-# ─── Read-only tools ────────────────────────────────────────────────────────
-
-
-def list_dir(path: str = ".", recursive: bool = False) -> str:
-    """List files and subdirectories under ``path`` (relative to workspace).
-
-    Args:
-        path: directory path relative to workspace root (default ".").
-        recursive: if true, walk the tree (capped at 200 entries).
-    """
-    target = _safe_path(path)
-    if not target.is_dir():
-        return f"Error: {path!r} is not a directory"
-    items: list[str] = []
-    if recursive:
-        for p in target.rglob("*"):
-            if any(part.startswith(".") and part not in (".", "..") for part in p.parts):
-                continue
-            rel = p.relative_to(WORKSPACE)
-            items.append(("  " * (len(rel.parts) - 1)) + rel.parts[-1])
-            if len(items) >= 200:
-                items.append("... (truncated at 200 entries)")
-                break
-    else:
-        for p in sorted(target.iterdir()):
-            if p.name.startswith("."):
-                continue
-            items.append(p.name + ("/" if p.is_dir() else ""))
-    return "\n".join(items) if items else "(empty)"
-
-
-def read_file(path: str, offset: int = 0, limit: int = 200) -> str:
-    """Read a text file with line numbers.
-
-    Args:
-        path: file path relative to workspace root.
-        offset: zero-based line offset (default 0).
-        limit: max number of lines to return (default 200, hard cap 600).
-    """
-    target = _safe_path(path)
-    if not target.is_file():
-        return f"Error: {path!r} is not a file"
-    limit = max(1, min(int(limit), 600))
-    try:
-        text = target.read_text(encoding="utf-8", errors="replace")
-    except Exception as e:
-        return f"Error: {e}"
-    lines = text.splitlines()
-    sl = lines[offset : offset + limit]
-    numbered = [f"{i + offset + 1:>5}  {line}" for i, line in enumerate(sl)]
-    out = "\n".join(numbered)
-    if len(out) > 8000:
-        out = out[:8000] + "\n[... truncated, call read_file again with offset to continue ...]"
-    return out or "(empty range)"
-
-
-def grep(pattern: str, path: str = ".", include: Optional[str] = None, max_results: int = 30) -> str:
-    """Recursively grep for a regex pattern.
-
-    Args:
-        pattern: regex pattern (extended).
-        path: directory or file path (default ".").
-        include: glob like "*.py" to filter file types (optional).
-        max_results: max matches to return (default 30).
-    """
-    target = _safe_path(path)
-    cmd = ["grep", "-rn", "-E", pattern, str(target)]
-    if include:
-        cmd += ["--include", include]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-    except subprocess.TimeoutExpired:
-        return "Error: grep timed out"
-    except FileNotFoundError:
-        return "Error: grep not installed"
-    if r.returncode == 2:
-        return f"Error: {r.stderr.strip()}"
-    lines = [ln for ln in r.stdout.splitlines() if ln][:max_results]
-    return "\n".join(lines) if lines else f"No matches for {pattern!r}"
-
-
-def find_files(pattern: str, path: str = ".", max_results: int = 50) -> str:
-    """Find files by name glob (e.g. ``*.py``).
-
-    Args:
-        pattern: name glob pattern.
-        path: starting directory (default ".").
-        max_results: cap on results (default 50).
-    """
-    target = _safe_path(path)
-    cmd = ["find", str(target), "-name", pattern, "-type", "f"]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-    except subprocess.TimeoutExpired:
-        return "Error: find timed out"
-    except FileNotFoundError:
-        return "Error: find not installed"
-    if r.returncode != 0 and r.stderr:
-        return f"Error: {r.stderr.strip()}"
-    lines = r.stdout.splitlines()[:max_results]
-    rel = [str(Path(p).relative_to(WORKSPACE)) for p in lines if p.startswith(str(WORKSPACE))]
-    return "\n".join(rel) if rel else f"No files matching {pattern!r}"
-
-
-TOOLS = [list_dir, read_file, grep, find_files]
 
 
 # ─── Output schema ──────────────────────────────────────────────────────────
@@ -155,7 +42,10 @@ TOOLS = [list_dir, read_file, grep, find_files]
 
 class ExploreFindings(BaseModel):
     summary: str = Field(description="2-5 sentence summary of what was found.")
-    files: list[str] = Field(default_factory=list, description="Relative paths inspected.")
+    files: list[str] = Field(
+        default_factory=list,
+        description="Workspace-relative paths inspected during exploration.",
+    )
     key_lines: list[str] = Field(
         default_factory=list,
         description="Notable 'path:line: snippet' strings worth a human read.",
@@ -166,52 +56,67 @@ class ExploreFindings(BaseModel):
 # ─── Agent setup ────────────────────────────────────────────────────────────
 
 
-SYSTEM_PROMPT = f"""You are a code-exploration agent. You have read-only access to:
+SYSTEM_PROMPT = f"""You are a code-exploration agent with READ-ONLY access to {WORKSPACE}.
 
-- list_dir(path, recursive)
-- read_file(path, offset, limit)
-- grep(pattern, path, include, max_results)
-- find_files(pattern, path, max_results)
+You have a coding toolkit filtered to read-only actions:
+- reader(action='read', path=..., offset=0, limit=200)
+- reader(action='list_dir', path=..., recursive=False)
+- search(action='grep', pattern=..., path=..., include='*.py', max_results=50)
+- search(action='find', pattern='*.py', path=..., max_results=100)
+- context(action='status' | 'get_messages' | 'evict' | 'evict_action_results')
 
-Workspace: {WORKSPACE}
-All paths are RELATIVE to the workspace root. You may NOT write, edit, or run
-shell commands beyond the provided tools.
+Multi-round LNDL strategy:
+1. First rounds — issue <lact> calls to gather information. No OUT yet.
+2. Middle rounds — read specific files or narrow the grep. Use
+   ``<lvar note.X ...>`` to jot findings to reference later.
+3. Final round — synthesize via <lvar> declarations and a single OUT.
 
-Strategy (multi-round LNDL — issue tools in early rounds, commit OUT in a
-later round once you have enough information):
-
-1. Round 1: list the relevant directory or grep for candidates. DO NOT commit
-   OUT yet — write only <lact> calls.
-2. Round 2-3: based on what you saw in tool results, read specific files or
-   grep with narrower patterns. Use <lvar note.X> to jot down findings you
-   want to reference later.
-3. Final round: write the synthesized answer with <lvar Field.name ...>
-   based on what you learned, then OUT{{...}}.
-
-Cite EXACT paths and line numbers — never invent them.
+Cite EXACT path:line numbers from real tool output; never invent them.
 """
+
+
+TASKS = {
+    1: (
+        "Find all files that implement LNDL parsing in lionagi. List entry "
+        "points and what each does in one sentence each."
+    ),
+    2: (
+        "Summarize what lionagi/operations/operate/operate.py does in 3 "
+        "bullets. Cite specific function names and line numbers."
+    ),
+    3: (
+        "Survey lionagi/operations/. For each .py file, give a one-line "
+        "purpose statement. Order by importance."
+    ),
+}
 
 
 def build_branch() -> Branch:
     chat_model = iModel(model="openai/gpt-5.4-mini")
-    return Branch(system=SYSTEM_PROMPT, tools=TOOLS, chat_model=chat_model)
+    branch = Branch(system=SYSTEM_PROMPT, chat_model=chat_model)
+    toolkit = CodingToolkit(workspace_root=WORKSPACE, notify=False)
+    branch.register_tools(toolkit.bind(branch, include=CodingToolkit.READ_ONLY))
+    return branch
 
 
-# ─── Tasks ──────────────────────────────────────────────────────────────────
+# ─── Runner ─────────────────────────────────────────────────────────────────
 
 
-TASKS = {
-    1: "Find all files that implement LNDL parsing in lionagi. List entry points and what each does in one sentence each.",
-    2: "Summarize what lionagi/operations/operate/operate.py does in 3 bullets. Cite specific function names and line numbers.",
-    3: "Survey lionagi/operations/. For each .py file, give a one-line purpose statement. Order by importance.",
-}
+def _print_quality(result: ExploreFindings) -> None:
+    def looks_like_path(s: str) -> bool:
+        return isinstance(s, str) and len(s) <= 500 and "\n" not in s
+
+    real = [f for f in (result.files or []) if looks_like_path(f)]
+    exist = [f for f in real if (WORKSPACE / f).exists()]
+    print("\n── quality ──")
+    print(f"  files cited:   {len(result.files or [])}")
+    print(f"  files exist:   {len(exist)}/{len(real)}")
+    if hallucinated := [f for f in real if f not in exist]:
+        print(f"  hallucinated:  {hallucinated[:3]}")
 
 
 async def run_task(task_id: int, question: str) -> None:
-    print("=" * 70)
-    print(f"TASK {task_id}: {question}")
-    print("=" * 70)
-
+    print(f"\n{'=' * 70}\nTASK {task_id}: {question}\n{'=' * 70}")
     branch = build_branch()
     t0 = time.time()
     try:
@@ -222,68 +127,35 @@ async def run_task(task_id: int, question: str) -> None:
             lndl_rounds=4,
             response_format=ExploreFindings,
         )
-        elapsed = time.time() - t0
-        msg_count = len(branch.messages)
-
-        print(f"\n[duration: {elapsed:.1f}s, messages: {msg_count}]\n")
-
-        # Show last assistant LNDL for inspection
-        for m in reversed(branch.messages):
-            if hasattr(m.content, "assistant_response"):
-                raw = m.content.assistant_response
-                print("--- raw LNDL ---")
-                for ln in str(raw).splitlines()[:60]:
-                    print(f"  | {ln}")
-                print("--- end ---\n")
-                break
-
-        if hasattr(result, "summary"):
-            print(f"Summary:\n  {result.summary}\n")
-            print(f"Confidence: {result.confidence}\n")
-            print("Files cited:")
-            for f in (result.files or [])[:10]:
-                print(f"  - {f}")
-            print("\nKey lines:")
-            for line in (result.key_lines or [])[:10]:
-                print(f"  {line}")
-
-            print("\n--- quality assessment ---")
-
-            def _looks_like_path(s: str) -> bool:
-                if not isinstance(s, str):
-                    return False
-                if len(s) > 500 or "\n" in s:
-                    return False
-                return True
-
-            real_check = [f for f in (result.files or []) if _looks_like_path(f)]
-            files_real = [f for f in real_check if (WORKSPACE / f).exists()]
-            print(f"Files that actually exist: {len(files_real)}/{len(result.files or [])}")
-            malformed = [f for f in (result.files or []) if not _looks_like_path(f)]
-            if malformed:
-                print(f"  MALFORMED paths (not single-line): {len(malformed)}")
-            missing = [f for f in real_check if f not in files_real]
-            if missing:
-                print(f"  HALLUCINATED: {missing[:5]}")
-
-            if hasattr(result, "action_responses"):
-                print(f"Tool calls executed: {len(result.action_responses or [])}")
-        else:
-            print(f"Unexpected type: {type(result).__name__}")
-            print(repr(result)[:500])
     except Exception as e:
-        print(f"\n[FAILED after {time.time() - t0:.1f}s] {type(e).__name__}: {e}")
-        import traceback
+        print(f"[FAILED after {time.time() - t0:.1f}s] {type(e).__name__}: {e}")
+        return
 
-        traceback.print_exc()
-    print()
+    elapsed = time.time() - t0
+    print(f"[duration {elapsed:.1f}s, messages {len(branch.messages)}]")
+
+    if not hasattr(result, "summary"):
+        print(f"Unexpected result type: {type(result).__name__}")
+        print(repr(result)[:400])
+        return
+
+    print(f"\nSummary:\n  {result.summary}")
+    print(f"\nConfidence: {result.confidence}")
+    if result.files:
+        print("\nFiles cited:")
+        for f in result.files[:10]:
+            print(f"  - {f}")
+    if result.key_lines:
+        print("\nKey lines:")
+        for line in result.key_lines[:10]:
+            print(f"  {line}")
+    _print_quality(result)
 
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=int, default=None)
+    parser.add_argument("--task", type=int, default=None, help="Run only task N (1, 2, or 3)")
     args = parser.parse_args()
-
     if args.task is not None:
         if args.task not in TASKS:
             print(f"Unknown task {args.task}. Available: {list(TASKS)}")

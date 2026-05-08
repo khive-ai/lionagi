@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from enum import Enum
 
@@ -12,6 +13,25 @@ from lionagi.ln.concurrency import run_sync
 from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
+
+# Reject patterns containing shell metacharacters before invoking grep/find.
+_SHELL_CONTROL = re.compile(r"(;|&&|\|\||\||`|\$\(|[<>]|\n)")
+
+# Default vendor / build directories that grep/find should always skip.
+_DEFAULT_EXCLUDE_DIRS: tuple[str, ...] = (
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".next",
+    "target",
+    "dist",
+    "build",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+)
 
 
 class SearchAction(str, Enum):
@@ -87,9 +107,26 @@ def _grep_sync(
     include: str | None,
     max_results: int,
 ) -> SearchResponse:
-    cmd = ["grep", "-rn", "-E", pattern, path]
+    if _SHELL_CONTROL.search(pattern):
+        return SearchResponse(
+            success=False,
+            error=f"Shell operators in pattern rejected: {pattern!r}",
+            count=0,
+        )
+    # ``-e pattern --`` blocks the pattern from being interpreted as an
+    # option (e.g. a model writing ``-rf`` as a regex). ``--exclude-dir``
+    # defaults skip vendored / build directories so the model isn't
+    # drowned in noise.
+    cmd = [
+        "grep",
+        "-rn",
+        "-E",
+        "--binary-files=without-match",
+        *(f"--exclude-dir={d}" for d in _DEFAULT_EXCLUDE_DIRS),
+    ]
     if include:
         cmd += ["--include", include]
+    cmd += [f"--max-count={max_results}", "-e", pattern, "--", path]
 
     try:
         result = subprocess.run(
@@ -120,7 +157,15 @@ def _grep_sync(
 
 
 def _find_sync(path: str, pattern: str, max_results: int) -> SearchResponse:
-    cmd = ["find", path, "-name", pattern]
+    if _SHELL_CONTROL.search(pattern):
+        return SearchResponse(
+            success=False,
+            error=f"Shell operators in pattern rejected: {pattern!r}",
+            count=0,
+        )
+    cmd = ["find", path, "-name", pattern, "-type", "f"]
+    for d in _DEFAULT_EXCLUDE_DIRS:
+        cmd += ["-not", "-path", f"*/{d}/*"]
 
     try:
         result = subprocess.run(

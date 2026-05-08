@@ -184,6 +184,7 @@ def _render_lndl_response_structure(
     decl_lines: list[str] = []
     out_entries: list[str] = []
     single_aliases: list[str | None] = []
+    list_model_fields: list[tuple[str, type]] = []  # (spec_name, model_cls)
     counter = [0]
 
     def alias_gen() -> str:
@@ -205,6 +206,11 @@ def _render_lndl_response_structure(
         decl_lines.extend(decls)
         out_entries.append(out_entry)
         single_aliases.append(single_alias)
+        # Track list[Model] fields for targeted nudge
+        if get_origin(ann) is list:
+            inner = (get_args(ann) or (None,))[0]
+            if _is_pydantic_model_cls(inner):
+                list_model_fields.append((spec_name, inner))
 
     if not spec_parts:
         return ""
@@ -221,6 +227,25 @@ def _render_lndl_response_structure(
     # is documented in the system prompt; rendering it here would push the model
     # to drop spec names from declarations, which breaks resolution.
     text += "OUT{" + ", ".join(out_entries) + "}\n"
+
+    # When the schema has list[Model] fields, models often try to write each
+    # item as a single string. Spell out the nested-group rule with a concrete
+    # right/wrong example pinned to one of the actual specs.
+    if list_model_fields:
+        spec_name, model_cls = list_model_fields[0]
+        field_names = list(model_cls.model_fields.keys())
+        first_aliases = ", ".join(field_names[: min(3, len(field_names))])
+        text += (
+            "\nIMPORTANT — list[Model] fields use NESTED GROUPS in OUT{}, not a "
+            "flat array of strings. Each inner array is one item, with one alias "
+            "per model field in declaration order.\n"
+            f"  WRONG: {spec_name}: [\"...\", \"...\"]   (strings instead of aliases)\n"
+            f"  RIGHT: {spec_name}: [[a1, a2, a3], [b1, b2, b3], ...]   "
+            f"(aliases for {first_aliases})\n"
+            "Apply this to EVERY list[Model] field above. Add as many groups as "
+            "you need; each group becomes one model instance.\n"
+        )
+
     if has_tools:
         text += (
             "\nTool calls: <lact spec alias>tool(arg=\"val\")</lact> for top-level "
