@@ -560,6 +560,40 @@ async def case_14():
 
 
 # ---------------------------------------------------------------------------
+# Case 15 — retries handle malformed LNDL
+#   We deliberately give the model a confusing instruction that often produces
+#   ill-formed output, then let lndl_retries=2 recover.
+# ---------------------------------------------------------------------------
+async def case_15():
+    banner("Case 15 — lndl_retries recovers from malformed output")
+
+    class Plan(BaseModel):
+        title: str
+        steps: list[str]
+        priority: int
+
+    branch = fresh_branch(
+        system="Respond using LNDL. If your output is malformed, fix it on retry."
+    )
+    out = await branch.operate(
+        instruction=(
+            "Make a Plan with title='Migrate to Postgres', "
+            "3 steps (back up DB, run migration, smoke test), priority=1."
+        ),
+        lndl=True,
+        lndl_retries=2,
+        response_format=Plan,
+    )
+    show(out, branch)
+    is_model = not isinstance(out, dict)
+    expect("returned a model (not dict)", is_model)
+    if is_model:
+        expect("has title", bool(getattr(out, "title", None)))
+        expect("steps is list with 3 items", len(getattr(out, "steps", [])) == 3)
+        expect("priority is int", isinstance(getattr(out, "priority", None), int))
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 CASES = [
@@ -577,6 +611,7 @@ CASES = [
     ("12", case_12),
     ("13", case_13),
     ("14", case_14),
+    ("15", case_15),
 ]
 
 

@@ -46,25 +46,45 @@ def _get_raw_assistant_response(branch: "Branch", result: Any) -> str | None:
     return raw
 
 
-async def _finalize_lndl(
+_LNDL_REPARSE_PROMPT = (
+    "Your previous LNDL output had an error. Fix it and respond with ONLY valid LNDL.\n\n"
+    "Error: {error}\n\n"
+    "Original output:\n{original}\n\n"
+    "Rules:\n"
+    "- OUT{{}} spec names must exactly match the schema's field names\n"
+    "- Every alias in OUT{{}} must have a matching <lvar> or <lact> declaration\n"
+    "- Tag attributes are SPACE-separated identifiers, the body sits between > and </tag>\n"
+    "- Tool arguments must be literal values, not alias references\n"
+    "Respond with corrected LNDL only — no explanation."
+)
+
+
+async def _request_lndl_fix(branch: "Branch", original: str, error: str) -> str | None:
+    """Ask the model to fix malformed LNDL using the existing branch context."""
+    prompt = _LNDL_REPARSE_PROMPT.format(error=error, original=original[:2000])
+    try:
+        _, resp = await branch.chat(instruction=prompt, return_ins_res_message=True)
+        return resp.response
+    except Exception:
+        return None
+
+
+async def _try_finalize_lndl_once(
     *,
     branch: "Branch",
-    result: Any,
+    raw: str,
     chat_param: ChatParam,
     action_param: ActionParam | None,
     operative: Union["Operative", None],
     model_class: type[BaseModel] | None,
-) -> Any:
-    """Assemble LNDL output: parse → assemble → execute → validate.
+) -> tuple[Any, str | None]:
+    """One pass: parse → assemble → execute → validate.
 
-    Steps:
-        1. Parse raw assistant response into Program (lvars/lacts/out_block).
-        2. Assemble OUT{} into a structure typed by the user's response_format.
-           Lact aliases become ActionCall placeholders.
-        3. Walk the structure, collect ActionCalls, execute via act pipeline.
-        4. Substitute results back into the structure.
-        5. Validate into operative.response_type (with action_requests / action_responses).
+    Returns ``(result, error)``. If ``error`` is non-None, the caller can
+    retry with a fix prompt.
     """
+    from pydantic import ValidationError
+
     from lionagi.lndl import (
         Lexer,
         Parser,
@@ -73,24 +93,22 @@ async def _finalize_lndl(
         replace_actions,
     )
 
-    raw = _get_raw_assistant_response(branch, result)
-    if not raw:
-        return result
-
     try:
         lexer = Lexer(raw)
         tokens = lexer.tokenize()
         parser = Parser(tokens, source_text=raw)
         program = parser.parse()
-    except Exception:
-        return result
+    except Exception as e:
+        return raw, f"LNDL syntax error: {e}"
+
+    if not program.out_block:
+        return raw, "Missing OUT{} block — declare your final aliases there."
 
     target_type = chat_param.response_format
     output = assemble(program, target_type)
     if not output:
-        return result
+        return raw, "OUT{} is empty after parsing."
 
-    # Execute any ActionCall placeholders found in the assembled structure
     placeholders = collect_actions(output)
     action_requests = []
     action_responses_models = []
@@ -115,20 +133,68 @@ async def _finalize_lndl(
     if action_responses_models:
         output["action_responses"] = action_responses_models
 
-    # If user provided a response_format, validate into operative.response_type
-    # (which extends it with action fields).
     if operative is not None and operative.base_type is not None:
         try:
-            return operative.response_type.model_validate(output)
-        except Exception:
-            pass
+            return operative.response_type.model_validate(output), None
+        except ValidationError as ve:
+            return output, f"Validation against {operative.base_type.__name__} failed: {ve}"
+        except Exception as e:
+            return output, f"Validation error: {e}"
     elif model_class is not None:
         try:
-            return model_class.model_validate(output)
-        except Exception:
-            pass
+            return model_class.model_validate(output), None
+        except ValidationError as ve:
+            return output, f"Validation against {model_class.__name__} failed: {ve}"
+        except Exception as e:
+            return output, f"Validation error: {e}"
 
-    return output
+    return output, None
+
+
+async def _finalize_lndl(
+    *,
+    branch: "Branch",
+    result: Any,
+    chat_param: ChatParam,
+    action_param: ActionParam | None,
+    operative: Union["Operative", None],
+    model_class: type[BaseModel] | None,
+    lndl_retries: int = 0,
+) -> Any:
+    """Assemble LNDL output with optional retry.
+
+    On parse/validation failure, sends the error back to the model and asks
+    for a fix, up to ``lndl_retries`` extra attempts.
+    """
+    raw = _get_raw_assistant_response(branch, result)
+    if not raw:
+        return result
+
+    last_output: Any = result
+    last_error: str | None = None
+    attempts = lndl_retries + 1
+
+    for attempt in range(attempts):
+        out, err = await _try_finalize_lndl_once(
+            branch=branch,
+            raw=raw,
+            chat_param=chat_param,
+            action_param=action_param,
+            operative=operative,
+            model_class=model_class,
+        )
+        if err is None:
+            return out
+        last_output = out
+        last_error = err
+        if attempt + 1 >= attempts:
+            break
+        fixed = await _request_lndl_fix(branch, raw, err)
+        if not fixed:
+            break
+        raw = fixed
+
+    return last_output
 
 
 def prepare_operate_kw(
@@ -154,6 +220,7 @@ def prepare_operate_kw(
     operative: "Operative" = None,
     response_format: type[BaseModel] = None,
     lndl: bool = False,
+    lndl_retries: int = 0,
     actions: bool = False,
     reason: bool = False,
     call_params: AlcallParams = None,
@@ -330,6 +397,7 @@ def prepare_operate_kw(
         "clear_messages": clear_messages,
         "operative": operative,
         "middle": middle,
+        "lndl_retries": lndl_retries if lndl else 0,
     }
 
 
@@ -347,6 +415,7 @@ async def operate(
     field_models: list[FieldModel | Spec] | None = None,
     operative: Union["Operative", None] = None,
     middle: Middle | None = None,
+    lndl_retries: int = 0,
 ) -> BaseModel | dict | str | None:
     """Execute operation with optional action handling.
 
@@ -484,6 +553,7 @@ async def operate(
             action_param=action_param,
             operative=operative,
             model_class=model_class,
+            lndl_retries=lndl_retries,
         )
 
     # JSON path: look for action_requests on the parsed result

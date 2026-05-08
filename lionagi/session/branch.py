@@ -809,6 +809,7 @@ class Branch(Element, Relational):
         persist_dir: str | None = None,
         middle: "Middle | None" = None,
         lndl: bool = None,
+        lndl_retries: int = 0,
         **kwargs,
     ) -> list | BaseModel | None | dict | str:
         """
