@@ -146,6 +146,8 @@ class Parser:
                 continue
 
             if self.match(TokenType.OUT_OPEN):
+                self._lvars_so_far = lvars
+                self._lacts_so_far = lacts
                 out_block = self.parse_out_block()
                 break
 
@@ -311,6 +313,57 @@ class Parser:
 
         return Lact(model=model, field=field, alias=alias, call=call)
 
+    def _parse_out_list(self) -> list:
+        """Parse one bracketed list (refs or nested groups) starting at LBRACKET.
+
+        Returns ``list[str]`` for flat refs and ``list[list[str]]`` when the
+        contents are themselves bracketed (e.g. ``[[a, b], [c, d]]``).
+        """
+        self.expect(TokenType.LBRACKET)
+        self.skip_newlines()
+        items: list = []
+        while not self.match(TokenType.RBRACKET, TokenType.EOF):
+            self.skip_newlines()
+            if self.match(TokenType.RBRACKET, TokenType.EOF):
+                break
+            if self.match(TokenType.LBRACKET):
+                items.append(self._parse_out_list())
+            elif self.match(TokenType.ID):
+                name = self.current_token().value
+                self.advance()
+                while self.match(TokenType.DOT):
+                    self.advance()
+                    if not self.match(TokenType.ID):
+                        break
+                    name = f"{name}.{self.current_token().value}"
+                    self.advance()
+                items.append(name)
+            elif self.match(TokenType.STR) or self.match(TokenType.NUM):
+                items.append(self.current_token().value)
+                self.advance()
+            else:
+                self.advance()
+            self.skip_newlines()
+            if self.match(TokenType.COMMA):
+                self.advance()
+        if self.match(TokenType.RBRACKET):
+            self.advance()
+        return items
+
+    def _resolve_alias_to_spec(self, alias: str) -> str | None:
+        """Look up an alias in already-parsed lvars/lacts and return its implied spec name.
+
+        Rule: prefer declared field (Model.field form), fall back to declared model
+        (single-token spec form). Returns None for raw aliases with no spec context.
+        """
+        for la in getattr(self, "_lacts_so_far", []) or []:
+            if la.alias == alias:
+                return la.field or la.model
+        for lv in getattr(self, "_lvars_so_far", []) or []:
+            if lv.alias == alias:
+                return getattr(lv, "field", None) or getattr(lv, "model", None)
+        return None
+
     def parse_out_block(self) -> OutBlock:
         self.expect(TokenType.OUT_OPEN)
         self.skip_newlines()
@@ -322,6 +375,27 @@ class Parser:
             if self.match(TokenType.OUT_CLOSE, TokenType.EOF):
                 break
 
+            # Anonymous group: OUT{[a, b], [c, d]}
+            if self.match(TokenType.LBRACKET):
+                group = self._parse_out_list()
+                # Find spec for first alias in group; bind whole group to it.
+                first = group[0] if group else None
+                spec = None
+                if isinstance(first, str):
+                    spec = self._resolve_alias_to_spec(first)
+                elif isinstance(first, list) and first and isinstance(first[0], str):
+                    spec = self._resolve_alias_to_spec(first[0])
+                if spec:
+                    existing = fields.get(spec)
+                    if isinstance(existing, list):
+                        existing.append(group)
+                    else:
+                        fields[spec] = [group]
+                self.skip_newlines()
+                if self.match(TokenType.COMMA):
+                    self.advance()
+                continue
+
             if not self.match(TokenType.ID):
                 self.advance()
                 continue
@@ -329,38 +403,25 @@ class Parser:
             field_name = self.current_token().value
             self.advance()
             self.skip_newlines()
+
+            # Shortcut: OUT{a, b}  — bare alias, no colon. Resolve to its declared spec.
+            if not self.match(TokenType.COLON):
+                spec = self._resolve_alias_to_spec(field_name)
+                if spec is None:
+                    spec = field_name  # fall back: treat the bare ID as a literal spec
+                fields.setdefault(spec, [])
+                if isinstance(fields[spec], list):
+                    fields[spec].append(field_name)
+                self.skip_newlines()
+                if self.match(TokenType.COMMA):
+                    self.advance()
+                continue
+
             self.expect(TokenType.COLON)
             self.skip_newlines()
 
             if self.match(TokenType.LBRACKET):
-                self.advance()
-                self.skip_newlines()
-                refs: list[str] = []
-                while not self.match(TokenType.RBRACKET, TokenType.EOF):
-                    self.skip_newlines()
-                    if self.match(TokenType.RBRACKET, TokenType.EOF):
-                        break
-                    if self.match(TokenType.ID):
-                        name = self.current_token().value
-                        self.advance()
-                        while self.match(TokenType.DOT):
-                            self.advance()
-                            if not self.match(TokenType.ID):
-                                break
-                            name = f"{name}.{self.current_token().value}"
-                            self.advance()
-                        refs.append(name)
-                    elif self.match(TokenType.STR) or self.match(TokenType.NUM):
-                        refs.append(self.current_token().value)
-                        self.advance()
-                    else:
-                        self.advance()
-                    self.skip_newlines()
-                    if self.match(TokenType.COMMA):
-                        self.advance()
-                if self.match(TokenType.RBRACKET):
-                    self.advance()
-                fields[field_name] = refs
+                fields[field_name] = self._parse_out_list()
 
             elif self.match(TokenType.STR):
                 fields[field_name] = self.current_token().value

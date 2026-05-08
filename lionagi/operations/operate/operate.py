@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import warnings
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 from pydantic import BaseModel, JsonValue
 
@@ -33,6 +33,102 @@ if TYPE_CHECKING:
     from lionagi.session.branch import Branch, ToolRef
 
     from .operative import Operative
+
+
+def _get_raw_assistant_response(branch: "Branch", result: Any) -> str | None:
+    """Extract the raw LNDL assistant response from the result or message log."""
+    if isinstance(result, str):
+        return result
+    raw = None
+    for m in branch.messages:
+        if hasattr(m.content, "assistant_response"):
+            raw = m.content.assistant_response
+    return raw
+
+
+async def _finalize_lndl(
+    *,
+    branch: "Branch",
+    result: Any,
+    chat_param: ChatParam,
+    action_param: ActionParam | None,
+    operative: Union["Operative", None],
+    model_class: type[BaseModel] | None,
+) -> Any:
+    """Assemble LNDL output: parse → assemble → execute → validate.
+
+    Steps:
+        1. Parse raw assistant response into Program (lvars/lacts/out_block).
+        2. Assemble OUT{} into a structure typed by the user's response_format.
+           Lact aliases become ActionCall placeholders.
+        3. Walk the structure, collect ActionCalls, execute via act pipeline.
+        4. Substitute results back into the structure.
+        5. Validate into operative.response_type (with action_requests / action_responses).
+    """
+    from lionagi.lndl import (
+        Lexer,
+        Parser,
+        assemble,
+        collect_actions,
+        replace_actions,
+    )
+
+    raw = _get_raw_assistant_response(branch, result)
+    if not raw:
+        return result
+
+    try:
+        lexer = Lexer(raw)
+        tokens = lexer.tokenize()
+        parser = Parser(tokens, source_text=raw)
+        program = parser.parse()
+    except Exception:
+        return result
+
+    target_type = chat_param.response_format
+    output = assemble(program, target_type)
+    if not output:
+        return result
+
+    # Execute any ActionCall placeholders found in the assembled structure
+    placeholders = collect_actions(output)
+    action_requests = []
+    action_responses_models = []
+    if placeholders and action_param is not None:
+        from ..act.act import act
+        from ..fields import ActionRequestModel
+
+        action_requests = [
+            ActionRequestModel(function=ac.function, arguments=ac.arguments)
+            for ac in placeholders
+        ]
+        responses = await act(branch, action_requests, action_param)
+        responses = [r for r in (responses or []) if r is not None]
+        action_responses_models = responses
+        results_by_name = {}
+        for ac, resp in zip(placeholders, responses):
+            results_by_name[ac.name] = resp.output if hasattr(resp, "output") else resp
+        output = replace_actions(output, results_by_name)
+
+    if action_requests:
+        output["action_requests"] = action_requests
+    if action_responses_models:
+        output["action_responses"] = action_responses_models
+
+    # If user provided a response_format, validate into operative.response_type
+    # (which extends it with action fields).
+    if operative is not None and operative.base_type is not None:
+        try:
+            return operative.response_type.model_validate(output)
+        except Exception:
+            pass
+    elif model_class is not None:
+        try:
+            return model_class.model_validate(output)
+        except Exception:
+            pass
+
+    return output
 
 
 def prepare_operate_kw(
@@ -160,12 +256,13 @@ def prepare_operate_kw(
         )
         operative = Step.respond_operative(operative)
 
-    # LNDL: prompt uses the clean user model (no action fields)
+    # LNDL: prompt uses the request model so reason/custom fields render,
+    # but the LNDL renderer skips framework action_* fields.
     # JSON: prompt uses the request model (with action_required/action_requests)
-    if lndl:
-        final_response_format = response_format
+    if operative:
+        final_response_format = operative.request_type
     else:
-        final_response_format = operative.request_type if operative else response_format
+        final_response_format = response_format
     # Choose ChatParam vs RunParam. RunParam is required when the middle
     # streams via run() (CLI endpoints, explicit stream_persist, or when
     # caller passes a middle that needs persist_dir). Defaulting to
@@ -354,15 +451,11 @@ async def operate(
     if skip_validation:
         return result
 
-    # For LNDL with ActionCalls, defer model validation until after execution
     _is_lndl = chat_param.formatter is LndlFormatter
-    _has_action_calls = False
-    if _is_lndl and isinstance(result, dict):
-        from lionagi.lndl.types import ActionCall as _AC
 
-        _has_action_calls = any(isinstance(v, _AC) for v in result.values())
-
-    if model_class and not isinstance(result, model_class) and not _has_action_calls:
+    # LNDL handles its own validation/action execution via _finalize_lndl.
+    # Skip the JSON-path early validation gate.
+    if not _is_lndl and model_class and not isinstance(result, model_class):
         match handle_validation:
             case "return_value":
                 return result
@@ -381,160 +474,17 @@ async def operate(
     if not invoke_actions:
         return result
 
-    # LNDL path: parse <lact> tags from raw text, or execute ActionCalls from parsed dict
-    _is_lndl = chat_param.formatter is LndlFormatter
-
-    # Case: LNDL parse already returned dict with ActionCall values
-    if _is_lndl and isinstance(result, dict) and action_param:
-        from lionagi.lndl.types import ActionCall
-
-        from ..act.act import act
-        from ..fields import ActionRequestModel
-
-        action_calls = {k: v for k, v in result.items() if isinstance(v, ActionCall)}
-        if action_calls:
-            action_requests = [
-                ActionRequestModel(function=ac.function, arguments=ac.arguments)
-                for ac in action_calls.values()
-            ]
-            action_responses = await act(branch, action_requests, action_param)
-            action_responses = [r for r in (action_responses or []) if r is not None]
-
-            # Find the spec names from OUT{} via the assistant's raw response
-            # The dict keys from parse are aliases — need to map back to spec names
-            # Get the raw response to re-parse OUT{}
-            raw_response = None
-            for m in branch.messages:
-                if hasattr(m.content, "assistant_response"):
-                    raw_response = m.content.assistant_response
-
-            if raw_response:
-                from lionagi.lndl import Lexer, Parser
-
-                lexer = Lexer(raw_response)
-                tokens = lexer.tokenize()
-                parser = Parser(tokens, source_text=raw_response)
-                program = parser.parse()
-
-                # Build alias → spec_name mapping from OUT{}
-                alias_to_spec = {}
-                if program.out_block:
-                    for spec_name, refs in program.out_block.fields.items():
-                        if isinstance(refs, list):
-                            for alias in refs:
-                                alias_to_spec[alias] = spec_name
-
-                output = {}
-                # Non-ActionCall values (lvars already resolved)
-                for k, v in result.items():
-                    if not isinstance(v, ActionCall):
-                        spec = alias_to_spec.get(k, k)
-                        output[spec] = v
-
-                # ActionCall results mapped to spec names
-                for (alias, ac), resp in zip(action_calls.items(), action_responses):
-                    spec = alias_to_spec.get(alias, alias)
-                    output[spec] = resp.output if hasattr(resp, "output") else resp
-
-                # Assemble into operative response model (has action fields)
-                output["action_requests"] = action_requests
-                output["action_responses"] = action_responses
-
-                # Only validate into operative response model if user provided
-                # a real response_format (base_type). Otherwise the operative
-                # response_type only has action fields and would drop the
-                # LNDL-declared specs (q1, q2, etc).
-                if operative and operative.base_type is not None:
-                    try:
-                        return operative.response_type.model_validate(output)
-                    except Exception:
-                        pass
-
-                return output
-
-    if _is_lndl and isinstance(result, str) and action_param:
-        from lionagi.lndl import Lexer, Parser
-        from lionagi.lndl._parse_function_call import parse_function_call
-        from lionagi.lndl.types import ActionCall
-
-        from ..act.act import act
-        from ..fields import ActionRequestModel
-
-        lexer = Lexer(result)
-        tokens = lexer.tokenize()
-        parser = Parser(tokens, source_text=result)
-        program = parser.parse()
-
-        out_aliases = set()
-        if program.out_block:
-            for v in program.out_block.fields.values():
-                if isinstance(v, list):
-                    out_aliases.update(v)
-
-        # Build ordered list of (alias, lact_node, action_request)
-        active_lacts = []
-        action_requests = []
-        for lact in program.lacts:
-            if lact.alias not in out_aliases:
-                continue
-            try:
-                parsed = parse_function_call(lact.call)
-                req = ActionRequestModel(
-                    function=parsed["operation"],
-                    arguments=parsed["arguments"],
-                )
-                active_lacts.append(lact)
-                action_requests.append(req)
-            except ValueError:
-                pass
-
-        action_responses = None
-        if action_requests:
-            action_responses = await act(branch, action_requests, action_param)
-            action_responses = [r for r in (action_responses or []) if r is not None]
-
-        # Resolve: alias → result, keyed by alias
-        alias_to_result = {}
-        if action_responses:
-            for lact_node, resp in zip(active_lacts, action_responses):
-                alias_to_result[lact_node.alias] = (
-                    resp.output if hasattr(resp, "output") else resp
-                )
-
-        # Build output using spec names from OUT{}, not aliases
-        output = {}
-
-        # Map OUT{spec: [aliases]} → resolve each alias to its value
-        if program.out_block:
-            for spec_name, refs in program.out_block.fields.items():
-                if isinstance(refs, list):
-                    for alias in refs:
-                        if alias in alias_to_result:
-                            output[spec_name] = alias_to_result[alias]
-                        else:
-                            # Check lvars
-                            for lvar in program.lvars:
-                                if lvar.alias == alias and lvar.alias in out_aliases:
-                                    output[spec_name] = lvar.content
-                                    break
-                else:
-                    output[spec_name] = refs
-
-        if action_requests:
-            output["action_requests"] = action_requests
-        if action_responses:
-            output["action_responses"] = action_responses
-
-        # Only validate into operative response model if user provided
-        # a real response_format (base_type). Otherwise operative.response_type
-        # only has action fields and would drop LNDL-declared specs.
-        if operative and operative.base_type is not None:
-            try:
-                return operative.response_type.model_validate(output)
-            except Exception:
-                pass
-
-        return output
+    # LNDL path: re-parse raw assistant response, assemble via lndl.assembler,
+    # execute any ActionCall placeholders, validate into operative response.
+    if _is_lndl:
+        return await _finalize_lndl(
+            branch=branch,
+            result=result,
+            chat_param=chat_param,
+            action_param=action_param,
+            operative=operative,
+            model_class=model_class,
+        )
 
     # JSON path: look for action_requests on the parsed result
     if model_class:

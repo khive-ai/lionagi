@@ -1,19 +1,24 @@
 """LNDL Formatter — Language Network Directive Language for structured output.
 
-Uses lionagi.lndl lexer/parser for robust extraction. Renders response_format
-as LNDL specs in the prompt. Parses LNDL-tagged responses back into validated
-Pydantic models or dicts.
+Uses lionagi.lndl lexer/parser/assembler. Renders response_format
+as schema-driven LNDL specs in the prompt. Parses LNDL-tagged responses
+back into validated Pydantic models or dicts.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
 
 from lionagi.libs.schema.breakdown_pydantic_annotation import _is_pydantic_model_cls
-from lionagi.lndl import Lexer, Lact, Lvar, Parser
-from lionagi.lndl._parse_function_call import parse_function_call
+from lionagi.lndl import (
+    Lexer,
+    Parser,
+    assemble,
+    collect_actions,
+    replace_actions,
+)
 from lionagi.lndl.prompt import LNDL_SYSTEM_PROMPT
 from lionagi.lndl.types import ActionCall
 from lionagi.ln.fuzzy import FuzzyMatchKeysParams
@@ -22,15 +27,145 @@ from ._json_formatter import _referenced_schemas_display, _tool_schemas_display
 
 
 # ---------------------------------------------------------------------------
-# LNDL response structure rendering (schema-driven, matches krons pattern)
+# Schema-driven LNDL rendering
 # ---------------------------------------------------------------------------
 
-def _render_lndl_response_structure(response_format: Any, has_tools: bool = False) -> str:
-    """Generate a schema-driven LNDL guide from the response_format.
 
-    Produces: specs line + typed field list + concrete example pattern + OUT{}.
-    The model chooses its own aliases — fuzzy matching handles the rest.
+def _type_name(t: Any) -> str:
+    """Best-effort short type name for a Python annotation."""
+    origin = get_origin(t)
+    args = get_args(t)
+    if origin is list:
+        if args and _is_pydantic_model_cls(args[0]):
+            inner = args[0]
+            inner_fields = ", ".join(inner.model_fields.keys())
+            return f"list[{inner.__name__}: {inner_fields}]"
+        if args:
+            return f"list[{_type_name(args[0])}]"
+        return "list"
+    if origin is dict:
+        if len(args) == 2:
+            return f"dict[{_type_name(args[0])}, {_type_name(args[1])}]"
+        return "dict"
+    if _is_pydantic_model_cls(t):
+        return f"{t.__name__}: {', '.join(t.model_fields.keys())}"
+    return getattr(t, "__name__", None) or str(t)
+
+
+def _spec_summary(field_name: str, ann: Any) -> str:
+    return f"{field_name}({_type_name(ann)})"
+
+
+def _render_field_example(
+    field_name: str,
+    ann: Any,
+    has_tools: bool,
+    alias_gen,
+) -> tuple[list[str], str, str | None]:
+    """Render LNDL example tags for a single response_format field.
+
+    Returns (declaration_lines, named_out_entry, single_alias_or_None).
+    The single_alias is non-None only when this field maps to exactly one alias
+    — in that case, the OUT{} can use the shortcut form ``OUT{alias}``.
     """
+    origin = get_origin(ann)
+    args = get_args(ann)
+
+    # list[X]
+    if origin is list:
+        elem = args[0] if args else Any
+        if _is_pydantic_model_cls(elem):
+            # list[Model] — show 2 sample items with nested-group OUT syntax.
+            lines: list[str] = []
+            grouped: list[list[str]] = []
+            for i in range(2):
+                item_aliases: list[str] = []
+                for fname, finfo in elem.model_fields.items():
+                    a = alias_gen()
+                    item_aliases.append(a)
+                    f_ann = finfo.annotation
+                    f_origin = get_origin(f_ann)
+                    if f_origin is list:
+                        hint = ' (JSON array)'
+                    elif f_origin is dict:
+                        hint = ' (JSON object)'
+                    else:
+                        hint = ""
+                    if has_tools and i == 0:
+                        lines.append(
+                            f"<lvar {elem.__name__}.{fname} {a}>...{hint}</lvar>  "
+                            f"OR  <lact {elem.__name__}.{fname} {a}>tool(arg=\"val\")</lact>"
+                        )
+                    else:
+                        lines.append(
+                            f"<lvar {elem.__name__}.{fname} {a}>...{hint}</lvar>"
+                        )
+                grouped.append(item_aliases)
+            groups_str = ", ".join(
+                "[" + ", ".join(g) + "]" for g in grouped
+            )
+            return lines, f"{field_name}: [{groups_str}]", None
+        # list[scalar]
+        lines = []
+        aliases = []
+        for _ in range(2):
+            a = alias_gen()
+            aliases.append(a)
+            lines.append(f"<lvar {a}>...</lvar>")
+        return lines, f"{field_name}: [{', '.join(aliases)}]", None
+
+    # dict[K, V]
+    if origin is dict:
+        lines = []
+        aliases = []
+        for _ in range(2):
+            a = alias_gen()
+            aliases.append(a)
+            lines.append(f"<lvar {field_name}.<key> {a}>...</lvar>")
+        return lines, f"{field_name}: [{', '.join(aliases)}]", None
+
+    # nested model
+    if _is_pydantic_model_cls(ann):
+        lines = []
+        aliases = []
+        for fname, finfo in ann.model_fields.items():
+            a = alias_gen()
+            aliases.append(a)
+            f_ann = finfo.annotation
+            f_origin = get_origin(f_ann)
+            # Hint that nested list fields take JSON arrays
+            if f_origin is list:
+                hint = ' (use JSON array: ["x", "y"])'
+            elif f_origin is dict:
+                hint = ' (use JSON object: {"k": "v"})'
+            else:
+                hint = ""
+            if has_tools:
+                lines.append(
+                    f"<lvar {ann.__name__}.{fname} {a}>...{hint}</lvar>  "
+                    f"OR  <lact {ann.__name__}.{fname} {a}>tool(arg=\"val\")</lact>"
+                )
+            else:
+                lines.append(f"<lvar {ann.__name__}.{fname} {a}>...{hint}</lvar>")
+        return lines, f"{field_name}: [{', '.join(aliases)}]", None
+
+    # scalar (int, float, str, bool, etc.)
+    a = alias_gen()
+    if has_tools:
+        line = (
+            f"<lvar {field_name} {a}>...</lvar>  "
+            f"OR  <lact {field_name} {a}>tool(arg=\"val\")</lact>"
+        )
+    else:
+        line = f"<lvar {field_name} {a}>...</lvar>"
+    return [line], f"{field_name}: [{a}]", a
+
+
+def _render_lndl_response_structure(
+    response_format: Any,
+    has_tools: bool = False,
+) -> str:
+    """Generate a schema-driven LNDL guide from the response_format."""
     if isinstance(response_format, BaseModel):
         return _render_lndl_response_structure(type(response_format), has_tools)
 
@@ -41,252 +176,106 @@ def _render_lndl_response_structure(response_format: Any, has_tools: bool = Fals
         return ""
 
     fields = response_format.model_fields
-    spec_parts = []
-    nested_models: list[tuple[str, type[BaseModel]]] = []
-    scalar_specs: list[str] = []
 
-    for spec_name, info in fields.items():
-        ann = info.annotation
-        if hasattr(ann, "model_fields"):
-            inner_fields = ", ".join(ann.model_fields.keys())
-            type_name = ann.__name__
-            spec_parts.append(f"{spec_name}({type_name}: {inner_fields})")
-            nested_models.append((spec_name, ann))
-        else:
-            type_name = getattr(ann, "__name__", str(ann))
-            spec_parts.append(f"{spec_name}({type_name})")
-            scalar_specs.append(spec_name)
+    # Skip framework-internal action fields — they're produced via <lact>
+    skip = {"action_required", "action_requests", "action_responses"}
 
-    specs_line = ", ".join(spec_parts)
+    spec_parts: list[str] = []
+    decl_lines: list[str] = []
+    out_entries: list[str] = []
+    single_aliases: list[str | None] = []
+    counter = [0]
 
-    text = f"Specs: {specs_line}\n\n"
-
-    example_lines: list[str] = []
-    out_parts: list[str] = []
-    alias_idx = 0
-
-    def _next_alias() -> str:
-        nonlocal alias_idx
-        a = chr(ord("a") + alias_idx % 26)
-        alias_idx += 1
+    def alias_gen() -> str:
+        i = counter[0]
+        counter[0] += 1
+        a = chr(ord("a") + (i % 26))
+        if i >= 26:
+            a = a + str(i // 26)
         return a
 
-    for spec_name, model in nested_models:
-        model_fields = list(model.model_fields.keys())
-        spec_aliases: list[str] = []
-        for fname in model_fields:
-            alias = _next_alias()
-            spec_aliases.append(alias)
-            if has_tools:
-                example_lines.append(
-                    f"<lvar {model.__name__}.{fname} {alias}>your value</lvar>"
-                    f'  OR  <lact {model.__name__}.{fname} {alias}>tool(arg="val")</lact>'
-                )
-            else:
-                example_lines.append(f"<lvar {model.__name__}.{fname} {alias}>your value</lvar>")
-        out_parts.append(f"{spec_name}: [{', '.join(spec_aliases)}]")
-
-    # Top-level fields (not nested models)
     for spec_name, info in fields.items():
-        if spec_name not in [n for n, _ in nested_models]:
-            ann = info.annotation
-            if not hasattr(ann, "model_fields"):
-                alias = _next_alias()
-                if has_tools:
-                    example_lines.append(
-                        f"<lvar {response_format.__name__}.{spec_name} {alias}>your value</lvar>"
-                        f'  OR  <lact {response_format.__name__}.{spec_name} {alias}>tool(arg="val")</lact>'
-                    )
-                else:
-                    example_lines.append(
-                        f"<lvar {response_format.__name__}.{spec_name} {alias}>your value</lvar>"
-                    )
-                out_parts.append(f"{spec_name}: [{alias}]")
+        if spec_name in skip:
+            continue
+        ann = info.annotation
+        spec_parts.append(_spec_summary(spec_name, ann))
+        decls, out_entry, single_alias = _render_field_example(
+            spec_name, ann, has_tools, alias_gen
+        )
+        decl_lines.extend(decls)
+        out_entries.append(out_entry)
+        single_aliases.append(single_alias)
 
-    for spec_name in scalar_specs:
-        if spec_name not in [p.split(":")[0].strip() for p in out_parts]:
-            out_parts.append(f"{spec_name}: <value>")
+    if not spec_parts:
+        return ""
 
-    text += "Declare each field, then reference aliases in OUT{}:\n"
-    if example_lines:
-        text += "\n".join(example_lines) + "\n"
-    text += f"\nOUT{{{', '.join(out_parts)}}}\n"
+    text = f"Specs: {', '.join(spec_parts)}\n\n"
+    text += (
+        "Declare each field with <lvar> or <lact>, then commit aliases in OUT{}.\n"
+        "Every spec listed above MUST appear in OUT{} — none is optional unless its "
+        "annotation includes None.\n\n"
+    )
+    text += "\n".join(decl_lines) + "\n\n"
+
+    # Always render the explicit, named form. The shortcut form (OUT{alias, ...})
+    # is documented in the system prompt; rendering it here would push the model
+    # to drop spec names from declarations, which breaks resolution.
+    text += "OUT{" + ", ".join(out_entries) + "}\n"
     if has_tools:
-        text += '\nTool calls: use `<lact Model.field alias>tool(arg="val")</lact>` '
-        text += "with keyword args. Result fills the field.\n"
+        text += (
+            "\nTool calls: <lact spec alias>tool(arg=\"val\")</lact> for top-level "
+            "scalar specs, <lact Model.field alias>tool(...)</lact> for model fields. "
+            "The tool's result becomes the field's value — DON'T also write a separate <lvar>.\n"
+        )
     return text
 
 
 def _render_lndl_dict_structure(response_format: dict, has_tools: bool = False) -> str:
     """Render LNDL structure for dict-based response_format."""
-    spec_parts = []
+    spec_parts: list[str] = []
+    decl_lines: list[str] = []
+    out_entries: list[str] = []
+    counter = [0]
+
+    def alias_gen() -> str:
+        i = counter[0]
+        counter[0] += 1
+        return chr(ord("a") + (i % 26))
+
     for k, v in response_format.items():
-        if _is_pydantic_model_cls(v):
-            fields = list(v.model_fields.keys())
-            spec_parts.append(f"{k}({v.__name__}: {', '.join(fields)})")
+        if isinstance(v, type) and _is_pydantic_model_cls(v):
+            spec_parts.append(f"{k}({v.__name__}: {', '.join(v.model_fields.keys())})")
+            ann = v
         elif isinstance(v, type):
             spec_parts.append(f"{k}({v.__name__})")
+            ann = v
         else:
             spec_parts.append(f"{k}({type(v).__name__})")
+            ann = type(v)
+        decls, entry, _single = _render_field_example(k, ann, has_tools, alias_gen)
+        decl_lines.extend(decls)
+        out_entries.append(entry)
 
     text = f"Specs: {', '.join(spec_parts)}\n\n"
-
-    example_lines: list[str] = []
-    out_parts: list[str] = []
-    alias_idx = 0
-
-    def _next_alias() -> str:
-        nonlocal alias_idx
-        a = chr(ord("a") + alias_idx % 26)
-        alias_idx += 1
-        return a
-
-    for k, v in response_format.items():
-        if _is_pydantic_model_cls(v):
-            model_fields = list(v.model_fields.keys())
-            spec_aliases = []
-            for fname in model_fields:
-                alias = _next_alias()
-                spec_aliases.append(alias)
-                example_lines.append(f"<lvar {v.__name__}.{fname} {alias}>your value</lvar>")
-            out_parts.append(f"{k}: [{', '.join(spec_aliases)}]")
-        else:
-            out_parts.append(f"{k}: <value>")
-
-    text += "Declare each field, then reference aliases in OUT{}:\n"
-    if example_lines:
-        text += "\n".join(example_lines) + "\n"
-    text += f"\nOUT{{{', '.join(out_parts)}}}\n"
+    text += "Declare each field, then commit aliases in OUT{}:\n"
+    text += "\n".join(decl_lines) + "\n\n"
+    text += "OUT{" + ", ".join(out_entries) + "}\n"
     return text
 
 
 # ---------------------------------------------------------------------------
-# Parsing — uses real lexer/parser from lionagi.lndl
+# Parsing
 # ---------------------------------------------------------------------------
 
-def _extract_lndl(text: str) -> tuple[dict[str, dict], dict[str, ActionCall], dict[str, Any]]:
-    """Extract lvars, lacts, and OUT block using the LNDL lexer/parser.
-
-    Returns:
-        (lvars, lacts, out_fields)
-        - lvars: alias → {model, field, value}
-        - lacts: alias → ActionCall
-        - out_fields: spec_name → [aliases] or scalar literal
-    """
-    lexer = Lexer(text)
-    tokens = lexer.tokenize()
-    parser = Parser(tokens, source_text=text)
-    program = parser.parse()
-
-    lvars: dict[str, dict] = {}
-    for lvar in program.lvars:
-        if isinstance(lvar, Lvar):
-            lvars[lvar.alias] = {
-                "model": lvar.model,
-                "field": lvar.field,
-                "value": lvar.content,
-            }
-        else:
-            lvars[lvar.alias] = {
-                "model": None,
-                "field": None,
-                "value": lvar.content,
-            }
-
-    lacts: dict[str, ActionCall] = {}
-    for lact in program.lacts:
-        try:
-            parsed = parse_function_call(lact.call)
-            lacts[lact.alias] = ActionCall(
-                name=lact.alias,
-                function=parsed["operation"],
-                arguments=parsed["arguments"],
-                raw_call=lact.call,
-            )
-        except ValueError:
-            pass
-
-    out_fields: dict[str, Any] = {}
-    if program.out_block:
-        out_fields = dict(program.out_block.fields)
-
-    return lvars, lacts, out_fields
-
-
-def _resolve_values(
-    lvars: dict[str, dict],
-    lacts: dict[str, ActionCall],
-    out_refs: list[str],
-    out_fields: dict[str, Any] | None = None,
-    model_class: type[BaseModel] | None = None,
-) -> dict[str, Any]:
-    """Resolve OUT-referenced aliases into a field→value dict.
-
-    Values can be:
-    - str/int/float/bool from <lvar> tags
-    - ActionCall from <lact> tags (to be executed by the framework)
-    - scalar literals from OUT{} block
-    """
-    kwargs: dict[str, Any] = {}
-
-    for alias in out_refs:
-        if alias in lacts:
-            action = lacts[alias]
-            field = None
-            # Check if lact was namespaced (Model.field)
-            for lact_node_alias, ac in lacts.items():
-                if lact_node_alias == alias:
-                    # Look up field from the original program lact nodes
-                    # The field info is embedded in the ActionCall name convention
-                    break
-            # Try to find field from lvar-style lookup in the lact metadata
-            # For now, use alias as field name
-            field = alias
-            # Check if any lact in the program had a model.field namespace
-            kwargs[field] = action
-        elif alias in lvars:
-            lvar = lvars[alias]
-            field = lvar.get("field") or alias
-            value = lvar["value"]
-
-            if model_class and field in model_class.model_fields:
-                field_info = model_class.model_fields[field]
-                annotation = field_info.annotation
-                if annotation is int:
-                    try:
-                        value = int(value)
-                    except (ValueError, TypeError):
-                        pass
-                elif annotation is float:
-                    try:
-                        value = float(value)
-                    except (ValueError, TypeError):
-                        pass
-                elif annotation is bool:
-                    value = str(value).lower() in ("true", "1", "yes")
-            kwargs[field] = value
-
-    # Pull scalar literals from OUT{}
-    if out_fields:
-        for k, v in out_fields.items():
-            if not isinstance(v, list) and k not in kwargs:
-                kwargs[k] = v
-
-    return kwargs
-
-
-# ---------------------------------------------------------------------------
-# LndlFormatter
-# ---------------------------------------------------------------------------
 
 class LndlFormatter:
     """LNDL formatter implementing the Formatter protocol.
 
     Usage:
         branch.operate(
-            instruction="Analyze this code",
+            instruction="...",
             response_format=AnalysisReport,
-            formatter=LndlFormatter,
+            lndl=True,
         )
     """
 
@@ -310,76 +299,43 @@ class LndlFormatter:
         response_format: Any,
         fuzzy_match_params: FuzzyMatchKeysParams | dict | None = None,
     ) -> Any:
-        """Parse LNDL-tagged text into the target response_format.
+        """Parse LNDL-tagged text into a dict suitable for model_validate.
 
-        Returns:
-            - BaseModel with ActionCall placeholders for lact fields (if model format)
-            - dict with ActionCall values for lact keys (if dict format)
-
-        The caller (operate pipeline) should check for ActionCall values,
-        execute them, and call revalidate_with_action_results() if needed.
+        Values may include ``ActionCall`` placeholders for <lact> aliases.
+        Caller is responsible for executing actions and replacing placeholders.
         """
-        lvars, lacts, out_fields = _extract_lndl(text)
+        try:
+            lexer = Lexer(text)
+            tokens = lexer.tokenize()
+            parser = Parser(tokens, source_text=text)
+            program = parser.parse()
+        except Exception as e:
+            raise ValueError(f"Failed to parse LNDL: {e}") from e
 
-        if not lvars and not lacts and not out_fields:
+        if not program.lvars and not program.lacts and not program.out_block:
             raise ValueError("No LNDL tags or OUT{} block found in response")
 
-        # Collect all OUT-referenced aliases
-        all_refs: list[str] = []
-        for v in out_fields.values():
-            if isinstance(v, list):
-                all_refs.extend(v)
+        target = response_format
+        if isinstance(target, BaseModel):
+            target = type(target)
 
-        # Filter to only OUT-referenced items
-        active_lvars = {k: v for k, v in lvars.items() if k in all_refs}
-        active_lacts = {k: v for k, v in lacts.items() if k in all_refs}
+        output = assemble(program, target)
 
-        if _is_pydantic_model_cls(response_format):
-            model_name = response_format.__name__
-            spec_name = model_name[0].lower() + model_name[1:]
-            model_fields = set(response_format.model_fields.keys())
-
-            refs = out_fields.get(spec_name) or out_fields.get(model_name)
-
-            if isinstance(refs, list):
-                # Single OUT entry for the model: OUT{answer: [a, b]}
-                kwargs = _resolve_values(active_lvars, active_lacts, refs, out_fields, response_format)
-            else:
-                # Field-level OUT entries: OUT{q1: [a], q2: [b]}
-                # Each OUT key maps to a model field
-                kwargs = {}
-                for field_name, field_refs in out_fields.items():
-                    if field_name in model_fields and isinstance(field_refs, list):
-                        for alias in field_refs:
-                            if alias in active_lvars:
-                                value = active_lvars[alias]["value"]
-                                # Coerce types
-                                ann = response_format.model_fields[field_name].annotation
-                                if ann is int:
-                                    try: value = int(value)
-                                    except (ValueError, TypeError): pass
-                                elif ann is float:
-                                    try: value = float(value)
-                                    except (ValueError, TypeError): pass
-                                elif ann is bool:
-                                    value = str(value).lower() in ("true", "1", "yes")
-                                kwargs[field_name] = value
-                            elif alias in active_lacts:
-                                kwargs[field_name] = active_lacts[alias]
-                    elif field_name in model_fields and not isinstance(field_refs, list):
-                        # Scalar literal: OUT{score: 0.85}
-                        kwargs[field_name] = field_refs
-
-            has_actions = any(isinstance(v, ActionCall) for v in kwargs.values())
-            if has_actions:
-                return kwargs
-
-            return response_format.model_validate(kwargs)
-
-        if isinstance(response_format, BaseModel):
-            return LndlFormatter.parse(text, type(response_format), fuzzy_match_params)
-
+        # If response_format is a dict spec, return the assembled dict directly
         if isinstance(response_format, dict):
-            return _resolve_values(active_lvars, active_lacts, all_refs, out_fields)
+            return output
 
-        raise ValueError(f"Unsupported response_format type: {type(response_format)}")
+        # If output has ActionCall placeholders anywhere, return the dict —
+        # the caller (operate pipeline) will execute and re-validate.
+        if collect_actions(output):
+            return output
+
+        if _is_pydantic_model_cls(target):
+            try:
+                return target.model_validate(output)
+            except Exception:
+                # Fall back to dict — operate pipeline may still validate
+                # against an extended (operative) response model.
+                return output
+
+        return output

@@ -10,6 +10,7 @@ Core (no external deps beyond lionagi):
     lexer, parser, ast, resolver, extract, types, errors, prompt
 """
 
+from .assembler import assemble, assemble_spec_value, collect_actions, replace_actions
 from .ast import Identifier, Lact, Literal, Lvar, OutBlock, Program, RLvar
 from .errors import (
     AmbiguousMatchError,
@@ -51,6 +52,10 @@ __all__ = (
     "Scalar",
     "Token",
     "TokenType",
+    "assemble",
+    "assemble_spec_value",
+    "collect_actions",
     "extract_lndl_blocks",
     "get_lndl_system_prompt",
+    "replace_actions",
 )
