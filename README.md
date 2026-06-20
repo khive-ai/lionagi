@@ -4,6 +4,9 @@
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 [![codecov](https://codecov.io/github/ohdearquant/lionagi/graph/badge.svg?token=FAE47FY26T)](https://codecov.io/github/ohdearquant/lionagi)
 
+## Important
+`khive-ai/lionagi` is meant to be a stable release of lionagi, and will be updated when we can, visit [new destination](https://github.com/ohdearquant/lionagi) for latest development.
+
 # lionagi
 
 Orchestrate multi-agent AI workflows from the command line or Python.
@@ -19,6 +22,9 @@ Orchestrate multi-agent AI workflows from the command line or Python.
 ![Lion Studio — run detail with execution DAG, branches, and multi-agent orchestration](assets/studio.png)
 
 Lion Studio is the built-in web UI for managing and operating your agent workflows. Projects, schedules, playbooks, shows, and runs — all in one place.
+
+
+
 
 ```bash
 pip install lionagi
