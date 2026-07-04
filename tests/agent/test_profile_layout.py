@@ -1,12 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for agent profile directory reorg.
-
-Verifies both layouts work:
-  - .lionagi/agents/<name>/<name>.md  (directory, preferred)
-  - .lionagi/agents/<name>.md         (flat, legacy backward-compat)
-"""
+"""Tests for agent profile resolution: directory layout and flat legacy layout."""
 
 from __future__ import annotations
 
@@ -14,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from lionagi.cli._agents import _resolve_profile_path, list_agents, load_agent_profile
+from lionagi.cli._providers import _resolve_profile_path, list_agents, load_agent_profile
 
 # ── _resolve_profile_path ────────────────────────────────────────────
 

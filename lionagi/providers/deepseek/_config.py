@@ -12,7 +12,7 @@ class DeepSeekConfigs(ProviderConfig, Enum):
         "chat/completions",
         ["chat"],
         EndpointType.API,
-        LazyType("lionagi.providers.deepseek.chat.models:DeepseekChatCompletionsRequest"),
+        LazyType("lionagi.providers.deepseek.chat:DeepseekChatCompletionsRequest"),
         "https://api.deepseek.com/v1",
         "bearer",
     )
@@ -20,5 +20,6 @@ class DeepSeekConfigs(ProviderConfig, Enum):
 
 DeepSeekConfigs._PROVIDER = "deepseek"
 DeepSeekConfigs._PROVIDER_ALIASES = []
+DeepSeekConfigs._API_KEY_ENV = "DEEPSEEK_API_KEY"
 
 __all__ = ("DeepSeekConfigs",)

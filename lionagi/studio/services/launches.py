@@ -10,9 +10,13 @@ import time
 import uuid
 from typing import Any
 
+from fastapi import HTTPException
+from pydantic import BaseModel
+
 from lionagi.state.db import StateDB
 
 from .. import config
+from ..registry import studio_route
 from ..scheduler.subprocess import build_argv
 from ..services.schedules import (
     _svc_validate_action_model,
@@ -23,19 +27,11 @@ from ..services.schedules import (
 
 _log = logging.getLogger(__name__)
 
-# flow_yaml is excluded from on-demand launches: the inline YAML would need to
-# be written to a temp file whose lifetime must outlive the HTTP request handler.
-# Callers who need flow_yaml should create a schedule with trigger_type=manual
-# and call POST /api/schedules/{id}/trigger instead.
-_LAUNCH_VALID_KINDS = frozenset({"agent", "flow", "fanout", "play", "engine"})
+_LAUNCH_VALID_KINDS = frozenset({"agent", "flow", "fanout", "play", "flow_yaml", "engine"})
 
-# The event loop keeps only weak references to tasks; a fire-and-forget task
-# with no strong reference can be garbage-collected mid-flight.
 _detached_tasks: set[asyncio.Task] = set()
+_user_cancelled: set[str] = set()
 
-# Admission cap (config.MAX_LAUNCHES): a slot is acquired in launch() before
-# the invocation row is created and released when the detached task completes,
-# so a burst of concurrent POSTs cannot over-admit past the cap.
 _launch_semaphore: asyncio.Semaphore | None = None
 
 
@@ -74,25 +70,21 @@ def _validate_request(data: dict[str, Any]) -> None:
         if not (data.get("action_prompt") or "").strip():
             raise ValueError("action_prompt (the engine spec) is required for engine launches")
         _svc_validate_identifier(data.get("action_engine_def"), "action_engine_def")
+    if kind == "flow_yaml" and not (data.get("action_flow_yaml") or "").strip():
+        raise ValueError(
+            "action_flow_yaml (the inline flow spec) is required for flow_yaml launches"
+        )
 
 
 async def launch(data: dict[str, Any]) -> dict[str, Any]:
-    """Validate *data*, record an invocation, spawn the process, return identifiers.
-
-    Returns a dict with:
-      - ``invocation_id``: created before spawn; use GET /api/invocations/{id}
-        to watch status and find child sessions once they appear.
-      - ``action_kind``: the normalised kind that was fired.
+    """Validate *data*, record an invocation, spawn a detached process, return identifiers.
 
     Raises TooManyLaunchesError when the in-flight cap is reached.
-    The spawned process runs detached.  Session IDs are only knowable after the
-    process starts and writes to the DB, so they are not included in this
-    response.
+    Returns ``{invocation_id, action_kind}``; session IDs appear in the DB only after the
+    process starts.
     """
     _validate_request(data)
 
-    # Build and validate argv BEFORE creating the DB row.  build_argv does its
-    # own validation pass; if it raises, no invocation row is left stranded.
     schedule_dict: dict[str, Any] = {
         "action_kind": data["action_kind"],
         "action_model": data.get("action_model") or "",
@@ -101,6 +93,7 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
         "action_playbook": data.get("action_playbook"),
         "action_project": data.get("action_project"),
         "action_extra_args": data.get("action_extra_args") or [],
+        "action_flow_yaml": data.get("action_flow_yaml"),
     }
     if data["action_kind"] == "engine":
         defn = await _resolve_engine_def(data["action_engine_def"])
@@ -111,9 +104,9 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
         if not schedule_dict["action_model"]:
             schedule_dict["action_model"] = defn.get("model") or ""
         opts: dict[str, Any] = dict(defn.get("options") or {})
-        for key in ("max_depth", "max_agents"):
-            if defn.get(key) is not None:
-                opts[key] = defn[key]
+        for k in ("max_depth", "max_agents"):
+            if defn.get(k) is not None:
+                opts[k] = defn[k]
         schedule_dict["action_engine_options"] = opts
     argv, tmp_path = build_argv(schedule_dict, {})
 
@@ -123,10 +116,6 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
             f"Maximum concurrent launches ({config.MAX_LAUNCHES}) reached. "
             "Retry when an existing launch completes."
         )
-    # The slot must be taken here, not inside the spawned task: deferring the
-    # acquire would let a burst of concurrent POSTs all pass the check above
-    # before any task runs.  locked() was False and nothing yields between the
-    # check and the acquire on a single event loop, so this never blocks.
     await sem.acquire()
 
     inv_id = uuid.uuid4().hex[:12]
@@ -145,7 +134,6 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-        # Spawn detached — the HTTP handler must not block until the run finishes.
         task = asyncio.create_task(
             _spawn_detached(argv, inv_id, tmp_path=tmp_path),
             name=f"launch-{inv_id}",
@@ -154,8 +142,6 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
         sem.release()
         raise
 
-    # Release on task completion (a done callback fires even if the task is
-    # cancelled before its coroutine ever runs, where an in-task release would not).
     task.add_done_callback(lambda _t: sem.release())
     _detached_tasks.add(task)
     task.add_done_callback(_detached_tasks.discard)
@@ -179,12 +165,7 @@ async def _resolve_engine_def(ref: str) -> dict[str, Any]:
 
 
 async def shutdown_launches() -> None:
-    """Cancel all in-flight detached launch tasks and await their completion.
-
-    Called from the app lifespan on shutdown.  Each task's CancelledError
-    handler writes a terminal DB row before re-raising, so invocation rows do
-    not stay stuck in 'running'.
-    """
+    """Cancel all in-flight launch tasks on shutdown; each task writes a terminal DB row before re-raising."""
     tasks = [t for t in list(_detached_tasks) if not t.done()]
     if not tasks:
         return
@@ -206,7 +187,12 @@ async def _spawn_detached(argv: list[str], inv_id: str, *, tmp_path: str | None)
         else:
             status, reason = "failed", RunReasons.FAILED_EXIT_NONZERO
     except asyncio.CancelledError:
-        # Server is shutting down — write a terminal row before propagating.
+        # Write a terminal row before propagating; distinguish user vs shutdown.
+        is_user = inv_id in _user_cancelled
+        _user_cancelled.discard(inv_id)
+        reason_summary = (
+            "Launch cancelled by user." if is_user else "Launch cancelled by server shutdown."
+        )
         try:
             async with StateDB() as db:
                 await db.update_invocation(inv_id, ended_at=time.time())
@@ -215,7 +201,7 @@ async def _spawn_detached(argv: list[str], inv_id: str, *, tmp_path: str | None)
                     inv_id,
                     new_status="cancelled",
                     reason_code=RunReasons.CANCELLED_SYSTEM,
-                    reason_summary="Launch cancelled by server shutdown.",
+                    reason_summary=reason_summary,
                     evidence_refs=[],
                     source="executor",
                     actor=inv_id,
@@ -223,7 +209,7 @@ async def _spawn_detached(argv: list[str], inv_id: str, *, tmp_path: str | None)
                 )
         except Exception:
             _log.exception(
-                "Failed to record cancellation for launch invocation %s during shutdown",
+                "Failed to record cancellation for launch invocation %s",
                 inv_id,
             )
         raise
@@ -247,3 +233,44 @@ async def _spawn_detached(argv: list[str], inv_id: str, *, tmp_path: str | None)
             )
     except Exception:
         _log.exception("Failed to update invocation %s after detached launch", inv_id)
+
+
+class LaunchRequest(BaseModel):
+    action_kind: str
+    action_model: str | None = None
+    action_prompt: str | None = None
+    action_agent: str | None = None
+    action_playbook: str | None = None
+    action_project: str | None = None
+    action_flow_yaml: str | None = None
+    action_engine_def: str | None = None
+    action_extra_args: list[str] | None = None
+
+
+@studio_route("/launches/", method="POST", area="launches", status_code=202)
+async def launch_run(body: LaunchRequest) -> dict[str, Any]:
+    """Fire an orchestration run immediately; process runs detached.
+
+    Returns invocation_id; monitor via GET /api/invocations/{id} and GET /api/sessions/{id}/signals.
+    """
+    try:
+        return await launch(body.model_dump(exclude_none=True))
+    except TooManyLaunchesError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@studio_route(
+    "/invocations/{invocation_id}/cancel", method="POST", area="launches", status_code=202
+)
+async def cancel_launch(invocation_id: str) -> dict[str, Any]:
+    """Cancel an in-flight launch: terminate its detached process; the task records a cancelled invocation row."""
+    for t in list(_detached_tasks):
+        if t.get_name() == f"launch-{invocation_id}" and not t.done():
+            _user_cancelled.add(invocation_id)
+            t.cancel()
+            return {"invocation_id": invocation_id, "status": "cancelling"}
+    raise HTTPException(
+        status_code=404, detail=f"No in-flight launch for invocation {invocation_id!r}"
+    )

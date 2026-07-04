@@ -1,18 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""``LionAGIMockFactory`` — the legacy iModel-mocking API.
-
-Originally lived at ``tests/utils/mock_factory.py``. Promoted into the library
-so external consumers can use it.
-
-Mechanism: overrides ``iModel.invoke`` with an ``AsyncMock`` that returns
-pre-populated ``APICalling`` objects. Calls don't go through the endpoint
-layer — that's the trade-off for keeping the legacy API stable. For tests
-that need fidelity (payload inspection, streaming, tool-call roundtrips,
-error injection) use ``lionagi.testing.TestBranch`` + ``ScriptedEndpoint``
-instead.
-"""
+"""``LionAGIMockFactory`` — legacy AsyncMock-backed factory; prefer ``TestBranch`` for new tests."""
 
 from __future__ import annotations
 
@@ -20,7 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 from lionagi.protocols.generic.event import EventStatus
-from lionagi.providers.openai.chat.models import OpenAIChatCompletionsRequest
+from lionagi.providers.openai._chat_schemas import OpenAIChatCompletionsRequest
 from lionagi.service.connections.api_calling import APICalling
 from lionagi.service.connections.endpoint import Endpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
@@ -56,15 +45,8 @@ def oai_chat_endpoint_config(
     )
 
 
-# Back-compat alias for code that imported the private helper directly.
-_get_oai_config = oai_chat_endpoint_config
-
-
 class LionAGIMockFactory:
-    """Centralized factory for AsyncMock-based test branches and iModels.
-
-    Prefer ``TestBranch`` for new code — same ergonomics, much better fidelity.
-    """
+    """Centralized factory for AsyncMock-based test branches and iModels. Prefer ``TestBranch`` for new tests."""
 
     @staticmethod
     def create_mocked_branch(
@@ -143,7 +125,7 @@ class LionAGIMockFactory:
         endpoint_config: dict[str, Any] | None = None,
     ) -> APICalling:
         if endpoint_config is None:
-            endpoint_config = _get_oai_config(
+            endpoint_config = oai_chat_endpoint_config(
                 name="oai_chat",
                 endpoint="chat/completions",
                 request_options=OpenAIChatCompletionsRequest,

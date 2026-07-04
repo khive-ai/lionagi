@@ -6,29 +6,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
+from pathlib import Path
+from typing import Any
 
-# Import pure helpers from split modules (public surface preserved).
 from ._runs import RUNS_ROOT
-from ._state_db_import import (
-    _EXIT_CODE_STATUS_MAP,
-    _STATUS_MAP,
-    _derive_import_status,
-    _derive_timestamps,
-    _import_one_run,
-    _msg_from_collection_entry,
-    _mtime_as_float,
-)
-
-# Re-export DB operations helpers (public surface preserved).
-from ._state_db_ops import (
-    _checkpoint,
-    _doctor,
-    _format_bytes,
-    _list_sessions,
-    _print_stats,
-    _prune,
-    _vacuum,
-)
+from ._util import EXIT_CODE_BY_STATUS
 
 __all__ = [
     # import helpers
@@ -54,6 +37,609 @@ __all__ = [
     "add_state_subparser",
     "run_state",
 ]
+
+
+# ── run/team import helpers ───────────────────────────────────────────────────
+
+
+def _mtime_as_float(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        import time
+
+        return time.time()
+
+
+def _msg_from_collection_entry(raw: dict[str, Any]) -> dict[str, Any]:
+    """Convert a branch-collection message dict to the DB insert shape."""
+    return {
+        "id": raw["id"],
+        "created_at": raw["created_at"],
+        "node_metadata": raw.get("metadata"),
+        "content": raw.get("content", {}),
+        "embedding": raw.get("embedding"),
+        "sender": raw.get("sender"),
+        "recipient": raw.get("recipient"),
+        "channel": raw.get("channel"),
+        "role": raw["role"],
+    }
+
+
+_STATUS_MAP = {
+    "running": "running",
+    "completed": "completed",
+    "failed": "failed",
+    "aborted": "aborted",
+    "timed_out": "timed_out",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    "success": "completed",
+    "error": "failed",
+    "timeout": "timed_out",
+}
+
+_EXIT_CODE_STATUS_MAP = {v: k for k, v in EXIT_CODE_BY_STATUS.items()}
+
+
+def _derive_import_status(manifest: dict[str, Any]) -> str:
+    """Derive session status from run.json fields."""
+    raw_status = manifest.get("status")
+    if raw_status is not None:
+        return _STATUS_MAP.get(str(raw_status).lower(), "completed")
+
+    exit_code = manifest.get("exit_code")
+    if exit_code is not None:
+        return _EXIT_CODE_STATUS_MAP.get(exit_code, "failed")
+
+    return "completed"
+
+
+def _derive_timestamps(
+    manifest: dict[str, Any],
+    run_dir: Path,
+) -> tuple[float, float]:
+    """Return (started_at, ended_at) as floats; falls back to fs timestamps."""
+    import time as _time
+
+    started_at = manifest.get("started_at")
+    ended_at = manifest.get("ended_at")
+
+    try:
+        stat = run_dir.stat()
+        fs_ctime = stat.st_birthtime if hasattr(stat, "st_birthtime") else stat.st_ctime
+        fs_mtime = stat.st_mtime
+    except OSError:
+        now = _time.time()
+        fs_ctime = now
+        fs_mtime = now
+
+    if started_at is None:
+        started_at = fs_ctime
+    if ended_at is None:
+        ended_at = fs_mtime
+
+    if isinstance(started_at, str):
+        import datetime
+
+        try:
+            started_at = datetime.datetime.fromisoformat(started_at).timestamp()
+        except ValueError:
+            started_at = fs_ctime
+    if isinstance(ended_at, str):
+        import datetime
+
+        try:
+            ended_at = datetime.datetime.fromisoformat(ended_at).timestamp()
+        except ValueError:
+            ended_at = fs_mtime
+
+    return float(started_at), float(ended_at)
+
+
+async def _import_one_run(
+    db: Any,
+    run_id: str,
+    run_dir: Path,
+    manifest: dict[str, Any],
+) -> tuple[int, int, int]:
+    created_at = _mtime_as_float(run_dir)
+    session_name = manifest.get("kind") or "agent"
+
+    status = _derive_import_status(manifest)
+    started_at, ended_at = _derive_timestamps(manifest, run_dir)
+
+    session_prog_id = str(uuid.uuid4())
+    await db.create_progression(session_prog_id)
+
+    raw_kind = (manifest.get("kind") or "").lower()
+    legacy_kind_map = {
+        "agent": "agent",
+        "play": "play",
+        "flow": "flow",
+        "fanout": "fanout",
+    }
+    invocation_kind = legacy_kind_map.get(raw_kind)
+
+    artifacts_path = manifest.get("artifact_root") or manifest.get("artifacts_path")
+    if artifacts_path is None:
+        candidate = run_dir / "artifacts"
+        if candidate.exists():
+            artifacts_path = str(candidate)
+
+    await db.create_session(
+        {
+            "id": run_id,
+            "created_at": created_at,
+            "node_metadata": None,
+            "name": session_name,
+            "user": None,
+            "progression_id": session_prog_id,
+            "first_msg_id": None,
+            "last_msg_id": None,
+            # ADR-0012 enriched provenance — written so imported rows are
+            # queryable by the same fields live runs use.
+            "invocation_kind": invocation_kind,
+            "playbook_name": manifest.get("playbook_name") or manifest.get("playbook"),
+            "agent_name": manifest.get("agent_name") or manifest.get("agent"),
+            "artifacts_path": artifacts_path,
+            "source_kind": "imported_fs",
+            "status": status,
+            "started_at": started_at,
+            "ended_at": ended_at,
+        }
+    )
+
+    branches_dir = run_dir / "branches"
+
+    branch_files: list[Path] = []
+    if branches_dir.exists():
+        branch_files = list(branches_dir.glob("*.json"))
+
+    total_branches = 0
+    total_messages = 0
+    session_msg_ids: list[str] = []
+
+    for branch_file in sorted(branch_files, key=lambda p: p.stat().st_mtime):
+        try:
+            branch_data = json.loads(branch_file.read_text())
+        except Exception as exc:
+            print(f"    [warn] {branch_file.name}: failed to read — {exc}")
+            continue
+
+        branch_id = branch_data.get("id") or branch_file.stem
+        branch_created_at = branch_data.get("created_at") or _mtime_as_float(branch_file)
+
+        messages_pile = branch_data.get("messages", {})
+        raw_collection: list[dict] = messages_pile.get("collections", [])
+        progression_info = messages_pile.get("progression", {})
+        order: list[str] = progression_info.get("order", [])
+
+        by_id: dict[str, dict] = {m["id"]: m for m in raw_collection if "id" in m}
+        if order:
+            ordered_msgs = [by_id[mid] for mid in order if mid in by_id]
+        else:
+            ordered_msgs = raw_collection
+
+        system_msg_id: str | None = None
+        for raw_msg in ordered_msgs:
+            if raw_msg.get("role") == "system":
+                system_msg_id = raw_msg["id"]
+                break
+
+        branch_msg_ids: list[str] = []
+        for raw_msg in ordered_msgs:
+            msg = _msg_from_collection_entry(raw_msg)
+            await db.insert_message(msg)
+            branch_msg_ids.append(msg["id"])
+            total_messages += 1
+
+        # Create branch progression with ordered message IDs.
+        branch_prog_id = str(uuid.uuid4())
+        await db.create_progression(branch_prog_id, branch_msg_ids)
+
+        manifest_branch_meta = {}
+        for mb in manifest.get("branches", []):
+            if mb.get("id") == branch_id:
+                manifest_branch_meta = mb
+                break
+
+        node_meta: dict[str, Any] = {}
+        provider = manifest_branch_meta.get("provider") or manifest.get("provider")
+        model = manifest_branch_meta.get("model") or manifest.get("model")
+        if provider:
+            node_meta["provider"] = provider
+        if model:
+            node_meta["model"] = model
+        branch_name = manifest_branch_meta.get("name") or manifest.get("kind")
+
+        await db.create_branch(
+            {
+                "id": branch_id,
+                "created_at": branch_created_at,
+                "node_metadata": node_meta or None,
+                "user": branch_data.get("user"),
+                "name": branch_name,
+                "session_id": run_id,
+                "progression_id": branch_prog_id,
+                "system_msg_id": system_msg_id,
+            }
+        )
+
+        session_msg_ids.extend(branch_msg_ids)
+        total_branches += 1
+
+    if session_msg_ids:
+        from sqlalchemy import text
+
+        async with db._tx() as conn:
+            await conn.execute(
+                text("UPDATE progressions SET collection = :col WHERE id = :id"),
+                {"col": json.dumps(session_msg_ids), "id": session_prog_id},
+            )
+        await db.update_session(
+            run_id,
+            first_msg_id=session_msg_ids[0],
+            last_msg_id=session_msg_ids[-1],
+        )
+
+    print(f"  imported {run_id}: {total_branches} branch(es), {total_messages} message(s)")
+    return 1, total_branches, total_messages
+
+
+# ── DB maintenance helpers ────────────────────────────────────────────────────
+
+
+def _format_bytes(n: int) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TiB"
+
+
+async def _list_sessions(*, limit: int = 50, status: str | None = None) -> None:
+    import time
+
+    from sqlalchemy import text
+
+    from lionagi.state.db import StateDB
+
+    async with StateDB() as db:
+        async with db._read() as conn:
+            if status:
+                rows = (
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT id, name, status, updated_at FROM sessions "
+                                "WHERE status = :st ORDER BY updated_at DESC LIMIT :lim"
+                            ),
+                            {"st": status, "lim": limit},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            else:
+                rows = (
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT id, name, status, updated_at FROM sessions "
+                                "ORDER BY updated_at DESC LIMIT :lim"
+                            ),
+                            {"lim": limit},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+
+        if not rows:
+            print("(no sessions in state.db)")
+            return
+
+        header = (
+            f"{'ID':<36}  {'NAME':<16}  {'STATUS':<10}  "
+            f"{'BRANCHES':>8}  {'MESSAGES':>8}  {'UPDATED':<20}"
+        )
+        print(header)
+        print("-" * len(header))
+        for row in rows:
+            sid = row["id"]
+            name = (row["name"] or "")[:16]
+            sstat = (row["status"] or "")[:10]
+            updated = row["updated_at"]
+            updated_str = (
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(updated)) if updated else ""
+            )
+
+            async with db._read() as conn:
+                bc = (
+                    (
+                        await conn.execute(
+                            text("SELECT COUNT(*) AS n FROM branches WHERE session_id = :sid"),
+                            {"sid": sid},
+                        )
+                    )
+                    .mappings()
+                    .first()["n"]
+                )
+
+                prog_row = (
+                    (
+                        await conn.execute(
+                            text("SELECT progression_id FROM sessions WHERE id = :id"),
+                            {"id": sid},
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+            msg_count = 0
+            if prog_row and prog_row["progression_id"]:
+                prog_data = await db.get_progression(prog_row["progression_id"])
+                msg_count = len(prog_data)
+
+            print(f"{sid:<36}  {name:<16}  {sstat:<10}  {bc:>8}  {msg_count:>8}  {updated_str:<20}")
+
+
+async def _print_stats() -> None:
+    from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+
+    db_path = DEFAULT_DB_PATH
+    db_size = db_path.stat().st_size if db_path.exists() else 0
+    wal_path = db_path.with_name(db_path.name + "-wal")
+    wal_size = wal_path.stat().st_size if wal_path.exists() else 0
+
+    print(f"state.db path:   {db_path}")
+    print(f"state.db size:   {_format_bytes(db_size)}")
+    print(f"state.db-wal:    {_format_bytes(wal_size)}")
+    print()
+
+    if not db_path.exists():
+        print("(no state.db yet — first run will create it)")
+        return
+
+    from sqlalchemy import text
+
+    async with StateDB() as db:
+        print("Row counts:")
+        for table in (
+            "messages",
+            "progressions",
+            "sessions",
+            "branches",
+            "definitions",
+            "shows",
+            "plays",
+        ):
+            async with db._read() as conn:
+                row = (
+                    (
+                        await conn.execute(
+                            text(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+            print(f"  {table:<14} {row['n']:>10}")
+        print()
+
+        async with db._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT COALESCE(status, '(null)') AS s, COUNT(*) AS n "
+                            "FROM sessions GROUP BY status ORDER BY n DESC"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        print("Sessions by status:")
+        for row in rows:
+            print(f"  {row['s']:<14} {row['n']:>10}")
+        print()
+
+        print("PRAGMAs:")
+        for pragma in (
+            "journal_mode",
+            "wal_autocheckpoint",
+            "busy_timeout",
+            "synchronous",
+            "foreign_keys",
+        ):
+            async with db._read() as conn:
+                row = (await conn.execute(text(f"PRAGMA {pragma}"))).first()
+            val = row[0] if row else "?"
+            print(f"  {pragma:<22} {val}")
+
+
+async def _checkpoint(mode: str) -> str:
+    from lionagi.state.db import StateDB
+
+    async with StateDB() as db:
+        row = await db.checkpoint(mode)
+        if row is None:
+            return "(not applicable on this backend)"
+        return f"busy={row[0]}, log_pages={row[1]}, checkpointed={row[2]}"
+
+
+async def _vacuum() -> None:
+    from lionagi.state.db import StateDB
+
+    async with StateDB() as db:
+        await db.vacuum()
+
+
+async def _prune(
+    *,
+    keep_days: int,
+    keep_n: int,
+    dry_run: bool,
+) -> dict[str, int]:
+    import time as _time
+
+    from lionagi.state.db import StateDB
+
+    cutoff = _time.time() - (keep_days * 86400)
+
+    from sqlalchemy import text
+
+    async with StateDB() as db:
+        async with db._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT id FROM sessions "
+                            "WHERE id NOT IN ("
+                            "  SELECT id FROM sessions ORDER BY updated_at DESC LIMIT :keep_n"
+                            ") AND (updated_at < :cutoff OR updated_at IS NULL)"
+                        ),
+                        {"keep_n": keep_n, "cutoff": cutoff},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        victim_ids = [r["id"] for r in rows]
+
+        if not victim_ids:
+            return {"sessions": 0, "branches": 0, "messages": 0}
+
+        placeholders = ",".join(f":v{i}" for i in range(len(victim_ids)))
+        id_params = {f"v{i}": vid for i, vid in enumerate(victim_ids)}
+
+        async with db._read() as conn:
+            branch_count = (
+                (
+                    await conn.execute(
+                        text(
+                            f"SELECT COUNT(*) AS n FROM branches "  # noqa: S608
+                            f"WHERE session_id IN ({placeholders})"
+                        ),
+                        id_params,
+                    )
+                )
+                .mappings()
+                .first()["n"]
+            )
+
+            msgs_before = (
+                (await conn.execute(text("SELECT COUNT(*) AS n FROM messages")))
+                .mappings()
+                .first()["n"]
+            )
+
+        if dry_run:
+            return {
+                "sessions": len(victim_ids),
+                "branches": branch_count,
+                "messages": 0,  # can't preview without doing the delete
+            }
+
+        async with db._tx() as conn:
+            await conn.execute(
+                text(
+                    f"DELETE FROM sessions WHERE id IN ({placeholders})"  # noqa: S608
+                ),
+                id_params,
+            )
+            await conn.execute(
+                text(
+                    "DELETE FROM messages "
+                    "WHERE id NOT IN ("
+                    "  SELECT value FROM progressions, json_each(progressions.collection)"
+                    ")"
+                )
+            )
+
+        async with db._read() as conn:
+            msgs_after = (
+                (await conn.execute(text("SELECT COUNT(*) AS n FROM messages")))
+                .mappings()
+                .first()["n"]
+            )
+
+        return {
+            "sessions": len(victim_ids),
+            "branches": branch_count,
+            "messages": msgs_before - msgs_after,
+        }
+
+
+async def _doctor(
+    *,
+    stale_hours: int,
+    dry_run: bool,
+    new_status: str = "aborted",
+) -> dict[str, int]:
+    """Sweep sessions stuck at status='running' older than stale_hours."""
+    import time as _time
+
+    from lionagi.state.db import StateDB
+
+    cutoff = _time.time() - (stale_hours * 3600)
+
+    from sqlalchemy import text
+
+    async with StateDB() as db:
+        async with db._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text("SELECT id, started_at FROM sessions WHERE status = 'running'")
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        total = len(rows)
+        victims: list[str] = []
+        skipped = 0
+        for row in rows:
+            started = row["started_at"]
+            if started is None or started < cutoff:
+                victims.append(row["id"])
+            else:
+                skipped += 1
+
+        swept_count = 0
+        if dry_run:
+            swept_count = len(victims)
+        elif victims:
+            # Re-assert status='running' in the UPDATE to avoid race with
+            # sessions that finish between select and update.
+            placeholders = ",".join(f":v{i}" for i in range(len(victims)))
+            id_params = {f"v{i}": vid for i, vid in enumerate(victims)}
+            params = {
+                "new_status": new_status,
+                "ended_at": _time.time(),
+                "cutoff": cutoff,
+                **id_params,
+            }
+            async with db._tx() as conn:
+                result = await conn.execute(
+                    text(
+                        f"UPDATE sessions SET status = :new_status, ended_at = :ended_at "  # noqa: S608
+                        f"WHERE status = 'running' "
+                        f"  AND (started_at IS NULL OR started_at < :cutoff) "
+                        f"  AND id IN ({placeholders})"
+                    ),
+                    params,
+                )
+                swept_count = result.rowcount or 0
+
+        return {"running": total, "swept": swept_count, "skipped": skipped}
+
+
+# ── _import_runs / _import_teams ─────────────────────────────────────────────
 
 
 async def _import_runs() -> dict[str, int]:
@@ -109,7 +695,7 @@ async def _import_runs() -> dict[str, int]:
 
 async def _import_teams() -> dict[str, int]:
     """Backfill ~/.lionagi/teams/*.json into the teams + team_messages tables."""
-    import uuid
+    from sqlalchemy import text
 
     from lionagi.state.db import StateDB
 
@@ -134,26 +720,33 @@ async def _import_teams() -> dict[str, int]:
                 counts["errors"] += 1
                 continue
 
-            cur = await db.db.execute("SELECT 1 FROM teams WHERE id = ? LIMIT 1", (team_id,))
-            if await cur.fetchone() is not None:
+            async with db._read() as conn:
+                existing = (
+                    await conn.execute(
+                        text("SELECT 1 FROM teams WHERE id = :id LIMIT 1"),
+                        {"id": team_id},
+                    )
+                ).first()
+            if existing is not None:
                 counts["skipped_teams"] += 1
                 continue
 
             members = data.get("members") or []
             created_at = _mtime_as_float(path)
-            await db.db.execute(
-                """INSERT INTO teams
-                   (id, name, created_at, updated_at, member_count, members, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    team_id,
-                    data.get("name") or team_id,
-                    created_at,
-                    created_at,
-                    len(members),
-                    json.dumps(members),
-                    "active",
-                ),
+
+            rows_to_insert: list[dict] = []
+            msg_rows: list[dict] = []
+
+            rows_to_insert.append(
+                {
+                    "id": team_id,
+                    "name": data.get("name") or team_id,
+                    "created_at": created_at,
+                    "updated_at": created_at,
+                    "member_count": len(members),
+                    "members": json.dumps(members),
+                    "status": "active",
+                }
             )
             counts["teams"] += 1
 
@@ -179,28 +772,48 @@ async def _import_teams() -> dict[str, int]:
                     read_by_arr = list(read_by)
                 else:
                     read_by_arr = []
-                await db.db.execute(
-                    """INSERT INTO team_messages
-                       (id, team_id, created_at, sender, recipient, content,
-                        summary, read_by, session_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        msg_id,
-                        team_id,
-                        created,
-                        msg.get("from") or "_unknown",
-                        recipient,
-                        content,
-                        (content[:200] + "…") if len(content) > 200 else None,
-                        json.dumps(read_by_arr),
-                        None,
-                    ),
+                msg_rows.append(
+                    {
+                        "id": msg_id,
+                        "team_id": team_id,
+                        "created_at": created,
+                        "sender": msg.get("from") or "_unknown",
+                        "recipient": recipient,
+                        "content": content,
+                        "summary": (content[:200] + "…") if len(content) > 200 else None,
+                        "read_by": json.dumps(read_by_arr),
+                        "session_id": None,
+                    }
                 )
                 counts["messages"] += 1
 
-        await db.db.commit()
+            async with db._tx() as conn:
+                for row in rows_to_insert:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO teams "
+                            "(id, name, created_at, updated_at, member_count, members, status) "
+                            "VALUES (:id, :name, :created_at, :updated_at, "
+                            ":member_count, :members, :status)"
+                        ),
+                        row,
+                    )
+                for mrow in msg_rows:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO team_messages "
+                            "(id, team_id, created_at, sender, recipient, content, "
+                            "summary, read_by, session_id) "
+                            "VALUES (:id, :team_id, :created_at, :sender, :recipient, "
+                            ":content, :summary, :read_by, :session_id)"
+                        ),
+                        mrow,
+                    )
 
     return counts
+
+
+# ── CLI parser + runner ───────────────────────────────────────────────────────
 
 
 def add_state_subparser(subparsers: argparse._SubParsersAction) -> None:

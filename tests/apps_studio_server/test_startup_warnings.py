@@ -1,28 +1,12 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for issue #1406: startup safety warnings and bounded CORS methods.
+"""Tests for startup safety warnings and bounded CORS methods.
 
-Covers:
-- WARNING emitted when LIONAGI_STUDIO_AUTH_TOKEN is unset
-- WARNING escalated when host is 0.0.0.0 AND no token
-- No WARNING when token is configured
-- CORS OPTIONS preflight returns a bounded method set (not '*')
-- WARNING emitted when CORS origins contain '*'
-
-NOTE on log capture strategy
-------------------------------
-``caplog`` works by adding a handler to the root logger before the test body
-runs.  However, the FastAPI lifespan (where _emit_startup_warnings fires) runs
-inside a thread spun up by ``TestClient`` — the root-logger handler installed
-by ``caplog`` is not guaranteed to be in place in that thread's logging
-context before the lifespan starts.
-
-Instead we use a *handler spy*: a minimal ``logging.Handler`` subclass
-attached directly to the ``lionagi.studio.app`` logger before the client is
-constructed.  Because the ``Logger`` object is process-global, the handler
-receives records from any thread that calls ``_log.warning(...)`` in that
-module, regardless of when the lifespan runs.
+Log capture uses a handler spy instead of caplog: the FastAPI lifespan runs
+in a thread spawned by TestClient, and caplog's root-logger handler is not
+guaranteed to be in place before the lifespan starts. A Logger-attached spy
+handler receives records from any thread.
 """
 
 from __future__ import annotations
@@ -49,8 +33,6 @@ _STUDIO_APP_LOGGER = "lionagi.studio.app"
 
 
 class _RecordList(list["logging.LogRecord"]):
-    """A list of LogRecord objects with a convenience search method."""
-
     def messages_at_or_above(self, level: int) -> list[str]:
         return [r.getMessage() for r in self if r.levelno >= level]
 
@@ -59,7 +41,7 @@ class _RecordList(list["logging.LogRecord"]):
 
 
 class _SpyHandler(logging.Handler):
-    """Collects every LogRecord emitted to the attached logger."""
+    """Spy handler: collects every LogRecord emitted to the attached logger."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.DEBUG)
@@ -70,8 +52,7 @@ class _SpyHandler(logging.Handler):
 
 
 @contextmanager
-def _spy_logger(name: str) -> Generator[_RecordList, None, None]:
-    """Context manager: attach a spy handler to logger *name*, yield its records."""
+def _spy_logger(name: str) -> Generator[_RecordList]:
     logger = logging.getLogger(name)
     spy = _SpyHandler()
     orig_level = logger.level
@@ -89,16 +70,36 @@ def _spy_logger(name: str) -> Generator[_RecordList, None, None]:
 # ---------------------------------------------------------------------------
 
 
-@contextmanager
-def _lifespan_client(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> Generator[TestClient, None, None]:
-    """Context manager that starts a TestClient with lifespan running.
+async def _anoop(*args: object, **kwargs: object) -> None:
+    return None
 
-    The FastAPI lifespan (where _emit_startup_warnings fires) only executes
-    when TestClient is used as a context manager — bare ``TestClient(app)``
-    construction does *not* trigger it.  This factory ensures the lifespan
-    runs so warning tests can observe it.
+
+def _neutralize_heavy_lifespan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub out the lifespan's heavy startup/shutdown side-effects.
+
+    These tests only assert on _emit_startup_warnings() (runs first). The full
+    lifespan spins a scheduler tick loop, three DB reapers (one shells out to ps
+    and reads the real state.db), and WAL checkpoints — that footprint caused
+    consistent OOM kills in xdist workers and leaked writes into DEFAULT_DB_PATH.
+    The scheduler, reconciliation, and checkpoint paths are covered elsewhere.
+    """
+    import lionagi.studio.scheduler.engine as engine_mod
+    import lionagi.studio.services.db_maintenance as db_maintenance_mod
+    import lionagi.studio.services.launches as launches_mod
+    import lionagi.studio.services.lifecycle as lifecycle_mod
+
+    monkeypatch.setattr(engine_mod.scheduler, "start", _anoop)
+    monkeypatch.setattr(engine_mod.scheduler, "stop", _anoop)
+    monkeypatch.setattr(lifecycle_mod, "run_startup_reconciliation", _anoop)
+    monkeypatch.setattr(db_maintenance_mod, "checkpoint_state_db", _anoop)
+    monkeypatch.setattr(launches_mod, "shutdown_launches", _anoop)
+
+
+@contextmanager
+def _lifespan_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Generator[TestClient]:
+    """TestClient context manager that runs the lifespan (so startup warnings fire).
+
+    Bare TestClient(app) construction does NOT trigger the lifespan.
     """
     from importlib import reload
 
@@ -110,12 +111,13 @@ def _lifespan_client(
     monkeypatch.setattr(stats_mod, "_DB", str(fake_db))
 
     reload(app_mod)
+    _neutralize_heavy_lifespan(monkeypatch)
     with TestClient(app_mod.app, raise_server_exceptions=False) as client:
         yield client
 
 
 def _make_bare_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
-    """Non-lifespan client for CORS header tests (no startup needed)."""
+    """Non-lifespan client for CORS header tests."""
     from importlib import reload
 
     import lionagi.studio.app as app_mod
@@ -296,12 +298,10 @@ class TestCORSBoundedMethods:
     def test_head_preflight_is_allowed(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """A CORS preflight requesting HEAD must succeed — not 400.
+        """CORS preflight requesting HEAD must succeed — not 400.
 
-        The round-1 regression was an actual preflight 400 for HEAD (FastAPI
-        auto-generates HEAD for GET routes / docs endpoints).  The route-table
-        coverage test guards the allowlist contents; this asserts the observable
-        preflight status code directly so the exact failure mode can't return.
+        FastAPI auto-generates HEAD for GET routes/docs endpoints; a hardcoded
+        allowlist that omits HEAD causes preflight 400 for those routes.
         """
         client = self._client(monkeypatch, tmp_path)
         resp = client.options(
@@ -323,14 +323,10 @@ class TestCORSBoundedMethods:
     def test_allowlist_covers_every_served_route_method(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """The CORS allowlist must cover EVERY method served by the app's route
-        table — not just the verbs the routers declare explicitly.
+        """The CORS allowlist must cover every method served by the app's route table.
 
-        Regression for the round-1 finding: FastAPI auto-generates ``HEAD`` for
-        every ``GET`` route and serves docs/OpenAPI endpoints, so a hardcoded
-        list silently omitted ``HEAD`` and preflight for it 400'd.  Deriving the
-        allowlist from ``app.routes`` keeps the two in sync; this test fails if
-        any served method ever escapes the allowlist again.
+        Deriving the allowlist from app.routes keeps it in sync; this test fails
+        if any served method escapes the allowlist.
         """
         import lionagi.studio.app as app_mod
 
@@ -347,7 +343,6 @@ class TestCORSBoundedMethods:
             f"CORS allowlist is missing served method(s): {sorted(missing)}; "
             f"served={sorted(served)} allowlist={sorted(allowlist)}"
         )
-        # HEAD specifically — the exact method the hardcoded list dropped.
         assert "HEAD" in allowlist, f"HEAD must be in the CORS allowlist; got {sorted(allowlist)}"
 
 
@@ -403,17 +398,12 @@ class TestCORSWildcardOriginWarning:
 
 
 class TestCLIHostWiring:
-    """The app is loaded via import string, so it only sees the bind host
-    through ``LIONAGI_STUDIO_HOST``.  The CLI resolves the host from argparse /
-    env / default and must export it before ``uvicorn.run`` — otherwise the
-    0.0.0.0 escalation warning silently misses ``li studio --host 0.0.0.0``.
-
-    Regression for the round-1 finding: the warning read a stale default rather
-    than the actual bind host.
+    """The CLI must export the resolved bind host into LIONAGI_STUDIO_HOST before
+    uvicorn.run so the app's 0.0.0.0 escalation warning sees the actual host.
     """
 
     def test_backend_only_exports_resolved_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import lionagi.cli.studio as studio_cli
+        import lionagi.studio.cli as studio_cli
 
         monkeypatch.delenv("LIONAGI_STUDIO_HOST", raising=False)
         monkeypatch.setattr(studio_cli, "_ensure_apps_importable", lambda: True)
@@ -441,10 +431,8 @@ class TestCLIHostWiring:
     def test_start_local_overwrites_stale_host_env(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """The second uvicorn site (_start_local) must also export the resolved
-        host, overwriting a stale LIONAGI_STUDIO_HOST so the warning can't fire a
-        false 0.0.0.0 positive when the CLI actually binds 127.0.0.1."""
-        import lionagi.cli.studio as studio_cli
+        """_start_local must overwrite a stale LIONAGI_STUDIO_HOST before uvicorn.run."""
+        import lionagi.studio.cli as studio_cli
 
         # Stale env claims 0.0.0.0; the CLI is about to bind 127.0.0.1.
         monkeypatch.setenv("LIONAGI_STUDIO_HOST", "0.0.0.0")

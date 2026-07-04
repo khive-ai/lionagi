@@ -26,11 +26,7 @@ class EndpointType(Enum):
 
 @dataclass(frozen=True, slots=True)
 class EndpointMeta:
-    """Injected onto endpoint classes as ``_ENDPOINT_META``.
-
-    Carries enough info to auto-generate ``EndpointConfig`` —
-    individual endpoints no longer need ``_get_config()``.
-    """
+    """Injected onto endpoint classes as ``_ENDPOINT_META``; drives auto-generated ``EndpointConfig``."""
 
     provider: str
     endpoint: str
@@ -41,17 +37,26 @@ class EndpointMeta:
     base_url: str | None = None
     auth_type: str | None = None
     content_type: str | None = None
+    api_key_env: str | None = None
 
     def create_config(self, **overrides: Any):
         from .endpoint_config import EndpointConfig
 
         is_agentic = self.endpoint_type == EndpointType.AGENTIC
+        api_key: Any = "internal" if is_agentic else None
+        if not is_agentic and self.api_key_env and "api_key" not in overrides:
+            from lionagi.config import settings
+
+            raw = getattr(settings, self.api_key_env, None)
+            # Pass SecretStr directly so _validate_api_key uses its dedicated branch;
+            # None means the env var is unset, fall back to the testing sentinel.
+            api_key = raw if raw is not None else "dummy-key-for-testing"
         defaults = dict(
             name=f"{self.provider}_{self.endpoint}",
             provider=self.provider,
             base_url=self.base_url or ("internal" if is_agentic else ""),
             endpoint=self.endpoint,
-            api_key="internal" if is_agentic else None,
+            api_key=api_key,
             request_options=self.options,
             timeout=3600 if is_agentic else 600,
             auth_type=self.auth_type or ("bearer" if not is_agentic else "bearer"),
@@ -87,9 +92,8 @@ class EndpointRegistry:
         base_url: str | None = None,
         auth_type: str | None = None,
         content_type: str | None = None,
+        api_key_env: str | None = None,
     ):
-        """Decorator that registers an endpoint and injects _ENDPOINT_META."""
-
         def decorator(endpoint_cls: type) -> type:
             meta = EndpointMeta(
                 provider=provider,
@@ -101,6 +105,7 @@ class EndpointRegistry:
                 base_url=base_url,
                 auth_type=auth_type,
                 content_type=content_type,
+                api_key_env=api_key_env,
             )
             endpoint_cls._ENDPOINT_META = meta
             cls._entries.append(_RegistryEntry(meta=meta, cls=endpoint_cls))
@@ -124,11 +129,7 @@ class EndpointRegistry:
                 return entry.cls(None, **kwargs)
 
         if first_for_provider is not None:
-            # Single-endpoint providers (claude_code, codex, pi, etc.) always
-            # return their only endpoint — iModel defaults endpoint="chat"
-            # which won't alias-match these providers. Multi-endpoint providers
-            # only fall back when endpoint is empty; a non-empty unmatched
-            # endpoint falls through to generic Endpoint.
+            # Single-endpoint providers (claude_code, codex, pi) always match; non-empty unmatched falls through.
             if not endpoint:
                 return first_for_provider.cls(None, **kwargs)
             prov = first_for_provider.meta.provider
@@ -189,6 +190,7 @@ def register_endpoint(
     base_url: str | None = None,
     auth_type: str | None = None,
     content_type: str | None = None,
+    api_key_env: str | None = None,
 ):
     """Decorator that registers an endpoint and injects ``_ENDPOINT_META``."""
     return EndpointRegistry.register(
@@ -201,6 +203,7 @@ def register_endpoint(
         base_url=base_url,
         auth_type=auth_type,
         content_type=content_type,
+        api_key_env=api_key_env,
     )
 
 
@@ -210,42 +213,42 @@ def _import_all_providers():
 
     _modules = [
         # OpenAI family
-        "lionagi.providers.openai.chat.endpoint",
-        "lionagi.providers.openai.codex.endpoint",
-        "lionagi.providers.openai.audio.endpoint",
-        "lionagi.providers.openai.images.endpoint",
-        "lionagi.providers.openai.embed.endpoint",
-        "lionagi.providers.openai.response.endpoint",
+        "lionagi.providers.openai.chat",
+        "lionagi.providers.openai.codex",
+        "lionagi.providers.openai.audio",
+        "lionagi.providers.openai.images",
+        "lionagi.providers.openai.embed",
+        "lionagi.providers.openai.response",
         # Anthropic
-        "lionagi.providers.anthropic.messages.endpoint",
-        "lionagi.providers.anthropic.claude_code.endpoint",
+        "lionagi.providers.anthropic.messages",
+        "lionagi.providers.anthropic.claude_code",
         # Ollama
-        "lionagi.providers.ollama.chat.endpoint",
-        "lionagi.providers.ollama.embed.endpoint",
-        "lionagi.providers.ollama.generate.endpoint",
+        "lionagi.providers.ollama.chat",
+        "lionagi.providers.ollama.embed",
+        "lionagi.providers.ollama.generate",
         # Search & scraping
-        "lionagi.providers.tavily.search.endpoint",
-        "lionagi.providers.exa.search.endpoint",
-        "lionagi.providers.exa.contents.endpoint",
-        "lionagi.providers.exa.find_similar.endpoint",
-        "lionagi.providers.firecrawl.scrape.endpoint",
-        "lionagi.providers.firecrawl.map.endpoint",
-        "lionagi.providers.firecrawl.crawl.endpoint",
+        "lionagi.providers.tavily.search",
+        "lionagi.providers.exa.search",
+        "lionagi.providers.exa.contents",
+        "lionagi.providers.exa.find_similar",
+        "lionagi.providers.firecrawl.scrape",
+        "lionagi.providers.firecrawl.map",
+        "lionagi.providers.firecrawl.crawl",
         # Chat / LLM providers
-        "lionagi.providers.perplexity.chat.endpoint",
-        "lionagi.providers.nvidia_nim.chat.endpoint",
-        "lionagi.providers.nvidia_nim.embed.endpoint",
-        "lionagi.providers.deepseek.chat.endpoint",
-        "lionagi.providers.google.chat.endpoint",
-        "lionagi.providers.google.gemini_code.endpoint",
-        "lionagi.providers.groq.chat.endpoint",
-        "lionagi.providers.groq.audio_transcription.endpoint",
-        "lionagi.providers.pi.cli.endpoint",
-        "lionagi.providers.openrouter.chat.endpoint",
+        "lionagi.providers.perplexity.chat",
+        "lionagi.providers.nvidia_nim.chat",
+        "lionagi.providers.nvidia_nim.embed",
+        "lionagi.providers.deepseek.chat",
+        "lionagi.providers.google.chat",
+        "lionagi.providers.google.gemini_code",
+        "lionagi.providers.groq.chat",
+        "lionagi.providers.groq.audio_transcription",
+        "lionagi.providers.pi.cli",
+        "lionagi.providers.openrouter.chat",
         # Agentic
-        "lionagi.providers.ag2.groupchat.endpoint",
-        "lionagi.providers.ag2.agent.endpoint",
-        "lionagi.providers.ag2.nlip.endpoint",
+        "lionagi.providers.ag2.groupchat",
+        "lionagi.providers.ag2.agent",
+        "lionagi.providers.ag2.nlip",
         # Test-only scripted provider (provider="scripted") — leaf module,
         # always loadable; gated behind LIONAGI_CHAT_PROVIDER=scripted.
         "lionagi.testing._endpoint",

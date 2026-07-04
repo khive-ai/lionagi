@@ -5,8 +5,8 @@
 
 import pytest
 
-from lionagi.agent.config import AgentConfig
 from lionagi.agent.settings import apply_hooks_from_settings, load_settings
+from lionagi.agent.spec import AgentSpec
 
 
 def test_load_settings_skips_project_settings_when_untrusted(tmp_path, monkeypatch):
@@ -41,14 +41,14 @@ def test_apply_hooks_rejects_untrusted_python_modules():
     settings = {"hooks": {"pre": {"bash": [{"python": "os:path"}]}}}
 
     with pytest.raises(PermissionError, match="Untrusted hook module"):
-        apply_hooks_from_settings(AgentConfig(), settings)
+        apply_hooks_from_settings(AgentSpec.compose("implementer"), settings)
 
 
 def test_apply_hooks_rejects_shell_string_commands():
     settings = {"hooks": {"pre": {"bash": [{"command": "echo unsafe"}]}}}
 
     with pytest.raises(ValueError, match="argv list"):
-        apply_hooks_from_settings(AgentConfig(), settings)
+        apply_hooks_from_settings(AgentSpec.compose("implementer"), settings)
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ def test_apply_hooks_from_settings_rejects_untrusted_python_hook():
 
     with pytest.raises(PermissionError, match="Untrusted hook module"):
         apply_hooks_from_settings(
-            AgentConfig(),
+            AgentSpec.compose("implementer"),
             settings,
             trusted_hook_modules={"lionagi.agent.hooks"},
         )
@@ -140,14 +140,12 @@ async def test_shell_pre_hook_raises_permission_error_on_nonzero_exit(monkeypatc
 
 
 # ---------------------------------------------------------------------------
-# LIONAGI-AUDIT-004 (agent-standards 2026-06-06): timed-out hook subprocess
-# termination.  The fix kills the process group and awaits cleanup before
-# raising; these tests assert kill/wait are called on timeout.
+# Timed-out hook subprocess termination: kills process group, awaits cleanup
 # ---------------------------------------------------------------------------
 
 
 async def test_pre_hook_timeout_kills_process_group(monkeypatch):
-    """On TimeoutError the pre-hook kills the process group (LIONAGI-AUDIT-004)."""
+    """On TimeoutError the pre-hook must kill the process group."""
     import asyncio
     from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -162,18 +160,11 @@ async def test_pre_hook_timeout_kills_process_group(monkeypatch):
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc))
 
     killed: list[int] = []
-    waited: list[int] = []
 
     def fake_killpg(pgid: int, sig: int) -> None:
         killed.append(pgid)
 
-    def fake_getpgid(pid: int) -> int:
-        return pid  # pgid == pid for simplicity
-
-    with (
-        patch("lionagi.agent.settings.os.killpg", side_effect=fake_killpg),
-        patch("lionagi.agent.settings.os.getpgid", side_effect=fake_getpgid),
-    ):
+    with patch("lionagi.ln._proc.os.killpg", side_effect=fake_killpg):
         hook = _make_shell_hook(["slow_guard"], "pre", "bash")
         with pytest.raises(PermissionError, match="timed out"):
             await hook("bash", "run", {})
@@ -182,7 +173,7 @@ async def test_pre_hook_timeout_kills_process_group(monkeypatch):
 
 
 async def test_post_hook_timeout_kills_process_group(monkeypatch):
-    """On TimeoutError the post-hook kills the process group (LIONAGI-AUDIT-004)."""
+    """On TimeoutError the post-hook must kill the process group."""
     import asyncio
     from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -200,13 +191,7 @@ async def test_post_hook_timeout_kills_process_group(monkeypatch):
     def fake_killpg(pgid: int, sig: int) -> None:
         killed.append(pgid)
 
-    def fake_getpgid(pid: int) -> int:
-        return pid
-
-    with (
-        patch("lionagi.agent.settings.os.killpg", side_effect=fake_killpg),
-        patch("lionagi.agent.settings.os.getpgid", side_effect=fake_getpgid),
-    ):
+    with patch("lionagi.ln._proc.os.killpg", side_effect=fake_killpg):
         hook = _make_shell_hook(["slow_notifier"], "post", "bash")
         # Post-hook swallows timeout; must not raise
         result = await hook("bash", "run", {}, {})
@@ -216,27 +201,27 @@ async def test_post_hook_timeout_kills_process_group(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _kill_proc_group must never signal the init/session process group. A test
-# double (or a not-yet-spawned proc) whose ``pid`` coerces to 1 via __index__
-# would make os.killpg(1, ...) signal process group 1 — which on a CI runner
-# contains the test process itself, SIGKILLing the whole run. Only a real
-# child pid (> 1) may be signalled.
+# aterminate_process_group must never signal the init/session process group.
+# A test double (or a not-yet-spawned proc) whose ``pid`` coerces to 1 via
+# __index__ would make os.killpg(1, ...) signal process group 1 — which on a
+# CI runner contains the test process itself, SIGKILLing the whole run. Only a
+# real child pid (> 1) may be signalled.
 # ---------------------------------------------------------------------------
 
 
 def test_kill_proc_group_ignores_unreal_pid(monkeypatch):
     from unittest.mock import MagicMock
 
-    from lionagi.agent.settings import _kill_proc_group
+    from lionagi.ln._proc import terminate_process_group
 
     called: list = []
-    monkeypatch.setattr("lionagi.agent.settings.os.killpg", lambda *a: called.append(a))
+    monkeypatch.setattr("lionagi.ln._proc.os.killpg", lambda *a: called.append(a))
 
-    _kill_proc_group(MagicMock())  # MagicMock().pid -> 1 via __index__
+    terminate_process_group(MagicMock(), grace=None)  # MagicMock().pid -> 1 via __index__
     for bad in (0, 1):
         proc = MagicMock()
         proc.pid = bad
-        _kill_proc_group(proc)
+        terminate_process_group(proc, grace=None)
 
     assert called == [], "killpg must not fire for mock/0/1 pids (would kill the runner)"
 
@@ -245,15 +230,13 @@ def test_kill_proc_group_signals_real_pid(monkeypatch):
     import signal
     from unittest.mock import MagicMock
 
-    from lionagi.agent.settings import _kill_proc_group
+    from lionagi.ln._proc import terminate_process_group
 
     called: list = []
-    monkeypatch.setattr(
-        "lionagi.agent.settings.os.killpg", lambda pgid, sig: called.append((pgid, sig))
-    )
+    monkeypatch.setattr("lionagi.ln._proc.os.killpg", lambda pgid, sig: called.append((pgid, sig)))
 
     proc = MagicMock()
     proc.pid = 4242
-    _kill_proc_group(proc)
+    terminate_process_group(proc, grace=None)
 
     assert called == [(4242, signal.SIGKILL)]

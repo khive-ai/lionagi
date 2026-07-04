@@ -1,11 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0025 session status vocabulary tests.
-
-Covers: six-value vocabulary, terminal set, FSM transitions, admin
-transitions, and the legacy ADR-0017 CHECK-constraint rebuild path.
-"""
+"""ADR-0025 session status vocabulary tests — six-value vocabulary, FSM transitions, admin transitions, and legacy CHECK-constraint rebuild path."""
 
 from __future__ import annotations
 
@@ -217,7 +213,7 @@ async def test_drop_legacy_check_is_idempotent(tmp_path: Path):
 
 
 def test_cli_exit_code_map_matches_adr0025():
-    from lionagi.cli._lifecycle import EXIT_CODE_BY_STATUS as _EXIT_CODE_BY_TERMINAL_STATUS
+    from lionagi.cli._util import EXIT_CODE_BY_STATUS as _EXIT_CODE_BY_TERMINAL_STATUS
 
     # ADR-0025 spec table: 0 / 1 / 124 / 130 / 143.
     assert _EXIT_CODE_BY_TERMINAL_STATUS == {

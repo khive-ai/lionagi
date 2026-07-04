@@ -30,12 +30,79 @@ except ImportError:
     pass
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--skip-missing-deps",
+        action="store_true",
+        default=False,
+        help="Skip (instead of fail) tests that error solely due to a missing optional dependency.",
+    )
+
+
+_MISSING_DEP_HINTS = ("not installed", "is required for", "no module named")
+
+# Optional extras whose absence should be skipped (not failed) under --skip-missing-deps.
+# Bounds the captured-output scan so an unrelated assertion can't be silently masked.
+_OPTIONAL_DEPS = (
+    "pandas",
+    "docling",
+    "fastmcp",
+    "ollama",
+    "xmltodict",
+    "matplotlib",
+)
+
+
+def _missing_optional_dep(exc):
+    """Return the dep message if exc (or its cause chain) names a missing OPTIONAL extra, else None.
+
+    Gated on _OPTIONAL_DEPS: a missing required/internal import (e.g. a typo or a
+    broken core dependency like orjson) is NOT a missing-optional-dep and must still
+    fail loudly rather than be silently skipped.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        low = str(exc).lower()
+        is_missing = isinstance(exc, ModuleNotFoundError) or any(
+            h in low for h in _MISSING_DEP_HINTS
+        )
+        if is_missing and any(d in low for d in _OPTIONAL_DEPS):
+            return str(exc)
+        exc = exc.__cause__ or exc.__context__
+    return None
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    if not item.config.getoption("--skip-missing-deps", default=False):
+        return
+    if not report.failed:
+        return
+    reason = _missing_optional_dep(call.excinfo.value) if call.excinfo is not None else None
+    if reason is None:
+        # Some paths swallow the ImportError and only log it (e.g. DataLogger.dump),
+        # so the failure surfaces as a plain assertion. Scan captured output, but only
+        # treat it as a missing-dep skip when a known optional extra is named alongside.
+        captured = "\n".join(content for _, content in report.sections).lower()
+        if any(h in captured for h in _MISSING_DEP_HINTS) and any(
+            d in captured for d in _OPTIONAL_DEPS
+        ):
+            reason = "missing optional dependency (captured in test output)"
+    if reason:
+        report.outcome = "skipped"
+        report.longrepr = (
+            str(item.fspath),
+            (item.location[1] or 0) + 1,
+            f"Skipped: missing optional dependency ({reason})",
+        )
+
+
 @pytest.fixture
 def ensure_fake_lionagi(monkeypatch):
-    """
-    If lionagi is not installed in the environment, install minimal stubs so the
-    tests exercising chunk_content/chunk() can run.
-    """
+    """Install minimal lionagi stubs if the real package is absent."""
     if "lionagi" in sys.modules:
         # Real lionagi present; do nothing.
         yield
@@ -97,13 +164,7 @@ def ensure_fake_lionagi(monkeypatch):
 
 @pytest.fixture(scope="session")
 def mod_paths():
-    """
-    Resolve module paths for the code under test from env vars with sensible defaults.
-    Adjust env vars to match your layout:
-      UUT_CHUNK_MOD  (chunk_by_chars/tokens, chunk_content)
-      UUT_API_MOD    (dir_to_files, chunk)
-      UUT_SCHEMA_MOD (load_pydantic_model_from_schema)
-    """
+    """Resolve module paths from env vars (UUT_CHUNK_MOD, UUT_API_MOD, UUT_SCHEMA_MOD)."""
     import os
 
     return {

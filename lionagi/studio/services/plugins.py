@@ -1,24 +1,22 @@
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Any
 
+import anyio
+from fastapi import HTTPException
+
 from lionagi.libs.frontmatter import parse_frontmatter as _parse_frontmatter
 
+from ..registry import studio_route
 from ._io import read_json_file as _read_json
 from ._path_safety import public_path, safe_path_join
 
-# ---------------------------------------------------------------------------
-# Root directories
-# ---------------------------------------------------------------------------
-
 _THIS = Path(__file__).resolve()
-# plugins.py is at lionagi/studio/services/plugins.py
-# parents: [0]=services, [1]=studio, [2]=lionagi, [3]=repo root
-_REPO_ROOT = _THIS.parents[3]
+_REPO_ROOT = _THIS.parents[3]  # lionagi/studio/services/plugins.py → parents[3] = repo root
 MARKETPLACE_DIR = _REPO_ROOT / "marketplace"
 
-# Fallback: if the server is running from a pip-install, try LIONAGI_HOME.parent
 if not MARKETPLACE_DIR.exists():
     try:
         from lionagi._paths import LIONAGI_HOME
@@ -37,11 +35,6 @@ if not MARKETPLACE_MANIFEST.exists():
 THIRDPARTY_DIR = Path.home() / ".claude" / "plugins" / "cache"
 
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
 def _scan_skills(plugin_dir: Path) -> list[dict[str, Any]]:
     """Return list of {name, description} for each skill in plugin_dir/skills/."""
     skills_dir = plugin_dir / "skills"
@@ -51,7 +44,6 @@ def _scan_skills(plugin_dir: Path) -> list[dict[str, Any]]:
     for entry in sorted(skills_dir.iterdir()):
         if not entry.is_dir():
             continue
-        # Look for SKILL.md first, then {dir_name}.md, then any .md
         skill_md = entry / "SKILL.md"
         if not skill_md.exists():
             alt = entry / f"{entry.name}.md"
@@ -105,8 +97,6 @@ def _plugin_summary(
     agents = _scan_agents(plugin_dir)
     has_hooks = (plugin_dir / "hooks" / "hooks.json").exists()
     has_mcp = (plugin_dir / ".mcp.json").exists()
-
-    # Also check for mcpServers in plugin.json
     if not has_mcp and plugin_json.get("mcpServers"):
         has_mcp = True
 
@@ -141,7 +131,6 @@ def _plugin_detail(
     if mcp_path.exists():
         mcp = _read_json(mcp_path)
     else:
-        # Inline mcpServers from plugin.json
         plugin_json = _read_json(plugin_dir / ".claude-plugin" / "plugin.json") or {}
         mcp = plugin_json.get("mcpServers") or None
 
@@ -161,11 +150,6 @@ def _plugin_detail(
         "mcp": mcp,
         "readme": readme,
     }
-
-
-# ---------------------------------------------------------------------------
-# Marketplace plugin discovery
-# ---------------------------------------------------------------------------
 
 
 def _resolve_marketplace_source(source_rel: str) -> Path | None:
@@ -188,7 +172,6 @@ def _resolve_marketplace_source(source_rel: str) -> Path | None:
 
 
 def _iter_marketplace_plugins() -> list[tuple[Path, str, str]]:
-    """Yield (plugin_dir, name, description) for each marketplace plugin."""
     if not MARKETPLACE_MANIFEST.exists():
         return []
 
@@ -211,7 +194,7 @@ def _iter_marketplace_plugins() -> list[tuple[Path, str, str]]:
 
 
 def _find_plugin_dir_for(name: str) -> Path | None:
-    """Return the actual filesystem Path for a named plugin without going through the API response."""
+    """Return the filesystem Path for a named plugin."""
     for plugin_dir, pname, _ in _iter_marketplace_plugins():
         if pname == name:
             return plugin_dir
@@ -221,16 +204,11 @@ def _find_plugin_dir_for(name: str) -> Path | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Third-party plugin discovery
-# ---------------------------------------------------------------------------
-
-
 def _iter_thirdparty_plugins() -> list[tuple[Path, str, str, str]]:
-    """Yield (plugin_dir, name, description, marketplace_name) for each installed third-party plugin.
+    """Return (plugin_dir, name, description, marketplace_name) for installed plugins.
 
     Layout: ~/.claude/plugins/cache/{marketplace}/{plugin_name}/{version}/
-    We take the lexicographically latest version directory for each plugin.
+    Takes the lexicographically latest version directory per plugin.
     """
     if not THIRDPARTY_DIR.exists():
         return []
@@ -256,21 +234,8 @@ def _iter_thirdparty_plugins() -> list[tuple[Path, str, str, str]]:
     return results
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 def list_plugins() -> list[dict[str, Any]]:
-    """Scan marketplace/ and ~/.claude/plugins/cache/ for plugins.
-
-    For each plugin returns:
-    - name, description, version (from plugin.json or fallback)
-    - source: "marketplace" | "third-party"
-    - skill_count, agent_count
-    - has_hooks (bool), has_mcp (bool)
-    - path (absolute path to plugin dir)
-    """
+    """Scan marketplace/ and ~/.claude/plugins/cache/ for installed plugins."""
     out: list[dict[str, Any]] = []
 
     for plugin_dir, name, desc in _iter_marketplace_plugins():
@@ -283,13 +248,11 @@ def list_plugins() -> list[dict[str, Any]]:
 
 
 def get_plugin(name: str) -> dict[str, Any] | None:
-    """Full plugin detail including skills list, agents list, hooks, mcp, readme."""
-    # Search marketplace first
+    """Full plugin detail including skills, agents, hooks, mcp, readme."""
     for plugin_dir, pname, desc in _iter_marketplace_plugins():
         if pname == name:
             return _plugin_detail(plugin_dir, pname, desc, "marketplace")
 
-    # Then third-party
     for plugin_dir, pname, desc, mp_name in _iter_thirdparty_plugins():
         if pname == name:
             return _plugin_detail(plugin_dir, pname, desc, mp_name)
@@ -306,7 +269,6 @@ def get_plugin_skill(plugin_name: str, skill_name: str) -> dict[str, Any] | None
     plugin_dir = _find_plugin_dir_for(plugin_name)
     if plugin_dir is None:
         return None
-    # Validate skill_name is safe before joining to filesystem path
     safe_path_join(plugin_dir / "skills", skill_name)
 
     skills_dir = plugin_dir / "skills"
@@ -314,7 +276,6 @@ def get_plugin_skill(plugin_name: str, skill_name: str) -> dict[str, Any] | None
     if not skill_dir.exists() or not skill_dir.is_dir():
         return None
 
-    # Find the skill's markdown file using the same logic as skills.py
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.exists():
         alt = skill_dir / f"{skill_name}.md"
@@ -349,11 +310,9 @@ def get_plugin_agent(plugin_name: str, agent_name: str) -> dict[str, Any] | None
     plugin_dir = _find_plugin_dir_for(plugin_name)
     if plugin_dir is None:
         return None
-    # Validate agent_name is safe before joining to filesystem path
     safe_path_join(plugin_dir / "agents", agent_name)
 
     agents_dir = plugin_dir / "agents"
-    # Support both "name" and "name.md"
     stem = agent_name.removesuffix(".md")
     agent_path = agents_dir / f"{stem}.md"
     if not agent_path.exists():
@@ -372,3 +331,39 @@ def get_plugin_agent(plugin_name: str, agent_name: str) -> dict[str, Any] | None
         "path": public_path(agent_path),
         "content": body,
     }
+
+
+@studio_route("/plugins", method="GET", area="plugins")
+async def list_plugins_endpoint() -> dict[str, Any]:
+    plugins = await anyio.to_thread.run_sync(list_plugins)
+    return {"plugins": plugins}
+
+
+@studio_route("/plugins/{name}", method="GET", area="plugins")
+async def get_plugin_endpoint(name: str) -> dict[str, Any]:
+    plugin = await anyio.to_thread.run_sync(partial(get_plugin, name))
+    if not plugin:
+        raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
+    return plugin
+
+
+@studio_route("/plugins/{plugin_name}/skills/{skill_name}", method="GET", area="plugins")
+async def get_plugin_skill_endpoint(plugin_name: str, skill_name: str) -> dict[str, Any]:
+    skill = await anyio.to_thread.run_sync(partial(get_plugin_skill, plugin_name, skill_name))
+    if not skill:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill {skill_name} not found in plugin {plugin_name}",
+        )
+    return skill
+
+
+@studio_route("/plugins/{plugin_name}/agents/{agent_name}", method="GET", area="plugins")
+async def get_plugin_agent_endpoint(plugin_name: str, agent_name: str) -> dict[str, Any]:
+    agent = await anyio.to_thread.run_sync(partial(get_plugin_agent, plugin_name, agent_name))
+    if not agent:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent {agent_name} not found in plugin {plugin_name}",
+        )
+    return agent

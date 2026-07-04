@@ -10,157 +10,188 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from lionagi.state.db import StateDB
 from lionagi.state.reasons import RunReasons, ScheduleReasons
+from lionagi.studio.scheduler import subprocess as _subprocess
+from lionagi.studio.services.scheduler_state import (
+    SchedulerStateService,
+    create_skipped_run,
+    default_scheduler_state,
+    resolve_invocation_terminal,
+)
 
 _log = logging.getLogger(__name__)
-
-
-async def _resolve_invocation_terminal(
-    db: StateDB,
-    invocation_id: str,
-    *,
-    fallback_status: str,
-    exit_code: int | None = None,
-    exception: BaseException | None = None,
-) -> tuple[str, str, str, list[dict], dict]:
-    sessions = await db.list_sessions_for_invocation(invocation_id)
-    child_statuses = [str(s.get("status") or "") for s in sessions]
-    evidence_refs = [{"kind": "session", "id": s["id"]} for s in sessions if s.get("id")]
-    metadata: dict = {"child_statuses": child_statuses}
-    if exit_code is not None:
-        metadata["exit_code"] = exit_code
-    if exception is not None:
-        metadata["exception_class"] = type(exception).__name__
-
-    # Precedence: timed_out > failed > aborted > cancelled > completed.
-    if child_statuses:
-        if any(s == "timed_out" for s in child_statuses):
-            return (
-                "timed_out",
-                RunReasons.TIMED_OUT_DEADLINE,
-                "Invocation timed out because at least one child session timed out.",
-                evidence_refs,
-                metadata,
-            )
-        if any(s == "failed" for s in child_statuses):
-            return (
-                "failed",
-                RunReasons.FAILED_EXCEPTION,
-                "Invocation failed because at least one child session failed.",
-                evidence_refs,
-                metadata,
-            )
-        if any(s == "aborted" for s in child_statuses):
-            aborted_reasons = {
-                str(sess.get("status_reason_code") or "")
-                for sess in sessions
-                if sess.get("status") == "aborted"
-            }
-            if RunReasons.CANCELLED_SIGINT in aborted_reasons:
-                reason_code = RunReasons.CANCELLED_SIGINT
-                reason_summary = "Invocation was interrupted (SIGINT) because a child session was."
-            else:
-                reason_code = RunReasons.ABORTED_USER
-                reason_summary = (
-                    "Invocation was aborted because at least one child session was aborted."
-                )
-            return ("aborted", reason_code, reason_summary, evidence_refs, metadata)
-        if any(s == "cancelled" for s in child_statuses):
-            return (
-                "cancelled",
-                RunReasons.CANCELLED_SYSTEM,
-                "Invocation was cancelled because at least one child session was cancelled.",
-                evidence_refs,
-                metadata,
-            )
-        if all(s == "completed" for s in child_statuses):
-            return (
-                "completed",
-                RunReasons.COMPLETED_OK,
-                "All child sessions completed successfully.",
-                evidence_refs,
-                metadata,
-            )
-
-    if fallback_status == "completed":
-        return (
-            "completed",
-            RunReasons.COMPLETED_OK,
-            "Invocation process completed successfully.",
-            evidence_refs,
-            metadata,
-        )
-    if fallback_status == "timed_out":
-        return (
-            "timed_out",
-            RunReasons.TIMED_OUT_DEADLINE,
-            "Invocation process exceeded its deadline.",
-            evidence_refs,
-            metadata,
-        )
-    if fallback_status == "aborted":
-        # Process-level abort with no child reason to inspect — keep the neutral
-        # user/admin abort reason rather than assume SIGINT.
-        return (
-            "aborted",
-            RunReasons.ABORTED_USER,
-            "Invocation process was aborted.",
-            evidence_refs,
-            metadata,
-        )
-    if fallback_status == "cancelled":
-        return (
-            "cancelled",
-            RunReasons.CANCELLED_SYSTEM,
-            "Invocation process was cancelled by the runtime.",
-            evidence_refs,
-            metadata,
-        )
-    if exception is not None:
-        return (
-            "failed",
-            RunReasons.FAILED_EXCEPTION,
-            f"{type(exception).__name__}: {exception}",
-            evidence_refs,
-            metadata,
-        )
-    if exit_code is not None and exit_code != 0:
-        return (
-            "failed",
-            RunReasons.FAILED_EXIT_NONZERO,
-            f"Invocation process failed with exit code {exit_code}.",
-            evidence_refs,
-            metadata,
-        )
-    return (
-        "failed",
-        RunReasons.FAILED_EXCEPTION,
-        "Invocation process failed.",
-        evidence_refs,
-        metadata,
-    )
-
 
 _MAX_CHAIN_DEPTH = 10
 _TICK_INTERVAL = 30  # seconds
 
 
+def _resolve_scheduler_tzinfo(tz_name: str) -> ZoneInfo:
+    """Resolve the configured scheduler timezone name to a ZoneInfo.
+
+    Falls back to UTC (with a warning) if the configured name isn't a valid
+    IANA zone — an invalid config must never crash cron resolution.
+    """
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        _log.warning(
+            "Invalid scheduler timezone %r (LIONAGI_SCHEDULER_TZ); falling back to UTC.",
+            tz_name,
+        )
+        return ZoneInfo("UTC")
+
+
+async def _resolve_action_cwd(schedule: dict) -> str | None:
+    """Resolve the working directory for a scheduled subprocess spawn.
+
+    Layered resolution (first hit wins):
+      1. ``action_project`` — the registered project's stored path, if it
+         exists on disk.
+      2. ``LIONAGI_SCHEDULER_CWD`` — an operator-set fallback directory.
+      3. ``None`` — inherit the daemon's own launch cwd (pre-existing
+         behavior); a warning is logged since `uv run li` will fail to spawn
+         if that directory has no project (e.g. the daemon was started at
+         ``/``).
+
+    Imports ``lionagi.studio.services.projects`` lazily so this module (and
+    ``lionagi.studio.scheduler.subprocess``) stay importable without the
+    ``studio`` extra (fastapi) — the scheduler engine only actually reaches
+    this branch when ``action_project`` is set, i.e. inside a running studio
+    daemon where fastapi is already a hard dependency.
+    """
+    action_project = schedule.get("action_project")
+    if action_project:
+        from lionagi.studio.services.projects import get_project
+
+        project = await get_project(action_project)
+        if project:
+            path = project.get("path")
+            if path and Path(path).is_dir():
+                return path
+
+    env_cwd = os.environ.get("LIONAGI_SCHEDULER_CWD")
+    if env_cwd and Path(env_cwd).is_dir():
+        return env_cwd
+
+    _log.warning(
+        "No resolvable cwd for schedule %s (action_project=%r); the scheduled "
+        "action will inherit the daemon's own working directory and may fail "
+        "to spawn (`uv run li` finds no project) if that directory has none.",
+        schedule.get("id"),
+        action_project,
+    )
+    return None
+
+
 class SchedulerEngine:
-    def __init__(self) -> None:
+    def __init__(self, svc: SchedulerStateService | None = None) -> None:
+        self._svc = svc if svc is not None else default_scheduler_state
         self._task: asyncio.Task | None = None
         self._running: dict[str, str] = {}  # schedule_id -> run_id
         self._stopping = False
         self._fire_tasks: set[asyncio.Task] = set()
-        self._last_reaper_run: float = 0.0  # epoch; 0 means never
-        self._last_checkpoint_run: float = 0.0  # epoch; 0 means never
+        self._last_reaper_run: float = 0.0
+        self._last_checkpoint_run: float = 0.0
 
     async def start(self) -> None:
         _log.info("Scheduler engine starting")
         self._stopping = False
+        await self._recompute_armed_cron_schedules()
         self._task = asyncio.create_task(self._tick_loop())
+
+    async def _recompute_armed_cron_schedules(self) -> None:
+        """Re-resolve every enabled cron schedule's next_fire_at under the
+        current timezone interpretation before the tick loop starts.
+
+        Guards against silently-stale fire times if LIONAGI_SCHEDULER_TZ (or
+        the host's local timezone) changed since a schedule was last armed —
+        the same interpretation change that PATCH and enable also trigger via
+        recompute_next_fire().
+
+        A schedule whose stored next_fire_at is already due (<= now) is left
+        untouched here: it must flow through _check_missed_fires() first, so
+        missed_fire_policy ("run_once" / "skip") gets a chance to run before
+        anything advances next_fire_at into the future. _check_missed_fires()
+        runs right after this method returns (see _tick_loop), and the
+        recovery path (_recover_missed_fire_run_once() / _record_missed_
+        fire_skip()) is what advances next_fire_at once the policy has been
+        applied — synchronously, before _check_missed_fires() returns, so
+        the _tick() call that immediately follows never observes the same
+        past-due timestamp. Only schedules whose stored next_fire_at is
+        still ahead of now — the timezone-migration correction case this
+        hook exists for — are recomputed here.
+        """
+        try:
+            schedules = await self._svc.list_schedules(enabled=True)
+        except Exception:
+            _log.exception("Failed to load schedules for startup timezone recompute")
+            return
+        now = time.time()
+        for s in schedules:
+            if s.get("trigger_type") == "cron" and not s.get("cron_expr"):
+                _log.warning(
+                    "Schedule %s is enabled with trigger_type='cron' but has no "
+                    "cron_expr; it will never fire until re-configured",
+                    s.get("id"),
+                )
+                continue
+            if s.get("trigger_type") == "interval" and not s.get("interval_sec"):
+                _log.warning(
+                    "Schedule %s is enabled with trigger_type='interval' but has "
+                    "no interval_sec; it will never fire until re-configured",
+                    s.get("id"),
+                )
+                continue
+            next_fire_at = s.get("next_fire_at")
+            if next_fire_at is not None and next_fire_at <= now:
+                continue
+            try:
+                await self.recompute_next_fire(s, now=now)
+            except Exception:
+                _log.exception(
+                    "Failed to recompute next_fire_at for schedule %s on startup", s.get("id")
+                )
+
+    async def recompute_next_fire(
+        self, schedule: dict, *, now: float | None = None
+    ) -> float | None:
+        """Recompute + persist a cron schedule's next_fire_at, logging once
+        if (and only if) the value actually shifts from what was stored.
+
+        This is the single shared code path for every situation where the
+        cron interpretation may have changed under a schedule: daemon
+        startup (_recompute_armed_cron_schedules), a PATCH that touches
+        cron_expr/trigger fields, and the disable→enable transition (both in
+        services/schedules.py). Never shifts a fire time silently — an
+        unchanged recomputation is a no-op (no write, no log).
+        """
+        if schedule.get("trigger_type") != "cron" or not schedule.get("cron_expr"):
+            return None
+        ref_time = now if now is not None else time.time()
+        old = schedule.get("next_fire_at")
+        new = self._compute_next_fire(schedule, ref_time)
+        if new is None:
+            return None
+        if old is not None and abs(new - old) < 1e-6:
+            return new
+        await self._svc.update_schedule(schedule["id"], next_fire_at=new)
+        if old is not None:
+            from lionagi.studio.config import SCHEDULER_TZ
+
+            _log.info(
+                "next_fire_at shifted for schedule %s (%s): %s -> %s (tz=%s)",
+                schedule.get("name"),
+                schedule.get("id"),
+                datetime.fromtimestamp(old, tz=timezone.utc).isoformat(),
+                datetime.fromtimestamp(new, tz=timezone.utc).isoformat(),
+                SCHEDULER_TZ,
+            )
+        return new
 
     async def stop(self) -> None:
         _log.info("Scheduler engine stopping")
@@ -186,8 +217,7 @@ class SchedulerEngine:
         return task
 
     async def fire_now(self, schedule_id: str) -> str | None:
-        async with StateDB() as db:
-            schedule = await db.get_schedule(schedule_id)
+        schedule = await self._svc.get_schedule(schedule_id)
         if not schedule:
             return None
         run_id = uuid.uuid4().hex[:12]
@@ -207,72 +237,104 @@ class SchedulerEngine:
 
     async def _check_missed_fires(self) -> None:
         try:
-            async with StateDB() as db:
-                schedules = await db.list_schedules(enabled=True)
+            schedules = await self._svc.list_schedules(enabled=True)
             now = time.time()
             for s in schedules:
                 next_fire_at = s.get("next_fire_at")
-                if next_fire_at is None or next_fire_at >= now:
+                if next_fire_at is None or next_fire_at > now:
                     continue
                 policy = s.get("missed_fire_policy")
                 if policy == "run_once":
-                    run_id = uuid.uuid4().hex[:12]
-                    _log.info(
-                        "Missed fire recovery for schedule %s (%s)",
-                        s["name"],
-                        s["id"],
-                    )
-                    self._tracked_fire(
-                        s,
-                        run_id,
-                        trigger_context={"missed_recovery": True, "fired_at": now},
-                    )
+                    await self._recover_missed_fire_run_once(s, now)
                 else:
                     await self._record_missed_fire_skip(s, now)
         except Exception:
             _log.exception("Missed fire check error")
 
+    async def _recover_missed_fire_run_once(self, schedule: dict, now: float) -> None:
+        """Queue exactly one recovery fire for a past-due run_once schedule,
+        reserving its next_fire_at synchronously first.
+
+        _tick_loop() calls _check_missed_fires() and then _tick() back to
+        back with nothing awaited in between (the tick loop only sleeps
+        *between* iterations, not before its first one). The recovery fire
+        itself is queued as a background task via _tracked_fire() — it does
+        the real work (spawns the action) and, once it runs, persists its
+        own next_fire_at through the same _compute_next_fire() path every
+        other fire uses. But that write may not have happened yet by the
+        time the very next _tick() reloads schedules from storage: without
+        a synchronous reserve here, _tick() would see the same past-due
+        next_fire_at and queue a second, duplicate fire for it.
+
+        Reserving next_fire_at here (before returning to _tick_loop) closes
+        that window: _fire() recomputes and persists next_fire_at again
+        once it actually runs, so this reserve only has to survive long
+        enough for the immediately-following _tick() to reload schedules —
+        it is a stopgap, not a duplicate of the fire path's own bookkeeping.
+        If the process crashes between this reserve and the recovery fire
+        landing, the recovery run is lost for this cycle, but the schedule
+        is not stuck: it already holds a legitimate future next_fire_at and
+        resumes firing normally next time, equivalent to one skipped run
+        rather than indefinite starvation.
+        """
+        next_at = self._compute_next_fire(schedule, now)
+        if next_at is not None:
+            try:
+                await self._svc.update_schedule(schedule["id"], next_fire_at=next_at)
+            except Exception:
+                # The reserve did not land, so storage still holds the
+                # past-due next_fire_at and the immediately-following
+                # _tick() will queue its own normal fire for it. Queuing a
+                # recovery fire on top of that would run the external
+                # action twice, so skip recovery entirely and let the
+                # normal tick own this cycle's single fire (or, if storage
+                # stays unavailable, a later missed-fire check retries).
+                _log.exception(
+                    "Failed to reserve next_fire_at ahead of missed-fire recovery for schedule %s"
+                    "; skipping recovery this cycle",
+                    schedule.get("id"),
+                )
+                return
+        run_id = uuid.uuid4().hex[:12]
+        _log.info(
+            "Missed fire recovery for schedule %s (%s)",
+            schedule["name"],
+            schedule["id"],
+        )
+        self._tracked_fire(
+            schedule,
+            run_id,
+            trigger_context={"missed_recovery": True, "fired_at": now},
+        )
+
     async def _record_missed_fire_skip(self, schedule: dict, now: float) -> None:
         """Record missed-fire skip and advance next_fire_at."""
         skipped_run_id = uuid.uuid4().hex[:12]
         try:
-            async with StateDB() as db:
-                await db.create_schedule_run(
-                    {
-                        "id": skipped_run_id,
-                        "schedule_id": schedule["id"],
-                        "trigger_context": {
-                            "skipped_missed_fire": True,
-                            "missed_fire_at": schedule.get("next_fire_at"),
-                            "checked_at": now,
-                        },
-                        "action_kind": schedule["action_kind"],
-                        "action_args": [],
-                        "status": "skipped",
-                        "fired_at": now,
-                    }
-                )
-                await db.update_status(
-                    "schedule_run",
-                    skipped_run_id,
-                    new_status="skipped",
-                    reason_code=ScheduleReasons.SKIPPED_MISSED_FIRE,
-                    reason_summary=(
-                        "Schedule fire skipped because the scheduled time "
-                        "passed while the server was down or the tick was "
-                        "delayed (missed_fire_policy=skip)."
-                    ),
-                    evidence_refs=[{"kind": "schedule", "id": schedule["id"]}],
-                    source="system",
-                    actor=schedule["id"],
-                    metadata={
-                        "missed_fire_policy": schedule.get("missed_fire_policy"),
-                        "missed_fire_at": schedule.get("next_fire_at"),
-                    },
-                )
-                next_at = self._compute_next_fire(schedule, now)
-                if next_at:
-                    await db.update_schedule(schedule["id"], next_fire_at=next_at)
+            await create_skipped_run(
+                self._svc,
+                run_id=skipped_run_id,
+                schedule=schedule,
+                trigger_context={
+                    "skipped_missed_fire": True,
+                    "missed_fire_at": schedule.get("next_fire_at"),
+                    "checked_at": now,
+                },
+                now=now,
+                reason_code=ScheduleReasons.SKIPPED_MISSED_FIRE,
+                reason_summary=(
+                    "Schedule fire skipped because the scheduled time "
+                    "passed while the server was down or the tick was "
+                    "delayed (missed_fire_policy=skip)."
+                ),
+                metadata={
+                    "missed_fire_policy": schedule.get("missed_fire_policy"),
+                    "missed_fire_at": schedule.get("next_fire_at"),
+                },
+            )
+            next_at = self._compute_next_fire(schedule, now)
+            if next_at:
+                await self._svc.update_schedule(schedule["id"], next_fire_at=next_at)
         except Exception:
             _log.exception(
                 "Failed to record missed-fire skip for schedule %s",
@@ -282,7 +344,6 @@ class SchedulerEngine:
     async def _tick(self) -> None:
         now = time.time()
 
-        # Throttled periodic lifecycle reapers.
         from lionagi.studio.config import REAPER_INTERVAL_SECONDS
         from lionagi.studio.services.lifecycle import run_periodic_reapers
 
@@ -303,8 +364,7 @@ class SchedulerEngine:
                 _log.exception("Periodic checkpoint error")
             self._last_checkpoint_run = now
 
-        async with StateDB() as db:
-            schedules = await db.list_schedules(enabled=True)
+        schedules = await self._svc.list_schedules(enabled=True)
 
         for s in schedules:
             try:
@@ -317,8 +377,7 @@ class SchedulerEngine:
                     elif nfa is None:
                         next_at = self._compute_next_fire(s, now)
                         if next_at:
-                            async with StateDB() as db:
-                                await db.update_schedule(s["id"], next_fire_at=next_at)
+                            await self._svc.update_schedule(s["id"], next_fire_at=next_at)
             except Exception:
                 _log.exception("Error evaluating schedule %s", s.get("name"))
 
@@ -343,33 +402,19 @@ class SchedulerEngine:
         if schedule.get("overlap_policy") == "skip" and schedule["id"] in self._running:
             _log.debug("Skipping overlapping fire for %s", schedule["name"])
             skipped_run_id = uuid.uuid4().hex[:12]
-            async with StateDB() as db:
-                await db.create_schedule_run(
-                    {
-                        "id": skipped_run_id,
-                        "schedule_id": schedule["id"],
-                        "trigger_context": {"skipped_overlap": True, "fired_at": now},
-                        "action_kind": schedule["action_kind"],
-                        "action_args": [],
-                        "status": "skipped",
-                        "fired_at": now,
-                    }
-                )
-                await db.update_status(
-                    "schedule_run",
-                    skipped_run_id,
-                    new_status="skipped",
-                    reason_code=ScheduleReasons.SKIPPED_OVERLAP,
-                    reason_summary="Schedule fire skipped because overlap_policy=skip and a prior run is still active.",
-                    evidence_refs=[{"kind": "schedule", "id": schedule["id"]}],
-                    source="system",
-                    actor=schedule["id"],
-                    metadata={"overlap_policy": schedule.get("overlap_policy")},
-                )
+            await create_skipped_run(
+                self._svc,
+                run_id=skipped_run_id,
+                schedule=schedule,
+                trigger_context={"skipped_overlap": True, "fired_at": now},
+                now=now,
+                reason_code=ScheduleReasons.SKIPPED_OVERLAP,
+                reason_summary="Schedule fire skipped because overlap_policy=skip and a prior run is still active.",
+                metadata={"overlap_policy": schedule.get("overlap_policy")},
+            )
             next_at = self._compute_next_fire(schedule, now)
             if next_at:
-                async with StateDB() as db:
-                    await db.update_schedule(schedule["id"], next_fire_at=next_at)
+                await self._svc.update_schedule(schedule["id"], next_fire_at=next_at)
             return
 
         run_id = uuid.uuid4().hex[:12]
@@ -385,128 +430,122 @@ class SchedulerEngine:
         chain_parent_id: str | None = None,
         chain_depth: int = 0,
     ) -> None:
-        from .subprocess import build_argv, spawn_and_wait
-
         sid = schedule["id"]
         now = time.time()
 
         inv_id = uuid.uuid4().hex[:12]
-        async with StateDB() as db:
-            await db.create_invocation(
-                {
-                    "id": inv_id,
-                    "skill": f"scheduled:{schedule['name']}",
-                    "plugin": schedule["trigger_type"],
-                    "prompt": schedule.get("action_prompt") or schedule.get("action_playbook"),
-                    "started_at": now,
-                    "status": "running",
-                }
-            )
+        await self._svc.create_invocation(
+            {
+                "id": inv_id,
+                "skill": f"scheduled:{schedule['name']}",
+                "plugin": schedule["trigger_type"],
+                "prompt": schedule.get("action_prompt") or schedule.get("action_playbook"),
+                "started_at": now,
+                "status": "running",
+            }
+        )
 
-        # Build argv (and optional temp file for flow_yaml kind)
         try:
-            argv, _tmp_path = build_argv(schedule, trigger_context)
+            argv, _tmp_path = _subprocess.build_argv(schedule, trigger_context)
         except Exception as exc:
             _log.exception("Invalid schedule action for %s (run %s)", schedule.get("name"), run_id)
             _end_time = time.time()
             next_at = self._compute_next_fire(schedule, now)
-            async with StateDB() as db:
-                await db.create_schedule_run(
-                    {
-                        "id": run_id,
-                        "schedule_id": sid,
-                        "invocation_id": inv_id,
-                        "trigger_context": trigger_context,
-                        "action_kind": schedule.get("action_kind"),
-                        "action_args": [],
-                        "status": "failed",
-                        "chain_parent_id": chain_parent_id,
-                        "chain_depth": chain_depth,
-                        "fired_at": now,
-                        "ended_at": _end_time,
-                        "error_detail": str(exc),
-                    }
-                )
-                await db.update_status(
-                    "schedule_run",
-                    run_id,
-                    new_status="failed",
-                    reason_code=RunReasons.FAILED_EXCEPTION,
-                    reason_summary=f"{type(exc).__name__}: {exc}",
-                    evidence_refs=[{"kind": "schedule", "id": sid}],
-                    source="executor",
-                    actor=run_id,
-                    metadata={"exception_class": type(exc).__name__},
-                )
-                inv_status, inv_rc, inv_rs, inv_ev, inv_meta = await _resolve_invocation_terminal(
-                    db, inv_id, fallback_status="failed", exception=exc
-                )
-                await db.update_invocation(inv_id, ended_at=_end_time)
-                await db.update_status(
-                    "invocation",
-                    inv_id,
-                    new_status=inv_status,
-                    reason_code=inv_rc,
-                    reason_summary=inv_rs,
-                    evidence_refs=inv_ev,
-                    source="executor",
-                    actor=inv_id,
-                    metadata=inv_meta,
-                )
-                update_fields: dict[str, Any] = {"last_fired_at": now}
-                if next_at:
-                    update_fields["next_fire_at"] = next_at
-                await db.update_schedule(sid, **update_fields)
+            await self._svc.create_schedule_run(
+                {
+                    "id": run_id,
+                    "schedule_id": sid,
+                    "invocation_id": inv_id,
+                    "trigger_context": trigger_context,
+                    "action_kind": schedule.get("action_kind"),
+                    "action_args": [],
+                    "status": "failed",
+                    "chain_parent_id": chain_parent_id,
+                    "chain_depth": chain_depth,
+                    "fired_at": now,
+                    "ended_at": _end_time,
+                    "error_detail": str(exc),
+                }
+            )
+            await self._svc.update_status(
+                "schedule_run",
+                run_id,
+                new_status="failed",
+                reason_code=RunReasons.FAILED_EXCEPTION,
+                reason_summary=f"{type(exc).__name__}: {exc}",
+                evidence_refs=[{"kind": "schedule", "id": sid}],
+                source="executor",
+                actor=run_id,
+                metadata={"exception_class": type(exc).__name__},
+            )
+            inv_status, inv_rc, inv_rs, inv_ev, inv_meta = await resolve_invocation_terminal(
+                self._svc, inv_id, fallback_status="failed", exception=exc
+            )
+            await self._svc.update_invocation(inv_id, ended_at=_end_time)
+            await self._svc.update_status(
+                "invocation",
+                inv_id,
+                new_status=inv_status,
+                reason_code=inv_rc,
+                reason_summary=inv_rs,
+                evidence_refs=inv_ev,
+                source="executor",
+                actor=inv_id,
+                metadata=inv_meta,
+            )
+            update_fields: dict[str, Any] = {"last_fired_at": now}
+            if next_at:
+                update_fields["next_fire_at"] = next_at
+            await self._svc.update_schedule(sid, **update_fields)
             return
 
-        # Guard: ensure any tmp file created by build_argv is removed even
-        # if an exception or scheduler-shutdown cancellation fires in the DB
-        # operations below, before spawn_and_wait() has a chance to run its
-        # own cleanup finally.  contextlib.suppress(OSError) makes the unlink
-        # harmless if spawn_and_wait already deleted it (double-unlink safe).
+        # Ensure the flow_yaml tmp file is removed on any exception or
+        # cancellation in the DB ops below, before spawn_and_wait() runs.
+        # suppress(OSError) makes double-unlink (spawn_and_wait already cleaned up) safe.
         try:
-            async with StateDB() as db:
-                await db.create_schedule_run(
-                    {
-                        "id": run_id,
-                        "schedule_id": sid,
-                        "invocation_id": inv_id,
-                        "trigger_context": trigger_context,
-                        "action_kind": schedule["action_kind"],
-                        "action_args": argv,
-                        "status": "running",
-                        "chain_parent_id": chain_parent_id,
-                        "chain_depth": chain_depth,
-                        "fired_at": now,
-                    }
-                )
-                await db.update_status(
-                    "schedule_run",
-                    run_id,
-                    new_status="running",
-                    reason_code=ScheduleReasons.FIRED_DUE,
-                    reason_summary="Schedule run fired because the trigger was due.",
-                    evidence_refs=[{"kind": "schedule", "id": sid}],
-                    source="system",
-                    actor=sid,
-                    metadata={"trigger_context": trigger_context, "chain_depth": chain_depth},
-                )
+            await self._svc.create_schedule_run(
+                {
+                    "id": run_id,
+                    "schedule_id": sid,
+                    "invocation_id": inv_id,
+                    "trigger_context": trigger_context,
+                    "action_kind": schedule["action_kind"],
+                    "action_args": argv,
+                    "status": "running",
+                    "chain_parent_id": chain_parent_id,
+                    "chain_depth": chain_depth,
+                    "fired_at": now,
+                }
+            )
+            await self._svc.update_status(
+                "schedule_run",
+                run_id,
+                new_status="running",
+                reason_code=ScheduleReasons.FIRED_DUE,
+                reason_summary="Schedule run fired because the trigger was due.",
+                evidence_refs=[{"kind": "schedule", "id": sid}],
+                source="system",
+                actor=sid,
+                metadata={"trigger_context": trigger_context, "chain_depth": chain_depth},
+            )
 
             if chain_depth == 0:
                 self._running[sid] = run_id
 
             next_at = self._compute_next_fire(schedule, now)
-            update_fields: dict[str, Any] = {"last_fired_at": now}
+            update_fields = {"last_fired_at": now}
             if next_at:
                 update_fields["next_fire_at"] = next_at
-            async with StateDB() as db:
-                await db.update_schedule(sid, **update_fields)
+            await self._svc.update_schedule(sid, **update_fields)
 
             _log.info(
                 "Firing schedule %s (run %s, chain_depth=%d)", schedule["name"], run_id, chain_depth
             )
 
-            exit_code, stderr_tail = await spawn_and_wait(argv, inv_id, tmp_path=_tmp_path)
+            action_cwd = await _resolve_action_cwd(schedule)
+            exit_code, stderr_tail = await _subprocess.spawn_and_wait(
+                argv, inv_id, tmp_path=_tmp_path, cwd=action_cwd
+            )
             end_time = time.time()
             status = "completed" if exit_code == 0 else "failed"
             reason_code = (
@@ -518,39 +557,38 @@ class SchedulerEngine:
                 else f"Scheduled process exited non-zero: {exit_code}."
             )
 
-            async with StateDB() as db:
-                await db.update_schedule_run(
-                    run_id,
-                    exit_code=exit_code,
-                    ended_at=end_time,
-                    error_detail=stderr_tail if exit_code != 0 else None,
-                )
-                await db.update_status(
-                    "schedule_run",
-                    run_id,
-                    new_status=status,
-                    reason_code=reason_code,
-                    reason_summary=reason_summary,
-                    evidence_refs=[{"kind": "invocation", "id": inv_id}],
-                    source="executor",
-                    actor=run_id,
-                    metadata={"exit_code": exit_code},
-                )
-                inv_status, inv_rc, inv_rs, inv_ev, inv_meta = await _resolve_invocation_terminal(
-                    db, inv_id, fallback_status=status, exit_code=exit_code
-                )
-                await db.update_invocation(inv_id, ended_at=end_time)
-                await db.update_status(
-                    "invocation",
-                    inv_id,
-                    new_status=inv_status,
-                    reason_code=inv_rc,
-                    reason_summary=inv_rs,
-                    evidence_refs=inv_ev,
-                    source="executor",
-                    actor=inv_id,
-                    metadata=inv_meta,
-                )
+            await self._svc.update_schedule_run(
+                run_id,
+                exit_code=exit_code,
+                ended_at=end_time,
+                error_detail=stderr_tail if exit_code != 0 else None,
+            )
+            await self._svc.update_status(
+                "schedule_run",
+                run_id,
+                new_status=status,
+                reason_code=reason_code,
+                reason_summary=reason_summary,
+                evidence_refs=[{"kind": "invocation", "id": inv_id}],
+                source="executor",
+                actor=run_id,
+                metadata={"exit_code": exit_code},
+            )
+            inv_status, inv_rc, inv_rs, inv_ev, inv_meta = await resolve_invocation_terminal(
+                self._svc, inv_id, fallback_status=status, exit_code=exit_code
+            )
+            await self._svc.update_invocation(inv_id, ended_at=end_time)
+            await self._svc.update_status(
+                "invocation",
+                inv_id,
+                new_status=inv_status,
+                reason_code=inv_rc,
+                reason_summary=inv_rs,
+                evidence_refs=inv_ev,
+                source="executor",
+                actor=inv_id,
+                metadata=inv_meta,
+            )
 
             if chain_depth < _MAX_CHAIN_DEPTH:
                 chain_action = None
@@ -592,64 +630,21 @@ class SchedulerEngine:
             _log.info("Schedule fire cancelled %s (run %s)", schedule.get("name"), run_id)
             _end_time = time.time()
             try:
-                async with StateDB() as db:
-                    await db.update_schedule_run(
-                        run_id,
-                        ended_at=_end_time,
-                        error_detail="Scheduler shutdown",
-                        reason_code=RunReasons.CANCELLED_SYSTEM,
-                        status="cancelled",
-                        reason_summary="Schedule run cancelled by scheduler shutdown.",
-                        evidence_refs=[{"kind": "schedule", "id": sid}],
-                        reason_actor=run_id,
-                    )
-                    (
-                        inv_status,
-                        inv_rc,
-                        inv_rs,
-                        inv_ev,
-                        inv_meta,
-                    ) = await _resolve_invocation_terminal(db, inv_id, fallback_status="cancelled")
-                    await db.update_invocation(inv_id, ended_at=_end_time)
-                    await db.update_status(
-                        "invocation",
-                        inv_id,
-                        new_status=inv_status,
-                        reason_code=inv_rc,
-                        reason_summary=inv_rs,
-                        evidence_refs=inv_ev,
-                        source="executor",
-                        actor=inv_id,
-                        metadata=inv_meta,
-                    )
-            except Exception:
-                _log.exception("Failed to record cancellation for run %s during shutdown", run_id)
-            raise
-        except Exception as exc:
-            _log.exception("Error in schedule fire %s (run %s)", schedule.get("name"), run_id)
-            _end_time = time.time()
-            async with StateDB() as db:
-                await db.update_schedule_run(
+                await self._svc.update_schedule_run(
                     run_id,
                     ended_at=_end_time,
-                    error_detail="Internal scheduler error",
-                )
-                await db.update_status(
-                    "schedule_run",
-                    run_id,
-                    new_status="failed",
-                    reason_code=RunReasons.FAILED_EXCEPTION,
-                    reason_summary=f"{type(exc).__name__}: {exc}",
+                    error_detail="Scheduler shutdown",
+                    reason_code=RunReasons.CANCELLED_SYSTEM,
+                    status="cancelled",
+                    reason_summary="Schedule run cancelled by scheduler shutdown.",
                     evidence_refs=[{"kind": "schedule", "id": sid}],
-                    source="executor",
-                    actor=run_id,
-                    metadata={"exception_class": type(exc).__name__},
+                    reason_actor=run_id,
                 )
-                inv_status, inv_rc, inv_rs, inv_ev, inv_meta = await _resolve_invocation_terminal(
-                    db, inv_id, fallback_status="failed", exception=exc
+                inv_status, inv_rc, inv_rs, inv_ev, inv_meta = await resolve_invocation_terminal(
+                    self._svc, inv_id, fallback_status="cancelled"
                 )
-                await db.update_invocation(inv_id, ended_at=_end_time)
-                await db.update_status(
+                await self._svc.update_invocation(inv_id, ended_at=_end_time)
+                await self._svc.update_status(
                     "invocation",
                     inv_id,
                     new_status=inv_status,
@@ -660,13 +655,46 @@ class SchedulerEngine:
                     actor=inv_id,
                     metadata=inv_meta,
                 )
+            except Exception:
+                _log.exception("Failed to record cancellation for run %s during shutdown", run_id)
+            raise
+        except Exception as exc:
+            _log.exception("Error in schedule fire %s (run %s)", schedule.get("name"), run_id)
+            _end_time = time.time()
+            await self._svc.update_schedule_run(
+                run_id,
+                ended_at=_end_time,
+                error_detail="Internal scheduler error",
+            )
+            await self._svc.update_status(
+                "schedule_run",
+                run_id,
+                new_status="failed",
+                reason_code=RunReasons.FAILED_EXCEPTION,
+                reason_summary=f"{type(exc).__name__}: {exc}",
+                evidence_refs=[{"kind": "schedule", "id": sid}],
+                source="executor",
+                actor=run_id,
+                metadata={"exception_class": type(exc).__name__},
+            )
+            inv_status, inv_rc, inv_rs, inv_ev, inv_meta = await resolve_invocation_terminal(
+                self._svc, inv_id, fallback_status="failed", exception=exc
+            )
+            await self._svc.update_invocation(inv_id, ended_at=_end_time)
+            await self._svc.update_status(
+                "invocation",
+                inv_id,
+                new_status=inv_status,
+                reason_code=inv_rc,
+                reason_summary=inv_rs,
+                evidence_refs=inv_ev,
+                source="executor",
+                actor=inv_id,
+                metadata=inv_meta,
+            )
         finally:
             if chain_depth == 0:
                 self._running.pop(sid, None)
-            # Clean up the flow_yaml temp file if spawn_and_wait never ran
-            # (exception or cancellation in the pre-spawn DB ops).
-            # OSError is suppressed so a double-unlink (spawn_and_wait already
-            # cleaned up in its own finally) is harmless.
             if _tmp_path is not None:
                 with contextlib.suppress(OSError):
                     os.unlink(_tmp_path)
@@ -679,7 +707,16 @@ class SchedulerEngine:
             try:
                 from croniter import croniter
 
-                return croniter(expr, start_time=ref_time).get_next(float)
+                from lionagi.studio.config import SCHEDULER_TZ
+
+                # Resolve the cron expression's wall-clock fields in the
+                # configured timezone (default: system local), not UTC.
+                # croniter honors DST transitions when given a tz-aware
+                # start_time; get_next(float) still returns an absolute UTC
+                # epoch, which is what next_fire_at stores.
+                tz = _resolve_scheduler_tzinfo(SCHEDULER_TZ)
+                start = datetime.fromtimestamp(ref_time, tz=tz)
+                return croniter(expr, start_time=start).get_next(float)
             except Exception:
                 _log.exception("Invalid cron expression: %s", expr)
                 return None

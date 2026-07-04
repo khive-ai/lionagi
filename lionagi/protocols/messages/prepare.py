@@ -79,24 +79,7 @@ def _build_round_notification(
     """Build system notification block for agent grounding between rounds."""
     ts = int(time.time())
 
-    capabilities: set[str] = set()
-    resources: set[str] = set()
-
-    # Branch is session-layer; import lazily to avoid circular dependency.
-    try:
-        from lionagi.beta.session.session import Branch  # type: ignore[import]
-
-        if isinstance(progression, Branch):
-            capabilities = getattr(progression, "capabilities", set())
-            resources = getattr(progression, "resources", set())
-    except ImportError:
-        pass
-
     parts = [f'<system round="{round_num}" time="{ts}">']
-    if capabilities:
-        parts.append(f"  tools: [{', '.join(sorted(capabilities))}]")
-    if resources:
-        parts.append(f"  resources: [{', '.join(sorted(resources))}]")
     parts.append(f"  context: {msg_count} msgs | round {round_num}")
     if scratchpad:
         scratch_lines = ["  scratchpad:"]
@@ -118,18 +101,7 @@ def prepare_messages_for_chat(
     round_notifications: bool = False,
     scratchpad: dict[str, str] | None = None,
 ) -> list[MessageContent] | list[dict[str, Any]]:
-    """Prepare messages for chat API with intelligent content organization.
-
-    Algorithm:
-    1. Auto-detect system message from first message (if SystemContent)
-    1b. Prepend system_prefix if provided (e.g., LNDL format instructions)
-    2. Collect action messages and embed into following instruction's context
-       - aggregate_actions=True: correlate requests/responses, produce compact summaries
-       - aggregate_actions=False: render each ActionResponse individually (legacy)
-    3. Merge consecutive AssistantResponses
-    4. Embed system into first instruction
-    5. Append new_instruction
-    """
+    """Prepare a message Pile for the chat API: embed system, fold action outputs into context, merge consecutive assistant turns, append new_instruction."""
     # Resolve message sequence — apply progression ordering if provided.
     to_use: Pile[Message] = messages if progression is None else messages[progression]
 

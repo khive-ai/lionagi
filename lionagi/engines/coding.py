@@ -1,55 +1,28 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Coding engine — the gated implement/test/fix-loop shape.
-
-A coding spec (a task description, or a pending experiment exported by a
-hypothesis run) is driven through a deterministic pipeline whose ground truth
-is a real test command, not a model's claim:
-
-```text
-WorkPlanned -> ChangeProposed -> TestsRan -> [fix loop] -> VerifyResult
-  -> CodeResultRecorded
-```
-
-- ``plan`` (analyst, no tools): the spec becomes a ``WorkPlanned`` — files to
-  touch, approach, test strategy, acceptance criteria.
-- ``implement`` (implementer WITH coding tools, ``permissions="safe"``, path-
-  guarded to the run workspace): executes the plan across its own tool turns
-  and emits a ``ChangeProposed``.
-- ``test`` (the engine itself, NOT an agent): runs the declared ``test_cmd`` in
-  a subprocess with a timeout and captured output, emitting ``TestsRan``. This
-  is ground truth — never an LLM claim.
-- the fix loop: on failure the implementer is re-prompted with the captured
-  output for a new ``ChangeProposed``, then re-tested — the test-failure
-  analogue of emission repair, bounded by ``max_fix_rounds``.
-- ``verify`` (critic, read-only): reviews the captured ``git diff`` against the
-  acceptance criteria and emits a ``VerifyResult`` (the casts ``Verdict``).
-- ``conclude``: the engine emits a ``CodeResultRecorded`` shaped so a hypothesis
-  run can ingest it (:meth:`CodingRun.to_hypothesis_seeds`).
-
-This is the *Gated-Loop* shape, complementing research's Tree, review's
-Dimensional, and hypothesis's Chain. The bus-interop bridge here is by export +
-λ ferry (:meth:`CodingRun.to_hypothesis_seeds`); standing-bus consumption of
-``ExperimentDesigned`` events is a future seam, not this engine.
-"""
+"""Coding engine — Gated-Loop shape: plan → implement → test → [fix] → verify → record."""
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import os
+import re
 import shlex
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from lionagi.casts.emission import Verdict
 from lionagi.ln.concurrency import run_sync
 from lionagi.tools._subprocess import _SHELL_CONTROL, _subprocess_sync
 
-from .engine import ChainRun, Engine, EngineEvent, EngineRun
+from .engine import ChainEvent, ChainRun, Engine, EngineEvent, EngineRun
 
 logger = logging.getLogger("lionagi.engines")
 
@@ -60,8 +33,13 @@ __all__ = (
     "TestsRan",
     "VerifyResult",
     "CodeResultRecorded",
+    "AutoRepairApplied",
+    "WorkAborted",
+    "WorkerHeartbeat",
+    "WorkerActivity",
     "CodingRun",
     "CodingEngine",
+    "_lint_spec",
 )
 
 
@@ -72,10 +50,7 @@ __all__ = (
 # ---------------------------------------------------------------------------
 
 
-class CodingChainEvent(BaseModel):
-    """Mixin: engine-assigned chain id for the coding pipeline's audit trail."""
-
-    eid: str = Field(default="", description="Leave empty — the engine assigns this id.")
+CodingChainEvent = ChainEvent
 
 
 class WorkPlanned(EngineEvent, CodingChainEvent):
@@ -94,8 +69,7 @@ class WorkPlanned(EngineEvent, CodingChainEvent):
 
 
 class ChangeProposed(EngineEvent, CodingChainEvent):
-    """A code change the implementer made via its tools — the unit the test
-    command then judges. Re-emitted once per fix round."""
+    """A code change the implementer made via its tools; re-emitted once per fix round."""
 
     plan_ref: str = Field(default="", description="Id of the WorkPlanned this implements.")
     summary: str = Field(description="What was changed, stated concretely.")
@@ -110,8 +84,7 @@ class ChangeProposed(EngineEvent, CodingChainEvent):
 
 
 class TestsRan(EngineEvent, CodingChainEvent):
-    """Ground truth: the outcome of the engine running the declared test command
-    in a subprocess. ``passed`` is the process exit code, never a model claim."""
+    """Ground truth: subprocess outcome of the declared test command. ``passed`` is the exit code, never a model claim."""
 
     # Not a pytest test class — the name starts with "Test" but it is an event.
     __test__ = False
@@ -136,9 +109,7 @@ class TestsRan(EngineEvent, CodingChainEvent):
 
 
 class VerifyResult(Verdict, CodingChainEvent):
-    """The critic's call on whether the change meets the acceptance criteria —
-    the casts ``Verdict`` (verdict, rationale, evidence, reversible_by) plus the
-    refs and the unmet-criteria list."""
+    """The critic's call on whether the change meets acceptance criteria — casts ``Verdict`` plus refs and unmet-criteria list."""
 
     change_ref: str = Field(default="", description="Id of the ChangeProposed being verified.")
     tests_ref: str = Field(default="", description="Id of the TestsRan that produced ground truth.")
@@ -151,13 +122,7 @@ class VerifyResult(Verdict, CodingChainEvent):
 
 
 class CodeResultRecorded(EngineEvent, CodingChainEvent):
-    """The terminal result of the coding run, shaped for hypothesis ingestion.
-
-    ``measurements`` is a dict so a coding run can carry structured outcomes
-    (rounds, files touched, returncode); :meth:`CodingRun.to_hypothesis_seeds`
-    renders it to the string ``ResultRecorded`` expects. ``experiment_ref``
-    carries the originating ``ExperimentDesigned`` eid when the spec came from a
-    pending experiment, '' otherwise."""
+    """Terminal coding-run result shaped for hypothesis ingestion via ``CodingRun.to_hypothesis_seeds``."""
 
     passed: bool = Field(description="Whether the declared test command ultimately passed.")
     measurements: dict[str, Any] = Field(
@@ -189,17 +154,95 @@ _REF_ATTRS = (
 
 
 # ---------------------------------------------------------------------------
+# Worker observability events (abort + heartbeat + activity)
+# ---------------------------------------------------------------------------
+
+
+class WorkAborted(EngineEvent):
+    """Emitted when a stage is aborted by the stage watchdog."""
+
+    stage: str = Field(default="")
+    reason: str = Field(default="")
+    elapsed_s: float = Field(default=0.0)
+
+
+class WorkerHeartbeat(EngineEvent):
+    """Periodic liveness ping emitted while a stage is running."""
+
+    elapsed_s: float = Field(description="Seconds since the run started.")
+    stage: str = Field(default="implement")
+
+
+class WorkerActivity(EngineEvent):
+    """Emitted when a file in the workspace is written during a stage."""
+
+    path: str = Field(description="Workspace-relative path that changed.")
+    elapsed_s: float = Field(description="Seconds since the run started.")
+
+
+class AutoRepairApplied(EngineEvent):
+    """Emitted when the harness auto-applies a repair command before a test gate.
+
+    Distinct from a worker fix round: the worker produced the change; the harness
+    normalized it mechanically (e.g. ``cargo fmt --all``).  The dataset records
+    both so analysis can separate worker-produced vs harness-normalized diffs.
+    """
+
+    cmd: str = Field(description="The auto-repair command that was run.")
+    files: list[str] = Field(
+        default_factory=list,
+        description="Workspace-relative paths whose mtime changed after the command.",
+    )
+    round: int = Field(
+        default=0, description="Fix-loop round this repair belongs to (0 = first pass)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Spec lint
+# ---------------------------------------------------------------------------
+
+_RE_ACCEPTANCE = re.compile(r"acceptance.{0,20}criteria|acceptance:", re.IGNORECASE)
+_RE_TEST_CMD = re.compile(r"test_cmd\s*:", re.IGNORECASE)
+_RE_COUNT_ASSERT = re.compile(r"\d+\s*(test|case|item|assert|pass)", re.IGNORECASE)
+_RE_FILE_PATH = re.compile(r"(?:^|[\s(\"'])(/[\w/.\-]+\.[\w]+)", re.MULTILINE)
+
+
+def _lint_spec(
+    spec: str | dict[str, Any],
+    *,
+    workspace: str | Path | None = None,
+    strict: bool = False,
+) -> list[str]:
+    """Return a list of warning strings for common spec deficiencies.
+
+    Pass *strict=True* to raise ValueError on the first warning instead.
+    """
+    text = spec if isinstance(spec, str) else json.dumps(spec)
+    warnings: list[str] = []
+    if not _RE_ACCEPTANCE.search(text):
+        warnings.append("spec has no acceptance criteria — add an 'acceptance criteria:' section")
+    if _RE_TEST_CMD.search(text) and not _RE_COUNT_ASSERT.search(text):
+        warnings.append(
+            "spec has a test_cmd but no count assertion (e.g. '3 tests pass') — hard to verify"
+        )
+    if workspace is not None:
+        for m in _RE_FILE_PATH.finditer(text):
+            candidate = Path(m.group(1))
+            if candidate.is_absolute() and not candidate.exists():
+                warnings.append(f"referenced path does not exist: {candidate}")
+    if strict and warnings:
+        raise ValueError(warnings[0])
+    return warnings
+
+
+# ---------------------------------------------------------------------------
 # Spec normalization
 # ---------------------------------------------------------------------------
 
 
 def _normalize_spec(spec: str | dict[str, Any]) -> tuple[str, str]:
-    """Return ``(task_text, experiment_ref)`` for a coding spec.
-
-    A string is the task description. A dict is a pending experiment exported by
-    a hypothesis run (``method``/``dataset``/``procedure``/``acceptance``/``eid``)
-    — its fields are rendered into the task text and its ``eid`` becomes the
-    ``experiment_ref`` the result carries back."""
+    """Return (task_text, experiment_ref) for a string spec or a hypothesis-exported experiment dict."""
     if isinstance(spec, str):
         text = spec.strip()
         if not text:
@@ -301,13 +344,7 @@ def _verify_instruction(plan: WorkPlanned, change: ChangeProposed, t: TestsRan, 
 
 
 class CodingRun(ChainRun):
-    """Per-run state: typed event store, eid counters, the workspace + declared
-    test command, and the captured diff.
-
-    Inherits collect/emit/find/events_of from :class:`ChainRun`; adds the
-    coding-specific fields (workspace, test command, diff, workspace snapshot)
-    and the :meth:`last`, :meth:`to_hypothesis_seeds`, and :meth:`export`
-    methods."""
+    """Per-run state for a CodingEngine run: event store, eid counters, workspace, test command, and diff capture."""
 
     _chain_event_cls = CodingChainEvent
     _event_prefix_map = _EVENT_PREFIX  # filled after class definition below
@@ -326,6 +363,8 @@ class CodingRun(ChainRun):
         self._ws_baseline: dict[str, str] | None = {}
         # Paths newly changed/added since the baseline (populated by _run).
         self._ws_delta: list[str] = []
+        self._spec_lint_warnings: list[str] = []
+        self._aborted: bool = False
 
     # -- typed overrides (narrower signatures than the Any base) ---------------
 
@@ -343,11 +382,7 @@ class CodingRun(ChainRun):
         return evs[-1] if evs else None
 
     def to_hypothesis_seeds(self) -> list[dict[str, Any]]:
-        """Render the run's results as ``ResultRecorded`` inputs for a hypothesis
-        run — the bus-interop bridge. Each ``CodeResultRecorded`` becomes a dict
-        with ``experiment_ref`` (the originating experiment, '' if none),
-        ``measurements`` (the structured dict rendered to a string), ``passed``,
-        and ``caveats`` — exactly the fields ``HypothesisRun`` ingests."""
+        """Render each CodeResultRecorded as a ResultRecorded input dict for hypothesis ingestion."""
         seeds: list[dict[str, Any]] = []
         for k in self.events_of(CodeResultRecorded):
             seeds.append(
@@ -361,10 +396,7 @@ class CodingRun(ChainRun):
         return seeds
 
     def export(self, dir_path: str | Path, *, report: str = "") -> dict[str, str]:
-        """Write the run's record to *dir_path*: ``results.json`` (typed events +
-        refs + hypothesis seeds) and ``report.md`` (the verify rationale +
-        outcome). Full test outputs are written separately as ``test_output_N.txt``
-        during the run."""
+        """Write results.json and report.md to *dir_path*; returns paths dict. Full test output files are written separately during the run."""
         d = Path(dir_path)
         d.mkdir(parents=True, exist_ok=True)
         events = [e for evs in self.store.values() for e in evs]
@@ -427,37 +459,7 @@ def _render_report(run: CodingRun, report: str) -> str:
 
 
 class CodingEngine(Engine):
-    """Gated implement/test/fix-loop engine (stateless config).
-
-    Parameters extend :class:`Engine` with one casts role per agent stage —
-    ``plan_role`` (plans the change, no tools), ``implement_role`` (implements
-    it WITH coding tools, path-guarded), ``verify_role`` (reviews the diff
-    against acceptance) — plus:
-
-    coding_tools
-        Tool names granted to the implementer (default ``("coding",)`` — the
-        full reader/editor/bash/search toolkit). Tool-bearing agents get the
-        destructive-command guard and workspace path guards from
-        :meth:`EngineRun.make_agent` (``secure=True``).
-    implement_permissions
-        Permission preset for the implementer (default ``"safe"``).
-    max_fix_rounds
-        How many times a failed test re-prompts the implementer before the run
-        concludes with ``passed=False`` — the test-failure analogue of emission
-        repair.
-    test_timeout_s
-        Wall-clock cap on each test-command subprocess (default 600s). The
-        process group is killed on timeout; output is captured up to a hard
-        byte cap and the full capture is written to the export dir.
-    repair_retries
-        Re-prompt turns when a stage's expected emission did not arrive — the
-        loop that keeps small/weak workers in the pipeline (ADR-0077 §3).
-
-    Set ``judge_model`` (base class) to gate the fix loop on a quality judge:
-    before each extra round it asks whether another attempt is worth the budget.
-    Per-stage models route through ``models={"plan": ..., "implement": ...,
-    "verify": ...}``.
-    """
+    """Gated plan/implement/test/fix/verify engine (stateless config). See docs/reference/engines.md for parameter details."""
 
     run_context_cls: type[EngineRun] = CodingRun
 
@@ -472,6 +474,17 @@ class CodingEngine(Engine):
         max_fix_rounds: int = 3,
         test_timeout_s: float = 600.0,
         repair_retries: int = 1,
+        turn_timeout_s: float | None = 600.0,
+        strict_spec: bool = False,
+        heartbeat_interval_s: float | None = 30.0,
+        stage_timeout_s: float | None = None,
+        # per-stage tool grants (worker only; judge/plan/verify excluded)
+        worker_extra_tools: tuple[str, ...] = (),
+        worker_mcp_servers: list[str] | None = None,
+        worker_extra_prompt: str | None = None,
+        # mechanical-repair efficiency
+        auto_repair_cmds: list[str] | None = None,
+        fast_test_cmd: str | list[str] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -483,6 +496,15 @@ class CodingEngine(Engine):
         self.max_fix_rounds = max_fix_rounds
         self.test_timeout_s = test_timeout_s
         self.repair_retries = repair_retries
+        self.turn_timeout_s = turn_timeout_s
+        self.strict_spec = strict_spec
+        self.heartbeat_interval_s = heartbeat_interval_s
+        self.stage_timeout_s = stage_timeout_s
+        self.worker_extra_tools = tuple(worker_extra_tools)
+        self.worker_mcp_servers = list(worker_mcp_servers) if worker_mcp_servers else None
+        self.worker_extra_prompt = worker_extra_prompt
+        self.auto_repair_cmds = list(auto_repair_cmds) if auto_repair_cmds else []
+        self.fast_test_cmd = fast_test_cmd
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -496,17 +518,7 @@ class CodingEngine(Engine):
         session: Any = None,
         on_event: Any = None,
     ) -> CodeResultRecorded:
-        """Normalize *spec* exactly once before creating any run state.
-
-        ``_normalize_spec`` raises ``ValueError`` / ``TypeError`` for malformed
-        specs.  Without this gate those errors surface after the session and
-        observers are already initialized — callers cannot distinguish a setup
-        error from a mid-run failure.
-
-        The normalized ``(task_text, experiment_ref)`` tuple is forwarded to
-        ``_run()`` via keyword argument so that ``_run`` consumes exactly what
-        was validated here — normalization happens once, not twice.
-        """
+        """Normalize *spec* exactly once before creating run state; raises ValueError/TypeError for malformed specs before session initialization."""
         task_text, experiment_ref = _normalize_spec(spec)  # raises on bad input
         return await super().run(
             spec,
@@ -528,18 +540,7 @@ class CodingEngine(Engine):
         export_dir: str | Path | None = None,
         _normalized: tuple[str, str] | None = None,
     ) -> CodeResultRecorded:
-        """Drive *spec* through plan -> implement -> test -> [fix] -> verify ->
-        conclude. Returns the terminal :class:`CodeResultRecorded`.
-
-        *test_cmd* is the ground-truth command (a list runs ``shell=False``; a
-        string with shell-control characters runs in a shell, otherwise it is
-        split). *workspace* is the implementer's cwd and path-guard root. When
-        *export_dir* is given, ``results.json`` + ``report.md`` (and the full
-        per-round test outputs) are written there.
-
-        *_normalized* carries the pre-validated ``(task_text, experiment_ref)``
-        pair from ``run()``.  When present, this avoids a second
-        ``_normalize_spec`` call so the spec is normalized exactly once."""
+        """Drive *spec* through plan -> implement -> test -> [fix loop] -> verify -> conclude; returns the terminal CodeResultRecorded."""
         if not test_cmd:
             raise ValueError("test_cmd is required — the engine needs ground truth to gate on")
         if _normalized is not None:
@@ -560,11 +561,19 @@ class CodingEngine(Engine):
         # is sequential (no reactive spawning), so observers only stamp + store.
         run.observe(CodingChainEvent, lambda e, _c: run.collect(e))
 
+        lint_warnings = _lint_spec(task_text, workspace=run.workspace, strict=self.strict_spec)
+        for w in lint_warnings:
+            run.notify("spec_lint_warning", warning=w)
+        if lint_warnings:
+            run._spec_lint_warnings = lint_warnings
+
         plan = await self._plan(run)
         # Snapshot workspace state before the implementer runs so the post-
         # implement check computes a delta, not an absolute status read.
         run._ws_baseline = await self._capture_ws_baseline(run)
         change = await self._implement(run, plan)
+        if run._aborted:
+            return await self._conclude(run, plan, passed=False, caveat="stage aborted by watchdog")
         if change is None:
             # Emission is metadata; the workspace delta is ground truth.  Three
             # outcomes after _implement returns None:
@@ -601,6 +610,8 @@ class CodingEngine(Engine):
 
         tests = await self._test(run, change, round_no=0)
         change, tests = await self._fix_loop(run, plan, change, tests)
+        if run._aborted:
+            return await self._conclude(run, plan, passed=False, caveat="stage aborted by watchdog")
         await self._verify(run, plan, change, tests)
         return await self._conclude(run, plan, passed=tests.passed)
 
@@ -633,32 +644,97 @@ class CodingEngine(Engine):
     async def _implement(self, run: CodingRun, plan: WorkPlanned) -> ChangeProposed | None:
         emits = (ChangeProposed,)
         before = len(run.events_of(ChangeProposed))
+        all_worker_tools = self.coding_tools + self.worker_extra_tools
         async with run._sem:
             agent = await run.make_agent(
                 self.implement_role,
                 name="implement",
                 model=self.model_for("implement"),
-                tools=self.coding_tools,
-                permissions=self.implement_permissions if self.coding_tools else None,
+                tools=all_worker_tools,
+                permissions=self.implement_permissions if all_worker_tools else None,
                 cwd=run.workspace,
                 emits=emits,
+                mcp_servers=self.worker_mcp_servers,
+                extra_prompt=self.worker_extra_prompt,
             )
-            await run.operate_with_repair(
-                agent,
-                _implement_instruction(plan, run.task_text, run.workspace),
-                arrived=lambda: len(run.events_of(ChangeProposed)) > before,
-                emits=emits,
-                retries=self.repair_retries,
-            )
-        run._implementer = agent  # reused by the fix loop — same branch, more turns
+            wrapped = self._wrap_turn_timeout(agent, run)
+            heartbeat_task = self._start_heartbeat(run, stage="implement")
+            try:
+                stage_coro = run.operate_with_repair(
+                    wrapped,
+                    _implement_instruction(plan, run.task_text, run.workspace),
+                    arrived=lambda: len(run.events_of(ChangeProposed)) > before,
+                    emits=emits,
+                    retries=self.repair_retries,
+                )
+                await self._run_stage_with_watchdog(run, stage_coro, "implement")
+            finally:
+                if heartbeat_task is not None and not heartbeat_task.done():
+                    heartbeat_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await heartbeat_task
+        run._implementer = wrapped  # reused by the fix loop — same branch, more turns
         return run.last(ChangeProposed)
 
-    async def _test(self, run: CodingRun, change: ChangeProposed, *, round_no: int) -> TestsRan:
-        """Run the declared test command as a subprocess — the ground-truth
-        stage. NOT an agent: ``passed`` is the process exit code."""
-        cmd, shell = _resolve_cmd(run.test_cmd)
-        cmd_str = run.test_cmd if isinstance(run.test_cmd, str) else " ".join(run.test_cmd)
-        run.notify("testing", change=change.eid, round=round_no, cmd=cmd_str)
+    async def _apply_auto_repairs(
+        self, run: CodingRun, *, round_no: int
+    ) -> list[AutoRepairApplied]:
+        """Run each auto_repair_cmd in sequence; emit AutoRepairApplied per command.
+
+        Returns the list of events emitted.  Errors are notified but never raise
+        — a failed auto-repair command is surfaced as a notification, not a crash.
+        """
+        if not self.auto_repair_cmds:
+            return []
+        applied: list[AutoRepairApplied] = []
+        ws = Path(run.workspace)
+        for raw_cmd in self.auto_repair_cmds:
+            # Snapshot mtimes before running so we can report changed files.
+            before_mtimes: dict[str, float] = {}
+            try:
+                for p in ws.rglob("*"):
+                    if p.is_file():
+                        before_mtimes[str(p)] = p.stat().st_mtime
+            except Exception:  # noqa: BLE001
+                logger.debug("auto_repair mtime snapshot failed", exc_info=True)
+            cmd, shell = _resolve_cmd(raw_cmd)
+            result = await run_sync(_subprocess_sync, cmd, shell, 120.0, run.workspace)
+            if int(result.get("returncode", -1)) != 0:
+                run.notify(
+                    "auto_repair_failed",
+                    cmd=raw_cmd,
+                    returncode=result.get("returncode"),
+                    round=round_no,
+                )
+                continue
+            changed: list[str] = []
+            try:
+                for p in ws.rglob("*"):
+                    if p.is_file():
+                        key = str(p)
+                        if before_mtimes.get(key) != p.stat().st_mtime:
+                            rel = str(p.relative_to(ws)) if p.is_relative_to(ws) else key
+                            changed.append(rel)
+            except Exception:  # noqa: BLE001
+                logger.debug("auto_repair changed-file scan failed", exc_info=True)
+            ev = AutoRepairApplied(cmd=raw_cmd, files=sorted(changed), round=round_no)
+            await run.emit(ev)
+            applied.append(ev)
+        return applied
+
+    async def _run_subprocess_gate(
+        self,
+        run: CodingRun,
+        change: ChangeProposed,
+        cmd_source: str | list[str],
+        *,
+        round_no: int,
+        notify_event: str,
+    ) -> TestsRan:
+        """Run cmd_source as a subprocess and emit a TestsRan; shared by _test and _fast_test."""
+        cmd, shell = _resolve_cmd(cmd_source)
+        cmd_str = cmd_source if isinstance(cmd_source, str) else " ".join(cmd_source)
+        run.notify(notify_event, change=change.eid, round=round_no, cmd=cmd_str)
         result = await run_sync(_subprocess_sync, cmd, shell, self.test_timeout_s, run.workspace)
         combined = (result.get("stdout", "") + result.get("stderr", "")).rstrip()
         returncode = int(result.get("returncode", -1))
@@ -678,34 +754,88 @@ class CodingEngine(Engine):
         await run.emit(tests)
         return run.last(TestsRan)
 
+    async def _test(self, run: CodingRun, change: ChangeProposed, *, round_no: int) -> TestsRan:
+        """Run the declared test command as a subprocess; passed is the process exit code, never a model claim."""
+        await self._apply_auto_repairs(run, round_no=round_no)
+        return await self._run_subprocess_gate(
+            run, change, run.test_cmd, round_no=round_no, notify_event="testing"
+        )
+
+    async def _fast_test(
+        self, run: CodingRun, change: ChangeProposed, *, round_no: int
+    ) -> TestsRan | None:
+        """Run fast_test_cmd as an incremental gate for intermediate fix rounds.
+
+        Returns None when fast_test_cmd is not configured.  Auto-repair is NOT
+        run here — it fires in _test() which is always the authoritative leg.
+        """
+        if self.fast_test_cmd is None:
+            return None
+        return await self._run_subprocess_gate(
+            run, change, self.fast_test_cmd, round_no=round_no, notify_event="fast_testing"
+        )
+
     async def _fix_loop(
         self, run: CodingRun, plan: WorkPlanned, change: ChangeProposed, tests: TestsRan
     ) -> tuple[ChangeProposed, TestsRan]:
-        """Re-prompt the implementer with the captured failure for a new change,
-        then re-test — bounded by ``max_fix_rounds``. The judge gate (if armed)
-        decides whether another round is worth the budget before each attempt."""
+        """Re-prompt the implementer on failure and re-test, bounded by max_fix_rounds.
+
+        Mechanical rounds (failure attributable solely to fmt/lint output, satisfied
+        after auto-repair) skip the judge gate.  Substantive rounds pass through the
+        judge as before.  When fast_test_cmd is configured, intermediate rounds gate
+        on it first; the full test_cmd is always the final ground-truth leg.
+        """
         agent = getattr(run, "_implementer", None)
         round_no = 0
         while not tests.passed and round_no < self.max_fix_rounds and agent is not None:
             round_no += 1
-            subject = f"fix round {round_no}: test `{tests.cmd}` failed (exit {tests.returncode})"
-            if not await self.judge(run, f"fix-{round_no}", subject):
-                run.notify("fix_gated", round=round_no)
-                break
-            before = len(run.events_of(ChangeProposed))
-            async with run._sem:
-                await run.operate_with_repair(
-                    agent,
-                    _fix_instruction(tests, plan, round_no, self.max_fix_rounds),
-                    arrived=lambda n=before: len(run.events_of(ChangeProposed)) > n,
-                    emits=(ChangeProposed,),
-                    retries=self.repair_retries,
+            # Classify: mechanical if auto-repair commands are configured and the
+            # previous failure looks like a pure fmt/lint failure.
+            is_mechanical = bool(self.auto_repair_cmds) and _looks_mechanical(tests)
+            if is_mechanical:
+                run.notify("fix_mechanical", round=round_no)
+            else:
+                subject = (
+                    f"fix round {round_no}: test `{tests.cmd}` failed (exit {tests.returncode})"
                 )
-            new_change = run.last(ChangeProposed)
-            if new_change is change:
-                run.notify("fix_no_change", round=round_no)
-                break
-            change = new_change
+                if not await self.judge(run, f"fix-{round_no}", subject):
+                    run.notify("fix_gated", round=round_no)
+                    break
+            before = len(run.events_of(ChangeProposed))
+            if is_mechanical:
+                # Mechanical rounds skip re-prompting the worker: auto_repair_cmds
+                # already corrected the workspace.  Re-test directly.
+                pass
+            else:
+                async with run._sem:
+                    stage_coro = run.operate_with_repair(
+                        agent,
+                        _fix_instruction(tests, plan, round_no, self.max_fix_rounds),
+                        arrived=lambda n=before: len(run.events_of(ChangeProposed)) > n,
+                        emits=(ChangeProposed,),
+                        retries=self.repair_retries,
+                    )
+                    await self._run_stage_with_watchdog(run, stage_coro, f"fix-{round_no}")
+                if run._aborted:
+                    break
+                new_change = run.last(ChangeProposed)
+                if new_change is change:
+                    run.notify("fix_no_change", round=round_no)
+                    break
+                change = new_change
+            # Incremental gate: fast_test_cmd for intermediate substantive rounds;
+            # always run the full test_cmd as the final ground-truth leg.
+            if (
+                not is_mechanical
+                and self.fast_test_cmd is not None
+                and round_no < self.max_fix_rounds
+            ):
+                fast = await self._fast_test(run, change, round_no=round_no)
+                if fast is not None and not fast.passed:
+                    # Fast gate failed — update tests for the fix instruction but
+                    # do not count this as the authoritative result yet.
+                    tests = fast
+                    continue
             tests = await self._test(run, change, round_no=round_no)
         if not tests.passed:
             run.notify("fix_exhausted", rounds=round_no, passed=False)
@@ -743,7 +873,7 @@ class CodingEngine(Engine):
         passed: bool,
         caveat: str = "",
     ) -> CodeResultRecorded:
-        """Emit the terminal CodeResultRecorded — shaped for hypothesis ingestion."""
+        """Emit the terminal CodeResultRecorded shaped for hypothesis ingestion."""
         tests = run.events_of(TestsRan)
         last_test = tests[-1] if tests else None
         verdict = run.last(VerifyResult)
@@ -764,6 +894,18 @@ class CodingEngine(Engine):
                 {f for c in run.events_of(ChangeProposed) for f in c.files_touched}
             ),
         }
+        if run._spec_lint_warnings:
+            measurements["spec_lint_warnings"] = run._spec_lint_warnings
+        # Record active tool grants so dataset consumers can correlate grant
+        # configuration with outcome — worker grants only, judge context excluded.
+        if self.worker_extra_tools or self.worker_mcp_servers:
+            measurements["worker_grants"] = {
+                "extra_tools": list(self.worker_extra_tools),
+                "mcp_servers": self.worker_mcp_servers or [],
+            }
+        auto_repairs = run.by_type(AutoRepairApplied)
+        if auto_repairs:
+            measurements["auto_repair_rounds"] = len(auto_repairs)
         result = CodeResultRecorded(
             passed=passed,
             measurements=measurements,
@@ -780,14 +922,101 @@ class CodingEngine(Engine):
             run.notify("exported", **paths)
         return result
 
+    # -- worker helpers -------------------------------------------------------
+
+    def _wrap_turn_timeout(self, agent: Any, run: CodingRun) -> Any:
+        """Return a proxy whose operate() is bounded by turn_timeout_s.
+
+        On TimeoutError the proxy emits a turn_timeout notification and returns
+        None so operate_with_repair sees arrived()=False and enters the fix path.
+        """
+        if self.turn_timeout_s is None:
+            return agent
+        timeout_s = self.turn_timeout_s
+
+        class _Proxy:
+            name = getattr(agent, "name", "")
+            chat_model = getattr(agent, "chat_model", None)
+            capabilities = getattr(agent, "capabilities", None)
+
+            async def operate(self_, *, instruction: str, **kw: Any) -> Any:
+                try:
+                    return await asyncio.wait_for(
+                        agent.operate(instruction=instruction, **kw),
+                        timeout=timeout_s,
+                    )
+                except asyncio.TimeoutError:
+                    run.notify("turn_timeout", stage=self_.name, timeout_s=timeout_s)
+                    return None  # operate_with_repair sees arrived()=False → fix path
+
+        return _Proxy()
+
+    def _start_heartbeat(self, run: CodingRun, *, stage: str) -> asyncio.Task | None:
+        """Start a background task that emits WorkerHeartbeat at the configured interval.
+
+        Also emits WorkerActivity whenever a file in the workspace changes mtime.
+        Returns None when heartbeat_interval_s is None (disabled).
+        """
+        if self.heartbeat_interval_s is None:
+            return None
+        t0 = run._t0
+        ws = Path(run.workspace)
+        # Snapshot existing files so only NEW writes trigger WorkerActivity.
+        last_mtime: dict[str, float] = {}
+        try:
+            for p in ws.rglob("*"):
+                if p.is_file():
+                    last_mtime[str(p)] = p.stat().st_mtime
+        except Exception:
+            logger.debug("heartbeat baseline snapshot failed", exc_info=True)
+
+        async def _loop() -> None:
+            while True:
+                await asyncio.sleep(self.heartbeat_interval_s)
+                elapsed = round(monotonic() - t0, 1)
+                run.notify("WorkerHeartbeat", elapsed_s=elapsed, stage=stage)
+                try:
+                    for p in ws.rglob("*"):
+                        if p.is_file():
+                            key = str(p)
+                            mt = p.stat().st_mtime
+                            prev = last_mtime.get(key)
+                            if prev != mt:
+                                rel = str(p.relative_to(ws)) if p.is_relative_to(ws) else key
+                                run.notify("WorkerActivity", path=rel, elapsed_s=elapsed)
+                                last_mtime[key] = mt
+                except Exception:
+                    logger.debug("heartbeat mtime poll failed", exc_info=True)
+
+        return asyncio.ensure_future(_loop())
+
+    async def _run_stage_with_watchdog(
+        self, run: CodingRun, stage_coro: Any, stage_name: str
+    ) -> None:
+        """Run *stage_coro* bounded by stage_timeout_s; on timeout emit WorkAborted and set run._aborted."""
+        if self.stage_timeout_s is None:
+            await stage_coro
+            return
+        t0 = monotonic()
+        try:
+            await asyncio.wait_for(stage_coro, timeout=self.stage_timeout_s)
+        except asyncio.TimeoutError:
+            elapsed = round(monotonic() - t0, 1)
+            reason = f"stage '{stage_name}' exceeded {self.stage_timeout_s}s wall-clock limit"
+            run.notify("WorkAborted", stage=stage_name, reason=reason, elapsed_s=elapsed)
+            run._aborted = True
+
+    async def _partial_export(
+        self, run: CodingRun, *args: Any, **kwargs: Any
+    ) -> CodeResultRecorded:  # type: ignore[override]
+        """Write results.json and report.md even when the run is aborted mid-stage."""
+        plan = run.last(WorkPlanned) or WorkPlanned(approach="(aborted)")
+        return await self._conclude(run, plan, passed=False, caveat="run aborted")
+
     # -- ground-truth helpers -------------------------------------------------
 
     async def _capture_ws_baseline(self, run: CodingRun) -> dict[str, str] | None:
-        """Snapshot ``git status --porcelain`` before the implement stage.
-
-        Returns a ``{path: xy_status}`` dict so the post-implement call can
-        compute a true delta.  Returns ``None`` when the workspace is not a git
-        repo or the subprocess fails — callers treat ``None`` as unknown state."""
+        """Snapshot git status --porcelain before the implement stage; returns {path: xy} or None on failure (unknown state)."""
         result = await run_sync(
             _subprocess_sync,
             ["git", "status", "--porcelain"],
@@ -800,19 +1029,7 @@ class CodingEngine(Engine):
         return _parse_porcelain(result.get("stdout", ""))
 
     async def _workspace_changed(self, run: CodingRun) -> tuple[list[str], bool]:
-        """Return ``(delta_paths, check_failed)`` after the implement stage.
-
-        *delta_paths* is the list of paths whose porcelain status is new or
-        changed relative to the pre-implement baseline captured in
-        ``run._ws_baseline``.  A path counts as changed when it appears in the
-        post-implement output and either (a) was absent from the baseline or
-        (b) its XY status string differs from the baseline value.
-
-        *check_failed* is ``True`` when the workspace state is unknown — either
-        the pre-implement baseline capture failed (``run._ws_baseline is None``)
-        or the post-implement status call fails.  The no-change verdict requires
-        both captures to succeed and the delta to be empty; anything unknown
-        fails open to the test gate."""
+        """Return (delta_paths, check_failed) comparing current git status to the pre-implement baseline; check_failed=True when either capture failed."""
         if run._ws_baseline is None:
             # Baseline capture failed before _implement — state is unknown.
             # Do not run the post-status call; return check_failed immediately.
@@ -835,16 +1052,7 @@ class CodingEngine(Engine):
         return sorted(delta), False
 
     async def _capture_diff(self, run: CodingRun) -> str:
-        """Capture the diff for the verify stage.
-
-        Combines ``git diff`` (tracked changes) with per-file
-        ``git diff --no-index /dev/null <file>`` output for any untracked paths
-        that appear in either the final ``ChangeProposed.files_touched`` or
-        ``run._ws_delta``.  Candidates are computed fresh at capture time by
-        intersecting that union with ``git ls-files --others`` so the verify
-        diff is complete for: (a) initial emission-failure writes, (b) files
-        created during fix rounds, and (c) emission-ok runs that include
-        untracked files.  No index mutation — ``--no-index`` reads directly."""
+        """Combine git diff (tracked) with --no-index diffs for untracked candidates; covers emission-failure writes and fix-round additions."""
         result = await run_sync(_subprocess_sync, ["git", "diff"], False, 30.0, run.workspace)
         tracked = result.get("stdout", "") if int(result.get("returncode", -1)) == 0 else ""
 
@@ -907,10 +1115,7 @@ class CodingEngine(Engine):
         return "\n".join(parts)
 
     def _write_output(self, run: CodingRun, output: str) -> str:
-        """Write the full captured test output to the export dir, returning the
-        path. Info preservation: the event carries only a tail, the file carries
-        everything the runner captured (which is itself byte-capped + annotated
-        by the subprocess runner, never silently dropped)."""
+        """Write full captured test output to the export dir and return the path; the event carries only a tail."""
         if run.export_dir is None:
             return ""
         run._test_runs += 1
@@ -919,13 +1124,35 @@ class CodingEngine(Engine):
         return str(path)
 
 
-def _parse_porcelain(output: str) -> dict[str, str]:
-    """Parse ``git status --porcelain`` output into a ``{path: xy}`` map.
+# Patterns that suggest a test failure is purely mechanical (fmt/lint).
+_RE_MECHANICAL = re.compile(
+    r"(?:rustfmt|cargo fmt|black|ruff format|clang-format|gofmt|prettier|"
+    r"isort|yapf|autopep8|scalafmt|ktlint)\b.*(?:would reformat|check|error|diff)",
+    re.IGNORECASE,
+)
 
-    Each line is ``XY path`` or ``XY old -> new`` (rename).  We record the
-    rightmost path token (the destination for renames) mapped to its two-
-    character XY status.  Used to compute a pre/post delta without relying on
-    absolute porcelain counts."""
+
+def _looks_mechanical(tests: TestsRan) -> bool:
+    """Return True when the test failure output looks like a pure fmt/lint failure.
+
+    Heuristic only — used to skip the judge gate for mechanical rounds; the
+    authoritative result is always the full test_cmd exit code.
+    """
+    if tests.passed:
+        return False
+    tail = tests.output_tail
+    if not tail:
+        return False
+    lines = tail.splitlines()
+    # If every non-empty line matches a formatter/linter pattern, call it mechanical.
+    non_empty = [ln for ln in lines if ln.strip()]
+    if not non_empty:
+        return False
+    return all(_RE_MECHANICAL.search(ln) for ln in non_empty)
+
+
+def _parse_porcelain(output: str) -> dict[str, str]:
+    """Parse git status --porcelain into {path: xy}; for renames, records the destination path."""
     mapping: dict[str, str] = {}
     for line in output.splitlines():
         if len(line) < 4:
@@ -940,12 +1167,7 @@ def _parse_porcelain(output: str) -> dict[str, str]:
 
 
 def _resolve_cmd(test_cmd: str | list[str]) -> tuple[str | list[str], bool]:
-    """Resolve a test command into ``(cmd, shell)`` for the subprocess runner.
-
-    A list runs ``shell=False`` verbatim. A string with shell-control characters
-    (pipes, redirects, ``&&``, …) runs in a shell because the caller asked for a
-    pipeline; an otherwise-plain string is ``shlex``-split and runs
-    ``shell=False`` — the safe default."""
+    """Return (cmd, shell): lists run shell=False; strings with shell-control characters run in a shell; plain strings are shlex-split."""
     if isinstance(test_cmd, (list, tuple)):
         return list(test_cmd), False
     if _SHELL_CONTROL.search(test_cmd):

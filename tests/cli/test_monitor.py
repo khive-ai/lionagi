@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from lionagi.cli.monitor import (
+    _cached_detect_project,
     _colour_status,
     _elapsed,
     _find_entity,
@@ -24,6 +25,7 @@ from lionagi.cli.monitor import (
     _run_detail,
     _run_table,
     _session_to_row,
+    _show_project_matches,
     _show_to_row,
     _since_timestamp,
     _trunc,
@@ -40,6 +42,17 @@ def temp_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr("lionagi.cli.monitor._run_table", _run_table)  # identity; force DB path
     return db_path
+
+
+@pytest.fixture(autouse=True)
+def _clear_project_cache() -> None:
+    """_show_project_matches caches detect_project() results by repo path
+    for the monitor process lifetime — clear it around every test so a
+    monkeypatched detect_project in one test can't leak a cached result
+    into another test that reuses the same repo path."""
+    _cached_detect_project.cache_clear()
+    yield
+    _cached_detect_project.cache_clear()
 
 
 async def _make_session(
@@ -86,13 +99,20 @@ async def _make_invocation(db: StateDB, *, status: str = "running", skill: str =
     return inv_id
 
 
-async def _make_show(db: StateDB, *, status: str = "active", topic: str = "test-topic") -> str:
+async def _make_show(
+    db: StateDB,
+    *,
+    status: str = "active",
+    topic: str = "test-topic",
+    repo: str | None = None,
+) -> str:
     show_id = uuid.uuid4().hex[:12]
     await db.create_show(
         {
             "id": show_id,
             "topic": topic,
             "status": status,
+            "repo": repo,
             "show_dir": "/tmp/show",
         }
     )
@@ -100,7 +120,12 @@ async def _make_show(db: StateDB, *, status: str = "active", topic: str = "test-
 
 
 async def _make_play(
-    db: StateDB, show_id: str, *, status: str = "running", name: str = "play-1"
+    db: StateDB,
+    show_id: str,
+    *,
+    status: str = "running",
+    name: str = "play-1",
+    session_id: str | None = None,
 ) -> str:
     play_id = uuid.uuid4().hex[:12]
     await db.create_play(
@@ -109,6 +134,7 @@ async def _make_play(
             "show_id": show_id,
             "name": name,
             "status": status,
+            "session_id": session_id,
             "started_at": time.time(),
         }
     )
@@ -283,7 +309,7 @@ def test_session_to_row_no_optional():
 
 
 def test_session_to_row_current_phase_wins():
-    """#1235: a live flow phase overrides the static orchestrator/playbook name."""
+    """A live flow phase overrides the static orchestrator/playbook name."""
     sess = {
         "id": "abc123def456",
         "invocation_kind": "play",
@@ -336,6 +362,33 @@ def test_play_to_row():
     row = _play_to_row(play)
     assert row["type"] == "play"
     assert row["phase"] == "backend-impl"
+    assert row["project"] == "-"
+
+
+def test_play_to_row_renders_session_project():
+    """_query_running_plays attaches the linked session's project as
+    session_project; _play_to_row must render it instead of hardcoding '-'."""
+    play = {
+        "id": "play001abc",
+        "status": "running",
+        "name": "backend-impl",
+        "session_project": "lionagi",
+    }
+    row = _play_to_row(play)
+    assert row["project"] == "lionagi"
+
+
+def test_play_to_row_orphan_no_session_project_falls_back():
+    """A play with no linked session (or a dangling session_id) has no
+    session_project — must render '-', not crash."""
+    play = {
+        "id": "play002abc",
+        "status": "running",
+        "name": "orphan-play",
+        "session_project": None,
+    }
+    row = _play_to_row(play)
+    assert row["project"] == "-"
 
 
 # ── Integration: DB-backed list_running ───────────────────────────────────────
@@ -375,6 +428,236 @@ async def test_gather_table_rows_project_filter(temp_db_path: Path) -> None:
     assert s_b[:16] not in ids_a
     assert s_b[:16] in ids_b
     assert s_a[:16] not in ids_b
+
+
+@pytest.mark.asyncio
+async def test_gather_table_rows_project_filter_applies_to_plays(temp_db_path: Path) -> None:
+    """--project must scope plays too, not just sessions — the plays table
+    has no project column, so a play's project is inherited from its
+    linked session."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        sid_a = await _make_session(db, project="proj-a")
+        sid_b = await _make_session(db, project="proj-b")
+        play_a = await _make_play(db, show_id, name="play-a", session_id=sid_a)
+        play_b = await _make_play(db, show_id, name="play-b", session_id=sid_b)
+
+        rows_a = await _gather_table_rows(db, since=None, entity_type="play", project="proj-a")
+        rows_b = await _gather_table_rows(db, since=None, entity_type="play", project="proj-b")
+
+    ids_a = [r["id"] for r in rows_a]
+    ids_b = [r["id"] for r in rows_b]
+    assert play_a[:16] in ids_a
+    assert play_b[:16] not in ids_a
+    assert play_b[:16] in ids_b
+    assert play_a[:16] not in ids_b
+
+
+@pytest.mark.asyncio
+async def test_gather_table_rows_project_filter_applies_to_shows(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--project must scope shows too. `repo` is a filesystem path, not a
+    project slug, so the filter must go through detect_project() rather
+    than compare `repo` to `--project` as strings — this pins the
+    path -> slug translation, not string equality."""
+    async with StateDB() as db:
+        show_a = await _make_show(db, topic="show-a", repo="/Users/lion/projects/proj-a")
+        show_b = await _make_show(db, topic="show-b", repo="/Users/lion/projects/proj-b")
+
+        def fake_detect_project(path: Path) -> tuple[str | None, str | None]:
+            name = Path(path).name
+            if name in ("proj-a", "proj-b"):
+                return (name, "git_remote")
+            return (None, None)
+
+        monkeypatch.setattr("lionagi.cli.monitor.detect_project", fake_detect_project)
+
+        rows_a = await _gather_table_rows(db, since=None, entity_type="show", project="proj-a")
+        rows_b = await _gather_table_rows(db, since=None, entity_type="show", project="proj-b")
+
+    ids_a = [r["id"] for r in rows_a]
+    ids_b = [r["id"] for r in rows_b]
+    assert show_a[:16] in ids_a
+    assert show_b[:16] not in ids_a
+    assert show_b[:16] in ids_b
+    assert show_a[:16] not in ids_b
+
+
+@pytest.mark.asyncio
+async def test_gather_table_rows_show_annotated_repo_matches_project(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real _show.md repo lines sometimes carry a trailing remote
+    annotation after the path — the matcher must strip it and resolve the
+    bare path rather than fail derivation on a nonexistent path."""
+    async with StateDB() as db:
+        show_id = await _make_show(
+            db,
+            topic="annotated",
+            repo="/Users/lion/projects/proj-a  (org/proj-a, PRIVATE)",
+        )
+
+        seen: list[str] = []
+
+        def fake_detect_project(path: Path) -> tuple[str | None, str | None]:
+            seen.append(str(path))
+            if Path(path).name == "proj-a":
+                return ("proj-a", "git_remote")
+            return (None, None)
+
+        monkeypatch.setattr("lionagi.cli.monitor.detect_project", fake_detect_project)
+
+        rows = await _gather_table_rows(db, since=None, entity_type="show", project="proj-a")
+
+    assert show_id[:16] in [r["id"] for r in rows]
+    assert seen == ["/Users/lion/projects/proj-a"]
+
+
+def test_show_project_matches_strips_tab_separated_annotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tab (not a literal space) before the annotation must still be
+    stripped — the old `.split(" (")` missed this variant."""
+    seen: list[str] = []
+
+    def fake_detect_project(path: Path) -> tuple[str | None, str | None]:
+        seen.append(str(path))
+        return ("proj-a", "git_remote") if Path(path).name == "proj-a" else (None, None)
+
+    monkeypatch.setattr("lionagi.cli.monitor.detect_project", fake_detect_project)
+
+    show = {"repo": "/Users/lion/projects/proj-a\t(org/proj-a, PRIVATE)"}
+    assert _show_project_matches(show, "proj-a") is True
+    assert seen == ["/Users/lion/projects/proj-a"]
+
+
+def test_show_project_matches_strips_no_space_annotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No whitespace at all before the annotation must still be stripped —
+    the old `.split(" (")` required a leading space to trigger."""
+    seen: list[str] = []
+
+    def fake_detect_project(path: Path) -> tuple[str | None, str | None]:
+        seen.append(str(path))
+        return ("proj-a", "git_remote") if Path(path).name == "proj-a" else (None, None)
+
+    monkeypatch.setattr("lionagi.cli.monitor.detect_project", fake_detect_project)
+
+    show = {"repo": "/Users/lion/projects/proj-a(org/proj-a, PRIVATE)"}
+    assert _show_project_matches(show, "proj-a") is True
+    assert seen == ["/Users/lion/projects/proj-a"]
+
+
+def test_show_project_matches_preserves_mid_path_parens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A directory name that itself contains " (something)" mid-path (not
+    at the end of the string) must NOT be truncated — the strip is anchored
+    to a trailing annotation only."""
+    seen: list[str] = []
+
+    def fake_detect_project(path: Path) -> tuple[str | None, str | None]:
+        seen.append(str(path))
+        return ("proj-a", "git_remote") if str(path).endswith("proj-a") else (None, None)
+
+    monkeypatch.setattr("lionagi.cli.monitor.detect_project", fake_detect_project)
+
+    show = {"repo": "/Users/lion/projects/foo (bar)/proj-a"}
+    assert _show_project_matches(show, "proj-a") is True
+    assert seen == ["/Users/lion/projects/foo (bar)/proj-a"]
+
+
+def test_show_project_matches_strips_normal_remote_annotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The canonical " (remote, ...)" suffix form still strips correctly
+    under the new regex."""
+    seen: list[str] = []
+
+    def fake_detect_project(path: Path) -> tuple[str | None, str | None]:
+        seen.append(str(path))
+        return ("proj-a", "git_remote") if Path(path).name == "proj-a" else (None, None)
+
+    monkeypatch.setattr("lionagi.cli.monitor.detect_project", fake_detect_project)
+
+    show = {"repo": "/Users/lion/projects/proj-a (org/proj-a, PRIVATE)"}
+    assert _show_project_matches(show, "proj-a") is True
+    assert seen == ["/Users/lion/projects/proj-a"]
+
+
+@pytest.mark.asyncio
+async def test_gather_table_rows_show_missing_repo_excluded_under_project(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A show with no repo path has nothing to derive a project from — it
+    must be excluded once --project is applied, but still render in the
+    unfiltered view (same orphan semantics as a play with no session)."""
+    async with StateDB() as db:
+        show_id = await _make_show(db, topic="no-repo", repo=None)
+
+        monkeypatch.setattr("lionagi.cli.monitor.detect_project", lambda path: (None, None))
+
+        rows_filtered = await _gather_table_rows(
+            db, since=None, entity_type="show", project="proj-a"
+        )
+        rows_unfiltered = await _gather_table_rows(db, since=None, entity_type="show", project=None)
+
+    assert show_id[:16] not in [r["id"] for r in rows_filtered]
+    assert show_id[:16] in [r["id"] for r in rows_unfiltered]
+
+
+@pytest.mark.asyncio
+async def test_gather_table_rows_show_nonexistent_repo_path_no_crash(
+    temp_db_path: Path,
+) -> None:
+    """A repo path that doesn't exist on disk (dangling worktree, or the
+    literal path+annotation string import_shows sometimes stores) must not
+    crash detect_project's underlying git subprocess call — it just fails to
+    resolve and the show is excluded under --project. Exercises the real
+    detect_project(), not a monkeypatched stand-in."""
+    async with StateDB() as db:
+        show_id = await _make_show(
+            db, topic="bogus", repo="/nonexistent/path/does-not-exist-xyz-1642"
+        )
+
+        rows = await _gather_table_rows(db, since=None, entity_type="show", project="proj-a")
+
+    assert show_id[:16] not in [r["id"] for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_gather_table_rows_play_row_renders_session_project(
+    temp_db_path: Path,
+) -> None:
+    """A play row's PROJECT cell must reflect its linked session's project,
+    not the hardcoded '-' placeholder."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        sid = await _make_session(db, project="proj-a")
+        play_id = await _make_play(db, show_id, name="play-a", session_id=sid)
+
+        rows = await _gather_table_rows(db, since=None, entity_type="play", project=None)
+
+    play_rows = [r for r in rows if r["id"] == play_id[:16]]
+    assert len(play_rows) == 1
+    assert play_rows[0]["project"] == "proj-a"
+
+
+@pytest.mark.asyncio
+async def test_gather_table_rows_orphan_play_renders_dash(temp_db_path: Path) -> None:
+    """A play with no linked session still renders without crashing, with
+    PROJECT falling back to '-' rather than raising on the missing subselect
+    match."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        play_no_session = await _make_play(db, show_id, name="no-session", session_id=None)
+
+        rows = await _gather_table_rows(db, since=None, entity_type="play", project=None)
+
+    by_id = {r["id"]: r for r in rows}
+    assert by_id[play_no_session[:16]]["project"] == "-"
 
 
 @pytest.mark.asyncio
@@ -427,11 +710,10 @@ async def test_gather_table_rows_since_filter(temp_db_path: Path) -> None:
         sid_old = await _make_session(db)
         # Force updated_at to be in the past
         cutoff_past = time.time() - 3600
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET updated_at = ? WHERE id = ?",
             (cutoff_past - 10, sid_old),
         )
-        await db.db.commit()
 
         sid_new = await _make_session(db)
         since = time.time() - 60  # last minute only
@@ -440,6 +722,94 @@ async def test_gather_table_rows_since_filter(temp_db_path: Path) -> None:
     ids = [r["id"] for r in rows]
     assert sid_new[:16] in ids
     assert not any(sid_old[:16] in i for i in ids)
+
+
+# ── Regression: --since widens the status filter to terminal states ───────────
+#
+# `--since` used to only ever AND a time bound on top of a running-only
+# filter, so a session that finished (however recently) could never appear
+# no matter how narrow the --since window was. These lock in the fix: with
+# --since given, terminal statuses widen into view within the window; with
+# no --since, the default view stays running-only, unchanged.
+
+
+@pytest.mark.asyncio
+async def test_since_shows_terminal_session_default_hides_it(temp_db_path: Path) -> None:
+    """A completed session is visible with --since but hidden in the default
+    (no-flag) running-only view."""
+    async with StateDB() as db:
+        sid = await _make_session(db, status="completed")
+        since = time.time() - 3600
+
+        rows_since = await _gather_table_rows(db, since=since, entity_type="session", project=None)
+        rows_default = await _gather_table_rows(db, since=None, entity_type="session", project=None)
+
+    assert sid[:16] in [r["id"] for r in rows_since], "completed session must show with --since"
+    assert sid[:16] not in [r["id"] for r in rows_default], "default view must stay running-only"
+
+
+@pytest.mark.asyncio
+async def test_since_default_view_running_only_unchanged(temp_db_path: Path) -> None:
+    """Without --since, a mix of terminal-status sessions must never appear —
+    the no-flag view's running-only behavior is unchanged by the fix."""
+    async with StateDB() as db:
+        running_id = await _make_session(db, status="running")
+        for status in ("completed", "failed", "timed_out", "aborted", "cancelled"):
+            await _make_session(db, status=status)
+
+        rows = await _gather_table_rows(db, since=None, entity_type="session", project=None)
+
+    ids = [r["id"] for r in rows]
+    assert ids == [running_id[:16]]
+
+
+@pytest.mark.asyncio
+async def test_since_shows_terminal_invocation(temp_db_path: Path) -> None:
+    """--since widens the invocations query to terminal statuses too."""
+    async with StateDB() as db:
+        inv_id = await _make_invocation(db, status="completed")
+        since = time.time() - 3600
+
+        rows_since = await _gather_table_rows(
+            db, since=since, entity_type="invocation", project=None
+        )
+        rows_default = await _gather_table_rows(
+            db, since=None, entity_type="invocation", project=None
+        )
+
+    assert inv_id[:16] in [r["id"] for r in rows_since]
+    assert inv_id[:16] not in [r["id"] for r in rows_default]
+
+
+@pytest.mark.asyncio
+async def test_since_shows_terminal_play(temp_db_path: Path) -> None:
+    """--since widens the plays query past the running-ish status tuple to
+    every play status (e.g. 'merged')."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        play_id = await _make_play(db, show_id, status="merged")
+        since = time.time() - 3600
+
+        rows_since = await _gather_table_rows(db, since=since, entity_type="play", project=None)
+        rows_default = await _gather_table_rows(db, since=None, entity_type="play", project=None)
+
+    assert play_id[:16] in [r["id"] for r in rows_since]
+    assert play_id[:16] not in [r["id"] for r in rows_default]
+
+
+@pytest.mark.asyncio
+async def test_since_shows_terminal_show(temp_db_path: Path) -> None:
+    """--since widens the shows query past the active-only filter to every
+    show status (e.g. 'completed')."""
+    async with StateDB() as db:
+        show_id = await _make_show(db, status="completed")
+        since = time.time() - 3600
+
+        rows_since = await _gather_table_rows(db, since=since, entity_type="show", project=None)
+        rows_default = await _gather_table_rows(db, since=None, entity_type="show", project=None)
+
+    assert show_id[:16] in [r["id"] for r in rows_since]
+    assert show_id[:16] not in [r["id"] for r in rows_default]
 
 
 # ── Integration: _find_entity ─────────────────────────────────────────────────
@@ -641,12 +1011,12 @@ def test_main_registers_monitor():
 # ── Watch mode: SIGINT terminates cleanly ─────────────────────────────────────
 
 
-# ── Regression: #1192 --type play filter ─────────────────────────────────────
+# ── Regression: --type play filter ───────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_type_play_filter_includes_play_sessions(temp_db_path: Path) -> None:
-    """#1192: sessions with invocation_kind='play' must appear under --type play."""
+    """Sessions with invocation_kind='play' must appear under --type play."""
     async with StateDB() as db:
         # Session that shows as TYPE=play in the all-rows view
         play_sess_id = await _make_session(db, invocation_kind="play", project="myproject")
@@ -664,7 +1034,7 @@ async def test_type_play_filter_includes_play_sessions(temp_db_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_type_play_filter_includes_both_sessions_and_plays(temp_db_path: Path) -> None:
-    """#1192: --type play returns both play-kind sessions AND play table rows."""
+    """--type play must return both play-kind sessions and play table rows."""
     async with StateDB() as db:
         # Session with invocation_kind="play" (from `li play NAME`)
         play_sess_id = await _make_session(db, invocation_kind="play")
@@ -679,29 +1049,207 @@ async def test_type_play_filter_includes_both_sessions_and_plays(temp_db_path: P
     assert play_row_id[:16] in ids, "play table row not in --type play results"
 
 
-# ── Regression: #1193 AGENTS column ──────────────────────────────────────────
+# ── Regression: direct `li play` runs (no plays-table row) via --since ────────
+#
+# `create_play` has no production caller on the direct `li play NAME` path —
+# a completed direct play exists only as a session row with
+# invocation_kind='play'. The play view must surface that session (once
+# --since widens past running-only) and must never double-list it against a
+# plays-table row when one also exists for the same underlying session.
+
+
+@pytest.mark.asyncio
+async def test_since_shows_terminal_direct_play_session(temp_db_path: Path) -> None:
+    """A completed direct-play session (invocation_kind=play, no plays-table
+    row) appears in the play view with --since, and stays hidden by default."""
+    async with StateDB() as db:
+        play_sess_id = await _make_session(db, invocation_kind="play", status="completed")
+        since = time.time() - 3600
+
+        rows_since = await _gather_table_rows(db, since=since, entity_type="play", project=None)
+        rows_default = await _gather_table_rows(db, since=None, entity_type="play", project=None)
+
+    assert play_sess_id[:16] in [r["id"] for r in rows_since]
+    assert play_sess_id[:16] not in [r["id"] for r in rows_default]
+
+
+@pytest.mark.asyncio
+async def test_since_no_double_listing_when_play_row_and_session_both_exist(
+    temp_db_path: Path,
+) -> None:
+    """When a plays-table row's session_id points at a session that itself
+    carries invocation_kind='play', the play must render exactly once (from
+    the plays-table row), not a second time from the sessions branch."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        play_sess_id = await _make_session(db, invocation_kind="play", status="completed")
+        play_row_id = await _make_play(db, show_id, status="merged")
+        await db.execute(
+            "UPDATE plays SET session_id = ? WHERE id = ?", (play_sess_id, play_row_id)
+        )
+        since = time.time() - 3600
+
+        rows = await _gather_table_rows(db, since=since, entity_type="play", project=None)
+
+    ids = [r["id"] for r in rows]
+    assert play_row_id[:16] in ids, "the plays-table row must still appear"
+    assert play_sess_id[:16] not in ids, "the underlying session must not also appear"
+    assert ids.count(play_row_id[:16]) == 1
+
+
+@pytest.mark.asyncio
+async def test_since_no_double_listing_in_all_view(temp_db_path: Path) -> None:
+    """The same dedup must hold in the "all" (entity_type=None) view, since
+    its play section is the same _query_running_plays call."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        play_sess_id = await _make_session(db, invocation_kind="play", status="completed")
+        play_row_id = await _make_play(db, show_id, status="merged")
+        await db.execute(
+            "UPDATE plays SET session_id = ? WHERE id = ?", (play_sess_id, play_row_id)
+        )
+        since = time.time() - 3600
+
+        rows = await _gather_table_rows(db, since=since, entity_type=None, project=None)
+
+    ids = [r["id"] for r in rows]
+    assert play_row_id[:16] in ids
+    assert play_sess_id[:16] not in ids
+
+
+# ── Regression: dedup must not hide sessions from views without a play section ─
+#
+# The play-vs-session dedup lives in _gather_table_rows and applies only when
+# the plays section is actually being rendered. A SQL-level exclusion would
+# hide the backing session from the sessions-only view entirely, and would
+# zero-render the play when the plays row's updated_at falls outside the
+# --since window while the session's is inside it.
+
+
+@pytest.mark.asyncio
+async def test_type_session_view_still_shows_play_backed_session(temp_db_path: Path) -> None:
+    """--type session renders every session, including one a plays-table row
+    references — the play dedup only applies where plays are also shown."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        play_sess_id = await _make_session(db, invocation_kind="play", status="completed")
+        play_row_id = await _make_play(db, show_id, status="merged")
+        await db.execute(
+            "UPDATE plays SET session_id = ? WHERE id = ?", (play_sess_id, play_row_id)
+        )
+        since = time.time() - 3600
+
+        rows = await _gather_table_rows(db, since=since, entity_type="session", project=None)
+
+    assert play_sess_id[:16] in [r["id"] for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_desynced_play_row_outside_window_session_still_renders_once(
+    temp_db_path: Path,
+) -> None:
+    """plays.updated_at outside the --since window but sessions.updated_at
+    inside: the run renders exactly once (via the session), not zero times."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        play_sess_id = await _make_session(db, invocation_kind="play", status="completed")
+        play_row_id = await _make_play(db, show_id, status="merged")
+        old = time.time() - 7200
+        await db.execute(
+            "UPDATE plays SET session_id = ?, updated_at = ? WHERE id = ?",
+            (play_sess_id, old, play_row_id),
+        )
+        since = time.time() - 3600
+
+        rows = await _gather_table_rows(db, since=since, entity_type="play", project=None)
+
+    ids = [r["id"] for r in rows]
+    assert play_row_id[:16] not in ids, "stale plays row is outside the window"
+    assert ids.count(play_sess_id[:16]) == 1, "the session must render exactly once"
+
+
+@pytest.mark.asyncio
+async def test_null_invocation_kind_session_not_hidden(temp_db_path: Path) -> None:
+    """A session with no invocation_kind must never be swallowed by the play
+    dedup in the sessions-only view, even when a plays row references it."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        sid = await _make_session(db, invocation_kind=None, status="completed")
+        play_row_id = await _make_play(db, show_id, status="merged")
+        await db.execute("UPDATE plays SET session_id = ? WHERE id = ?", (sid, play_row_id))
+        since = time.time() - 3600
+
+        rows = await _gather_table_rows(db, since=since, entity_type="session", project=None)
+
+    assert sid[:16] in [r["id"] for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_null_invocation_kind_unbacked_session_renders_in_all_view(
+    temp_db_path: Path,
+) -> None:
+    """A session with no invocation_kind and no plays row renders in the
+    all-entities view — dedup only drops sessions whose play row is shown."""
+    async with StateDB() as db:
+        sid = await _make_session(db, invocation_kind=None, status="completed")
+        since = time.time() - 3600
+
+        rows = await _gather_table_rows(db, since=since, entity_type=None, project=None)
+
+    assert [r["id"] for r in rows].count(sid[:16]) == 1
+
+
+def test_watch_loop_recomputes_since_every_tick(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The watch loop re-derives the cutoff from the window string each tick
+    (a sliding window), so terminal rows age out instead of accumulating."""
+    import lionagi.cli.monitor as monitor_mod
+
+    handlers: dict[int, Any] = {}
+    monkeypatch.setattr(
+        monitor_mod.signal, "signal", lambda signum, handler: handlers.setdefault(signum, handler)
+    )
+
+    ticks = iter([100.0, 200.0])
+    monkeypatch.setattr(monitor_mod, "_since_timestamp", lambda window: next(ticks))
+    monkeypatch.setattr(monitor_mod, "_clear_screen", lambda: None)
+
+    captured: list[float | None] = []
+
+    async def fake_run_table(*, since: float | None, entity_type: Any, project: Any) -> str:
+        captured.append(since)
+        if len(captured) >= 2:
+            handlers[signal.SIGINT](signal.SIGINT, None)
+        return ""
+
+    monkeypatch.setattr(monitor_mod, "_run_table", fake_run_table)
+
+    rc = monitor_mod._watch_loop(0, None, since_window="1h", entity_type=None, project=None)
+    assert rc == 0
+    assert captured == [100.0, 200.0], "each tick must use a freshly derived cutoff"
+
+
+# ── Regression: AGENTS column ────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_session_agents_column_reflects_branch_count(temp_db_path: Path) -> None:
-    """#1193: AGENTS column shows branch count, not '-', for sessions."""
+    """AGENTS column shows branch count, not '-', for sessions."""
     async with StateDB() as db:
         sid = await _make_session(db)
         # Insert two branches for this session
         pid1, pid2 = uuid.uuid4().hex, uuid.uuid4().hex
-        await db.db.execute(
+        await db.execute(
             "INSERT INTO progressions(id, created_at) VALUES (?, ?)", (pid1, time.time())
         )
-        await db.db.execute(
+        await db.execute(
             "INSERT INTO progressions(id, created_at) VALUES (?, ?)", (pid2, time.time())
         )
         b1_id, b2_id = uuid.uuid4().hex, uuid.uuid4().hex
         for bid, pid in ((b1_id, pid1), (b2_id, pid2)):
-            await db.db.execute(
+            await db.execute(
                 "INSERT INTO branches(id, created_at, session_id, progression_id) VALUES (?,?,?,?)",
                 (bid, time.time(), sid, pid),
             )
-        await db.db.commit()
 
         rows = await _gather_table_rows(db, since=None, entity_type=None, project=None)
 
@@ -712,7 +1260,7 @@ async def test_session_agents_column_reflects_branch_count(temp_db_path: Path) -
 
 @pytest.mark.asyncio
 async def test_session_agents_column_zero_when_no_branches(temp_db_path: Path) -> None:
-    """#1193: AGENTS column is '0' (not '-') for a session with no branches."""
+    """AGENTS column is '0' (not '-') for a session with no branches."""
     async with StateDB() as db:
         sid = await _make_session(db)
         rows = await _gather_table_rows(db, since=None, entity_type=None, project=None)
@@ -724,26 +1272,23 @@ async def test_session_agents_column_zero_when_no_branches(temp_db_path: Path) -
 
 @pytest.mark.asyncio
 async def test_play_agents_column_reflects_branch_count(temp_db_path: Path) -> None:
-    """#1193: AGENTS column shows branch count for plays that have a linked session."""
+    """AGENTS column shows branch count for plays that have a linked session."""
     async with StateDB() as db:
         show_id = await _make_show(db)
         play_session_id = await _make_session(db, status="running")
         play_id = await _make_play(db, show_id, status="running")
         # Link the play to the session
-        await db.db.execute(
-            "UPDATE plays SET session_id = ? WHERE id = ?", (play_session_id, play_id)
-        )
+        await db.execute("UPDATE plays SET session_id = ? WHERE id = ?", (play_session_id, play_id))
         # Add a branch on the play's session
         pid = uuid.uuid4().hex
-        await db.db.execute(
+        await db.execute(
             "INSERT INTO progressions(id, created_at) VALUES (?, ?)", (pid, time.time())
         )
         bid = uuid.uuid4().hex
-        await db.db.execute(
+        await db.execute(
             "INSERT INTO branches(id, created_at, session_id, progression_id) VALUES (?,?,?,?)",
             (bid, time.time(), play_session_id, pid),
         )
-        await db.db.commit()
 
         rows = await _gather_table_rows(db, since=None, entity_type="play", project=None)
 
@@ -752,11 +1297,11 @@ async def test_play_agents_column_reflects_branch_count(temp_db_path: Path) -> N
     assert play_rows[0]["agents"] == "1", f"expected agents='1', got {play_rows[0]['agents']!r}"
 
 
-# ── Regression: #1191 background correlation handle ──────────────────────────
+# ── Regression: background correlation handle ─────────────────────────────────
 
 
 def test_session_id_env_var_used_as_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#1191: LIONAGI_SESSION_ID env var is used as the orchestration session id."""
+    """LIONAGI_SESSION_ID env var is used as the orchestration session id."""
     import uuid
 
     from lionagi import Branch, Session
@@ -779,7 +1324,7 @@ def test_session_id_env_var_used_as_session_id(monkeypatch: pytest.MonkeyPatch) 
 def test_background_hint_includes_session_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#1191: li o flow --background prints a 'li monitor <id>' hint."""
+    """li o flow --background prints a 'li monitor <id>' hint."""
     import subprocess
     import sys
 
@@ -836,7 +1381,7 @@ def test_watch_mode_sigint_clean(temp_db_path: Path, monkeypatch: pytest.MonkeyP
     exit_code = _watch_loop(
         1,
         None,
-        since=None,
+        since_window=None,
         entity_type=None,
         project=None,
     )

@@ -1,33 +1,7 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Load agent settings from .lionagi/settings.yaml — global + project-local merge.
-
-Settings resolution (project-local wins, only when trust_project_settings=True):
-    1. ~/.lionagi/settings.yaml        (global defaults, always loaded)
-    2. .lionagi/settings.yaml          (project-local, requires explicit trust)
-
-Hook configuration format::
-
-    hooks:
-      pre:
-        bash:
-          - command: ["python", "~/.lionagi/hooks/guard.py"]
-          - python: "lionagi.agent.hooks:guard_destructive"
-        "*":
-          - python: "lionagi.agent.hooks:custom_guard"
-      post:
-        editor:
-          - command: ["ruff", "format", "{file_path}"]
-        "*":
-          - python: "lionagi.agent.hooks:log_tool_use"
-      on_error:
-        "*":
-          - python: "lionagi.agent.hooks:error_reporter"
-
-Note: shell hook commands must be argv lists, not shell strings.
-Python hook modules must be in the trusted_hook_modules allowlist.
-"""
+"""Load and merge agent settings from global + project-local .lionagi/settings.yaml."""
 
 from __future__ import annotations
 
@@ -35,11 +9,11 @@ import asyncio
 import importlib
 import json
 import logging
-import os
-import signal
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from lionagi.ln._proc import aterminate_process_group
 
 __all__ = (
     "apply_hooks_from_settings",
@@ -50,7 +24,6 @@ import yaml
 
 from lionagi.libs.nested import deep_merge as _deep_merge_impl
 
-from .config import AgentConfig
 from .spec import AgentSpec
 
 logger = logging.getLogger(__name__)
@@ -63,13 +36,7 @@ def load_settings(
     *,
     include_project: bool = True,
 ) -> dict[str, Any]:
-    """Load and merge settings from global + project-local .lionagi/settings.yaml.
-
-    Args:
-        project_dir: Project root for settings resolution. Auto-detected if None.
-        include_project: If False, skip project-local settings entirely (safer default
-            for untrusted project directories).
-    """
+    """Load and merge ~/.lionagi/settings.yaml with project-local override; auto-detects cwd."""
     merged: dict[str, Any] = {}
 
     global_path = Path.home() / ".lionagi" / "settings.yaml"
@@ -101,21 +68,12 @@ def load_settings(
 
 
 def apply_hooks_from_settings(
-    config: AgentSpec | AgentConfig,
+    config: AgentSpec,
     settings: dict[str, Any] | None = None,
     *,
     trusted_hook_modules: set[str] | frozenset[str] | None = None,
-) -> AgentSpec | AgentConfig:
-    """Apply hook configuration from settings dict to an AgentSpec (or legacy AgentConfig).
-
-    Resolves hook specs (shell commands, Python import paths) into callables
-    and registers them on the config.
-
-    Args:
-        trusted_hook_modules: Python module paths allowed for import-based hooks.
-            Defaults to {"lionagi.agent.hooks"}. Set to a wider set only for
-            explicitly trusted project contexts.
-    """
+) -> AgentSpec:
+    """Resolve hook specs from settings and register them on the AgentSpec; returns config."""
     if settings is None:
         settings = load_settings()
 
@@ -149,13 +107,7 @@ def _resolve_hook_spec(
     tool_name: str,
     trusted_hook_modules: set[str] | frozenset[str],
 ) -> Callable | None:
-    """Resolve a hook spec into an async callable.
-
-    Spec formats:
-        {"python": "module.path:function_name"}  → import and return (allowlisted only)
-        {"command": ["prog", "arg", "{file_path}"]}  → wrap in async argv executor
-        "module.path:function_name"               → shorthand for python import
-    """
+    """Resolve a hook spec dict or import-path string to an async callable."""
     if isinstance(spec, str):
         return _import_hook(spec, trusted_hook_modules=trusted_hook_modules)
 
@@ -188,26 +140,6 @@ def _import_hook(
         return None
 
 
-def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:  # type: ignore[name-defined]
-    """Send SIGKILL to the process group created with start_new_session=True.
-
-    Suppresses all errors so a best-effort kill never masks the real exception.
-    """
-    pid = getattr(proc, "pid", None)
-    # Guard the pid before signalling. os.killpg is POSIX-only. A pid of 0/1
-    # (or a test double whose ``pid`` coerces to 1 via ``__index__``) would
-    # target the init/session process group — on a CI runner that group
-    # contains the test process itself, so an unguarded killpg here SIGKILLs
-    # the whole runner. Only signal a real child process. Because the hook
-    # subprocess is spawned with start_new_session=True, its pgid == its pid.
-    if not (hasattr(os, "killpg") and isinstance(pid, int) and pid > 1):
-        return
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        logger.debug("Failed to kill process group for pid %s", pid, exc_info=True)
-
-
 async def _wait_proc(proc: asyncio.subprocess.Process, grace: float = 2.0) -> None:  # type: ignore[name-defined]
     """Await process exit with a bounded grace period; suppress errors."""
     try:
@@ -217,11 +149,7 @@ async def _wait_proc(proc: asyncio.subprocess.Process, grace: float = 2.0) -> No
 
 
 def _make_shell_hook(command_template: list[str], phase: str, tool_name: str) -> Callable:
-    """Create an async hook that runs a shell command via argv list (shell=False).
-
-    Pre-hooks: args passed as JSON on stdin. Non-zero exit = PermissionError.
-    Post-hooks: result passed as JSON on stdin. Stdout captured but ignored.
-    """
+    """Create an async hook running an argv command; pre-hooks raise PermissionError on non-zero exit."""
     if not isinstance(command_template, list) or not all(
         isinstance(x, str) for x in command_template
     ):
@@ -260,7 +188,7 @@ def _make_shell_hook(command_template: list[str], phase: str, tool_name: str) ->
                 # new PGID) so lingering child processes cannot continue side effects
                 # after the hook is considered timed-out.
                 if proc is not None:
-                    _kill_proc_group(proc)
+                    await aterminate_process_group(proc, grace=None)
                     await _wait_proc(proc)
                 raise PermissionError(f"Hook timed out: {argv[0]!r}") from err
             except Exception as e:
@@ -293,7 +221,7 @@ def _make_shell_hook(command_template: list[str], phase: str, tool_name: str) ->
                 # Kill process group on post-hook timeout so no delayed side effects
                 # occur after the hook is silently dropped.
                 if proc is not None:
-                    _kill_proc_group(proc)
+                    await aterminate_process_group(proc, grace=None)
                     await _wait_proc(proc)
                 logger.warning("hook subprocess timed out (swallowed)", exc_info=exc)
             except Exception as exc:

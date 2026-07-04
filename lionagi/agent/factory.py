@@ -4,20 +4,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from lionagi.session.branch import Branch
 
 from .spec import AgentSpec
 
-if TYPE_CHECKING:
-    from .config import AgentConfig
-
 __all__ = ("create_agent", "_chain_pre_hooks", "_chain_post_hooks")
 
 
 async def create_agent(
-    config: AgentSpec | AgentConfig,
+    config: AgentSpec,
     *,
     load_settings: bool = True,
     project_dir: str | None = None,
@@ -26,34 +23,8 @@ async def create_agent(
     chat_model: Any = None,
     log_config: Any = None,
 ) -> Branch:
-    """Create a fully configured Branch from an AgentSpec (or legacy AgentConfig).
-
-    Wires: settings -> hooks -> system prompt -> model -> tools -> emissions.
-
-    Args:
-        config: Agent specification. AgentConfig is accepted for back-compat
-            and converted internally via AgentSpec.from_legacy().
-        load_settings: If True, load hooks from .lionagi/settings.yaml.
-        project_dir: Project root for settings resolution. Auto-detected if None.
-        trust_project_settings: If True, load project-local settings.
-        trusted_hook_modules: Python module paths allowed for import-based hooks.
-        chat_model: Prebuilt ``iModel`` to use verbatim. When provided, the
-            ``spec.model`` string-parsing path is skipped — callers that build a
-            richer iModel (CLI flag routing: bypass/yolo/fast/theme/repo) inject
-            it here so the factory stays the single construction site.
-        log_config: Optional ``DataLoggerConfig`` (or dict) forwarded to the
-            Branch. Lets a caller pin log behavior (e.g. ``auto_save_on_exit``)
-            without a second Branch builder.
-
-    Returns:
-        A Branch ready to use with tools registered and hooks applied.
-    """
-    from .config import AgentConfig
-
-    if isinstance(config, AgentConfig):
-        spec = AgentSpec.from_legacy(config)
-    else:
-        spec = config
+    """Create a fully wired Branch from AgentSpec: settings → hooks → prompt → model → tools."""
+    spec = config
 
     if load_settings:
         from .settings import apply_hooks_from_settings

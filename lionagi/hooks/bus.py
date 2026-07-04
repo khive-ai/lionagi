@@ -30,45 +30,21 @@ __all__ = (
 
 
 class HookPoint(str, Enum):
-    """Closed vocabulary of hook points.
+    """Closed vocabulary of session lifecycle hook points (see docs/reference/agent-hooks.md)."""
 
-    Dispatched (production callsites that call ``bus.emit`` or
-    ``bus.blocking_emit`` with this point):
-
-    * ``MESSAGE_ADD``  — branch.py ``_persist_via_bus`` on every inbound message.
-
-    Registered in ``DEFAULT_HOOKS`` (handlers wired, but the emit callsite is
-    deferred to ADR-0023b; wiring is in-progress):
-
-    * ``SESSION_START``  — ``persist_session_start`` registered, emit pending.
-    * ``SESSION_END``    — ``persist_session_end`` registered, emit pending.
-    * ``BRANCH_CREATE``  — ``persist_branch_provenance`` registered, emit pending.
-
-    Reserved — defined for vocabulary completeness, no handler registered and no
-    emit callsite exists yet (planned future hook surfaces, per ADR-0023):
-
-    * ``API_PRE_CALL``    — before each iModel API call.
-    * ``API_POST_CALL``   — after each iModel API call (tokens / latency).
-    * ``API_STREAM_CHUNK`` — per-chunk during streaming responses.
-    * ``TOOL_PRE``        — before tool invocation; intended to be blocking
-                           (``blocking_emit`` route already wired in bus.py).
-    * ``TOOL_POST``       — after successful tool invocation.
-    * ``TOOL_ERROR``      — on tool invocation failure.
-    * ``ARTIFACT_CREATED`` — when an artifact is persisted to disk.
-    """
-
+    # emitted in lionagi/cli/_runs.py setup_agent_persist / teardown_persist
     SESSION_START = "session.start"
     SESSION_END = "session.end"
-
     BRANCH_CREATE = "branch.create"
+    # not-yet-wired: no emit() call in the codebase
     API_PRE_CALL = "api.pre_call"
     API_POST_CALL = "api.post_call"
     API_STREAM_CHUNK = "api.stream_chunk"
-    TOOL_PRE = "tool.pre"
-    TOOL_POST = "tool.post"
-    TOOL_ERROR = "tool.error"
-    MESSAGE_ADD = "message.add"
-    ARTIFACT_CREATED = "artifact.created"
+    TOOL_PRE = "tool.pre"  # emitted in operations/act/act.py before tool invocation
+    TOOL_POST = "tool.post"  # emitted in operations/act/act.py on successful invocation
+    TOOL_ERROR = "tool.error"  # emitted in operations/act/act.py on invocation error
+    MESSAGE_ADD = "message.add"  # live: emitted in session/branch.py
+    ARTIFACT_CREATED = "artifact.created"  # not-yet-wired
 
 
 HookHandler = Callable[..., Awaitable[Any] | Any]
@@ -151,7 +127,11 @@ class HookBus:
                 break
             except Exception:  # noqa: BLE001 — hook isolation invariant
                 logger.exception("Hook failed: %s", point.value)
-        await self._record(point, kwargs)
+        # MESSAGE_ADD is represented on the signal bus by MessageAdded (emitted
+        # directly via on_message_added); a redundant HookSignal here would
+        # duplicate every message event on the observable stream.
+        if point is not HookPoint.MESSAGE_ADD:
+            await self._record(point, kwargs)
 
 
 # ── Decorator for user-defined handlers ───────────────────────────────────────

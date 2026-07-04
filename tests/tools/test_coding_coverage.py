@@ -295,6 +295,10 @@ def test_subprocess_sync_timeout_mock_pid_calls_kill_not_killpg(monkeypatch):
     # Set pid to a MagicMock object — isinstance(pid, int) returns False,
     # so the guard routes to proc.kill() instead of os.killpg().
     mock_proc.pid = MagicMock()
+    # EOF on read() so _subprocess_sync's drain threads exit instead of
+    # busy-spinning forever on a bare-mock stream (saturates CPU on CI).
+    mock_proc.stdout.read.return_value = b""
+    mock_proc.stderr.read.return_value = b""
     # First wait() raises TimeoutExpired; second wait() (after kill) returns normally
     mock_proc.wait.side_effect = [subprocess.TimeoutExpired("cmd", 0.01), None]
     mock_proc.kill = MagicMock()
@@ -312,17 +316,16 @@ def test_subprocess_sync_timeout_mock_pid_calls_kill_not_killpg(monkeypatch):
 
 @pytest.mark.parametrize("invalid_pid", [None, 0, 1, -1, True, False])
 def test_subprocess_sync_timeout_invalid_pid_calls_kill_not_killpg(invalid_pid):
-    """Lock in the `> 1` half of the guard against accidental removal.
-
-    None/0/1/-1/False all fail isinstance(int) or fail > 1; True is int but == 1.
-    All must route to proc.kill() — killpg(0) would target current pgroup;
-    killpg(1) would target init/CI runner.
-    """
+    """Non-positive or non-int pids must use proc.kill(), never os.killpg (killpg(0/1) would target pgroup/init)."""
     import subprocess
     from unittest.mock import MagicMock, patch
 
     mock_proc = MagicMock()
     mock_proc.pid = invalid_pid
+    # EOF on read() so _subprocess_sync's drain threads exit instead of
+    # busy-spinning forever on a bare-mock stream (saturates CPU on CI).
+    mock_proc.stdout.read.return_value = b""
+    mock_proc.stderr.read.return_value = b""
     mock_proc.wait.side_effect = [subprocess.TimeoutExpired("cmd", 0.01), None]
     mock_proc.kill = MagicMock()
 

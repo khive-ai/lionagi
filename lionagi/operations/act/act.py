@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import uuid
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
+from lionagi._errors import ConfigurationError
 from lionagi.ln import AlcallParams
 from lionagi.protocols.messages import ActionRequest, ActionResponse
 
@@ -44,10 +46,7 @@ async def _act(
             " and 'arguments', or dict with 'function' and 'arguments'."
         )
 
-    # ADR-0076 Follow-up 1: pre-invoke governance gate. When the session sets
-    # ``session.gate(check)``, a denied tool call is blocked BEFORE execution and
-    # surfaced to the model as a tool result (so a ReAct loop can adapt), never
-    # raised. No gate / standalone branch → always allowed (additive).
+    # ADR-0076: governance gate — denied calls surface as tool results (not exceptions) so ReAct loops can adapt.
     from lionagi.session.control import ToolInvocation
 
     _args = _request["arguments"] if isinstance(_request["arguments"], dict) else {}
@@ -67,6 +66,21 @@ async def _act(
         )
         return ActionResponseModel(function=_request["function"], arguments=_args, output=denial)
 
+    _hooks = branch._hooks
+    _tool_name = _request["function"]
+    _call_id = str(uuid.uuid4())
+    _args_summary = str(_request["arguments"])[:200]
+
+    if _hooks is not None:
+        from lionagi.hooks.bus import HookPoint
+
+        await _hooks.emit(
+            HookPoint.TOOL_PRE,
+            tool_name=_tool_name,
+            call_id=_call_id,
+            args_summary=_args_summary,
+        )
+
     try:
         if verbose_action:
             args_ = str(_request["arguments"])
@@ -77,7 +91,30 @@ async def _act(
         if verbose_action:
             logger.debug("Action %s invoked, status: %s.", _request["function"], func_call.status)
 
+        if _hooks is not None:
+            from lionagi.hooks.bus import HookPoint
+
+            _result_summary = str(func_call.response)[:200]
+            await _hooks.emit(
+                HookPoint.TOOL_POST,
+                call_id=_call_id,
+                tool_name=_tool_name,
+                result_summary=_result_summary,
+                duration=func_call.execution.duration,
+            )
+
     except Exception as e:
+        if _hooks is not None:
+            from lionagi.hooks.bus import HookPoint
+
+            await _hooks.emit(
+                HookPoint.TOOL_ERROR,
+                call_id=_call_id,
+                tool_name=_tool_name,
+                error=e,
+                duration=None,
+            )
+
         content = {
             "error": str(e),
             "function": _request.get("function"),
@@ -128,7 +165,6 @@ async def _act(
             recipient=func_call.func_tool.id,
         )
 
-    # Add the action request/response to the message manager, if not present
     if action_request not in branch.messages:
         await branch.msgs.a_add_message(action_request=action_request)
 
@@ -155,7 +191,7 @@ def prepare_act_kw(
 ):
     action_param = ActionParam(
         action_call_params=call_params or _get_default_call_params(),
-        tools=None,  # Not used in this context
+        tools=None,
         strategy=strategy,
         suppress_errors=suppress_errors,
         verbose_action=verbose_action,
@@ -190,7 +226,7 @@ async def act(
                 verbose_action=action_param.verbose_action,
             )
         case _:
-            raise ValueError("Invalid strategy. Choose 'concurrent' or 'sequential'.")
+            raise ConfigurationError("Invalid strategy. Choose 'concurrent' or 'sequential'.")
 
 
 async def _concurrent_act(
@@ -205,7 +241,6 @@ async def _concurrent_act(
     async def _wrapper(req):
         return await _act(branch, req, suppress_errors, verbose_action)
 
-    # AlcallParams expects a list as first argument
     action_request_list = action_request if isinstance(action_request, list) else [action_request]
 
     return await call_params(action_request_list, _wrapper)

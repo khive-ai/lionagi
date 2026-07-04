@@ -1,11 +1,7 @@
 """Regression tests for per-provider CLI subprocess behaviour parity.
 
-Covers three behaviour regressions introduced when the CLI subprocess loop was
-extracted into the shared ndjson_from_cli helper (PR #1355):
-
-  Finding 1 – Claude EOF JSON repair: a repairable tail must be yielded.
-  Finding 2 – Codex double-workspace: cwd= must NOT be passed to ndjson_from_cli.
-  Finding 3 – Gemini/Pi stdin: must be _INHERIT_STDIN, not DEVNULL.
+Covers: Claude tail repair, Codex double-workspace, Pi stdin inheritance,
+Gemini/agy DEVNULL stdin (headless print mode).
 """
 
 from __future__ import annotations
@@ -18,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
-# Finding 1 – Claude EOF JSON repair
+# Claude EOF JSON repair
 # ---------------------------------------------------------------------------
 
 
@@ -98,8 +94,8 @@ async def test_ndjson_from_cli_no_tail_repair_drops_bad_tail(caplog):
 @pytest.mark.asyncio
 async def test_claude_ndjson_uses_repair_callback():
     """_ndjson_from_cli in Claude models passes tail_repair to ndjson_from_cli."""
+    from lionagi.providers.anthropic import claude_code as cc_models
     from lionagi.providers.anthropic import claude_code as cc_pkg
-    from lionagi.providers.anthropic.claude_code import models as cc_models
 
     call_kwargs: list[dict] = []
 
@@ -125,7 +121,7 @@ async def test_claude_ndjson_uses_repair_callback():
 
 
 # ---------------------------------------------------------------------------
-# Finding 2 – Codex does not double-apply workspace
+# Codex does not double-apply workspace
 # ---------------------------------------------------------------------------
 
 
@@ -136,7 +132,7 @@ async def test_codex_ndjson_does_not_pass_cwd():
     The Codex CLI already receives the workspace via '-C <repo>' in as_cmd_args().
     Passing cwd= as well causes a relative repo path to be resolved twice.
     """
-    from lionagi.providers.openai.codex import models as codex_models
+    from lionagi.providers.openai import codex as codex_models
 
     call_kwargs: list[dict] = []
 
@@ -162,7 +158,7 @@ async def test_codex_ndjson_does_not_pass_cwd():
 
 def test_codex_as_cmd_args_contains_dash_c_flag():
     """Codex as_cmd_args() emits '-C <repo>' so the CLI handles the workspace itself."""
-    from lionagi.providers.openai.codex.models import CodexCodeRequest
+    from lionagi.providers.openai.codex import CodexCodeRequest
 
     req = CodexCodeRequest(prompt="hello", repo=Path("my_repo"))
     args = req.as_cmd_args()
@@ -173,15 +169,15 @@ def test_codex_as_cmd_args_contains_dash_c_flag():
 
 
 # ---------------------------------------------------------------------------
-# Finding 3 – Gemini and Pi inherit stdin (not DEVNULL)
+# Pi inherits stdin; Gemini (agy print mode) keeps the DEVNULL default
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_gemini_ndjson_passes_inherit_stdin():
-    """Gemini _ndjson_from_cli must pass stdin=_INHERIT_STDIN to ndjson_from_cli."""
-    from lionagi.providers._cli_subprocess import _INHERIT_STDIN
-    from lionagi.providers.google.gemini_code import models as gemini_models
+async def test_gemini_ndjson_defaults_stdin_devnull():
+    """agy runs headless print mode and reads nothing from stdin — gemini must
+    NOT pass a stdin override, leaving ndjson_from_cli's DEVNULL default."""
+    from lionagi.providers.google import gemini_code as gemini_models
 
     call_kwargs: list[dict] = []
 
@@ -191,7 +187,7 @@ async def test_gemini_ndjson_passes_inherit_stdin():
         yield
 
     with (
-        patch.object(gemini_models, "GEMINI_CLI", "/fake/gemini"),
+        patch.object(gemini_models, "AGY_CLI", "/fake/agy"),
         patch.object(gemini_models, "ndjson_from_cli", _fake_ndjson),
     ):
         req = gemini_models.GeminiCodeRequest(prompt="hello")
@@ -201,9 +197,8 @@ async def test_gemini_ndjson_passes_inherit_stdin():
             pass
 
     assert call_kwargs, "ndjson_from_cli must be called"
-    kw = call_kwargs[0]
-    assert kw.get("stdin") is _INHERIT_STDIN, (
-        "Gemini must pass stdin=_INHERIT_STDIN so the child inherits the parent stdin"
+    assert "stdin" not in call_kwargs[0], (
+        "agy print mode must not override stdin (DEVNULL default applies)"
     )
 
 
@@ -211,7 +206,7 @@ async def test_gemini_ndjson_passes_inherit_stdin():
 async def test_pi_ndjson_passes_inherit_stdin():
     """Pi _ndjson_from_cli must pass stdin=_INHERIT_STDIN to ndjson_from_cli."""
     from lionagi.providers._cli_subprocess import _INHERIT_STDIN
-    from lionagi.providers.pi.cli import models as pi_models
+    from lionagi.providers.pi import cli as pi_models
 
     call_kwargs: list[dict] = []
 

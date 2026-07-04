@@ -34,7 +34,7 @@ CI tests Python 3.10 and 3.14 on PRs, and 3.10-3.14 on `main`/`develop` pushes. 
 - `lionagi/service/` — iModel, provider connections, rate limiting
 - `lionagi/ln/` — concurrency utils (alcall, bcall), fuzzy JSON, sentinels
 - `lionagi/tools/` — tool interfaces and built-ins
-- `lionagi/cli/` — `li` command; `cli/orchestrate/` (flow, fanout); `cli/_runs.py` (RunDir); `cli/_logging.py`; `cli/team.py`; `cli/schedule.py` (`li schedule`); `cli/_project.py` (project detection)
+- `lionagi/cli/` — `li` command; `cli/orchestrate/` (flow, fanout); `cli/_runs.py` (RunDir); `cli/_logging.py`; `cli/team.py`; `cli/_project.py` (project detection). `li studio` / `li schedule` live in `lionagi/studio/cli.py`.
 - `tests/` — mirrors package structure
 - `benchmarks/` — micro-benchmark runners and baselines
 
@@ -67,7 +67,7 @@ CLI has no dedicated unit test suite.
 - Keep code async-safe; avoid blocking calls in async execution paths.
 - Follow existing typing patterns; add type hints on new/changed public APIs.
 - Keep changes surgical: do not refactor unrelated modules in the same patch.
-- Preserve backward compatibility unless the request explicitly allows breaking changes.
+- Preserve backward compatibility unless the request explicitly allows breaking changes. Removing or renaming a public name (`__all__` export, hook name, CLI flag, provider identifier) requires an alias, a `DeprecationWarning`, and a CHANGELOG entry before removal. See [docs/governance/standards/deprecation-policy.md](docs/governance/standards/deprecation-policy.md).
 
 ## Common Pitfalls
 
@@ -92,12 +92,12 @@ Use the `lionagi/agent/` module to build sandboxed, permission-aware coding agen
 
 ```python
 import asyncio
-from lionagi.agent.config import AgentConfig
+from lionagi.agent.spec import AgentSpec
 from lionagi.agent.factory import create_agent
 
 async def main():
-    config = AgentConfig.coding()          # CodingToolkit + guard hooks + workspace path policy
-    agent = await create_agent(config)     # returns a wired Branch
+    spec = AgentSpec.coding()              # CodingToolkit + guard hooks + workspace path policy
+    agent = await create_agent(spec)       # returns a wired Branch
     reply = await agent.communicate("Refactor auth.py to use async/await throughout.")
     print(reply)
 
@@ -108,12 +108,12 @@ asyncio.run(main())
 
 ```python
 from lionagi.agent.hooks import guard_paths, log_tool_use
-from lionagi.agent.config import AgentConfig
+from lionagi.agent.spec import AgentSpec
 
-config = AgentConfig.coding()
-config.pre("reader", guard_paths(allowed_paths=["/tmp/sandbox", "./src"]))
-config.post("*", log_tool_use)
-agent = await create_agent(config)
+spec = AgentSpec.coding()
+spec.pre("reader", guard_paths(allowed_paths=["/tmp/sandbox", "./src"]))
+spec.post("*", log_tool_use)
+agent = await create_agent(spec)
 ```
 
 **Use Sandbox for isolated edits**
@@ -123,8 +123,8 @@ from lionagi.tools.sandbox import create_sandbox, sandbox_diff, sandbox_commit, 
 
 session = await create_sandbox(repo_root="/path/to/repo", base_branch="main")
 # agent edits happen inside the worktree at session.worktree_path
-config = AgentConfig.coding(cwd=session.worktree_path)
-agent = await create_agent(config)
+spec = AgentSpec.coding(cwd=session.worktree_path)
+agent = await create_agent(spec)
 await agent.communicate("Add type hints to all public functions in auth.py.")
 print(await sandbox_diff(session))         # inspect changes before committing
 await sandbox_commit(session, "feat: add type hints to auth module")
@@ -150,8 +150,8 @@ policy = PermissionPolicy(
     escalate={"bash": ["*"]},
 )
 
-config = AgentConfig.coding()
-config.permissions = {"mode": "rules", "allow": {"reader": ["*"]}, "deny": {"bash": ["rm *"]}}
+spec = AgentSpec.coding()
+spec.permissions = {"mode": "rules", "allow": {"reader": ["*"]}, "deny": {"bash": ["rm *"]}}
 ```
 
 **Settings** — place `.lionagi/settings.yaml` in the project root to override defaults. Global settings live at `~/.lionagi/settings.yaml`; project settings win on conflict.
@@ -175,7 +175,7 @@ This is separate from `settings.yaml` (which is gitignored/local). The detection
 
 Lion Studio can fire agent work on a schedule. The scheduler engine runs in-process inside the Studio server (`apps/studio/server/scheduler/engine.py`) and ticks every 30 seconds.
 
-**CLI** (`lionagi/cli/schedule.py`):
+**CLI** (`lionagi/studio/cli.py`):
 
 ```bash
 li schedule list                                      # List all schedules

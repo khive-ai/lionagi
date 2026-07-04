@@ -9,12 +9,17 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
+
+from lionagi.libs.path_safety import safe_join
 from lionagi.state.db import DEFAULT_DB_PATH
 
 from ..config import SHOWS_ROOT
+from ..registry import studio_route
 from ._db import open_db as _open_db
 from ._io import read_json_file as _read_json
 from ._path_safety import public_path, safe_path_join
+from ._sse import sse_response
 
 _log = __import__("logging").getLogger(__name__)
 
@@ -62,11 +67,6 @@ def _extract_repo_and_branches(show_md: str | None) -> tuple[str | None, str | N
     return repo, base, integration
 
 
-# ---------------------------------------------------------------------------
-# SQLite-backed list/detail — fast queries, cross-ref to sessions
-# ---------------------------------------------------------------------------
-
-
 async def _db_available() -> bool:
     return DEFAULT_DB_PATH.exists()
 
@@ -103,7 +103,7 @@ async def _list_shows_db() -> list[dict[str, Any]]:
             "path": public_path(Path(row["show_dir"])),
             "play_count": row["play_count"],
             "latest_status": row["status"],
-            # F-A1-5 (ADR-0011 §"Show status provenance"): status_source field.
+            # ADR-0011 §"Show status provenance": status_source field.
             # The status_source column is defined in ADR-0011's schema block but
             # is absent from the current schema.sql (deferred migration — tracked
             # separately; adding it requires ALTER TABLE and a backfill pass that
@@ -145,7 +145,7 @@ def _list_shows_fs() -> list[dict[str, Any]]:
                 "path": public_path(path),
                 "play_count": len(plays),
                 "latest_status": latest_status,
-                # F-A1-5: filesystem-loaded rows carry "filesystem" provenance
+                # filesystem-loaded rows carry "filesystem" provenance
                 "status_source": "filesystem",
                 "last_update": last_update,
             }
@@ -154,10 +154,6 @@ def _list_shows_fs() -> list[dict[str, Any]]:
 
 
 async def get_show(topic: str) -> dict[str, Any] | None:
-    # safe_path_join validates the topic component (no traversal, no NUL, etc.)
-    # but does NOT require the path to exist — we resolve existence after the DB
-    # lookup so that Docker deployments (state.db mounted, show dirs absent) can
-    # still serve show detail from the DB.
     show_dir = safe_path_join(SHOWS_ROOT, topic)
     dir_exists = show_dir.is_dir()
 
@@ -188,9 +184,6 @@ async def get_show(topic: str) -> dict[str, Any] | None:
         except Exception:
             _log.warning("get_show DB query failed for topic %r", topic, exc_info=True)
 
-    # Return None only when BOTH the filesystem dir is absent AND the DB has no
-    # row for this topic.  In Docker, show dirs are not mounted but the DB is —
-    # returning None in that case caused every topic from list_shows() to 404.
     if not dir_exists and show_row is None:
         return None
 
@@ -247,16 +240,13 @@ async def get_show(topic: str) -> dict[str, Any] | None:
                 }
             )
     else:
-        # DB row exists but no plays recorded yet (or show dir absent in Docker).
         plays = []
 
-    # F-A1-5 (ADR-0011 §"Show status provenance"): status_source mirrors the
+    # ADR-0011 §"Show status provenance": status_source mirrors the
     # derivation in list_shows() — "sqlite" when the row came from the DB,
     # "filesystem" for filesystem fallback (show_row is None).
     status_source = "sqlite" if show_row else "filesystem"
 
-    # show_dir may not exist on disk (Docker); public_path handles non-existent
-    # paths gracefully (it uses resolve() + relative_to(), not stat()).
     return {
         "topic": topic,
         "path": public_path(show_dir),
@@ -266,11 +256,6 @@ async def get_show(topic: str) -> dict[str, Any] | None:
         "status_source": status_source,
         "plays": plays,
     }
-
-
-# ---------------------------------------------------------------------------
-# Import filesystem shows into SQLite
-# ---------------------------------------------------------------------------
 
 
 async def import_shows() -> dict[str, int]:
@@ -291,8 +276,7 @@ async def import_shows() -> dict[str, int]:
             topic = show_path.name
             now = time.time()
 
-            cur = await db.db.execute("SELECT id FROM shows WHERE topic = ?", (topic,))
-            existing = await cur.fetchone()
+            existing = await db.fetch_one("SELECT id FROM shows WHERE topic = ?", (topic,))
             if existing:
                 show_id = existing["id"]
             else:
@@ -345,7 +329,7 @@ async def import_shows() -> dict[str, int]:
                         topic,
                     )
 
-                await db.db.execute(
+                await db.execute(
                     """INSERT OR IGNORE INTO shows
                        (id, topic, goal, repo, base_branch, integration_branch,
                         status, show_dir, created_at, updated_at)
@@ -366,7 +350,6 @@ async def import_shows() -> dict[str, int]:
                 shows_count += 1
 
                 if show_reason_code is not None:
-                    await db.db.commit()
                     await db.update_status(
                         "show",
                         show_id,
@@ -384,22 +367,20 @@ async def import_shows() -> dict[str, int]:
                 meta = _read_json(play_dir / "_meta.json") or {}
                 verdict = _read_json(play_dir / "_verdict.json")
 
-                play_cur = await db.db.execute(
+                if await db.fetch_one(
                     "SELECT id FROM plays WHERE show_id = ? AND name = ?",
                     (show_id, play_name),
-                )
-                if await play_cur.fetchone():
+                ):
                     continue
 
                 play_id = str(uuid.uuid4())
 
                 session_id = None
                 session_name = f"show_{topic}_{play_name}"
-                sess_cur = await db.db.execute(
+                sess_row = await db.fetch_one(
                     "SELECT id FROM sessions WHERE name = ? ORDER BY created_at DESC LIMIT 1",
                     (session_name,),
                 )
-                sess_row = await sess_cur.fetchone()
                 if sess_row:
                     session_id = sess_row["id"]
 
@@ -495,7 +476,7 @@ async def import_shows() -> dict[str, int]:
                         imported_play_status,
                     )
 
-                await db.db.execute(
+                await db.execute(
                     """INSERT OR IGNORE INTO plays
                        (id, show_id, name, playbook, effort, status, attempt,
                         session_id, started_at, ended_at, exit_code,
@@ -530,7 +511,6 @@ async def import_shows() -> dict[str, int]:
                 plays_count += 1
 
                 if play_reason_code is not None:
-                    await db.db.commit()
                     await db.update_status(
                         "play",
                         play_id,
@@ -543,32 +523,25 @@ async def import_shows() -> dict[str, int]:
                         metadata={"topic": topic, "play": play_name, "attempt": play_attempt},
                     )
 
-        await db.db.commit()
-
     return {"shows_imported": shows_count, "plays_imported": plays_count}
-
-
-# ---------------------------------------------------------------------------
-# SSE watcher (unchanged)
-# ---------------------------------------------------------------------------
 
 
 _SHOW_TERMINAL_STATUSES = frozenset({"completed", "aborted"})
 _SHOW_DONE_STABLE_SECS = 60.0
 
 
-async def watch_show(topic: str) -> AsyncGenerator[str, None]:
+async def watch_show(topic: str) -> AsyncGenerator[str]:
     """SSE stream of file changes under a show directory.
 
-    F-A2-3 (ADR-0006 reconnect semantics): emits ``{"type":"done"}`` when the
-    show status is terminal (completed or aborted) AND no file has changed for
-    60 seconds, then closes.  This matches the session stream's done semantics.
-
-    When the show directory does not exist on disk (e.g. Docker deployments
-    where show dirs are not mounted), immediately emits ``{"type":"done"}`` and
-    returns rather than running an infinite loop with no events.
+    ADR-0006 reconnect semantics: emits ``{"type":"done"}`` when the show is
+    terminal (completed or aborted) AND no file has changed for 60 seconds.
+    Emits done immediately when the show directory does not exist (Docker deployments).
     """
-    topic_dir = safe_path_join(SHOWS_ROOT, topic)
+    try:
+        topic_dir = safe_join(SHOWS_ROOT, topic)
+    except ValueError:
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        return
     if not topic_dir.is_dir():
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return
@@ -598,9 +571,7 @@ async def watch_show(topic: str) -> AsyncGenerator[str, None]:
             last_change = time.time()
             any_change = True
 
-        # Check for terminal + stable condition (F-A2-3)
         if not any_change and (time.time() - last_change) >= _SHOW_DONE_STABLE_SECS:
-            # Query current show status from DB (fast path) or filesystem
             show_status: str | None = None
             if await _db_available():
                 try:
@@ -618,3 +589,35 @@ async def watch_show(topic: str) -> AsyncGenerator[str, None]:
                 return
 
         await asyncio.sleep(0.5)
+
+
+@studio_route("/shows/", method="GET", area="shows", name="list_shows")
+async def list_shows_route() -> list[dict[str, Any]]:
+    return await list_shows()
+
+
+# ADR-0011 §"Migration": import_shows is a state-mutating operation
+# (INSERT OR IGNORE into shows + plays); it must use POST, not GET.
+# ADR-0011 specifies this as a CLI maintenance command (`li state import-shows`).
+# The POST endpoint is retained as a Studio convenience trigger.
+@studio_route(
+    "/shows/import", method="POST", area="shows", tags=["shows", "shows"], name="import_shows"
+)
+async def import_shows_route() -> dict[str, int]:
+    return await import_shows()
+
+
+@studio_route("/shows/{topic}", method="GET", area="shows", name="get_show")
+async def get_show_route(topic: str) -> dict[str, Any]:
+    show = await get_show(topic)
+    if show is None:
+        raise HTTPException(status_code=404, detail=f"Show '{topic}' not found")
+    return show
+
+
+@studio_route("/shows/{topic}/stream", method="GET", area="shows")
+async def stream_show(topic: str):
+    """SSE stream of file changes under one show directory."""
+    if await get_show(topic) is None:
+        raise HTTPException(status_code=404, detail=f"Show '{topic}' not found")
+    return sse_response(watch_show(topic))

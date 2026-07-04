@@ -12,7 +12,7 @@ class TavilyConfigs(ProviderConfig, Enum):
         "search",
         [],
         EndpointType.API,
-        LazyType("lionagi.providers.tavily.search.models:TavilySearchRequest"),
+        LazyType("lionagi.providers.tavily.search:TavilySearchRequest"),
         "https://api.tavily.com",
         "bearer",
     )
@@ -20,7 +20,7 @@ class TavilyConfigs(ProviderConfig, Enum):
         "extract",
         [],
         EndpointType.API,
-        LazyType("lionagi.providers.tavily.search.models:TavilyExtractRequest"),
+        LazyType("lionagi.providers.tavily.search:TavilyExtractRequest"),
         "https://api.tavily.com",
         "bearer",
     )
@@ -28,5 +28,6 @@ class TavilyConfigs(ProviderConfig, Enum):
 
 TavilyConfigs._PROVIDER = "tavily"
 TavilyConfigs._PROVIDER_ALIASES = []
+TavilyConfigs._API_KEY_ENV = "TAVILY_API_KEY"
 
 __all__ = ("TavilyConfigs",)

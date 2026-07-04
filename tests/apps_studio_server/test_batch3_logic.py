@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Regression tests for Batch 3 logic fixes: #991 SSE done condition, #1013 update validation."""
+"""Regression tests for SSE done condition and update validation."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ aiosqlite = pytest.importorskip("aiosqlite", reason="aiosqlite not installed")
 from tests.apps_studio_server._helpers import run_async as _run  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# #991 — is_session_stream_done() gates on terminal status AND stale time
+# is_session_stream_done() gates on terminal status AND stale time
 # ---------------------------------------------------------------------------
 
 
@@ -170,7 +170,7 @@ class TestGetSessionStreamState:
 
 
 # ---------------------------------------------------------------------------
-# #1013 — update_playbook() rejects invalid links via validate_playbook()
+# update_playbook() rejects invalid links via validate_playbook()
 # ---------------------------------------------------------------------------
 
 
@@ -229,10 +229,19 @@ class TestUpdatePlaybookValidation:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from lionagi.studio.routers.playbooks import router
+        import lionagi.studio.services.playbooks  # ensure routes registered
+        from lionagi.studio.registry import iter_studio_routes
 
         app = FastAPI()
-        app.include_router(router)
+        for route in iter_studio_routes(area="playbooks"):
+            app.add_api_route(
+                route.path,
+                route.handler,
+                methods=[route.method],
+                response_model=route.response_model,
+                status_code=route.status_code,
+                tags=list(route.tags),
+            )
         client = TestClient(app, raise_server_exceptions=False)
 
         resp = client.put(
@@ -266,7 +275,7 @@ class TestUpdatePlaybookValidation:
 
 
 class TestUpdatePlaybookSpecFieldValidation:
-    """#1013 spec-field gap: workers/max_ops/effort must be validated on PUT."""
+    """workers/max_ops/effort must be validated on PUT."""
 
     def _make_playbook(self, tmp_path: Path, name: str) -> Path:
         path = tmp_path / f"{name}.playbook.yaml"
@@ -293,10 +302,19 @@ class TestUpdatePlaybookSpecFieldValidation:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from lionagi.studio.routers.playbooks import router
+        import lionagi.studio.services.playbooks  # ensure routes registered
+        from lionagi.studio.registry import iter_studio_routes
 
         app = FastAPI()
-        app.include_router(router)
+        for route in iter_studio_routes(area="playbooks"):
+            app.add_api_route(
+                route.path,
+                route.handler,
+                methods=[route.method],
+                response_model=route.response_model,
+                status_code=route.status_code,
+                tags=list(route.tags),
+            )
         client = TestClient(app, raise_server_exceptions=False)
 
         resp = client.put("/playbooks/pb-workers2", json={"workers": 999})

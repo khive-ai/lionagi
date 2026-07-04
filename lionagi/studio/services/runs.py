@@ -5,6 +5,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException, Query
+
+from ..registry import studio_route
 from . import sessions as _sessions_svc
 from ._path_safety import public_path
 
@@ -28,11 +31,6 @@ def _normalize_status_filter(status: str | list[str] | None) -> set[str] | None:
     for s in status:
         result |= _STATUS_ALIASES.get(s, {s})
     return result or None
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _adapt_summary(
@@ -469,18 +467,61 @@ def _adapt_detail(
     }
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+def _run_row(s: dict[str, Any], now: float) -> dict[str, Any]:
+    """The canonical Run row shape. Shared by the list and detail routes so the
+    two can never drift out of contract (the detail route used to drop fields the
+    list route emits, e.g. invocation_id). Caller supplies a session dict carrying
+    branch_count / message_count / last_message_at.
+    """
+    from lionagi.state.health import SessionHealth, classify_session_health
+
+    health = classify_session_health(
+        s,
+        now=now,
+        process_alive=True,
+        has_artifacts=bool(s.get("artifacts_path")),
+        has_stale_locks=False,
+    )
+    effective_health = (
+        SessionHealth.STALE.value if health == SessionHealth.UNRESPONSIVE else health.value
+    )
+    return {
+        "run_id": s["id"],
+        "id": s["id"],
+        "name": s.get("name"),
+        "playbook_name": s.get("playbook_name"),
+        "agent_name": s.get("agent_name"),
+        "invocation_kind": s.get("invocation_kind"),
+        "show_topic": s.get("show_topic"),
+        "show_play_name": s.get("show_play_name"),
+        "source_kind": s.get("source_kind", "live"),
+        "artifact_contract_json": s.get("artifact_contract_json"),
+        "artifact_verification_json": s.get("artifact_verification_json"),
+        "invocation_id": s.get("invocation_id"),
+        "model": s.get("model"),
+        "provider": s.get("provider"),
+        "effort": s.get("effort"),
+        "agent_hash": s.get("agent_hash"),
+        "status": s.get("status", "completed"),
+        "started_at": s.get("started_at"),
+        "ended_at": s.get("ended_at"),
+        "created_at": s.get("created_at"),
+        "updated_at": s.get("updated_at"),
+        "last_message_at": s.get("last_message_at"),
+        "effective_health": effective_health,
+        "branch_count": s.get("branch_count", 0),
+        "message_count": s.get("message_count", 0),
+        "project": s.get("project"),
+        "project_source": s.get("project_source"),
+    }
 
 
 async def list_runs(
     playbook: str | None = None,
     status: str | list[str] | None = None,
     project: str | None = None,
+    project_null: bool = False,
 ) -> list[dict[str, Any]]:
-    from lionagi.state.health import SessionHealth, classify_session_health
-
     sessions = await _sessions_svc.list_sessions()
     status_set = _normalize_status_filter(status)
     now = time.time()
@@ -488,52 +529,14 @@ async def list_runs(
     for s in sessions:
         if playbook and playbook.lower() not in (s.get("playbook_name") or "").lower():
             continue
-        if project and s.get("project") != project:
+        if project_null:
+            if s.get("project") is not None:
+                continue
+        elif project and s.get("project") != project:
             continue
         if status_set and s.get("status") not in status_set:
             continue
-        health = classify_session_health(
-            s,
-            now=now,
-            process_alive=True,
-            has_artifacts=bool(s.get("artifacts_path")),
-            has_stale_locks=False,
-        )
-        # Map UNRESPONSIVE -> 'stale' for dashboard consistency.
-        effective_health = (
-            SessionHealth.STALE.value if health == SessionHealth.UNRESPONSIVE else health.value
-        )
-        out.append(
-            {
-                "run_id": s["id"],
-                "id": s["id"],
-                "name": s.get("name"),
-                "playbook_name": s.get("playbook_name"),
-                "agent_name": s.get("agent_name"),
-                "invocation_kind": s.get("invocation_kind"),
-                "show_topic": s.get("show_topic"),
-                "show_play_name": s.get("show_play_name"),
-                "source_kind": s.get("source_kind", "live"),
-                "artifact_contract_json": s.get("artifact_contract_json"),
-                "artifact_verification_json": s.get("artifact_verification_json"),
-                "invocation_id": s.get("invocation_id"),
-                "model": s.get("model"),
-                "provider": s.get("provider"),
-                "effort": s.get("effort"),
-                "agent_hash": s.get("agent_hash"),
-                "status": s.get("status", "completed"),
-                "started_at": s.get("started_at"),
-                "ended_at": s.get("ended_at"),
-                "created_at": s.get("created_at"),
-                "updated_at": s.get("updated_at"),
-                "last_message_at": s.get("last_message_at"),
-                "effective_health": effective_health,
-                "branch_count": s.get("branch_count", 0),
-                "message_count": s.get("message_count", 0),
-                "project": s.get("project"),
-                "project_source": s.get("project_source"),
-            }
-        )
+        out.append(_run_row(s, now))
     return out
 
 
@@ -559,22 +562,13 @@ def paginate_runs(
 
 
 async def get_run(run_id: str) -> dict[str, Any] | None:
-    """Return run detail for *run_id* by reading from StateDB.
+    """Return run detail from StateDB; flat-file run.json path was removed (write_manifest had zero callers).
 
-    Uses the same data source as list_runs() (StateDB sessions/branches).
-    The flat-file run.json read path was removed because write_manifest()
-    had zero callers — all live runs persist to SQLite via create_session().
-    Keys in the returned dict are kept identical to the old flat-file path so
-    the frontend contract is unchanged.
-
-    Fields with no direct DB equivalent:
-      state_root            — derived from artifacts_path if stored, else None
-      artifact_root         — derived from artifacts_path column, else None
-      task                  — not persisted in DB; returns ""
-      step_count            — count of branches (proxy for steps)
-      error                 — not persisted in DB; returns None
-      cwd                   — not persisted in DB; returns None
-      manifest              — returns {} (no flat-file manifest exists)
+    The response is a superset of the list Run row (via _run_row) plus detail-only
+    fields. get_session() omits the JOIN aggregates (branch_count / message_count /
+    last_message_at), so they are derived from the hydrated branches here.
+    Fields absent from DB (state_root, artifact_root, task, error, cwd, manifest)
+    return None/""/{} to keep the frontend contract unchanged.
     """
     session = await _sessions_svc.get_session(run_id)
     if session is None:
@@ -586,41 +580,54 @@ async def get_run(run_id: str) -> dict[str, Any] | None:
     branches: list[dict[str, Any]] = session.get("branches") or []
     step_count = len(branches)
 
-    # Derive state_root from artifact_root (artifact_root is inside state_root)
     state_root: Path | None = artifact_root.parent if artifact_root else None
 
-    summary: dict[str, Any] = {
-        "run_id": run_id,
+    message_count = sum(len(b.get("messages") or []) for b in branches if isinstance(b, dict))
+    last_message_at = max(
+        (
+            m.get("timestamp")
+            for b in branches
+            if isinstance(b, dict)
+            for m in (b.get("messages") or [])
+            if isinstance(m, dict) and m.get("timestamp") is not None
+        ),
+        default=None,
+    )
+
+    row = _run_row(
+        {
+            **session,
+            "branch_count": len(branches),
+            "message_count": message_count,
+            "last_message_at": last_message_at,
+        },
+        time.time(),
+    )
+
+    return {
+        **row,
+        # Detail-only fields layered on top of the shared Run row.
         "state_root": public_path(state_root) if state_root else None,
         "artifact_root": public_path(artifact_root) if artifact_root else None,
         "worker_name": session.get("agent_name") or session.get("playbook_name") or "",
         "task": "",
-        "status": session.get("status") or "completed",
         "step_count": step_count,
-        "started_at": session.get("started_at"),
         "finished_at": session.get("ended_at"),
-        "model": session.get("model") or "",
-    }
-
-    return {
-        **summary,
         "error": None,
         "cwd": None,
         "steps": _build_steps_from_db(branches),
         "graph": session.get("graph"),
         "manifest": {},
         "branches": branches,
-        "artifact_contract_json": session.get("artifact_contract_json"),
-        "artifact_verification_json": session.get("artifact_verification_json"),
+        # Failure-reason contract consumed by the run-detail panel's banner.
+        "status_reason_code": session.get("status_reason_code"),
+        "status_reason_summary": session.get("status_reason_summary"),
+        "status_evidence_refs": session.get("status_evidence_refs"),
     }
 
 
 def _build_steps_from_db(branches: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-    """Build a steps list from DB-hydrated branch dicts.
-
-    Each branch dict from get_session() has: id, name, messages (list),
-    model, provider, agent_name, status, started_at, ended_at.
-    """
+    """Build a steps list from DB-hydrated branch dicts."""
     if not branches:
         return None
     steps = []
@@ -649,3 +656,51 @@ def _build_steps_from_db(branches: list[dict[str, Any]]) -> list[dict[str, Any]]
             }
         )
     return steps if steps else None
+
+
+@studio_route("/runs/", method="GET", area="runs", name="list_runs")
+async def list_runs_route(
+    page: int = Query(default=1, ge=1, description="1-based page number"),
+    per_page: int = Query(default=20, ge=1, le=5000, description="Rows per page"),
+    status: list[str] | None = Query(default=None, description="Repeated status filter"),  # noqa: B008
+    # ADR-0005: renamed from ?worker= to ?playbook= — "worker" is
+    # not in lionagi's Studio vocabulary per ADR-0005.
+    playbook: str | None = Query(
+        default=None, description="Case-insensitive playbook contains filter"
+    ),
+    project: str | None = Query(default=None, description="Exact project name filter (ADR-0026)"),
+    project_null: bool = Query(default=False, description="Filter to runs with no project"),
+) -> dict[str, Any]:
+    runs = await list_runs(
+        playbook=playbook, status=status, project=project, project_null=project_null
+    )
+    return paginate_runs(runs, page=page, per_page=per_page)
+
+
+# Registered before /runs/{run_id} so the literal path is not captured as a run id.
+@studio_route("/runs/projects", method="GET", area="runs", name="list_run_projects")
+async def list_run_projects_route() -> dict[str, Any]:
+    counts = await _sessions_svc.list_project_counts()
+    counts.sort(key=lambda c: c.get("last_activity") or 0, reverse=True)
+    total = sum(c["count"] for c in counts)
+    return {"projects": counts, "total": total}
+
+
+@studio_route("/runs/{run_id}", method="GET", area="runs", name="get_run")
+async def get_run_route(run_id: str) -> dict[str, Any]:
+    # get_run reads from StateDB (same source as list_runs); no thread offload needed.
+    run = await get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+    return run
+
+
+# ADR-0008: removed /api/runs/{id}/events SSE route — it read
+# stream/*.buffer.jsonl files forbidden by ADR-0004.  Live monitoring uses
+# /api/sessions/{id}/stream instead.
+#
+# ADR-0008 Write Policy: removed POST /{run_id}/rerun and
+# DELETE /{run_id} stub routes.  Run data is explicitly read-only per
+# ADR-0008.  Re-running requires switching to the terminal (`li play ...`).
+# If re-run support is ever reconsidered, it requires an ADR-0008 amendment
+# before the route is added back.

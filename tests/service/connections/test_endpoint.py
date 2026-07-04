@@ -42,12 +42,10 @@ class TestEndpoint:
         )
 
     def test_endpoint_initialization(self, openai_config):
-        """Test that endpoint initializes correctly."""
         endpoint = Endpoint(config=openai_config)
         assert endpoint.config == openai_config
 
     def test_endpoint_initialization_with_dict(self):
-        """Test endpoint initialization with dict config (line 42)."""
         config_dict = {
             "name": "test_endpoint",
             "provider": "openai",
@@ -60,12 +58,10 @@ class TestEndpoint:
         assert endpoint.config.provider == "openai"
 
     def test_endpoint_initialization_invalid_config_type(self):
-        """Test endpoint initialization with invalid config type raises ValueError (line 47)."""
         with pytest.raises(ValueError, match="Config must be a dict, EndpointConfig, or None"):
             Endpoint(config="invalid_config_type")
 
     def test_request_options_setter(self, openai_config):
-        """Test request_options setter (line 75)."""
         from pydantic import BaseModel
 
         class CustomRequest(BaseModel):
@@ -77,7 +73,6 @@ class TestEndpoint:
         assert endpoint.request_options == CustomRequest
 
     def test_create_payload_with_extra_headers(self, openai_config):
-        """Test create_payload with extra_headers (line 93)."""
         endpoint = Endpoint(config=openai_config)
         request = {"messages": [{"role": "user", "content": "test"}]}
         extra_headers = {"X-Custom-Header": "custom-value"}
@@ -88,7 +83,6 @@ class TestEndpoint:
         assert headers["X-Custom-Header"] == "custom-value"
 
     def test_create_payload_with_kwargs(self, openai_config):
-        """Test create_payload with additional kwargs (line 110)."""
         endpoint = Endpoint(config=openai_config)
         request = {"messages": [{"role": "user", "content": "test"}]}
 
@@ -98,7 +92,6 @@ class TestEndpoint:
         assert payload["max_tokens"] == 500
 
     def test_endpoint_stateless_design(self, openai_config):
-        """Test that endpoint is stateless between calls."""
         endpoint = Endpoint(config=openai_config)
 
         # First payload creation
@@ -125,7 +118,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_parallel_http_sessions(self, openai_config):
-        """Test that each HTTP request gets its own session."""
         endpoint = Endpoint(config=openai_config)
 
         sessions_created = []
@@ -149,7 +141,6 @@ class TestEndpoint:
         assert all(session is not sessions_created[0] for session in sessions_created[1:])
 
     def test_create_payload_openai(self, openai_config):
-        """Test payload creation for OpenAI endpoint."""
         endpoint = Endpoint(config=openai_config)
 
         request_data = {
@@ -169,7 +160,6 @@ class TestEndpoint:
         assert headers["Content-Type"] == "application/json"
 
     def test_create_payload_anthropic(self, anthropic_config):
-        """Test payload creation for Anthropic endpoint."""
         endpoint = Endpoint(config=anthropic_config)
 
         request_data = {
@@ -190,7 +180,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_http_request_session_cleanup(self, openai_config, mock_response):
-        """Test that HTTP sessions are properly cleaned up."""
         # Disable OpenAI compatibility for pure HTTP test
         openai_config.openai_compatible = False
         endpoint = Endpoint(config=openai_config)
@@ -238,12 +227,9 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_response_release_is_called_synchronously(self, openai_config, mock_response):
-        """Regression: aiohttp.ClientResponse.release() is synchronous (not a coroutine).
+        """Regression: aiohttp.ClientResponse.release() is synchronous; awaiting it raises TypeError.
 
-        Awaiting a synchronous release() raises TypeError at runtime. This test
-        ensures the finally block calls release() without await so that real
-        aiohttp responses are cleaned up correctly on success, error, and
-        cancellation paths.
+        The finally block must call release() without await to correctly clean up on success, error, and cancellation paths.
         """
         # Disable OpenAI compatibility for pure HTTP test
         openai_config.openai_compatible = False
@@ -286,7 +272,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_parallel_execution_isolation(self, openai_config):
-        """Test that parallel executions don't interfere with each other."""
         endpoint = Endpoint(config=openai_config)
 
         async def mock_request_with_delay(payload, headers, delay=0.1):
@@ -319,7 +304,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_sdk_vs_http_transport(self, openai_config):
-        """Test that endpoint chooses appropriate transport method."""
         endpoint = Endpoint(config=openai_config)
 
         # Test HTTP transport
@@ -334,7 +318,6 @@ class TestEndpoint:
             mock_http.assert_called_once()
 
     def test_url_construction(self, openai_config, anthropic_config):
-        """Test that URLs are constructed correctly for different providers."""
         openai_endpoint = Endpoint(config=openai_config)
         anthropic_endpoint = Endpoint(config=anthropic_config)
 
@@ -346,7 +329,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_call_with_skip_payload_creation(self, openai_config):
-        """Test call with skip_payload_creation flag (lines 185-188)."""
         endpoint = Endpoint(config=openai_config)
 
         # Prepare pre-created payload
@@ -370,7 +352,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_call_with_retry_config(self, openai_config):
-        """Test call with retry_config (line 246)."""
         from lionagi.service.resilience import RetryConfig
 
         retry_config = RetryConfig(max_retries=3, base_delay=0.01)
@@ -384,7 +365,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_call_with_circuit_breaker(self, openai_config):
-        """Test call with circuit_breaker (lines 207-218)."""
         from lionagi.service.resilience import CircuitBreaker
 
         circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_time=1.0)
@@ -398,7 +378,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_call_with_circuit_breaker_and_retry(self, openai_config):
-        """Test call with both circuit_breaker and retry_config (lines 200-201, 209-212)."""
         from lionagi.service.resilience import CircuitBreaker, RetryConfig
 
         circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_time=1.0)
@@ -417,7 +396,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_call_with_cache_control(self, openai_config):
-        """Test call with cache_control (lines 222-242)."""
         endpoint = Endpoint(config=openai_config)
 
         with patch.object(endpoint, "_call", new_callable=AsyncMock) as mock_call:
@@ -431,7 +409,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_call_with_cache_and_circuit_breaker(self, openai_config):
-        """Test call with cache_control and circuit_breaker (lines 229-236)."""
         from lionagi.service.resilience import CircuitBreaker
 
         circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_time=1.0)
@@ -445,7 +422,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_call_with_cache_and_retry(self, openai_config):
-        """Test call with cache_control and retry_config (line 238)."""
         from lionagi.service.resilience import RetryConfig
 
         retry_config = RetryConfig(max_retries=2, base_delay=0.01)
@@ -459,7 +435,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_error_handling_isolation(self, openai_config):
-        """Test that errors in one request don't affect others."""
         endpoint = Endpoint(config=openai_config)
 
         call_count = 0
@@ -491,7 +466,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_aiohttp_429_status_code_path(self, openai_config):
-        """Test that 429 (rate limit) status code path is exercised (line 280)."""
         openai_config.openai_compatible = False
         endpoint = Endpoint(config=openai_config)
 
@@ -505,7 +479,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_aiohttp_error_handling_paths(self, openai_config):
-        """Test error handling code paths (lines 283-291)."""
         openai_config.openai_compatible = False
         endpoint = Endpoint(config=openai_config)
 
@@ -518,7 +491,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_stream_basic(self, openai_config):
-        """Test basic streaming (lines 343-351)."""
         endpoint = Endpoint(config=openai_config)
 
         async def mock_stream(*args, **kwargs):
@@ -541,7 +513,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_stream_aiohttp(self, openai_config):
-        """Test _stream_aiohttp implementation (lines 366-390)."""
         endpoint = Endpoint(config=openai_config)
 
         # Mock response with streaming content
@@ -610,7 +581,6 @@ class TestEndpoint:
 
     @pytest.mark.asyncio
     async def test_stream_with_extra_headers(self, openai_config):
-        """Test stream with extra_headers (lines 343-351)."""
         endpoint = Endpoint(config=openai_config)
 
         async def mock_stream(*args, **kwargs):
@@ -629,7 +599,6 @@ class TestEndpoint:
             assert len(chunks) == 1
 
     def test_to_dict(self, openai_config):
-        """Test to_dict serialization (lines 392-403)."""
         from lionagi.service.resilience import CircuitBreaker, RetryConfig
 
         retry_config = RetryConfig(max_retries=3, base_delay=0.1)
@@ -649,7 +618,6 @@ class TestEndpoint:
         assert result["circuit_breaker"] is not None
 
     def test_from_dict(self, openai_config):
-        """Test from_dict deserialization (lines 405-425)."""
         from lionagi.service.resilience import CircuitBreaker, RetryConfig
 
         # Create endpoint with resilience patterns
@@ -827,16 +795,12 @@ class TestEndpointSSRFGuard:
 
 
 class TestProviderCallOverrideSSRFGuard:
-    """Provider endpoints that override _call() must invoke _assert_ssrf_safe_url().
-
-    Each test uses a metadata/private base_url and verifies that PermissionError
-    is raised BEFORE any network I/O (mocked is_ssrf_safe returns False).
-    """
+    """Provider endpoints that override _call() must invoke _assert_ssrf_safe_url() before any network I/O."""
 
     @pytest.mark.asyncio
     async def test_openai_tts_blocks_private_base_url(self):
         """OpenaiAudioSpeechEndpoint._call must reject private base_url."""
-        from lionagi.providers.openai.audio.endpoint import OpenaiAudioSpeechEndpoint
+        from lionagi.providers.openai.audio import OpenaiAudioSpeechEndpoint
         from lionagi.service.connections.endpoint_config import EndpointConfig
 
         config = EndpointConfig(
@@ -855,7 +819,7 @@ class TestProviderCallOverrideSSRFGuard:
     @pytest.mark.asyncio
     async def test_openai_stt_blocks_private_base_url(self):
         """OpenaiAudioTranscriptionEndpoint._call must reject private base_url."""
-        from lionagi.providers.openai.audio.endpoint import (
+        from lionagi.providers.openai.audio import (
             OpenaiAudioTranscriptionEndpoint,
         )
         from lionagi.service.connections.endpoint_config import EndpointConfig
@@ -876,7 +840,7 @@ class TestProviderCallOverrideSSRFGuard:
     @pytest.mark.asyncio
     async def test_openai_image_edit_blocks_private_base_url(self):
         """OpenaiImageEditEndpoint._call must reject private base_url."""
-        from lionagi.providers.openai.images.endpoint import OpenaiImageEditEndpoint
+        from lionagi.providers.openai.images import OpenaiImageEditEndpoint
         from lionagi.service.connections.endpoint_config import EndpointConfig
 
         config = EndpointConfig(
@@ -897,7 +861,7 @@ class TestProviderCallOverrideSSRFGuard:
     @pytest.mark.asyncio
     async def test_groq_stt_blocks_private_base_url(self):
         """GroqAudioTranscriptionEndpoint._call must reject private base_url."""
-        from lionagi.providers.groq.audio_transcription.endpoint import (
+        from lionagi.providers.groq.audio_transcription import (
             GroqAudioTranscriptionEndpoint,
         )
         from lionagi.service.connections.endpoint_config import EndpointConfig
@@ -914,3 +878,233 @@ class TestProviderCallOverrideSSRFGuard:
         with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=False):
             with pytest.raises(PermissionError, match="SSRF guard"):
                 await endpoint._call(payload={"model": "whisper-large-v3"}, headers={})
+
+
+# ---------------------------------------------------------------------------
+# CLIEndpoint deprecation bridge
+# ---------------------------------------------------------------------------
+
+
+class TestCLIEndpointDeprecation:
+    """CLIEndpoint is a deprecated alias for AgenticEndpoint."""
+
+    def test_cli_endpoint_emits_deprecation_warning(self):
+        import sys
+
+        import lionagi.service.connections as _conn_mod
+
+        # Clear the cached attribute so __getattr__ fires fresh.
+        _conn_mod.__dict__.pop("CLIEndpoint", None)
+        try:
+            with pytest.warns(DeprecationWarning, match="CLIEndpoint is deprecated"):
+                from lionagi.service.connections import CLIEndpoint  # noqa: F401
+        finally:
+            _conn_mod.__dict__.pop("CLIEndpoint", None)
+
+    def test_cli_endpoint_resolves_to_agentic_endpoint(self):
+        from lionagi.service.connections import AgenticEndpoint, CLIEndpoint
+
+        assert CLIEndpoint is AgenticEndpoint
+
+
+# ---------------------------------------------------------------------------
+# Single-retry-path parity tests (collapse of backoff dual-retry layer)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleRetryPathParity:
+    """Verify the native-only retry path preserves the giveup-except-429 rule."""
+
+    def _make_endpoint(self, max_retries: int = 3) -> Endpoint:
+        config = EndpointConfig(
+            name="test",
+            provider="test",
+            endpoint="v1/chat",
+            base_url="https://api.test.com",
+            auth_type="bearer",
+            api_key="test-key",
+            max_retries=max_retries,
+        )
+        return Endpoint(config=config)
+
+    def _make_mock_session(self, responses):
+        """Build a mock session that returns responses in sequence."""
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        calls = iter(responses)
+
+        async def _request(*args, **kwargs):
+            return next(calls)
+
+        mock_session.request = _request
+        return mock_session
+
+    def _make_ok_response(self, body: dict | None = None):
+        r = AsyncMock(spec=aiohttp.ClientResponse)
+        r.status = 200
+        r.closed = False
+        r.release = MagicMock()
+        r.json = AsyncMock(return_value=body or {"ok": True})
+        return r
+
+    def _make_error_response(self, status: int):
+        r = AsyncMock(spec=aiohttp.ClientResponse)
+        r.status = status
+        r.closed = False
+        r.release = MagicMock()
+        r.request_info = MagicMock()
+        r.history = []
+        r.headers = {}
+        r.json = AsyncMock(return_value={"error": f"status {status}"})
+
+        def _raise_for_status():
+            raise aiohttp.ClientResponseError(
+                request_info=r.request_info,
+                history=r.history,
+                status=status,
+                message=f"status {status}",
+                headers=r.headers,
+            )
+
+        r.raise_for_status = _raise_for_status
+        return r
+
+    @pytest.mark.asyncio
+    async def test_200_ok_no_retry(self):
+        endpoint = self._make_endpoint()
+        ok = self._make_ok_response({"choices": []})
+        session = self._make_mock_session([ok])
+        with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=True):
+            with patch.object(endpoint, "_create_http_session", return_value=session):
+                result = await endpoint._call_aiohttp({}, {})
+        assert result == {"choices": []}
+        assert ok.release.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_429_is_retried(self):
+        """429 must be retried; succeeds on second attempt."""
+        endpoint = self._make_endpoint(max_retries=3)
+        r429 = self._make_error_response(429)
+        ok = self._make_ok_response({"retried": True})
+
+        attempt = 0
+
+        def _make_new_session(*args, **kwargs):
+            nonlocal attempt
+            attempt += 1
+            if attempt == 1:
+                return self._make_mock_session([r429])
+            return self._make_mock_session([ok])
+
+        with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=True):
+            with patch.object(endpoint, "_create_http_session", side_effect=_make_new_session):
+                with patch("lionagi.ln.concurrency.patterns.anyio.sleep", AsyncMock()):
+                    result = await endpoint._call_aiohttp({}, {})
+        assert result == {"retried": True}
+        assert attempt == 2
+
+    @pytest.mark.asyncio
+    async def test_400_gives_up_immediately(self):
+        """400 client error must not be retried; raises aiohttp.ClientResponseError."""
+        endpoint = self._make_endpoint(max_retries=3)
+        r400 = self._make_error_response(400)
+
+        call_count = 0
+
+        def _make_new_session(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return self._make_mock_session([r400])
+
+        with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=True):
+            with patch.object(endpoint, "_create_http_session", side_effect=_make_new_session):
+                with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+                    await endpoint._call_aiohttp({}, {})
+        assert exc_info.value.status == 400
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_401_gives_up_immediately(self):
+        """401 must not be retried."""
+        endpoint = self._make_endpoint(max_retries=3)
+        r401 = self._make_error_response(401)
+        call_count = 0
+
+        def _make_new_session(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return self._make_mock_session([r401])
+
+        with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=True):
+            with patch.object(endpoint, "_create_http_session", side_effect=_make_new_session):
+                with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+                    await endpoint._call_aiohttp({}, {})
+        assert exc_info.value.status == 401
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_403_gives_up_immediately(self):
+        """403 must not be retried."""
+        endpoint = self._make_endpoint(max_retries=3)
+        r403 = self._make_error_response(403)
+        call_count = 0
+
+        def _make_new_session(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return self._make_mock_session([r403])
+
+        with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=True):
+            with patch.object(endpoint, "_create_http_session", side_effect=_make_new_session):
+                with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+                    await endpoint._call_aiohttp({}, {})
+        assert exc_info.value.status == 403
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_500_is_retried_up_to_max(self):
+        """500 server error must be retried up to max_retries attempts."""
+        endpoint = self._make_endpoint(max_retries=2)
+
+        call_count = 0
+
+        def _make_new_session(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return self._make_mock_session([self._make_error_response(500)])
+
+        with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=True):
+            with patch.object(endpoint, "_create_http_session", side_effect=_make_new_session):
+                with patch("lionagi.ln.concurrency.patterns.anyio.sleep", AsyncMock()):
+                    with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+                        await endpoint._call_aiohttp({}, {})
+        assert exc_info.value.status == 500
+        # max_retries is a total-attempt cap (was backoff's max_tries): 2 → 2 attempts
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_network_timeout_is_retried(self):
+        """asyncio.TimeoutError must be retried."""
+        endpoint = self._make_endpoint(max_retries=2)
+
+        call_count = 0
+
+        async def _raise_timeout(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise asyncio.TimeoutError()
+
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.request = _raise_timeout
+
+        with patch("lionagi.ln._ssrf.is_ssrf_safe", return_value=True):
+            with patch.object(endpoint, "_create_http_session", return_value=mock_session):
+                with patch("lionagi.ln.concurrency.patterns.anyio.sleep", AsyncMock()):
+                    with pytest.raises(asyncio.TimeoutError):
+                        await endpoint._call_aiohttp({}, {})
+        # max_retries is a total-attempt cap (was backoff's max_tries): 2 → 2 attempts
+        assert call_count == 2

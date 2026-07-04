@@ -4,20 +4,29 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from typing import Any
 
+from fastapi import HTTPException, Query
+from pydantic import BaseModel
+
+from lionagi.service.providers import EFFORT_LEVELS as _VALID_EFFORT_LEVELS
 from lionagi.state.db import DEFAULT_DB_PATH, StateDB
 
-_VALID_EFFORT_LEVELS: frozenset[str] = frozenset(
-    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
-)
+from ..registry import studio_route
+
+_log = logging.getLogger(__name__)
+
 _PRESERVE_DASHED: frozenset[str] = frozenset({"argument-hint"})
 
-# Re-use the same validation helpers as subprocess.py so the service boundary
-# and the spawn boundary enforce identical rules.  Imported lazily inside the
-# validation helpers to avoid circular imports at module load time.
+# schedules columns declared NOT NULL — a PATCH that explicitly sets one of
+# these to null must be rejected (400) rather than passed through to a DB
+# constraint violation (or, worse, silently dropped).
+_NON_NULLABLE_SCHEDULE_FIELDS: frozenset[str] = frozenset(
+    {"name", "trigger_type", "action_kind", "missed_fire_policy", "overlap_policy"}
+)
 
 
 def _svc_validate_action_model(model: str | None) -> None:
@@ -59,6 +68,69 @@ def _svc_validate_extra_args(extra: list | None) -> None:
     from lionagi.studio.scheduler.subprocess import _validate_extra_args
 
     _validate_extra_args(extra)
+
+
+def _svc_validate_cron_expr(expr: str | None, *, required: bool = False) -> None:
+    """Service-boundary check: reject a syntactically invalid cron expression.
+
+    `required=True` also rejects a missing/empty expression — callers pass
+    this when trigger_type == "cron", since a cron-triggered schedule with no
+    expression commits fine but never fires (next_fire_at stays None forever).
+    """
+    if not expr:
+        if required:
+            raise ValueError("cron_expr is required when trigger_type is 'cron'")
+        return
+    from croniter import croniter
+
+    if not croniter.is_valid(expr):
+        raise ValueError(f"Invalid cron expression: {expr!r}")
+
+
+def _svc_validate_interval_sec(interval: Any, *, required: bool = False) -> None:
+    """Service-boundary check: reject a missing or non-positive interval.
+
+    `required=True` rejects a missing/null value — callers pass this when
+    trigger_type == "interval", since an interval-triggered schedule without
+    interval_sec commits fine but never fires (next-fire computation returns
+    None forever), the same enabled-but-dead shape as a cron schedule with
+    no expression.
+    """
+    if interval is None:
+        if required:
+            raise ValueError("interval_sec is required when trigger_type is 'interval'")
+        return
+    if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
+        raise ValueError(f"interval_sec must be a positive integer, got {interval!r}")
+
+
+async def _svc_recompute_next_fire_guarded(effective: dict[str, Any], context: str) -> None:
+    """Recompute next_fire_at after a committed write, without raising.
+
+    The caller's DB write has already committed, so a recompute failure must
+    not surface as an unhandled 500. One immediate retry covers transient DB
+    contention. If both attempts fail the row keeps its stale next_fire_at:
+    the tick loop only touches rows that are due or have no next_fire_at, so
+    a stale *future* timestamp is healed only by the daemon-startup recompute
+    (or fires once on the old timestamp and recomputes from there).
+    """
+    from ..scheduler.engine import scheduler
+
+    for attempt in range(2):
+        try:
+            await scheduler.recompute_next_fire(effective)
+            return
+        except Exception:
+            # A recovered first attempt is not warning-worthy noise; only the
+            # final failure (stale next_fire_at until restart) warrants one.
+            log = _log.warning if attempt else _log.debug
+            log(
+                "Failed to recompute next_fire_at for schedule %s after %s (attempt %d)",
+                effective.get("id"),
+                context,
+                attempt + 1,
+                exc_info=True,
+            )
 
 
 def _svc_validate_github_repo(repo: str | None) -> None:
@@ -258,7 +330,6 @@ async def create_schedule(data: dict[str, Any]) -> dict[str, Any]:
     if not data.get("action_kind"):
         raise ValueError("action_kind is required")
 
-    # Reject flag-injection vectors at write time so bad specs never reach storage.
     _svc_validate_action_model(data.get("action_model"))
     _svc_validate_prompt(data.get("action_prompt"))
     _svc_validate_identifier(data.get("action_agent"), "action_agent")
@@ -266,6 +337,10 @@ async def create_schedule(data: dict[str, Any]) -> dict[str, Any]:
     _svc_validate_identifier(data.get("action_playbook"), "action_playbook")
     _svc_validate_extra_args(data.get("action_extra_args"))
     _svc_validate_github_repo(data.get("github_repo"))
+    if data.get("trigger_type") == "cron":
+        _svc_validate_cron_expr(data.get("cron_expr"), required=True)
+    if data.get("trigger_type") == "interval":
+        _svc_validate_interval_sec(data.get("interval_sec"), required=True)
 
     if data.get("action_kind") == "flow_yaml":
         yaml_text = data.get("action_flow_yaml") or ""
@@ -291,14 +366,21 @@ async def create_schedule(data: dict[str, Any]) -> dict[str, Any]:
 
 
 async def update_schedule(schedule_id: str, fields: dict[str, Any]) -> bool:
-    if not fields:
-        return False
     async with StateDB() as db:
         schedule = await db.get_schedule(schedule_id)
         if not schedule:
             return False
+        if not fields:
+            # Nothing was explicitly set on the PATCH body — a genuine no-op
+            # on a schedule that exists, not a 404.
+            return True
 
-        # Reject flag-injection vectors in the patched fields before writing.
+        cleared = {
+            key for key in _NON_NULLABLE_SCHEDULE_FIELDS if key in fields and fields[key] is None
+        }
+        if cleared:
+            raise ValueError(f"Field(s) {sorted(cleared)} cannot be cleared to null")
+
         if "action_model" in fields:
             _svc_validate_action_model(fields["action_model"])
         if "action_prompt" in fields:
@@ -314,15 +396,6 @@ async def update_schedule(schedule_id: str, fields: dict[str, Any]) -> bool:
         if "github_repo" in fields:
             _svc_validate_github_repo(fields["github_repo"])
 
-        # Merge proposed fields over the existing schedule and re-validate
-        # constraints so a PATCH cannot create invalid state.  We check the
-        # effective (merged) value for any field whose validity depends on the
-        # full schedule state, not just on the incoming patch dict.
-        #
-        # github_repo: revalidate the effective value regardless of whether the
-        # PATCH supplied it.  A schedule whose github_repo was stored with a bad
-        # value (e.g. via direct DB import or manual repair) would otherwise
-        # survive unrelated PATCHes and accumulate stale-invalid state.
         effective = {**schedule, **fields}
         effective_repo = effective.get("github_repo")
         if effective_repo is not None:
@@ -336,8 +409,25 @@ async def update_schedule(schedule_id: str, fields: dict[str, Any]) -> bool:
             spec_err = _validate_flow_yaml_spec(yaml_text)
             if spec_err:
                 raise ValueError(f"Invalid flow_yaml spec: {spec_err}")
+        touches_trigger = "cron_expr" in fields or "trigger_type" in fields
+        if touches_trigger and effective.get("trigger_type") == "cron":
+            _svc_validate_cron_expr(effective.get("cron_expr"), required=True)
+        touches_interval = "interval_sec" in fields or "trigger_type" in fields
+        if touches_interval and effective.get("trigger_type") == "interval":
+            _svc_validate_interval_sec(effective.get("interval_sec"), required=True)
 
         await db.update_schedule(schedule_id, **fields)
+
+    # A PATCH that touches cron_expr (or trigger_type) must take effect on
+    # next_fire_at immediately rather than waiting for the next fire — the
+    # stored `effective` dict already reflects the post-update schedule, so
+    # this recomputes under the new interpretation and logs iff it shifted.
+    # The field update above already committed; a recompute failure here
+    # (e.g. a transient DB error) must not turn an already-committed PATCH
+    # into an unhandled 500 — it degrades to a stale next_fire_at (retried
+    # once; healed at daemon startup if both attempts fail).
+    if effective.get("trigger_type") == "cron":
+        await _svc_recompute_next_fire_guarded(effective, "update")
     return True
 
 
@@ -351,7 +441,21 @@ async def enable_schedule(schedule_id: str) -> bool:
         schedule = await db.get_schedule(schedule_id)
         if not schedule:
             return False
+        if schedule.get("trigger_type") == "cron":
+            _svc_validate_cron_expr(schedule.get("cron_expr"), required=True)
+        if schedule.get("trigger_type") == "interval":
+            _svc_validate_interval_sec(schedule.get("interval_sec"), required=True)
         await db.update_schedule(schedule_id, enabled=1)
+
+    # A schedule can sit disabled for a long time; its stored next_fire_at
+    # may be stale (in the past, or computed under an old interpretation).
+    # Recompute now so re-enabling never fires immediately on stale data —
+    # it only fires immediately if the *current* cron interpretation says so.
+    # The enabled flag above already committed; a recompute failure here
+    # must not turn an already-committed enable into an unhandled 500.
+    effective = {**schedule, "enabled": 1}
+    if effective.get("trigger_type") == "cron":
+        await _svc_recompute_next_fire_guarded(effective, "enable")
     return True
 
 
@@ -386,10 +490,211 @@ async def get_schedule_run(run_id: str) -> dict[str, Any] | None:
             return None
         # Include chain children
         if run.get("chain_depth", 0) == 0:
-            cur = await db.db.execute(
+            rows = await db.fetch_all(
                 "SELECT * FROM schedule_runs WHERE chain_parent_id = ? ORDER BY chain_depth, fired_at",
                 (run_id,),
             )
-            rows = await cur.fetchall()
-            run["chain_children"] = [db._row_to_dict(r) for r in rows]
+            run["chain_children"] = rows
     return run
+
+
+# ---------------------------------------------------------------------------
+# Request/response models
+# ---------------------------------------------------------------------------
+
+
+class CreateScheduleRequest(BaseModel):
+    name: str
+    description: str | None = None
+    trigger_type: str
+    cron_expr: str | None = None
+    interval_sec: int | None = None
+    github_repo: str | None = None
+    github_filter: dict | None = None
+    poll_interval_sec: int | None = None
+    action_kind: str
+    action_model: str | None = None
+    action_prompt: str | None = None
+    action_agent: str | None = None
+    action_playbook: str | None = None
+    action_flow_yaml: str | None = None
+    action_project: str | None = None
+    action_extra_args: list[str] | None = None
+    on_success: dict | None = None
+    on_fail: dict | None = None
+    missed_fire_policy: str = "skip"
+    overlap_policy: str = "skip"
+    project: str | None = None
+
+
+class UpdateScheduleRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    trigger_type: str | None = None
+    cron_expr: str | None = None
+    interval_sec: int | None = None
+    github_repo: str | None = None
+    github_filter: dict | None = None
+    poll_interval_sec: int | None = None
+    action_kind: str | None = None
+    action_model: str | None = None
+    action_prompt: str | None = None
+    action_agent: str | None = None
+    action_playbook: str | None = None
+    action_flow_yaml: str | None = None
+    action_project: str | None = None
+    action_extra_args: list[str] | None = None
+    on_success: dict | None = None
+    on_fail: dict | None = None
+    missed_fire_policy: str | None = None
+    overlap_policy: str | None = None
+    project: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Route handlers — schedules area
+# ---------------------------------------------------------------------------
+
+
+@studio_route("/schedules/", method="GET", area="schedules", name="list_schedules")
+async def list_schedules_route(
+    enabled: bool | None = Query(default=None),
+    trigger_type: str | None = Query(default=None),
+    project: str | None = Query(default=None),
+) -> dict[str, Any]:
+    rows = await list_schedules(enabled=enabled, trigger_type=trigger_type, project=project)
+    return {"schedules": rows}
+
+
+@studio_route("/schedules/{schedule_id}", method="GET", area="schedules", name="get_schedule")
+async def get_schedule_route(schedule_id: str) -> dict[str, Any]:
+    data = await get_schedule(schedule_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Schedule '{schedule_id}' not found")
+    return data
+
+
+@studio_route(
+    "/schedules/",
+    method="POST",
+    area="schedules",
+    status_code=201,
+    name="create_schedule",
+)
+async def create_schedule_route(body: CreateScheduleRequest) -> dict[str, Any]:
+    try:
+        return await create_schedule(body.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@studio_route(
+    "/schedules/{schedule_id}",
+    method="PATCH",
+    area="schedules",
+    name="update_schedule",
+)
+async def update_schedule_route(schedule_id: str, body: UpdateScheduleRequest) -> dict[str, Any]:
+    # exclude_unset (not exclude_none): a field the client never mentioned is
+    # left untouched, while a field explicitly sent as null is passed through
+    # so update_schedule can clear it (where the column allows) or reject it
+    # (where it doesn't). exclude_none would silently drop explicit nulls,
+    # making an all-null PATCH indistinguishable from an empty one.
+    fields = body.model_dump(exclude_unset=True)
+    try:
+        ok = await update_schedule(schedule_id, fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule '{schedule_id}' not found")
+    return {"ok": True}
+
+
+@studio_route(
+    "/schedules/{schedule_id}",
+    method="DELETE",
+    area="schedules",
+    name="delete_schedule",
+)
+async def delete_schedule_route(schedule_id: str) -> dict[str, Any]:
+    ok = await delete_schedule(schedule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule '{schedule_id}' not found")
+    return {"ok": True}
+
+
+@studio_route(
+    "/schedules/{schedule_id}/enable",
+    method="POST",
+    area="schedules",
+    name="enable_schedule",
+)
+async def enable_schedule_route(schedule_id: str) -> dict[str, Any]:
+    try:
+        ok = await enable_schedule(schedule_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule '{schedule_id}' not found")
+    return {"ok": True, "enabled": True}
+
+
+@studio_route(
+    "/schedules/{schedule_id}/disable",
+    method="POST",
+    area="schedules",
+    name="disable_schedule",
+)
+async def disable_schedule_route(schedule_id: str) -> dict[str, Any]:
+    ok = await disable_schedule(schedule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule '{schedule_id}' not found")
+    return {"ok": True, "enabled": False}
+
+
+@studio_route(
+    "/schedules/{schedule_id}/trigger",
+    method="POST",
+    area="schedules",
+    name="trigger_schedule",
+)
+async def trigger_schedule_route(schedule_id: str) -> dict[str, Any]:
+    from ..scheduler.engine import scheduler
+
+    run_id = await scheduler.fire_now(schedule_id)
+    if run_id is None:
+        raise HTTPException(status_code=404, detail=f"Schedule '{schedule_id}' not found")
+    return {"ok": True, "run_id": run_id}
+
+
+@studio_route(
+    "/schedules/{schedule_id}/runs",
+    method="GET",
+    area="schedules",
+    name="list_schedule_runs",
+)
+async def list_schedule_runs_route(
+    schedule_id: str,
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    rows = await list_schedule_runs(schedule_id, status=status, limit=limit, offset=offset)
+    return {"runs": rows, "limit": limit, "offset": offset, "has_next": len(rows) == limit}
+
+
+# Top-level schedule-runs endpoint for looking up a single run by ID
+@studio_route(
+    "/schedules/runs/{run_id}",
+    method="GET",
+    area="schedules",
+    tags=["schedules", "schedule-runs"],
+    name="get_schedule_run",
+)
+async def get_schedule_run_route(run_id: str) -> dict[str, Any]:
+    data = await get_schedule_run(run_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Schedule run '{run_id}' not found")
+    return data

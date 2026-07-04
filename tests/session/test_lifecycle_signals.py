@@ -1,16 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the canonical per-node lifecycle signal contract (ADR-0083).
-
-Coverage:
-- lane_for projection: all six states, terminal-sticky rule, retry-reset rule
-- New signal types: NodeQueued, NodeAwaitingApproval, NodeEscalated
-- Engine bridge: NodeQueued fired before NodeStarted via run_dag
-- Reactive injection bridge: injected children also receive NodeQueued
-- End-to-end projection: collect signals from a real flow, project lanes,
-  assert queued→running→succeeded sequence
-"""
+"""Tests for the per-node lifecycle signal contract (ADR-0083): lane_for projection, new signal types, engine bridge, reactive injection."""
 
 from __future__ import annotations
 
@@ -26,6 +17,7 @@ from lionagi.session.signal import (
     NodeCompleted,
     NodeEscalated,
     NodeFailed,
+    NodePaused,
     NodeQueued,
     NodeStarted,
     RunEnd,
@@ -42,12 +34,10 @@ from lionagi.session.signal import (
 
 
 def test_lane_for_empty_stream():
-    """Empty stream → default 'queued'."""
     assert lane_for([]) == "queued"
 
 
 def test_lane_for_non_state_bearing_only():
-    """Non-state-bearing signals don't affect the lane."""
     assert lane_for([GateDenied(), MessageAdded()]) == "queued"
 
 
@@ -65,6 +55,16 @@ def test_lane_for_running_via_run_start():
 
 def test_lane_for_awaiting_approval():
     assert lane_for([NodeStarted(), NodeAwaitingApproval()]) == "awaiting_approval"
+
+
+def test_lane_for_paused():
+    assert lane_for([NodeStarted(), NodePaused()]) == "paused"
+
+
+def test_lane_for_paused_resets_to_running_on_node_started():
+    """NodeStarted after NodePaused resets the lane to running (resume + execution began)."""
+    signals = [NodeStarted(), NodePaused(), NodeStarted()]
+    assert lane_for(signals) == "running"
 
 
 def test_lane_for_succeeded_via_node_completed():
@@ -98,38 +98,38 @@ def test_lane_for_escalated_via_structured_output():
 
 
 def test_lane_for_terminal_sticky_succeeded():
-    """Once succeeded, non-retry signals cannot override."""
     signals = [NodeStarted(), NodeCompleted(), NodeFailed()]
     assert lane_for(signals) == "succeeded"
 
 
 def test_lane_for_terminal_sticky_failed():
-    """Once failed, only a new attempt can reset."""
     signals = [NodeStarted(), NodeFailed(), NodeCompleted()]
     assert lane_for(signals) == "failed"
 
 
 def test_lane_for_terminal_sticky_escalated():
-    """Once escalated, awaiting_approval cannot override."""
     esc = NodeEscalated(op_id="x", name="x", reason="r", route="give_up")
     signals = [NodeStarted(), esc, NodeAwaitingApproval()]
     assert lane_for(signals) == "escalated"
 
 
+def test_lane_for_terminal_sticky_ignores_paused():
+    """A stray NodePaused after a terminal state (e.g. a late-arriving signal) is ignored."""
+    signals = [NodeStarted(), NodeCompleted(), NodePaused()]
+    assert lane_for(signals) == "succeeded"
+
+
 def test_lane_for_retry_reset_from_succeeded():
-    """NodeQueued after succeeded resets the lane (retry)."""
     signals = [NodeStarted(), NodeCompleted(), NodeQueued()]
     assert lane_for(signals) == "queued"
 
 
 def test_lane_for_retry_reset_from_failed_via_node_started():
-    """NodeStarted after failed resets to running (retry)."""
     signals = [NodeStarted(), NodeFailed(), NodeStarted()]
     assert lane_for(signals) == "running"
 
 
 def test_lane_for_latest_wins_in_non_terminal():
-    """Non-terminal: last state-bearing signal governs."""
     signals = [NodeQueued(), NodeStarted(), NodeAwaitingApproval()]
     assert lane_for(signals) == "awaiting_approval"
 
@@ -161,6 +161,12 @@ def test_node_queued_fields():
 def test_node_awaiting_approval_fields():
     sig = NodeAwaitingApproval(op_id="x", name="gate-op", reason="human review required")
     assert sig.reason == "human review required"
+
+
+def test_node_paused_fields():
+    sig = NodePaused(op_id="z", name="blocked-op")
+    assert sig.op_id == "z"
+    assert sig.name == "blocked-op"
 
 
 def test_node_escalated_fields():
@@ -200,7 +206,6 @@ def test_node_escalated_request_not_payload_matched():
 
 @pytest.mark.asyncio
 async def test_run_dag_emits_node_queued_before_started():
-    """run_dag emits NodeQueued before NodeStarted for each operation."""
     from lionagi.engines import Engine
     from lionagi.operations.builder import OperationGraphBuilder
     from lionagi.session.branch import Branch
@@ -234,7 +239,6 @@ async def test_run_dag_emits_node_queued_before_started():
     assert len(started_ops) >= 1, "NodeStarted must fire"
     assert queued_ops[0] == started_ops[0], "NodeQueued and NodeStarted must share op_id"
 
-    # queued must appear before started in the log
     qi = next(i for i, e in enumerate(signal_log) if e.startswith("queued:"))
     si = next(i for i, e in enumerate(signal_log) if e.startswith("started:"))
     assert qi < si, "NodeQueued must precede NodeStarted in the signal log"
@@ -247,7 +251,6 @@ async def test_run_dag_emits_node_queued_before_started():
 
 @pytest.mark.asyncio
 async def test_projection_contract_end_to_end():
-    """Collect signals from a real flow run, project lanes, assert queued→running→done."""
     from lionagi.engines import Engine
     from lionagi.operations.builder import OperationGraphBuilder
     from lionagi.session.branch import Branch
@@ -281,15 +284,12 @@ async def test_projection_contract_end_to_end():
     assert len(result["completed_operations"]) == 1
     op_id = str(result["completed_operations"][0])
 
-    # Check signals for this op were collected
     assert op_id in collected, "No signals collected for the completed op"
     op_signals = collected[op_id]
 
-    # Project: should end in 'succeeded'
     final_lane = lane_for(op_signals)
     assert final_lane == "succeeded", f"Expected succeeded, got {final_lane}"
 
-    # Verify intermediate projections show the sequence queued→running→succeeded
     lanes_seen = []
     for i in range(1, len(op_signals) + 1):
         lanes_seen.append(lane_for(op_signals[:i]))
@@ -312,7 +312,6 @@ async def test_projection_contract_end_to_end():
 
 @pytest.mark.asyncio
 async def test_reactive_injected_child_receives_node_queued():
-    """Reactively injected child nodes receive NodeQueued before NodeStarted."""
     from lionagi.casts.emission import SpawnRequest
     from lionagi.engines import Engine
     from lionagi.operations.builder import OperationGraphBuilder
@@ -351,10 +350,8 @@ async def test_reactive_injected_child_receives_node_queued():
     assert result["spawned_operations"] == 1
     assert len(result["completed_operations"]) == 2
 
-    # Both parent and child must have queued signals
     assert len(queued_ids) == 2, f"Expected 2 queued signals, got {len(queued_ids)}"
 
-    # Every started op must have been queued first
     for op_id in started_ids:
         assert op_id in queued_ids, f"op {op_id} was started without a prior NodeQueued"
 
@@ -400,7 +397,6 @@ async def test_skipped_node_projects_to_failed_lane():
     for sig_type in (NodeQueued, NodeStarted, NodeCompleted, NodeFailed):
         session.observe(sig_type, handler=_capture)
 
-    # Build: root_op → skipped_op with always-false condition
     root = Operation(operation="root_op", parameters={})
     skipped = Operation(operation="root_op", parameters={})
 
@@ -430,60 +426,59 @@ async def test_skipped_node_projects_to_failed_lane():
 
 
 @pytest.mark.asyncio
-async def test_execute_stream_uses_public_observer_property(monkeypatch):
-    """execute_stream subscribes spawn handling via the public 'observer' property.
+async def test_execute_stream_subscribes_spawn_via_public_observer(monkeypatch):
+    """execute_stream receives SpawnRequests even when _observer was None before run.
 
-    The public property is a lazy-init that always returns a SessionObserver.
-    Using the private _observer attribute would return None when the session
-    was created without prior observer access, silently dropping reactive
-    spawns. This test pins that the subscription goes through the public path.
+    The public observer property is a lazy-init that always returns a SessionObserver.
+    If execute_stream used the private _observer attribute it would return None when
+    the session was built without prior observer access, silently dropping reactive
+    spawns. This test verifies the spawn is received via a behavioral check.
     """
-    from lionagi.operations.flow import ReactiveExecutor
-    from lionagi.protocols.graph.graph import Graph
+    from lionagi.casts.emission import SpawnRequest
+    from lionagi.operations import flow_stream
+    from lionagi.operations.builder import OperationGraphBuilder
+    from lionagi.operations.node import Operation, create_operation
+    from lionagi.session.branch import Branch
     from lionagi.session.session import Session
 
-    observer_accesses: list[str] = []
-    original_getattr = getattr
+    executed: list[str] = []
 
-    # Patch getattr on Session to track which attribute name is used for the observer
-    real_session = Session()
+    async def spawner(**kw):
+        executed.append("spawner")
+        return SpawnRequest(instruction="follow-up", independent=True)
 
-    def tracking_getattr(obj, name, *args):
-        if obj is real_session and name in ("observer", "_observer"):
-            observer_accesses.append(name)
-        return original_getattr(obj, name, *args)
+    async def follow_up(**kw):
+        executed.append("follow_up")
+        return "done"
 
-    monkeypatch.setattr("builtins.getattr", tracking_getattr)
+    session = Session()
+    branch = Branch(name="root")
+    session.include_branches(branch)
+    session.default_branch = branch
+    session.register_operation("spawner", spawner)
+    session.register_operation("follow_up", follow_up)
 
-    # A minimal graph with one no-op operation so execute_stream runs
-    from lionagi.operations.node import Operation
+    # Forcibly clear _observer to simulate an uninitialised private attr.
+    # getattr(session, '_observer', None) would return None here; but
+    # session.observer (the property) lazily recreates it — the correct path.
+    session._observer = None
 
-    async def noop(**kw):
-        return None
+    def node_builder(req: SpawnRequest, emitter: Operation) -> Operation:
+        return create_operation("follow_up", parameters={})
 
-    real_session.register_operation("noop", noop)
-    from lionagi.session.branch import Branch
-
-    b = Branch(name="b")
-    real_session.include_branches(b)
-    real_session.default_branch = b
-
-    op = Operation(operation="noop", parameters={})
-    g = Graph()
-    g.add_node(op)
+    builder = OperationGraphBuilder()
+    builder.add_operation("spawner")
+    graph = builder.get_graph()
 
     events = []
-    async for ev in real_session.flow_stream(g):
+    async for ev in flow_stream(session, graph, node_builder=node_builder):
         events.append(ev)
 
-    # The stream must have checked the observer via the public property name
-    assert "observer" in observer_accesses, (
-        "execute_stream must access session.observer (public property), "
-        f"not session._observer — accesses seen: {observer_accesses}"
+    assert "follow_up" in executed, (
+        "execute_stream did not receive the SpawnRequest — "
+        "it may have fallen back to _observer (None) instead of the public property"
     )
-    assert "_observer" not in observer_accesses or "observer" in observer_accesses, (
-        "execute_stream fell back to _observer instead of public observer property"
-    )
+    assert any(e.spawned for e in events)
 
 
 # ---------------------------------------------------------------------------

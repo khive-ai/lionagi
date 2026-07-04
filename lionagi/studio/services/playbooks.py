@@ -1,32 +1,19 @@
 from __future__ import annotations
 
-from typing import Any
+from functools import partial
+from typing import Annotated, Any
 
+import anyio
 import yaml
+from fastapi import Body, HTTPException
 
 from lionagi._paths import LIONAGI_HOME
+from lionagi.service.providers import EFFORT_LEVELS as _VALID_EFFORT_LEVELS
 
+from ..registry import studio_route
 from ._path_safety import public_path, safe_path_join
 
 _PLAYBOOKS_ROOT = LIONAGI_HOME / "playbooks"
-
-# ---------------------------------------------------------------------------
-# Spec-field validation
-#
-# _validate_spec_fields lives in lionagi/cli/orchestrate/__init__.py, not the
-# _common sub-module the critic expected. Importing it directly would load the
-# entire orchestrate module (pydantic models, lionagi core, operations/fields)
-# into the web-server process — significant startup cost and unnecessary
-# coupling between the Studio API and CLI internals.
-#
-# Instead we mirror the logic inline. If the CLI validator ever changes its
-# rules, update this block to match. The authoritative source is:
-#   lionagi/cli/orchestrate/__init__.py :: _validate_spec_fields()
-# ---------------------------------------------------------------------------
-
-_VALID_EFFORT_LEVELS: frozenset[str] = frozenset(
-    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
-)
 
 # Keys that stay dashed per CLI convention (all others: hyphens → underscores).
 _PRESERVE_DASHED: frozenset[str] = frozenset({"argument-hint"})
@@ -165,21 +152,11 @@ _DECLARATIVE_KEYS: tuple[str, ...] = (
 
 
 def update_playbook(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
-    """Write a playbook YAML back to disk.
+    """Write a playbook YAML back to disk with conservative merge.
 
-    Conservative merge:
-
-    - ``description`` always overwrites if present in the payload.
-    - Graph-format keys (``use``, ``steps``, ``links``) overwrite only when
-      they carry content, so a declarative playbook opened in the graph
-      editor doesn't get stamped with empty ``steps: {}``.
-    - Declarative keys (``agent``, ``effort``, ``max-ops``, ``prompt``,
-      ``args``, ``yolo``, ``show-graph``, ``argument-hint``) overwrite when
-      present in the payload; ``None`` / empty-string removes the key.
-    - Every other key already on disk is preserved untouched.
-
-    Symlinks: ``~/.lionagi/playbooks/*`` may be symlinks; ``write_text`` on
-    a symlinked path writes through to the target.
+    description overwrites when present; graph keys (use/steps/links) only when
+    non-empty; declarative keys overwrite or are cleared on None/""; all other
+    disk keys preserved.  Writes through symlinks to the real source file.
     """
     stem = name.removesuffix(".playbook.yaml").removesuffix(".yaml")
     safe_path_join(_PLAYBOOKS_ROOT, f"{stem}.playbook.yaml")
@@ -187,11 +164,9 @@ def update_playbook(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
     if not path.exists():
         return None
 
-    # Validate spec fields from the incoming payload BEFORE the conservative
-    # merge.  The merge filters out unknown keys (like 'workers') so they never
-    # reach validate_playbook() — checking the raw payload here ensures an
-    # invalid spec value (e.g. workers: 999) is rejected with 422 even when the
-    # key would otherwise be silently dropped.
+    # Validate spec fields before the merge: the merge silently drops unknown
+    # keys (e.g. 'workers'), so validating the raw payload catches bad values
+    # that would otherwise pass through to validate_playbook() undetected.
     spec_err = _check_spec_fields(_normalize_spec_keys(data))
     if spec_err:
         raise ValueError(spec_err)
@@ -209,7 +184,6 @@ def update_playbook(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
     if "description" in data:
         merged["description"] = data["description"] or ""
 
-    # Graph-format keys: only write when non-empty.
     use = data.get("use")
     if isinstance(use, dict) and use.get("models"):
         merged["use"] = use
@@ -222,8 +196,6 @@ def update_playbook(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(links, list) and len(links) > 0:
         merged["links"] = links
 
-    # Declarative-format keys: drop on explicit None/"" so the editor can
-    # clear an optional field; otherwise overwrite.
     for key in _DECLARATIVE_KEYS:
         if key not in data:
             continue
@@ -281,3 +253,57 @@ def validate_playbook(name: str, data: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"link {i}: 'to' references unknown step '{to}'")
 
     return {"ok": len(errors) == 0, "errors": errors or None}
+
+
+@studio_route("/playbooks/", method="GET", area="playbooks", name="list_playbooks")
+async def list_playbooks_route() -> dict[str, Any]:
+    playbooks = await anyio.to_thread.run_sync(list_playbooks)
+    return {"playbooks": playbooks}
+
+
+@studio_route("/playbooks/{name}", method="GET", area="playbooks", name="get_playbook")
+async def get_playbook_route(name: str) -> dict[str, Any]:
+    pb = await anyio.to_thread.run_sync(partial(get_playbook, name))
+    if pb is None:
+        raise HTTPException(status_code=404, detail=f"Playbook '{name}' not found")
+    return pb
+
+
+@studio_route("/playbooks/{name}", method="POST", area="playbooks")
+async def create_playbook(name: str) -> dict[str, Any]:
+    # TODO(lift-backend-writes)
+    raise HTTPException(status_code=501, detail="Not implemented")
+
+
+@studio_route("/playbooks/{name}", method="PUT", area="playbooks", name="update_playbook")
+async def update_playbook_route(
+    name: str, body: Annotated[dict[str, Any], Body(...)]
+) -> dict[str, Any]:
+    try:
+        updated = await anyio.to_thread.run_sync(partial(update_playbook, name, body))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Playbook '{name}' not found")
+    return updated
+
+
+@studio_route("/playbooks/{name}", method="DELETE", area="playbooks")
+async def delete_playbook(name: str) -> dict[str, Any]:
+    # TODO(lift-backend-writes)
+    raise HTTPException(status_code=501, detail="Not implemented")
+
+
+@studio_route(
+    "/playbooks/{name}/validate", method="POST", area="playbooks", name="validate_playbook"
+)
+async def validate_playbook_route(
+    name: str, body: Annotated[dict[str, Any], Body(...)]
+) -> dict[str, Any]:
+    return validate_playbook(name, body)
+
+
+@studio_route("/playbooks/{name}/run", method="POST", area="playbooks")
+async def run_playbook(name: str) -> dict[str, Any]:
+    # TODO(lift-backend-writes)
+    raise HTTPException(status_code=501, detail="Not implemented")

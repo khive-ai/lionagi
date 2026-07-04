@@ -1,14 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Regression tests for #1010 — Studio agent frontmatter field completeness.
-
-Covers:
-1. yolo/fast_mode round-trip through get_agent().
-2. update_agent() writes yolo field to disk.
-3. reasoning_effort→effort migration in get_agent().
-4. model without provider prefix round-trips through update_agent().
-"""
+"""Tests for Studio agent frontmatter field completeness and round-trip."""
 
 from __future__ import annotations
 
@@ -114,8 +107,9 @@ def test_get_agent_lion_system_defaults_true(tmp_path, monkeypatch):
     """get_agent() on a profile WITHOUT lion_system: key returns lion_system: True.
 
     The CLI treats absent lion_system as True (lionagi/cli/_agents.py:180,
-    lionagi/agent/config.py:53). Studio must emit the same default so callers
-    see consistent behaviour regardless of whether the key is present.
+    AgentSpec.lion_system default in lionagi/agent/spec.py). Studio must emit
+    the same default so callers see consistent behaviour regardless of whether
+    the key is present.
     """
     from lionagi.studio.services.agents import get_agent
 

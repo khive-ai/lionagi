@@ -4,6 +4,112 @@
 All notable changes to lionagi are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- `lionagi.operations.lndl_middle` — an LNDL seam `Middle` (ADR-0087 §1-2), importable from the package itself (`from lionagi.operations.lndl_middle import lndl_middle, build_lndl_middle, DEFAULT_ROUND_BUDGET`): `lndl_middle` (ready to use) and `build_lndl_middle(round_budget=3)` (custom round budget). Opt in per call with `branch.operate(instruction=..., middle=lndl_middle)`; advances one LNDL round per inner chat call, renders the target model's field names into round-1 guidance (native `response_format` is stripped from the per-round chat call, so the model is told what to fill via an LNDL `Specs:` line instead), bridges `<lact>` calls through the branch's normal `act()` path (existing permission policies and hooks apply unchanged), and classifies each round into a `RoundOutcome` (`Success`, `Continue`, `Retry`, `Exhausted`) to drive repair — a parse/assemble/validation failure re-prompts the model with the typed error instead of surfacing a raw traceback. Round-budget exhaustion raises `LNDLError` rather than returning a raw error string or `None`.
+- `lionagi.lndl.build_action_call` — parses a lact node's call text into an `ActionCall` placeholder; factored out of `assembler._alias_value` so callers (like the new LNDL middle) can build placeholders for lacts with no `OUT{}` to gate against yet.
+
+### Changed
+
+- `lionagi.lndl.assembler.assemble()` now raises `MissingLvarError` when `OUT{}` references an alias that's declared nowhere (previously the field was silently dropped from the assembled dict); an alias executed in an earlier round now resolves via `action_results` without redeclaration, so a later round's `OUT{}` can reference it directly.
+- `lionagi.lndl.assembler.assemble()` now raises `MissingFieldError` when the target model has required fields absent from `OUT{}`, rather than deferring the failure to a downstream `pydantic.ValidationError` with no LNDL-level context.
+
+### Removed
+
+- `lionagi.lndl.MissingOutBlockError` and `lionagi.lndl.AmbiguousMatchError` — retired, unused error classes. A response with no `OUT{}` block is classified as `Continue` (the model is still thinking), not an error; ambiguous-match scoring was never wired to a real assembly path.
+
+## [0.27.2] - 2026-07-02
+
+### Added
+
+- `SESSION_START`, `SESSION_END`, and `BRANCH_CREATE` hook emissions wired in `lionagi/cli/_runs.py`. The built-in handlers in `lionagi.hooks.builtins` (`persist_session_start`, `persist_session_end`, `persist_branch_provenance`) are now called at the correct lifecycle moments. Both `persist_session_start` and `persist_session_end` guard against double-fire: a second emit for an already-started or already-terminal session is a no-op and does not insert a duplicate `status_transitions` row.
+- `log_tool_call` in `lionagi.agent.hooks` and `lionagi.hooks.builtins` — canonical name for the tool-call observability post-hook, replacing `log_tool_use`. Also name-addressable via `lionagi.hooks.loader` registry as `"log_tool_call"`.
+- `lionagi.testing` is now documented as a supported public surface. Register `lionagi.testing.pytest_plugin` in your `pytest_plugins` to get the bundled fixtures.
+- `StateDB` is now backend-pluggable on a single SQLAlchemy-Core implementation: the default embedded SQLite backend needs no configuration, and an optional PostgreSQL backend is available via `pip install lionagi[postgres]` with a `postgresql+asyncpg://…` URL.
+- `li agent` gains `--prompt TEXT` and `--prompt-file PATH` (`-` reads stdin) for scripted callers, alongside the existing positional prompt.
+
+### Changed
+
+- The Gemini CLI provider now targets Antigravity (`agy`), Google's successor to the standalone Gemini CLI, via its headless JSON print mode. Streaming persistence reaches parity with the codex and claude CLI providers: the conversation id is captured as the session id (enabling native resume) and usage, turn count, and duration are recorded.
+- Default Gemini models track the newest families served by `agy`: `gemini-3.5-flash` (default) and `gemini-3.1-pro`. Legacy preview names remain aliases.
+- The bare `sonnet` model alias now resolves to `claude-sonnet-5`.
+- `li agent` argument parsing now accepts flags before the prompt (for example `li agent codex/model --effort high "prompt"`); previously a flag ahead of the prompt raised an "unrecognized arguments" error.
+- `sqlalchemy[asyncio]>=2.0.0` is now a core dependency — the `StateDB` state layer (used by `li agent`, `li play`, and the lifecycle hooks) runs on SQLAlchemy-Core for both the SQLite and PostgreSQL backends. The `[postgres]` extra now carries only the PostgreSQL driver stack (`pydapter[postgres]`, `asyncpg`).
+- `EndpointConfig` gains a `serialize_by_alias` flag (default `False`); the Exa and Firecrawl endpoints set it to `True`, removing six identical per-file `create_payload` overrides whose only purpose was alias-serialization.
+- Provider endpoint files no longer resolve `api_key` individually; `EndpointMeta.create_config` reads the appropriate settings field automatically when `api_key_env` is declared on the provider config, removing 21 identical boilerplate blocks while preserving per-provider env-var names and the Ollama no-key path.
+- Studio engine-runs service (`lionagi.studio.services.engine_runs`) now delegates to `StateDB.list_engine_runs` / `StateDB.get_engine_run` instead of duplicating raw SQL; fresh-DB empty-list behaviour is preserved by an upfront path-existence guard.
+- The CLI, studio, and operations boundaries now raise typed `LionError` subclasses (`ConfigurationError`, `OperationError`, `ExecutionError`) instead of bare `ValueError`/`RuntimeError`. These subclasses also inherit from the corresponding builtin, so existing `except ValueError` / `except RuntimeError` handlers keep working.
+- Studio services `engine_runs`, `sessions`, and `invocations` no longer import `fastapi.HTTPException` in their logic functions; not-found conditions raise `NotFoundError` (status 404) instead, and the `app`-level `LionError` exception handler translates domain errors to HTTP responses at the route edge.
+- `lionagi.hooks.builtins` persistence handlers now share a single open `StateDB` connection per DB path (via `get_shared_db()`) instead of opening a fresh connection on every hook firing, eliminating the per-firing connect + pragma + schema-check cost.
+
+### Deprecated
+
+- `log_tool_use` in `lionagi.agent.hooks` and `lionagi.hooks.builtins` — use `log_tool_call` instead. Will be removed in a future minor release.
+- `CLIEndpoint` in `lionagi.service.connections` — use `AgenticEndpoint` instead. The alias now emits `DeprecationWarning` at import. Will be removed in a future minor release.
+
+### Removed
+
+- The unused `lionagi.outcomes` package (dead code, never part of the public surface) has been removed.
+- `request_fields` phantom param dropped from `MessageManager.create_instruction`, `create_message`, and `add_message` (was accepted but silently ignored); `parse_lndl_fuzzy` removed from `lndl.__all__` (Phase-2 feature, not yet shipped).
+- Internal `_get_oai_config` alias in `lionagi.testing._legacy` removed (was never public; callers within the module now call `oai_chat_endpoint_config` directly).
+- `LogManager`, `LogManagerConfig`, and `to_list_type` removed from the public `lionagi.protocols.types` surface (back-compat aliases and an internal Pile helper that inflated the curated re-export set); import them from their canonical modules `lionagi.protocols.generic.log` and `lionagi.protocols.generic.pile` instead.
+
+### Fixed
+
+- A degraded CLI termination (for example a timeout that arrives after a complete final message) no longer discards the delivered response or surfaces successful output as an error. `li agent` flushes already-streamed text into the transcript before raising, and the agy wrapper leads error chunks with the terminal status instead of impersonating the response as the error message.
+- Python 3.14 compatibility: `FieldModel.annotated()` and `Spec` materialized `Annotated` types via the `Annotated.__class_getitem__` attribute, which 3.14 removed from typing special forms (raising `AttributeError: __class_getitem__`). Both now use canonical subscription `Annotated[tuple(args)]`, valid on 3.10–3.14.
+- CI now tests every Python version in the matrix. A committed `.python-version` was overriding the matrix interpreter for `uv venv`/`uv sync`/`uv run`, so every leg silently ran on 3.10; the `test` job now sets `UV_PYTHON` to the matrix version.
+- `ReactiveExecutor.execute()` / `execute_stream()` subscribe to the bus via the public `session.observer` property instead of the private `_observer` attribute, which is `None` until first accessed — reactive `SpawnRequest` events were liable to be silently dropped.
+- `Engine.cancel_active()` now bounds task cleanup with a configurable `cancel_timeout_s` (default 30s): non-cooperative tasks that ignore cancellation are abandoned with a warning instead of hanging the run indefinitely.
+- `li kill` recognizes shebang-launched console-script runs (where `argv[0]` is the Python interpreter and `argv[1]` is the `li` script path).
+- `li agent --resume` fails loudly (non-zero exit) when a resume produces an empty stream — typically an expired session — instead of exiting `0` silently.
+- Studio `PUT /engine-defs/{id}` returns `404` only when the definition is absent, not when the request body is empty (an empty patch is now a no-op that returns the existing definition).
+
+## [0.27.1] - 2026-06-16
+
+The studio desktop substrate (Vite SPA + Tauri 2 macOS shell), custom engine
+definitions driven from the frontend, a hardened launch API, and the
+`AgentConfig` removal — fourteen commits since v0.27.0.
+
+### Added
+
+- **Studio desktop substrate** — Vite SPA migration with single-process serving
+  (#1430) and a Tauri 2 desktop shell for macOS (#1431).
+- **Studio custom engines** — create, save, and launch custom engine definitions
+  from the frontend (#1441).
+- **Studio launch API** — `POST /api/launches` fires runs through the
+  scheduler's hardened spawn path (#1434).
+- **Casts catalog** — read-only catalog API and CLI (#1433).
+- **Live run streaming** — persist engine-run signals for live Studio streaming
+  (#1432).
+
+### Changed
+
+- **Python 3.14 compat** — bump pyupgrade to v3.21.2 (#1442).
+
+### Fixed
+
+- **CI diagnostics** — fail fast with the crashed test's name when an xdist
+  worker dies (#1437).
+- **Studio frontend** — restore Tailwind content paths after the Vite migration
+  (#1435).
+
+### Removed
+
+- **`AgentConfig`** — the deprecated `lionagi.agent.config` module is removed
+  (#1449). Use `AgentSpec` (`lionagi.agent.spec`) instead:
+  `AgentSpec.compose(role, ...)` for the general case and
+  `AgentSpec.coding(...)` for the coding preset. `create_agent()` now takes an
+  `AgentSpec`. The `HooksMixin` and secure-guard wiring previously in
+  `config.py` now live in `spec.py`.
+
+### Docs
+
+- Trim verbose docstrings and comments across the codebase and relocate
+  load-bearing reference material to `docs/` (#1450, #1451, #1452).
+
 ## [0.27.0] - 2026-06-11
 
 Phase C control center (engine runs, CLI coding presets, studio maintenance),

@@ -17,9 +17,7 @@ __all__ = (
 
 
 class MessageRole(str, Enum):
-    """
-    Predefined roles for conversation participants or message semantics.
-    """
+    """Predefined roles for conversation participants or message semantics."""
 
     SYSTEM = "system"
     USER = "user"
@@ -29,18 +27,11 @@ class MessageRole(str, Enum):
 
 
 SenderRecipient: TypeAlias = MessageRole | str | UUID
-"""
-A union type indicating that a sender or recipient could be:
-- A UUID,
-- A string-based role or ID,
-- A specific enum role from `MessageRole`.
-"""
+"""Sender/recipient: a UUID, string ID, or MessageRole enum value."""
 
 
 class MessageField(str, Enum):
-    """
-    Common field names used in message objects.
-    """
+    """Common field names used in message objects."""
 
     CREATED_AT = "created_at"
     ROLE = "role"
@@ -55,18 +46,7 @@ MESSAGE_FIELDS = [i.value for i in MessageField.__members__.values()]
 
 
 def validate_sender_recipient(value: Any, /) -> SenderRecipient:
-    """
-    Normalize a sender/recipient value into a recognized type.
-
-    Args:
-        value (Any): Input to interpret as a role or ID.
-
-    Returns:
-        SenderRecipient: A validated and normalized entity.
-
-    Raises:
-        ValueError: If the input cannot be recognized as a role or ID.
-    """
+    """Normalize a sender/recipient to MessageRole, UUID, or string; raises ValueError if unrecognized."""
     if isinstance(value, MessageRole):
         return value
 
@@ -106,6 +86,24 @@ def serialize_sender_recipient(value: Any) -> str | None:
     if isinstance(value, str):
         return value
     return str(value)
+
+
+def _coerce_id_field(data: dict[str, Any], key: str) -> str | None:
+    """Return data[key] coerced to str, leaving an absent or falsy value unchanged."""
+    val = data.get(key)
+    return str(val) if val else val
+
+
+def _unwrap_action_data(data: dict[str, Any], nested_key: str) -> tuple[str, dict[str, Any]]:
+    """Extract function and arguments from data, supporting a legacy nested-key wrapper."""
+    if nested_key in data:
+        inner = data[nested_key]
+        function = inner.get("function", "")
+        arguments = inner.get("arguments", {})
+    else:
+        function = data.get("function", "")
+        arguments = data.get("arguments", {})
+    return function, arguments
 
 
 # File: lionagi/protocols/messages/base.py

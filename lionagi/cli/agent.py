@@ -6,10 +6,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
 
 from lionagi import Branch
+from lionagi._errors import ConfigurationError
 from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.ln.concurrency import (
+    SigtermInterrupt,
     cache_cancelled_exc_class,
     cancelled_exc_classes,
     run_async,
@@ -18,21 +22,31 @@ from lionagi.protocols.generic.log import DataLoggerConfig
 from lionagi.state import provenance as _provenance
 from lionagi.state.artifact_verifier import resolve_artifact_contract
 
-from ._agents import build_deadline_preamble, load_agent_profile
-from ._lifecycle import EXIT_CODE_BY_STATUS, classify_exception
 from ._logging import hint, log_error
-from ._persist import setup_agent_persist, teardown_agent_persist
 from ._providers import (
+    BACKENDS,
     PROVIDER_BYPASS_KWARGS,
     PROVIDER_EFFORT_KWARG,
     PROVIDER_FAST_KWARGS,
     PROVIDER_YOLO_KWARGS,
+    PROVIDERS_EFFORT_VIA_MODEL_NAME,
     add_common_cli_args,
     build_chat_model,
+    build_deadline_preamble,
+    load_agent_profile,
+    normalize_effort,
     parse_model_spec,
     resolve_persisted_effort,
 )
-from ._runs import allocate_run, find_branch, load_last_branch, save_last_branch_pointer
+from ._runs import (
+    allocate_run,
+    find_branch,
+    load_last_branch,
+    save_last_branch_pointer,
+    setup_agent_persist,
+    teardown_agent_persist,
+)
+from ._util import EXIT_CODE_BY_STATUS, classify_exception
 
 # ---------------------------------------------------------------------------
 # Preset names supported by --preset
@@ -46,18 +60,7 @@ def _make_coding_preset(
     effort: str | None = "high",
     system_prompt: str | None = None,
 ):
-    """Construct an ``AgentSpec.coding()`` instance.
-
-    ``system_prompt`` is forwarded to ``AgentSpec.coding`` where it becomes
-    ``spec.extra_prompt`` — appended after the role header and policy block
-    inside ``build_system_message()``.  Pass the profile's system prompt here
-    when combining a profile with this preset so both land in a single system
-    message (``MessageManager.add_message(system=...)`` calls ``set_system``
-    which replaces, not appends).
-
-    Isolated as a module-level function so tests can monkeypatch it without
-    fighting Python's lazy-import caching.
-    """
+    """Construct an AgentSpec.coding() instance; isolated for test monkeypatching."""
     from lionagi.agent.spec import AgentSpec
 
     return AgentSpec.coding(cwd=cwd, effort=effort, system_prompt=system_prompt)
@@ -72,12 +75,7 @@ _FORM_SPEC_ALLOWED_KEYS = frozenset({"title", "fields", "values"})
 
 
 def _load_form_spec(path: str) -> dict:
-    """Load a YAML or JSON work-form spec file.
-
-    Returns the parsed dict.  Raises ``ValueError`` with a user-friendly
-    message on parse failure, or ``FileNotFoundError`` when the path does
-    not point to a regular file.
-    """
+    """Load a YAML or JSON work-form spec file; raises ValueError/FileNotFoundError on failure."""
     from pathlib import Path as _Path
 
     p = _Path(path)
@@ -108,31 +106,7 @@ def _load_form_spec(path: str) -> dict:
 
 
 def _build_work_form(spec: dict, spec_path: str):
-    """Construct a :class:`~lionagi.work.WorkForm` from a parsed spec dict.
-
-    Expected YAML shape::
-
-        title: "My form"         # optional
-        fields:                   # optional; declares typed slots
-          repo:
-            type: str
-            required: true
-            description: "Repository path"
-          effort:
-            type: str
-            required: false
-            default: "high"
-        values:                   # optional; values to fill into the form
-          repo: "/path/to/repo"
-          effort: "medium"
-
-    Allowed top-level keys: ``title``, ``fields``, ``values``.  Unknown keys
-    are rejected with a ``ValueError``.
-
-    When ``fields`` is declared, every key in ``values`` must correspond to a
-    declared field name — undeclared keys are rejected.  When ``fields`` is
-    absent the spec is field-less and all values are forwarded as context.
-    """
+    """Construct a WorkForm from a parsed spec dict (keys: title, fields, values)."""
     from lionagi.work import FieldSpec, WorkForm, fill_form
 
     # Enforce closed top-level schema.
@@ -229,12 +203,20 @@ async def _run_agent(
     project: str | None = None,
     bypass: bool = False,
     preset: str | None = None,
-) -> tuple[str, str, str, str]:
-    """Execute one agent turn; returns (result, provider, branch_id, terminal_status)."""
+    resume_on_timeout: bool = False,
+    _auto_resumed: bool = False,
+) -> tuple[str, str, str, str, str | None]:
+    """Execute one agent turn; returns (result, provider, branch_id, terminal_status, session_id).
+
+    session_id is None whenever live persistence never started (e.g. the
+    mangled resume-model-override guard fires before setup_agent_persist is
+    called, or setup itself failed and disabled persistence for this run).
+    """
+    effort = normalize_effort(effort)
     if resume and continue_last:
-        raise ValueError("--resume / -r and --continue-last / -c are mutually exclusive.")
+        raise ConfigurationError("--resume / -r and --continue-last / -c are mutually exclusive.")
     if preset and (resume or continue_last):
-        raise ValueError(
+        raise ConfigurationError(
             "--preset only applies to new branches; cannot combine with --resume / --continue-last."
         )
 
@@ -255,11 +237,15 @@ async def _run_agent(
         if profile.model and model_str is None:
             model_str = profile.model
         if profile.effort and effort is None:
-            effort = profile.effort
+            effort = normalize_effort(profile.effort)
         if profile.yolo and not yolo:
             yolo = True
         if profile.fast_mode and not fast:
             fast = True
+        if profile.timeout and timeout is None:
+            timeout = profile.timeout
+        if profile.resume_on_timeout and not resume_on_timeout:
+            resume_on_timeout = True
 
     branch: Branch | None = None
     if continue_last:
@@ -268,10 +254,29 @@ async def _run_agent(
         branch = Branch.from_dict(json.loads(branch_path.read_text()))
     elif resume:
         _, branch_path = find_branch(resume)
+        resolved_branch_id = branch_path.stem
+        if resolved_branch_id != resume:
+            hint(f"[resume] prefix-matched {resume} → {resolved_branch_id}")
         branch = Branch.from_dict(json.loads(branch_path.read_text()))
 
     if model_str is not None:
         ms = parse_model_spec(model_str)
+        if branch is not None and "/" not in ms.model and ms.model not in BACKENDS:
+            # A resume-path override is grafted into the existing branch's
+            # config with no further validation (unlike a new branch, whose
+            # provider must resolve via build_chat_model/match_endpoint or
+            # fail naturally). A bare token that isn't a known backend name
+            # is almost always a mangled command — e.g. a --resume id split
+            # across two argv tokens leaves [fragment, prompt] as positionals
+            # and the fragment is read as MODEL.
+            log_error(
+                f"resume model override {model_str!r} does not look like a "
+                "model spec (expected 'provider/model', or a known name "
+                "like 'claude', 'codex', 'gemini-code'). Positionals are "
+                "[MODEL] PROMPT — this looks like a mangled command, e.g. "
+                "a --resume id accidentally split across two arguments."
+            )
+            return "", "", str(branch.id), "failed", None
         if "/" in ms.model:
             provider, model = ms.model.split("/", 1)
         else:
@@ -343,6 +348,11 @@ async def _run_agent(
     else:
         cfg = branch.chat_model.endpoint.config.kwargs
         if model_str is not None:
+            old_model = cfg.get("model")
+            if model != old_model:
+                from lionagi.cli._logging import warn
+
+                warn(f"resume model override: {old_model} → {model}")
             cfg["model"] = model
         if verbose:
             cfg["verbose_output"] = True
@@ -352,6 +362,21 @@ async def _run_agent(
             kwarg = PROVIDER_EFFORT_KWARG.get(provider)
             if kwarg:
                 cfg[kwarg] = effort
+            elif provider in PROVIDERS_EFFORT_VIA_MODEL_NAME:
+                # agy (Antigravity CLI) has no effort kwarg — fold effort into
+                # the resolved --model name instead (see resolve_agy_model).
+                # cfg["model"] here is the *persisted* prior resolution
+                # (already a concrete agy display name) unless the caller
+                # also passed a new model_str this turn — reapply_effort
+                # lets a fresh --effort replace that persisted suffix,
+                # while an explicit model_str given on this call still wins.
+                from lionagi.providers.google.gemini_code import resolve_agy_model
+
+                cfg["model"] = resolve_agy_model(
+                    cfg.get("model"),
+                    effort=effort,
+                    reapply_effort=model_str is None,
+                )
         if bypass:
             cfg.update(PROVIDER_BYPASS_KWARGS.get(provider, {}))
         elif yolo:
@@ -433,6 +458,10 @@ async def _run_agent(
     except BaseException as exc:
         _terminal_status = classify_exception(exc)
         _terminal_exc = exc
+        if _terminal_status == "failed":
+            # Default traceback printing is unreliable under SIGTERM/process
+            # death — leave a one-line diagnostic before it propagates.
+            log_error(f"{type(exc).__name__}: {exc}")
         raise
     finally:
         if _heartbeat_task is not None:
@@ -457,17 +486,61 @@ async def _run_agent(
                 _terminal_status = effective_status
             await branch.mdls.shutdown()
 
+    is_resume = bool(resume or continue_last)
+    if is_resume and _terminal_status == "completed" and not (res or "").strip():
+        log_error(
+            f"resume produced empty stream — session may be expired; "
+            f"re-run without -r (resume target: {resume or 'last'})"
+        )
+        _terminal_status = "failed"
+
     save_last_branch_pointer(run.run_id, branch_id)
 
-    return res or "", provider, branch_id, _terminal_status
+    session_id = live.get("session_id") if live else None
+
+    if _terminal_status == "timed_out" and resume_on_timeout and not _auto_resumed:
+        from lionagi.cli._logging import warn
+
+        warn(
+            f"[auto-resume] session {session_id or branch_id} timed out after "
+            f"{timeout}s — resuming once with 'continue and conclude the task'"
+        )
+        # Carry the model that actually ran this leg (explicit --model, profile
+        # default, or whatever a prior resume already grafted) forward as an
+        # explicit override. Passing model_str=None here would let the
+        # agent_name profile's model re-apply on the resumed leg (see the
+        # profile-precedence block above), silently switching models mid-run.
+        _effective_cfg = branch.chat_model.endpoint.config
+        _effective_model_str = f"{_effective_cfg.provider}/{_effective_cfg.kwargs.get('model')}"
+        return await _run_agent(
+            _effective_model_str,
+            "continue and conclude the task",
+            yolo=yolo,
+            verbose=verbose,
+            theme=theme,
+            resume=branch_id,
+            effort=effort,
+            agent_name=agent_name,
+            cwd=cwd,
+            timeout=timeout,
+            fast=fast,
+            invocation_id=invocation_id,
+            project=project,
+            bypass=bypass,
+            resume_on_timeout=resume_on_timeout,
+            _auto_resumed=True,
+        )
+
+    return res or "", provider, branch_id, _terminal_status, session_id
 
 
-def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
+def add_agent_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
     agent = subparsers.add_parser(
         "agent",
         help="Spawn one-shot subagent (blocking); prints final response.",
         description=(
             "Spawn a single subagent and wait for its final response. "
+            "Flags may appear anywhere relative to the positionals. "
             "Use -r / -c to continue a previous conversation. "
             "Use -a to load a profile from .lionagi/agents/. "
             "Use --preset to apply a built-in agent configuration. "
@@ -475,16 +548,29 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     agent.add_argument(
-        "model",
-        nargs="?",
-        default=None,
+        "query",
+        nargs="*",
+        metavar="[MODEL] PROMPT",
         help=(
-            "One of 'claude', 'codex', 'gemini-code' (defaults), or a full spec "
-            "like 'claude/opus'. Optional when -a (agent profile) provides a model, "
-            "or when --resume / --continue-last is set."
+            "Optional model spec followed by the prompt. Model is one of "
+            "'claude', 'codex', 'gemini-code' (defaults), or a full spec like "
+            "'claude/opus'; omit it when -a / --resume / -c provides one. "
+            "The prompt may instead be passed via --prompt or --prompt-file."
         ),
     )
-    agent.add_argument("prompt", help="Prompt to send to the subagent.")
+    agent.add_argument(
+        "--prompt",
+        dest="prompt_flag",
+        metavar="TEXT",
+        default=None,
+        help="Prompt text (alternative to the positional PROMPT).",
+    )
+    agent.add_argument(
+        "--prompt-file",
+        metavar="PATH",
+        default=None,
+        help="Read the prompt from a file; '-' reads stdin (heredoc-friendly).",
+    )
     agent.add_argument(
         "-a",
         "--agent",
@@ -493,8 +579,8 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "Load agent profile by name. Resolves "
             ".lionagi/agents/<NAME>/<NAME>.md first, then .lionagi/agents/<NAME>.md. "
-            "Profile provides system prompt, default model, effort, yolo. "
-            "CLI flags override profile settings."
+            "Profile provides system prompt, default model, effort, yolo, "
+            "timeout, resume_on_timeout. CLI flags override profile settings."
         ),
     )
     agent.add_argument(
@@ -535,12 +621,56 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> None:
     )
 
     add_common_cli_args(agent)
+    return agent
+
+
+def _resolve_model_and_prompt(args: argparse.Namespace) -> tuple[str | None, str] | None:
+    """Assign the positional bucket + --prompt/--prompt-file to (model, prompt).
+
+    Returns None after logging a clear error."""
+    query: list[str] = getattr(args, "query", None) or []
+    flag_prompt = args.prompt_flag
+    if args.prompt_file:
+        if flag_prompt is not None:
+            log_error("pass --prompt or --prompt-file, not both")
+            return None
+        if args.prompt_file == "-":
+            flag_prompt = sys.stdin.read()
+        else:
+            try:
+                flag_prompt = Path(args.prompt_file).read_text()
+            except OSError as exc:
+                log_error(f"could not read --prompt-file: {exc}")
+                return None
+        if not flag_prompt.strip():
+            log_error(f"--prompt-file {args.prompt_file!r} is empty")
+            return None
+    if len(query) > 2:
+        log_error(
+            "too many positional arguments — expected [MODEL] PROMPT. "
+            "Did you forget to quote the prompt?"
+        )
+        return None
+    if flag_prompt is not None:
+        if len(query) == 2:
+            log_error("prompt given twice (positionally and via --prompt/--prompt-file)")
+            return None
+        return (query[0] if query else None), flag_prompt
+    if len(query) == 2:
+        return query[0], query[1]
+    if len(query) == 1:
+        return None, query[0]
+    log_error("no prompt given — pass it positionally, or via --prompt / --prompt-file")
+    return None
 
 
 def run_agent(args: argparse.Namespace) -> int:
     """Dispatch agent command."""
-    # 3b: --form: load, build, and validate BEFORE any LLM call.
-    # Validation errors exit rc=1 through the error channel (stderr).
+    resolved = _resolve_model_and_prompt(args)
+    if resolved is None:
+        return 1
+    model, prompt_text = resolved
+    # --form: load, build, and validate BEFORE any LLM call.
     form_prompt_prefix: str = ""
     if getattr(args, "form", None):
         try:
@@ -567,9 +697,9 @@ def run_agent(args: argparse.Namespace) -> int:
         if work_form.values:
             form_prompt_prefix = _form_to_context_block(work_form) + "\n\n"
 
-    prompt = form_prompt_prefix + args.prompt
+    prompt = form_prompt_prefix + prompt_text
 
-    has_model = args.model is not None or args.agent is not None
+    has_model = model is not None or args.agent is not None
     if not has_model and not (args.resume or args.continue_last):
         log_error(
             "model or --agent is required unless --resume / -r or --continue-last / -c is set"
@@ -577,9 +707,9 @@ def run_agent(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        result, provider, branch_id, terminal_status = run_async(
+        result, provider, branch_id, terminal_status, session_id = run_async(
             _run_agent(
-                args.model,
+                model,
                 prompt,
                 yolo=args.yolo,
                 verbose=args.verbose,
@@ -595,17 +725,26 @@ def run_agent(args: argparse.Namespace) -> int:
                 project=getattr(args, "project", None),
                 bypass=getattr(args, "bypass", False),
                 preset=getattr(args, "preset", None),
+                resume_on_timeout=getattr(args, "resume_on_timeout", False),
             )
         )
     except KeyboardInterrupt:
         return EXIT_CODE_BY_STATUS["aborted"]
+    except SigtermInterrupt as exc:
+        from lionagi.cli._logging import warn
+
+        warn(f"agent terminated by SIGTERM: {exc}")
+        return EXIT_CODE_BY_STATUS["cancelled"]
     except BaseException as exc:
         if isinstance(exc, cancelled_exc_classes()):
             return EXIT_CODE_BY_STATUS["cancelled"]
+        log_error(f"{type(exc).__name__}: {exc}")
         raise
 
     if not args.verbose:
         print(f"\n{result}" if result is not None else "", flush=True)
 
     hint(f'\n[to resume] li agent -r {branch_id} "..."')
+    if session_id:
+        hint(f"[status]    li agent status {session_id}")
     return EXIT_CODE_BY_STATUS.get(terminal_status, 1)

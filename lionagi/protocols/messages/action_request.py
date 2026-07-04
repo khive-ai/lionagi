@@ -5,22 +5,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from pydantic import field_validator
+from lionagi.ln import copy
+from lionagi.utils import to_dict
 
-from lionagi.utils import copy, to_dict
-
+from .base import _coerce_id_field, _unwrap_action_data
 from .message import Message, MessageContent, MessageRole
 
 
 @dataclass(slots=True)
 class ActionRequestContent(MessageContent):
-    """Content for action/function call requests.
-
-    Fields:
-        function: Function name to invoke
-        arguments: Arguments for the function call
-        action_response_id: Link to corresponding response (if any)
-    """
+    """Content for LLM-emitted function call requests."""
 
     function: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)
@@ -47,20 +41,12 @@ class ActionRequestContent(MessageContent):
 
     @property
     def role(self) -> MessageRole:
-        """Role for this content type (beta API compat)."""
         return MessageRole.ACTION
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ActionRequestContent":
-        """Construct ActionRequestContent from dictionary."""
-        # Handle nested structure from old format
-        if "action_request" in data:
-            req = data["action_request"]
-            function = req.get("function", "")
-            arguments = req.get("arguments", {})
-        else:
-            function = data.get("function", "")
-            arguments = data.get("arguments", {})
+        """Construct ActionRequestContent from a dict; handles legacy nested action_request key."""
+        function, arguments = _unwrap_action_data(data, "action_request")
 
         # Handle callable
         if isinstance(function, Callable):
@@ -80,14 +66,10 @@ class ActionRequestContent(MessageContent):
             except Exception:
                 raise ValueError("Arguments must be a dictionary") from None
 
-        action_response_id = data.get("action_response_id")
-        if action_response_id:
-            action_response_id = str(action_response_id)
-
         return cls(
             function=function,
             arguments=arguments,
-            action_response_id=action_response_id,
+            action_response_id=_coerce_id_field(data, "action_response_id"),
         )
 
 
@@ -95,28 +77,17 @@ class ActionRequest(Message):
     """Message requesting an action or function execution."""
 
     _role: ClassVar[MessageRole] = MessageRole.ACTION
+    _content_type: ClassVar[type] = ActionRequestContent
     content: ActionRequestContent
-
-    @field_validator("content", mode="before")
-    def _validate_content(cls, v):
-        if v is None:
-            return ActionRequestContent()
-        if isinstance(v, dict):
-            return ActionRequestContent.from_dict(v)
-        if isinstance(v, ActionRequestContent):
-            return v
-        raise TypeError("content must be dict or ActionRequestContent instance")
 
     @property
     def function(self) -> str:
-        """Access the function name."""
         return self.content.function
 
     @property
     def arguments(self) -> dict[str, Any]:
-        """Access the function arguments."""
         return self.content.arguments
 
     def is_responded(self) -> bool:
-        """Check if this request has been responded to."""
+        """True if a corresponding ActionResponse has been linked."""
         return self.content.action_response_id is not None

@@ -12,7 +12,7 @@ class AnthropicConfigs(ProviderConfig, Enum):
         "messages",
         ["chat"],
         EndpointType.API,
-        LazyType("lionagi.providers.anthropic.messages.models:CreateMessageRequest"),
+        LazyType("lionagi.providers.anthropic.messages:CreateMessageRequest"),
         "https://api.anthropic.com/v1",
         "x-api-key",
     )
@@ -20,6 +20,7 @@ class AnthropicConfigs(ProviderConfig, Enum):
 
 AnthropicConfigs._PROVIDER = "anthropic"
 AnthropicConfigs._PROVIDER_ALIASES = []
+AnthropicConfigs._API_KEY_ENV = "ANTHROPIC_API_KEY"
 
 
 class ClaudeCodeConfigs(ProviderConfig, Enum):
@@ -27,7 +28,7 @@ class ClaudeCodeConfigs(ProviderConfig, Enum):
         "query_cli",
         ["cli", "code"],
         EndpointType.AGENTIC,
-        LazyType("lionagi.providers.anthropic.claude_code.models:ClaudeCodeRequest"),
+        LazyType("lionagi.providers.anthropic.claude_code:ClaudeCodeRequest"),
     )
 
 

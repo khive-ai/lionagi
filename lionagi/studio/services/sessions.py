@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from typing import Any
 
 import aiosqlite
 
+from lionagi._errors import NotFoundError
 from lionagi.state.db import DEFAULT_DB_PATH, SESSION_TERMINAL_STATUSES
 
+from ..registry import studio_route
 from ._db import open_db as _open_db
 from ._io import parse_json_col as _parse_json_col
 
@@ -135,7 +139,7 @@ async def list_sessions() -> list[dict[str, Any]]:
             "updated_at": row["updated_at"] or 0.0,
             "branch_count": row["branch_count"],
             "message_count": row["message_count"],
-            # F-A1-2 / F-A1-8 (ADR-0017): read status directly from column;
+            # ADR-0017: read status directly from column;
             # fall back to "completed" only for legacy rows where status is NULL.
             "status": row["status"] or "completed",
             "started_at": row["started_at"],
@@ -166,13 +170,38 @@ async def list_sessions() -> list[dict[str, Any]]:
     ]
 
 
+async def list_project_counts() -> list[dict[str, Any]]:
+    """Per-project run counts via a cheap GROUP BY (no branch/message join)."""
+    if not DEFAULT_DB_PATH.exists():
+        return []
+    async with _open_db(_DB) as db:
+        cur = await db.execute(
+            """
+            SELECT project,
+                   COUNT(*) AS count,
+                   MAX(updated_at) AS last_activity
+            FROM sessions
+            GROUP BY project
+            """
+        )
+        rows = await cur.fetchall()
+    return [
+        {
+            "project": row["project"],
+            "count": row["count"],
+            "last_activity": row["last_activity"],
+        }
+        for row in rows
+    ]
+
+
 async def get_session(session_id: str) -> dict[str, Any] | None:
     if not DEFAULT_DB_PATH.exists():
         return None
 
     async with _open_db(_DB) as db:
         cur = await db.execute(
-            # F-A1-4 (ADR-0017): include lifecycle columns in session detail
+            # ADR-0017: include lifecycle columns in session detail
             # ADR-0022: include provenance columns (model/provider/effort/agent_hash)
             """SELECT id, name, created_at, updated_at,
                       playbook_name, agent_name, invocation_kind,
@@ -180,7 +209,8 @@ async def get_session(session_id: str) -> dict[str, Any] | None:
                       artifact_contract_json, artifact_verification_json,
                       source_kind, status, started_at, ended_at,
                       model, provider, effort, agent_hash, invocation_id,
-                      node_metadata, project, project_source
+                      node_metadata, project, project_source,
+                      status_reason_code, status_reason_summary, status_evidence_refs
                FROM sessions WHERE id = ?""",
             (session_id,),
         )
@@ -188,7 +218,6 @@ async def get_session(session_id: str) -> dict[str, Any] | None:
         if not session_row:
             return None
 
-        # Reverse lookup: find the play that references this session
         play_cur = await db.execute(
             """SELECT sh.topic AS show_topic, p.name AS play_name
                FROM plays p
@@ -264,7 +293,6 @@ async def get_session(session_id: str) -> dict[str, Any] | None:
                 }
             )
 
-    # F-A1-4 (ADR-0017): compute duration_ms from lifecycle timestamps
     started_at = session_row["started_at"]
     ended_at = session_row["ended_at"]
     duration_ms = (
@@ -300,6 +328,10 @@ async def get_session(session_id: str) -> dict[str, Any] | None:
         # ADR-0026: project detection.
         "project": session_row["project"],
         "project_source": session_row["project_source"],
+        # ADR-0028: status reason surfaced on detail (drives the failure banner).
+        "status_reason_code": session_row["status_reason_code"],
+        "status_reason_summary": session_row["status_reason_summary"],
+        "status_evidence_refs": _parse_json_col(session_row["status_evidence_refs"]),
         "graph": _graph_from_metadata(session_row["node_metadata"]),
         "segments": (_parse_metadata(session_row["node_metadata"]) or {}).get("segments"),
     }
@@ -406,3 +438,118 @@ def is_session_stream_done(state: dict[str, Any] | None, *, now: float) -> bool:
         state.get("status") in SESSION_TERMINAL_STATUSES
         and now - float(state.get("updated_at") or 0.0) > SESSION_DONE_STABLE_SECS
     )
+
+
+# ---------------------------------------------------------------------------
+# Route handlers — sessions area
+# ---------------------------------------------------------------------------
+
+
+@studio_route("/sessions/", method="GET", area="sessions", name="list_sessions")
+async def list_sessions_route() -> dict[str, Any]:
+    return {"sessions": await list_sessions()}
+
+
+@studio_route("/sessions/{session_id}", method="GET", area="sessions", name="get_session")
+async def get_session_route(session_id: str) -> dict[str, Any]:
+    session = await get_session(session_id)
+    if session is None:
+        raise NotFoundError(f"Session '{session_id}' not found")
+    return session
+
+
+@studio_route(
+    "/sessions/{session_id}/stream",
+    method="GET",
+    area="sessions",
+    name="stream_session",
+    response_class=None,
+)
+async def stream_session_route(session_id: str):
+    # ADR-0006: pre-flight 404 guard before opening the stream.
+    # Without this, a non-existent session silently returns no messages and
+    # then waits 60s before emitting done — client hangs with no indication.
+    # The shows router already does this at shows.py:34-35; we mirror that pattern.
+    if not await session_exists(session_id):
+        raise NotFoundError(f"Session '{session_id}' not found")
+
+    async def generate():
+        after_ts: float = 0.0
+        last_heartbeat = time.monotonic()
+
+        while True:
+            messages = await get_session_messages_after(session_id, after_ts)
+
+            if messages:
+                for msg in messages:
+                    yield f"data: {json.dumps(msg)}\n\n"
+                    ts = msg.get("timestamp") or msg.get("created_at")
+                    if ts and ts > after_ts:
+                        after_ts = ts
+                last_heartbeat = time.monotonic()
+            elif time.monotonic() - last_heartbeat >= 5.0:
+                yield 'data: {"type":"heartbeat"}\n\n'
+                last_heartbeat = time.monotonic()
+
+            state = await get_session_stream_state(session_id)
+            if is_session_stream_done(state, now=time.time()):
+                yield 'data: {"type":"done"}\n\n'
+                return
+
+            await asyncio.sleep(0.5)
+
+    from ._sse import sse_response
+
+    return sse_response(generate())
+
+
+# ---------------------------------------------------------------------------
+# Route handlers — signals area (lives here; both areas share this module)
+# ---------------------------------------------------------------------------
+
+
+@studio_route(
+    "/sessions/{session_id}/signals",
+    method="GET",
+    area="sessions",
+    name="stream_signals",
+    response_class=None,
+)
+async def stream_signals(session_id: str) -> Any:
+    # Pre-flight 404 guard before opening the stream — mirrors the pattern
+    # at sessions.py:35-36 (ADR-0006).
+    if not await session_exists(session_id):
+        raise NotFoundError(f"Session '{session_id}' not found")
+
+    from . import signals as signals_svc
+
+    async def generate():
+        after_seq: int = 0
+        last_heartbeat = time.monotonic()
+
+        while True:
+            rows = await signals_svc.get_signals_after(session_id, after_seq)
+
+            if rows:
+                for row in rows:
+                    # _PAYLOAD_BYTE_CAP (16 KiB, defined in session/observer.py) caps the
+                    # payload column only, not the full SSE frame; the row envelope adds
+                    # ~176 bytes of fixed metadata overhead, so frames can exceed that cap.
+                    yield f"data: {json.dumps(row)}\n\n"
+                    if row["seq"] > after_seq:
+                        after_seq = row["seq"]
+                last_heartbeat = time.monotonic()
+            elif time.monotonic() - last_heartbeat >= 5.0:
+                yield 'data: {"type":"heartbeat"}\n\n'
+                last_heartbeat = time.monotonic()
+
+            state = await get_session_stream_state(session_id)
+            if is_session_stream_done(state, now=time.time()):
+                yield 'data: {"type":"done"}\n\n'
+                return
+
+            await asyncio.sleep(0.5)
+
+    from ._sse import sse_response
+
+    return sse_response(generate())

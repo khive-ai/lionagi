@@ -1,27 +1,20 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Built-in hook implementations for coding agents.
-
-Usage::
-
-    from lionagi.agent.hooks import guard_destructive, log_tool_use
-
-    config = AgentConfig.coding()
-    config.pre("bash", guard_destructive)
-    config.post("*", log_tool_use)
-"""
+"""Built-in pre/post hooks for coding agent security and observability."""
 
 from __future__ import annotations
 
 import logging
 import re
+import warnings
 from pathlib import Path
 
 __all__ = (
     "auto_format_python",
     "guard_destructive",
     "guard_paths",
+    "log_tool_call",
     "log_tool_use",
 )
 
@@ -58,13 +51,7 @@ def guard_paths(
     allowed_paths: list[str] | None = None,
     denied_paths: list[str] | None = None,
 ):
-    """Factory: create a pre-hook that restricts file access by path.
-
-    Usage::
-
-        config.pre("reader", guard_paths(allowed_paths=["/Users/me/project/"]))
-        config.pre("editor", guard_paths(denied_paths=[".env", "credentials"]))
-    """
+    """Factory: return a pre-hook that enforces allowed/denied path constraints."""
 
     allowed_roots = [Path(p).expanduser().resolve(strict=False) for p in (allowed_paths or [])]
 
@@ -75,11 +62,8 @@ def guard_paths(
 
         expanded = Path(raw_path).expanduser()
         if not expanded.is_absolute() and allowed_roots:
-            # Resolve relative paths against the workspace root so that
-            # "src/foo.py" is treated as workspace-relative, not process-cwd-
-            # relative.  Without this a relative in-workspace path would
-            # resolve to <process_cwd>/src/foo.py which almost never equals the
-            # configured allowed root and would be wrongly blocked.
+            # Resolve relative paths against the workspace root, not the process
+            # cwd — otherwise an in-workspace path would never match allowed_roots.
             resolved = (allowed_roots[0] / expanded).resolve(strict=False)
         else:
             resolved = expanded.resolve(strict=False)
@@ -96,37 +80,39 @@ def guard_paths(
                     if resolved == denied_resolved or denied_resolved in resolved.parents:
                         raise PermissionError(f"Path matches deny rule: {raw_path}")
                 else:
-                    # Relative deny pattern — two matching strategies:
-                    #
-                    # 1. Glob patterns (contain *, ?, or [): apply fnmatch to each
-                    #    resolved path component.  This fixes LIONAGI-AUDIT-001 where
-                    #    "*.key" was treated as a literal string and never matched
-                    #    "/tmp/api.key".
-                    #
-                    # 2. Plain-text patterns (no glob chars): retain the original
-                    #    substring check against raw_path and resolved.name so that
-                    #    documented examples like ".env" still block ".env.local".
+                    # Relative deny pattern: glob patterns (*, ?, [) fnmatch each
+                    # resolved path component; plain-text patterns fall back to a
+                    # substring check so ".env" still blocks ".env.local".
                     import fnmatch
 
                     _glob_chars = frozenset("*?[")
                     if any(c in denied for c in _glob_chars):
-                        # Glob mode: match against each resolved path component.
                         parts = resolved.parts
                         if any(fnmatch.fnmatch(part, denied) for part in parts):
                             raise PermissionError(f"Path matches deny rule: {raw_path}")
                     elif denied in raw_path or denied in resolved.name:
-                        # Plain-text mode: substring containment (original behaviour).
                         raise PermissionError(f"Path matches deny rule: {raw_path}")
         return None
 
     return _guard
 
 
-async def log_tool_use(tool_name: str, action: str, args: dict, result: dict) -> dict | None:
-    """Post-hook: log tool usage for observability."""
+async def log_tool_call(tool_name: str, action: str, args: dict, result: dict) -> dict | None:
+    """Post-hook: log tool call for observability."""
     success = result.get("success", result.get("return_code") == 0)
     logger.info("tool=%s action=%s success=%s", tool_name, action, success)
     return None
+
+
+async def log_tool_use(tool_name: str, action: str, args: dict, result: dict) -> dict | None:
+    """Deprecated: use log_tool_call instead."""
+    warnings.warn(
+        "log_tool_use is deprecated and will be removed in a future minor release. "
+        "Use log_tool_call instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return await log_tool_call(tool_name, action, args, result)
 
 
 async def auto_format_python(tool_name: str, action: str, args: dict, result: dict) -> dict | None:

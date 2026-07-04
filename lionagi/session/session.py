@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from pydantic import Field, JsonValue, PrivateAttr, field_serializer, model_validator
 from typing_extensions import Self
 
+from lionagi.protocols.memory import InMemoryStore, MemoryStore
 from lionagi.protocols.types import (
     ID,
     MESSAGE_FIELDS,
@@ -31,7 +32,7 @@ from .._errors import ItemNotFoundError
 from ..ln import lcall
 from ..protocols.generic import Flow
 from ..protocols.messages import Message
-from .branch import ActionManager, Branch, OperationManager, Tool
+from .branch import Branch, OperationManager, Tool
 from .exchange import Exchange
 
 
@@ -48,6 +49,27 @@ class Session(Node, Relational):
     _operation_manager: OperationManager = PrivateAttr(default_factory=OperationManager)
     _observer: Any = PrivateAttr(default=None)
     _hooks: Any = PrivateAttr(default=None)
+    _memory: MemoryStore | None = PrivateAttr(default=None)
+
+    def __init__(self, *, memory: MemoryStore | None = None, **kwargs: Any):
+        super().__init__(**kwargs)
+        # `_initialize_branches` (a model validator) already ran inside
+        # `super().__init__()` and, via `include_branches()`, may have read
+        # the `.memory` property and lazily created a store, wiring it into
+        # every branch taken in at construction time (including the default
+        # branch). When an explicit store is supplied here, swap it in and
+        # rewire any branch still holding that temporary store so the whole
+        # session — not just `self._memory` — ends up pointing at the
+        # explicit store. When no explicit store is supplied, leave
+        # `self._memory` as whatever `_initialize_branches` already set, so
+        # it stays the same instance every branch was wired to.
+        temp = self._memory
+        if memory is not None:
+            self._memory = memory
+            if temp is not None and temp is not memory:
+                for branch in self.branches:
+                    if branch._memory is temp:
+                        branch._memory = memory
 
     @field_serializer("user")
     def _serialize_user(self, value: SenderRecipient | None) -> JsonValue:
@@ -60,23 +82,39 @@ class Session(Node, Relational):
             self.include_branches(branches)
 
     def include_branches(self, branches: ID[Branch].ItemSeq):
+        # Preflight the whole batch before mutating anything, so a rejected
+        # branch never leaves earlier batch members claimed by this session.
+        candidates = [branches] if isinstance(branches, Branch) else list(branches)
+        for b in candidates:
+            if b._owning_session_id is not None and b._owning_session_id != self.id:
+                raise ValueError(
+                    f"Branch {b.id} is already owned by session "
+                    f"{b._owning_session_id}; call remove_branch() on the "
+                    "owning session first to reparent it."
+                )
+
         def _take_in_branch(branch: Branch):
             if branch not in self.branches:
                 self.branches.include(branch)
 
+            branch._owning_session_id = self.id
             branch.user = self.id
             branch._operation_manager = self._operation_manager
             branch._observer = self.observer
             if self._hooks is not None:
                 branch._hooks = self._hooks
+            if branch._memory is None:
+                # A branch keeps an explicitly supplied or previously
+                # adopted store; first claim wins. Reading the property
+                # lazily creates the session's own store on first use, then
+                # shares that one instance across every branch taken in.
+                branch._memory = self.memory
             if not self.exchange.has(branch.id):
                 self.exchange.register(branch.id)
             if self.default_branch is None:
                 self.default_branch = branch
 
-        branches = [branches] if isinstance(branches, Branch) else branches
-
-        for i in branches:
+        for i in candidates:
             _take_in_branch(i)
 
     def register_operation(self, operation: str, func: Callable, *, update: bool = False):
@@ -121,6 +159,16 @@ class Session(Node, Relational):
 
             self._observer = SessionObserver(session=self)
         return self._observer
+
+    @property
+    def memory(self) -> MemoryStore:
+        """This session's memory store: an explicitly supplied backend, or a
+        lazily-created shared `InMemoryStore` on first access. Read-only —
+        the only way to give a `Session` its own store is the `memory=`
+        constructor parameter."""
+        if self._memory is None:
+            self._memory = InMemoryStore()
+        return self._memory
 
     def observe(
         self,
@@ -182,8 +230,6 @@ class Session(Node, Relational):
         user: SenderRecipient = None,
         name: str | None = None,
         messages: Pile[RoledMessage] = None,
-        progress: Progression = None,
-        tool_manager: ActionManager = None,
         tools: Tool | Callable | list = None,
         as_default_branch: bool = False,
         **kwargs,
@@ -213,6 +259,16 @@ class Session(Node, Relational):
 
         self.branches.exclude(branch)
         self.exchange.unregister(branch.id)
+
+        # Routing infrastructure is session-owned: tear it down so a removed
+        # branch reverts to a clean standalone state and can be reparented.
+        # Branch data (messages, memory, logs) stays with the branch.
+        branch._owning_session_id = None
+        branch._observer = None
+        branch._hooks = None
+        branch._operation_manager = OperationManager()
+        if branch.user == self.id:
+            branch.user = None
 
         if self.default_branch.id == branch.id:
             if not self.branches:
@@ -314,6 +370,7 @@ class Session(Node, Relational):
         spawn_type: type | None = None,
         node_builder: Any = None,
         max_spawn: int = 50,
+        executor_ref: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute a graph-based DAG workflow, optionally reactive (self-expanding)."""
         from lionagi.operations.flow import flow
@@ -336,6 +393,7 @@ class Session(Node, Relational):
             spawn_type=spawn_type,
             node_builder=node_builder,
             max_spawn=max_spawn,
+            executor_ref=executor_ref,
         )
 
     async def flow_stream(

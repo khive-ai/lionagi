@@ -12,6 +12,12 @@ def test_handle_play_shortcut_rewrites_name_to_flow_argv():
     assert result == ["o", "flow", "-p", "triage", "--x"]
 
 
+def test_handle_play_shortcut_resume_passthrough():
+    """play --resume <id> [...] is rewritten to o flow --resume <id> [...] verbatim."""
+    result = _handle_play_shortcut(["play", "--resume", "abc123", "--allow-degraded-context"])
+    assert result == ["o", "flow", "--resume", "abc123", "--allow-degraded-context"]
+
+
 def test_handle_play_shortcut_rejects_flag_before_name(monkeypatch):
     """play --bad returns exit code 1 because flag comes before name."""
     import lionagi.cli._logging as log_mod
@@ -120,7 +126,7 @@ def test_play_check_playbook_without_contract(tmp_path, monkeypatch, capsys):
     assert "no `artifacts:` block declared" in out
 
 
-# ─── #1194: `li play <name> --help` surfaces forwarded global flags ───
+# ─── `li play <name> --help` surfaces forwarded global flags ───
 
 
 def test_play_help_shows_common_flags(tmp_path, monkeypatch, capsys):
@@ -157,3 +163,52 @@ def test_play_flag_before_name_includes_usage(caplog):
     assert result == 1
     full_msg = " ".join(r.message for r in caplog.records)
     assert "Usage" in full_msg or "li play" in full_msg
+
+
+# ─── package-init laziness: lionagi.cli must not eagerly import main ───
+
+
+def test_cli_package_init_is_lazy():
+    """Importing lionagi.cli (or any submodule of it, e.g. via
+    lionagi.studio.cli) must not pull in lionagi.cli.main — main.py imports
+    lionagi.studio.cli at module level, so an eager package init would make
+    every studio->cli._logging import re-enter a partially-initialized
+    module. `from lionagi.cli import main` still resolves to the callable
+    via the package's lazy __getattr__ re-export."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import lionagi.cli; "
+        "assert 'lionagi.cli.main' not in sys.modules, 'eager main import'; "
+        "import lionagi.studio.cli; "
+        "assert 'lionagi.cli.main' not in sys.modules, 'studio pulled main'; "
+        "from lionagi.cli import main; assert callable(main), type(main); "
+        "import types; "
+        "assert not isinstance(main, types.ModuleType), type(main)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_cli_package_getattr_raises_for_unknown_attr():
+    """The package's __getattr__ only special-cases `main`; anything
+    else must raise AttributeError like a normal missing attribute."""
+    import subprocess
+    import sys
+
+    code = (
+        "import lionagi.cli as pkg\n"
+        "try:\n"
+        "    pkg.not_a_real_attribute\n"
+        "except AttributeError:\n"
+        "    pass\n"
+        "else:\n"
+        "    raise SystemExit('expected AttributeError for unknown attr')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr

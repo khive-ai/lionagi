@@ -1,18 +1,15 @@
 import pytest
 
-from lionagi.providers.deepseek.chat.endpoint import DeepseekChatEndpoint
-from lionagi.providers.deepseek.chat.models import (
+from lionagi.providers.deepseek.chat import (
     DeepseekChatCompletionsRequest,
+    DeepseekChatEndpoint,
     normalize_deepseek_usage,
 )
 from lionagi.service.connections.endpoint_config import EndpointConfig
 
 
 def _get_deepseek_config(**overrides) -> EndpointConfig:
-    """Create a DeepSeek endpoint config for testing.
-
-    Replacement for the removed _get_deepseek_config helper.
-    """
+    """Create a DeepSeek endpoint config for testing."""
     defaults = dict(
         name="deepseek_chat/completions",
         provider="deepseek",

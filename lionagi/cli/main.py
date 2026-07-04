@@ -1,16 +1,6 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""`li` — lionagi command line.
-
-Examples:
-    li agent claude/sonnet "Write a Python function to reverse a string."
-    li agent codex/gpt-5.3-codex "..."
-    li agent -r <branch-id> "follow-up prompt"
-    li agent claude -c "follow-up prompt"
-
-    li o fanout codex/gpt-5.4-xhigh "audit for dead code" -n 3
-    li o fanout claude/sonnet "suggest approaches" -n 3 --with-synthesis claude/opus-4-6-medium
-"""
+"""`li` — lionagi command line."""
 
 from __future__ import annotations
 
@@ -18,22 +8,29 @@ import argparse
 import signal
 import sys
 
+from lionagi.studio.cli import (
+    add_schedule_subparser,
+    add_studio_subparser,
+    run_schedule,
+    run_studio,
+)
+
 from ._logging import configure_cli_logging, log_error
 from .agent import add_agent_subparser, run_agent
 from .casts import add_casts_subparser, run_casts
+from .doctor import add_doctor_subparser, run_doctor
 from .engine import add_engine_subparser, run_engine
 from .invoke import add_invoke_subparser, run_invoke
 from .kill import add_kill_subparser, run_kill
+from .mirror import add_mirror_subparser, run_mirror
 from .monitor import add_monitor_subparser, run_monitor
 from .orchestrate import (
     add_orchestrate_subparser,
     inject_playbook_schema_into_parser,
     run_orchestrate,
 )
-from .schedule import add_schedule_subparser, run_schedule
 from .skill import run_skill
 from .state import add_state_subparser, run_state
-from .studio import add_studio_subparser, run_studio
 from .team import add_team_subparser, run_team
 
 
@@ -92,14 +89,7 @@ def _print_playbook_help(name: str) -> int:
 
 
 def _handle_play_check(argv: list[str]) -> int:
-    """`li play check <name>` — ADR-0029 §9 pre-flight contract validation.
-
-    Loads the playbook, optionally loads the agent profile it names so
-    `artifact_defaults` participate in the merge (matching what a real
-    invocation will see), resolves the contract via
-    :func:`lionagi.state.artifact_verifier.resolve_artifact_contract`,
-    and pretty-prints the result. Does not fire the playbook.
-    """
+    """`li play check <name>` — ADR-0029 §9 pre-flight artifact-contract validation; does not fire the playbook."""
     if not argv or argv[0].startswith("-"):
         print("Usage: li play check <name>")
         return 1
@@ -131,7 +121,7 @@ def _handle_play_check(argv: list[str]) -> int:
     agent_name = spec.get("agent")
     if agent_name:
         try:
-            from lionagi.cli._agents import load_agent_profile
+            from lionagi.cli._providers import load_agent_profile
 
             profile = load_agent_profile(agent_name)
             agent_defaults = getattr(profile, "artifact_defaults", None)
@@ -214,10 +204,13 @@ def _handle_play_shortcut(argv: list[str]) -> list[str] | int:
             print(name)
         return 0
     if head == "check":
-        # ADR-0029 §9: pre-flight artifact-contract validation.
-        # `li play check <name>` loads the playbook, resolves its
-        # artifact contract, and prints the result without firing.
         return _handle_play_check(rest[1:])
+    if head == "status":
+        from .status import run_play_status
+
+        return run_play_status(rest[1:])
+    if head == "--resume":
+        return ["o", "flow", *rest]
     if head.startswith("-"):
         log_error(
             "li play NAME must come before flags\n"
@@ -266,6 +259,24 @@ def main(argv: list[str] | None = None) -> int:
         return rewritten
     _argv = rewritten
 
+    # `li agent status [<id>] [--json]` is a pure-read status surface, not a
+    # prompt to send — must be intercepted before the intermixed agent-flag
+    # parsing below, which otherwise treats "status" as query text (ADR-0085).
+    if _argv and _argv[0] == "agent" and len(_argv) > 1 and _argv[1] == "status":
+        from .status import run_agent_status
+
+        return run_agent_status(_argv[2:])
+
+    # `li monitor run <id> [...]` / `li mon run <id> [...]` is a scriptable
+    # wait-for-terminal primitive, not a detail-view lookup — must be
+    # intercepted before argparse's positional `id` slot would otherwise
+    # swallow the literal token "run" as an entity-id (same reasoning as the
+    # `agent status` interception above, ADR-0085 slice 3).
+    if _argv and _argv[0] in ("monitor", "mon") and len(_argv) > 1 and _argv[1] == "run":
+        from .monitor import run_monitor_wait
+
+        return run_monitor_wait(_argv[2:])
+
     parser = argparse.ArgumentParser(
         prog="li",
         description="lionagi command line — spawn subagents via any CLI-backed provider.",
@@ -278,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     orch_parsers = add_orchestrate_subparser(sub)
-    add_agent_subparser(sub)
+    agent_parser = add_agent_subparser(sub)
     add_casts_subparser(sub)
     add_engine_subparser(sub)
     add_team_subparser(sub)
@@ -287,12 +298,34 @@ def main(argv: list[str] | None = None) -> int:
     add_state_subparser(sub)
     add_invoke_subparser(sub)
     add_kill_subparser(sub)
+    add_mirror_subparser(sub)
     add_monitor_subparser(sub)
+    add_doctor_subparser(sub)
 
     # If the user is invoking `li o flow -p NAME`, inject the playbook's
     # declared args as flags on the flow sub-parser BEFORE argparse runs,
     # so positional prompts don't swallow flag values.
     inject_playbook_schema_into_parser(orch_parsers["flow"], _argv)
+
+    # `li agent` parses standalone so flags may appear anywhere relative to
+    # the [MODEL] PROMPT positionals (subparser dispatch cannot intermix).
+    # parse_intermixed_args is unusable here: it drops the `--` sentinel
+    # between its two passes, letting a hostile prompt like "--bypass" placed
+    # after `--` toggle real flags on the re-parse. Split at the sentinel
+    # ourselves, parse flags, and fold leftover positionals back in order.
+    if _argv and _argv[0] == "agent":
+        tail = _argv[1:]
+        if "--" in tail:
+            i = tail.index("--")
+            head, post = tail[:i], tail[i + 1 :]
+        else:
+            head, post = tail, []
+        args, extras = agent_parser.parse_known_args(head)
+        unknown = [e for e in extras if e.startswith("-") and e != "-"]
+        if unknown:
+            agent_parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+        args.query = [*(args.query or []), *extras, *post]
+        return run_agent(args)
 
     args = parser.parse_args(_argv)
 
@@ -323,11 +356,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "kill":
         return run_kill(args)
 
+    if args.command == "mirror":
+        return run_mirror(args)
+
     if args.command in ("monitor", "mon"):
         return run_monitor(args)
 
     if args.command == "schedule":
         return run_schedule(args)
+
+    if args.command == "doctor":
+        return run_doctor(args)
 
     parser.print_help()
     return 1

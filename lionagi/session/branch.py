@@ -24,6 +24,7 @@ from lionagi.protocols.generic import (
     Pile,
     Progression,
 )
+from lionagi.protocols.memory import InMemoryStore, MemoryStore
 from lionagi.protocols.messages import (
     ActionRequest,
     ActionResponse,
@@ -101,6 +102,8 @@ class Branch(Element, Relational):
     _operation_manager: OperationManager | None = PrivateAttr(None)
     _observer: Any = PrivateAttr(None)
     _hooks: Any = PrivateAttr(None)
+    _memory: MemoryStore | None = PrivateAttr(None)
+    _owning_session_id: Any = PrivateAttr(None)
     _capabilities: Any = PrivateAttr(None)
     _loop_control: "LoopControl | None" = PrivateAttr(None)
     _signal_tasks: list = PrivateAttr(default_factory=list)
@@ -122,9 +125,12 @@ class Branch(Element, Relational):
         system_template_context: dict = None,
         logs: Pile[Log] = None,
         use_lion_system_message: bool = False,
+        memory: MemoryStore | None = None,
         **kwargs,
     ):
         super().__init__(user=user, name=name, **kwargs)
+
+        self._memory = memory
 
         from lionagi.protocols.messages.manager import MessageManager
 
@@ -251,6 +257,16 @@ class Branch(Element, Relational):
         return self._log_manager.logs
 
     @property
+    def memory(self) -> MemoryStore:
+        """This branch's memory store: an explicitly supplied backend, or a
+        lazily-created private `InMemoryStore` on first access. Read-only —
+        the only way to give a `Branch` its own store is the `memory=`
+        constructor parameter."""
+        if self._memory is None:
+            self._memory = InMemoryStore()
+        return self._memory
+
+    @property
     def chat_model(self) -> iModel:
         return self._imodel_manager.chat
 
@@ -336,11 +352,14 @@ class Branch(Element, Relational):
 
     async def _observed_run(self, coro: Any) -> Any:
         """Wrap an operation with RunStart/RunEnd lifecycle + signal drain."""
+        import time as _time  # noqa: PLC0415
+
         has_observer = self._observer is not None
         if has_observer:
             from .signal import RunStart
 
             await self._safe_emit(RunStart())
+        _t0 = _time.monotonic()
         try:
             result = await coro
         except BaseException as exc:
@@ -352,9 +371,10 @@ class Branch(Element, Relational):
             raise
         await self.drain_signals()
         if has_observer:
-            from .signal import RunEnd
+            from .signal import build_run_end
 
-            await self._safe_emit(RunEnd(data=result))
+            duration_ms = (_time.monotonic() - _t0) * 1000.0
+            await self._safe_emit(build_run_end(self, duration_ms=duration_ms, result=result))
         return result
 
     async def emit_and_log(self, event: Any) -> list[Any]:
@@ -835,6 +855,8 @@ class Branch(Element, Relational):
         # ReActStream were ever wrapped with its own _observed_run, the outer
         # wrapper here would produce N+1 RunStart events.  Inlining the
         # emission removes that coupling.
+        import time as _time  # noqa: PLC0415
+
         has_observer = self._observer is not None
         if has_observer:
             from .signal import RunStart
@@ -845,6 +867,7 @@ class Branch(Element, Relational):
         # branch are never affected — each asyncio task carries its own copy.
         from ._lifecycle_ctx import suppress_lifecycle_var
 
+        _t0_react = _time.monotonic()
         _token = suppress_lifecycle_var.set(True)
         try:
             result = await ReAct(
@@ -885,9 +908,10 @@ class Branch(Element, Relational):
         suppress_lifecycle_var.reset(_token)
         await self.drain_signals()
         if has_observer:
-            from .signal import RunEnd
+            from .signal import build_run_end
 
-            await self._safe_emit(RunEnd(data=result))
+            _dur_react = (_time.monotonic() - _t0_react) * 1000.0
+            await self._safe_emit(build_run_end(self, duration_ms=_dur_react, result=result))
         return result
 
     async def ReActStream(  # noqa: N802
@@ -918,89 +942,37 @@ class Branch(Element, Relational):
         include_token_usage_to_model: bool = True,
         **kwargs,
     ) -> AsyncGenerator:
-        from lionagi.ln.fuzzy import FuzzyMatchKeysParams
-        from lionagi.operations.ReAct.ReAct import ReActStream
-        from lionagi.operations.ReAct.utils import ReActAnalysis
-        from lionagi.operations.types import (
-            ActionParam,
-            ChatParam,
-            InterpretParam,
-            ParseParam,
-        )
+        from lionagi.operations.ReAct.ReAct import ReActStream, prepare_react_kw
 
         instruct_dict = _merge_instruct(instruct, instruction, guidance, context)
-
-        intp_param = None
-        if interpret:
-            intp_param = InterpretParam(
-                domain=interpret_domain or "general",
-                style=interpret_style or "concise",
-                sample_writing=interpret_sample or "",
-                imodel=interpret_model or analysis_model or self.chat_model,
-                imodel_kw=interpret_kwargs or {},
-            )
-
-        chat_param = ChatParam.from_branch(
+        kw = prepare_react_kw(
             self,
-            guidance=instruct_dict.get("guidance"),
-            context=instruct_dict.get("context"),
-            tool_schemas=tool_schemas or [],
+            instruct_dict,
+            instruction_fallback=str(instruct),
+            interpret=interpret,
+            interpret_domain=interpret_domain,
+            interpret_style=interpret_style,
+            interpret_sample=interpret_sample,
+            interpret_model=interpret_model,
+            interpret_kwargs=interpret_kwargs,
+            tools=tools,
+            tool_schemas=tool_schemas,
+            response_format=response_format,
+            intermediate_response_options=intermediate_response_options,
+            intermediate_listable=intermediate_listable,
+            reasoning_effort=reasoning_effort,
+            extension_allowed=extension_allowed,
+            max_extensions=max_extensions,
+            response_kwargs=response_kwargs,
+            display_as=display_as,
+            analysis_model=analysis_model,
+            verbose_analysis=verbose,
+            verbose_length=verbose_length,
             include_token_usage_to_model=include_token_usage_to_model,
-            imodel=analysis_model or self.chat_model,
             imodel_kw=kwargs,
         )
 
-        action_param = None
-        if tools is not None or tool_schemas is not None:
-            from lionagi.operations.act.act import _get_default_call_params
-
-            action_param = ActionParam(
-                action_call_params=_get_default_call_params(),
-                tools=tools or True,
-                strategy="concurrent",
-                suppress_errors=True,
-                verbose_action=False,
-            )
-
-        from lionagi.operations.parse.parse import get_default_call
-
-        parse_param = ParseParam(
-            response_format=ReActAnalysis,
-            fuzzy_match_params=FuzzyMatchKeysParams(),
-            handle_validation="return_value",
-            alcall_params=get_default_call(),
-            imodel=analysis_model or self.chat_model,
-            imodel_kw={},
-        )
-
-        resp_ctx = response_kwargs or {}
-        if response_format:
-            resp_ctx["response_format"] = response_format
-
-        async for result in ReActStream(
-            self,
-            instruction=instruct_dict.get("instruction", str(instruct)),
-            chat_param=chat_param,
-            action_param=action_param,
-            parse_param=parse_param,
-            intp_param=intp_param,
-            resp_ctx=resp_ctx,
-            reasoning_effort=reasoning_effort,
-            reason=True,
-            field_models=None,
-            handle_validation="return_value",
-            invoke_actions=True,
-            clear_messages=False,
-            intermediate_response_options=intermediate_response_options,
-            intermediate_listable=intermediate_listable,
-            intermediate_nullable=False,
-            max_extensions=max_extensions,
-            extension_allowed=extension_allowed,
-            verbose_analysis=verbose,
-            display_as=display_as,
-            verbose_length=verbose_length,
-            continue_after_failed_response=False,
-        ):
+        async for result in ReActStream(self, **kw):
             if verbose:
                 analysis, str_ = result
                 from lionagi.libs.schema.as_readable import as_readable

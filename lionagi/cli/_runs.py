@@ -1,45 +1,27 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""Run-scoped file persistence — one invocation of the CLI = one RunDir.
-
-Split between authoritative state (always in ``LIONAGI_HOME/runs/{run_id}/``)
-and user-facing artifacts (``--save`` dir if provided, else nested under the
-state root). This separation lets you resume any branch from anywhere
-(``li agent -r <branch_id>``) while giving users control over where their
-deliverables land.
-
-Layout
-------
-
-``~/.lionagi/runs/{run_id}/``   — authoritative state (always)
-
-- ``run.json``                    run manifest (command, ts, branches, artifact_root)
-- ``branches/{branch_id}.json``   final branch snapshot — canonical location
-- ``stream/{branch_id}.buffer.jsonl``  live chunk buffer during a stream
-- ``artifacts/``                  only when ``--save`` was NOT provided
-
-``<user --save dir>/``           — user-facing artifacts (optional)
-
-Contains whatever the agents wrote (per-agent cwds, synthesis.md),
-plus ``flow.log`` and ``flow_dag.png`` if applicable. This directory
-is not authoritative state — deleting it does not break ``-r``.
-
-Legacy layout (``~/.lionagi/logs/agents/{provider}/{branch_id}``) is still
-read on resume as a fallback for pre-run-scoped sessions.
-"""
+"""Run-scoped file layout: authoritative state in LIONAGI_HOME/runs/{run_id}/, artifacts in --save dir or state_root/artifacts/."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
+import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from lionagi._paths import RUNS_ROOT
 from lionagi.libs.path_safety import validate_path_component
+from lionagi.ln._utils import now_utc
 from lionagi.utils import LIONAGI_HOME
+
+if TYPE_CHECKING:
+    from lionagi import Branch
+    from lionagi.state.db import StateDB
 
 __all__ = (
     "LIONAGI_HOME",
@@ -51,6 +33,11 @@ __all__ = (
     "save_last_branch_pointer",
     "list_runs",
     "current_run_id",
+    "resolve_run_reason",
+    "setup_agent_persist",
+    "teardown_persist",
+    "teardown_agent_persist",
+    "teardown_orchestration_persist",
 )
 _LEGACY_AGENTS_ROOT = LIONAGI_HOME / "logs" / "agents"
 _LAST_BRANCH_POINTER = LIONAGI_HOME / "last_branch.json"
@@ -58,7 +45,7 @@ _RUN_ID_ENV_VAR = "LIONAGI_RUN_ID"
 
 
 def _new_run_id() -> str:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    ts = now_utc().strftime("%Y%m%dT%H%M%S")
     return f"{ts}-{uuid4().hex[:6]}"
 
 
@@ -69,13 +56,7 @@ def current_run_id() -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class RunDir:
-    """Resolved paths for one run's state and artifacts.
-
-    ``state_root`` is always under ``LIONAGI_HOME/runs/``. ``artifact_root``
-    is the user's ``--save`` directory when provided, otherwise a subdir
-    of state_root. The two roots can point to the same directory (when
-    ``--save`` is nested inside ``LIONAGI_HOME``) or diverge entirely.
-    """
+    """Resolved state and artifact paths for one CLI run."""
 
     run_id: str
     state_root: Path
@@ -86,6 +67,10 @@ class RunDir:
     @property
     def manifest_path(self) -> Path:
         return self.state_root / "run.json"
+
+    @property
+    def checkpoint_path(self) -> Path:
+        return self.state_root / "checkpoint.json"
 
     @property
     def branches_dir(self) -> Path:
@@ -102,14 +87,7 @@ class RunDir:
         return self.stream_dir / f"{branch_id}.buffer.jsonl"
 
     def agent_artifact_dir(self, agent_id: str) -> Path:
-        """Return the artifact directory for an agent.
-
-        Authoritative path-containment guard: agent ids become filesystem path
-        segments, so reject any with separators, leading dots, or that resolve
-        outside the artifact root. Orchestrate ids are CLI-generated from
-        roster-validated role names, but any caller constructing a RunDir path
-        from an untrusted identifier picks up the same safety guarantee.
-        """
+        """Return artifact dir for agent_id, rejecting any id that resolves outside artifact_root (path-traversal guard)."""
         try:
             validate_path_component(agent_id, label="agent_id")
         except ValueError as exc:
@@ -167,17 +145,7 @@ def allocate_run(
     save_dir: str | os.PathLike | None = None,
     run_id: str | None = None,
 ) -> RunDir:
-    """Allocate a new run (or attach to an inherited one via env var).
-
-    Parameters
-    ----------
-    save_dir
-        If provided, becomes the ``artifact_root``. Otherwise artifacts land
-        under ``state_root/artifacts/``.
-    run_id
-        Override for the run identifier. When ``None``, tries
-        ``LIONAGI_RUN_ID`` env var (subprocess handoff) then generates new.
-    """
+    """Allocate a run dir, inheriting run_id from LIONAGI_RUN_ID env var if set (subprocess handoff)."""
     rid = run_id or current_run_id() or _new_run_id()
     state_root = RUNS_ROOT / rid
 
@@ -195,16 +163,7 @@ def allocate_run(
 
 
 def find_branch(branch_id: str) -> tuple[str | None, Path]:
-    """Locate a branch JSON by id.
-
-    Returns (run_id, path). ``run_id`` is ``None`` when the branch was
-    found in legacy ``logs/agents/{provider}/`` storage. Raises
-    ``FileNotFoundError`` if no match exists.
-
-    Lookup order:
-      1. ``runs/*/branches/{branch_id}.json`` — the canonical location
-      2. ``logs/agents/{provider}/{branch_id}`` — legacy fallback
-    """
+    """Locate a branch JSON; returns (run_id, path), run_id=None for legacy logs/agents/ storage."""
     if RUNS_ROOT.exists():
         # Prefer an exact hit, fall back to prefix match (branch UUIDs may
         # have been truncated by the user when resuming).
@@ -241,11 +200,7 @@ def find_branch(branch_id: str) -> tuple[str | None, Path]:
 
 
 def load_last_branch() -> tuple[str | None, str]:
-    """Read the last-branch pointer. Returns (run_id, branch_id).
-
-    ``run_id`` is ``None`` when the pointer predates the run-scoped
-    refactor (old schema: ``{provider, branch_id}``).
-    """
+    """Read the last-branch pointer; returns (run_id, branch_id), run_id=None for pre-run-scoped schema."""
     if not _LAST_BRANCH_POINTER.exists():
         raise FileNotFoundError(
             f"No last-branch pointer at {_LAST_BRANCH_POINTER}. "
@@ -287,3 +242,507 @@ def list_runs(limit: int | None = None) -> list[RunDir]:
                 pass
         out.append(RunDir(run_id=d.name, state_root=d, artifact_root=artifact_root))
     return out
+
+
+# ── Live-persist lifecycle (absorbed from _persist.py) ──────────────────────
+
+_log = logging.getLogger("lionagi.cli")
+
+
+def resolve_run_reason(
+    *,
+    status: str,
+    exception: BaseException | None,
+) -> tuple[str, str, list[dict] | None]:
+    from lionagi.state.reasons import RunReasons
+
+    if status == "completed":
+        return RunReasons.COMPLETED_OK, "Run completed successfully.", None
+    if status == "timed_out":
+        return RunReasons.TIMED_OUT_DEADLINE, "Run exceeded the configured timeout.", None
+    if status == "aborted":
+        return RunReasons.CANCELLED_SIGINT, "User pressed Ctrl-C (SIGINT).", None
+    if status == "cancelled":
+        return (
+            RunReasons.CANCELLED_SYSTEM,
+            "Task cancelled by the runtime (anyio CancelledError).",
+            None,
+        )
+    if exception is not None:
+        return RunReasons.FAILED_EXCEPTION, f"{type(exception).__name__}: {exception}", None
+    return RunReasons.FAILED_EXCEPTION, "Run failed.", None
+
+
+async def _teardown_common(
+    db: StateDB,
+    *,
+    session_id: str,
+    session_prog_id: str,
+    status: str,
+    exception: BaseException | None,
+    artifacts_path: str | None,
+    artifact_contract: dict | None,
+    extras: dict | None = None,
+    identity_markers: dict | None = None,
+    escalated_evidence: list[dict] | None = None,
+) -> str:
+    from lionagi.state.artifact_verifier import (
+        missing_artifact_evidence,
+        missing_artifact_summary,
+        verify_artifact_contract,
+    )
+
+    all_msgs = await db.get_progression(session_prog_id)
+    update_kwargs: dict[str, Any] = {"ended_at": time.time()}
+    if all_msgs:
+        update_kwargs["first_msg_id"] = all_msgs[0]
+        update_kwargs["last_msg_id"] = all_msgs[-1]
+
+    if extras:
+        markers = identity_markers or {}
+        update_kwargs["node_metadata"] = json.dumps({**extras, **markers})
+
+    await db.update_session(session_id, **update_kwargs)
+
+    reason_code, reason_summary, evidence_refs = resolve_run_reason(
+        status=status, exception=exception
+    )
+    metadata: dict | None = None
+    if exception is not None:
+        metadata = {"exception_class": type(exception).__name__}
+
+    session_row = await db.get_session(session_id) or {}
+    contract = artifact_contract or session_row.get("artifact_contract_json")
+    artifacts_root = artifacts_path or session_row.get("artifacts_path")
+    verification = verify_artifact_contract(contract, artifacts_root=artifacts_root)
+    await db.update_artifact_verification(session_id, verification)
+
+    final_status = status
+    final_reason_code = reason_code
+    final_reason_summary = reason_summary
+    final_evidence_refs = evidence_refs
+
+    if verification and verification["status"] == "failed":
+        from lionagi.state.reasons import RunReasons
+
+        missing = verification["missing_required"]
+        if status == "completed":
+            final_status = "failed"
+            final_reason_code = RunReasons.FAILED_MISSING_ARTIFACT
+            final_reason_summary = missing_artifact_summary(missing)
+            final_evidence_refs = missing_artifact_evidence(missing)
+        else:
+            metadata = dict(metadata or {})
+            metadata["artifact_verification_status"] = verification["status"]
+            metadata["missing_required_artifact_ids"] = [
+                str(entry.get("id", "")) for entry in missing
+            ]
+
+    # Escalation backstop: a leg that never declared an artifact (so the check
+    # above has nothing to verify) but gave up mid-run via EscalationRequest
+    # still must not read as a clean completion. Only fires when nothing else
+    # already made the run loud — an existing failure reason (including the
+    # artifact check above) is preserved untouched.
+    if escalated_evidence and final_status == "completed":
+        from lionagi.state.reasons import RunReasons
+
+        final_status = "failed"
+        final_reason_code = RunReasons.FAILED_ESCALATED
+        ids = [str(e.get("id", "")) for e in escalated_evidence]
+        final_reason_summary = (
+            f"{len(escalated_evidence)} operation(s) escalated without producing "
+            f"required output: {', '.join(ids)}."
+        )
+        final_evidence_refs = escalated_evidence
+
+    await db.update_status(
+        "session",
+        session_id,
+        new_status=final_status,
+        reason_code=final_reason_code,
+        reason_summary=final_reason_summary,
+        evidence_refs=final_evidence_refs,
+        source="executor",
+        actor=session_id,
+        metadata=metadata,
+    )
+    return final_status
+
+
+def _resolve_project(project: str | None) -> tuple[str | None, str | None]:
+    if project:
+        return project, "explicit"
+    from lionagi.cli._project import detect_project
+
+    return detect_project()
+
+
+async def teardown_persist(
+    ctx: dict | None,
+    *,
+    status: str = "completed",
+    exception: BaseException | None = None,
+    extras: dict | None = None,
+    escalated_evidence: list[dict] | None = None,
+) -> str:
+    if ctx is None:
+        return status
+
+    db = ctx["db"]
+    try:
+        final_status = await _teardown_common(
+            db,
+            session_id=ctx["session_id"],
+            session_prog_id=ctx["session_prog_id"],
+            status=status,
+            exception=exception,
+            artifacts_path=ctx.get("artifacts_path"),
+            artifact_contract=ctx.get("artifact_contract"),
+            extras=extras,
+            identity_markers=ctx.get("identity_markers"),
+            escalated_evidence=escalated_evidence,
+        )
+
+        from lionagi.hooks import unroute_message_persistence
+        from lionagi.hooks.bus import HookPoint
+
+        hook = ctx.get("hook")
+        if hook is not None:
+            unroute_message_persistence(ctx["branch"], hook)
+        for branch, h in ctx.get("hooks", []):
+            unroute_message_persistence(branch, h)
+
+        session_obj = ctx.get("session")
+        if session_obj is not None:
+            err_str = str(exception) if exception is not None else None
+            _usage: dict = {}
+            _branch = ctx.get("branch")
+            try:
+                if _branch is not None:
+                    from lionagi.session.signal import _collect_branch_usage
+
+                    _usage = _collect_branch_usage(_branch)
+                else:
+                    # Orchestrator/DAG sessions never set a singular ctx["branch"];
+                    # every leg (including the orchestrator branch itself) is
+                    # tracked in ctx["hooks"] as (branch, handler) pairs instead.
+                    _hook_branches = [b for b, _h in ctx.get("hooks", [])]
+                    if _hook_branches:
+                        from lionagi.session.signal import _collect_multi_branch_usage
+
+                        _usage = _collect_multi_branch_usage(_hook_branches)
+            except Exception:  # noqa: BLE001, S110
+                pass
+            await session_obj.hooks.emit(
+                HookPoint.SESSION_END,
+                session_id=ctx["session_id"],
+                status=final_status,
+                error=err_str,
+                **_usage,
+            )
+
+        # Detach signal persistence so the observer handler cannot fire after
+        # teardown (the db handle is about to be closed in the finally block).
+        if session_obj is not None:
+            try:
+                session_obj.observer.unbind_db_persistence()
+            except Exception as _exc:  # noqa: BLE001
+                _log.debug("signal persist unbind failed: %s", _exc)
+
+        return final_status
+    except Exception as exc:
+        _log.warning("live persist teardown failed: %s", exc, exc_info=True)
+        return status
+    finally:
+        # Release session ownership of every branch this ephemeral persist
+        # session wired, so a later setup (e.g. in-process resume) can wrap
+        # the same long-lived branch in a fresh session. This must run even
+        # when the bookkeeping above failed: a stranded owner marker would
+        # make the long-lived branch unresumable.
+        _session_obj = ctx.get("session")
+        if _session_obj is not None:
+            for _b in [ctx.get("branch"), *(b for b, _h in ctx.get("hooks", []))]:
+                if _b is None:
+                    continue
+                try:
+                    _session_obj.remove_branch(_b)
+                except Exception as _exc:  # noqa: BLE001
+                    _log.debug("branch ownership release failed: %s", _exc)
+        try:
+            await db.close()
+        except Exception as exc:
+            _log.warning("live persist db.close failed: %s", exc, exc_info=True)
+        # Sweep the shared-db registry (our connection plus any stray a hook
+        # opened) so no non-daemon aiosqlite worker thread blocks process exit.
+        from lionagi.state.db import close_shared_db
+
+        await close_shared_db()
+
+
+# Keep old names as aliases so callers don't break.
+teardown_agent_persist = teardown_persist
+teardown_orchestration_persist = teardown_persist
+
+
+async def _open_shared_db():
+    """Open a StateDB, register it as the process-wide shared connection, and return it.
+
+    On failure, closes and unregisters before re-raising so callers never hold a
+    half-initialised or double-registered connection.
+    """
+    from lionagi.state.db import StateDB, register_shared_db, unregister_shared_db
+
+    db = StateDB()
+    try:
+        await db.open()
+        # Lifecycle hooks (SESSION_START/END, BRANCH_CREATE) reach a db via
+        # get_shared_db(); register ours so they reuse this owned connection
+        # rather than opening a second one whose aiosqlite worker thread leaks.
+        await register_shared_db(db)
+    except Exception:
+        try:
+            await db.close()
+        except Exception as close_exc:
+            _log.warning("fallback db.close after open failure also failed: %s", close_exc)
+        unregister_shared_db(db)
+        raise
+    return db
+
+
+def _make_message_handler(
+    db,
+    branch_id: str,
+    session_id: str,
+    branch_prog_id: str,
+    session_prog_id: str,
+    *,
+    dedup_set: set | None = None,
+    new_msg_ids_list: list | None = None,
+    on_first_msg=None,
+):
+    """Return an async _on_message handler for live DB persistence.
+
+    dedup_set: when provided, skip append_to_progression for already-seen IDs
+               (resume dedup for the agent path).
+    new_msg_ids_list: when provided, newly appended IDs are recorded here.
+    on_first_msg: async callable invoked at the start of each message write
+                  (used for lazy branch-row creation on the orchestration path).
+    """
+
+    async def _on_message(msg):
+        try:
+            if on_first_msg is not None:
+                await on_first_msg()
+            msg_dict = msg.to_dict(mode="db")
+            msg_id = msg_dict["id"]
+            await db.insert_message(msg_dict)
+            if dedup_set is None or msg_id not in dedup_set:
+                await db.append_to_progression(branch_prog_id, msg_id)
+                await db.append_to_progression(session_prog_id, msg_id)
+                if new_msg_ids_list is not None:
+                    new_msg_ids_list.append(msg_id)
+            await db.touch_session_activity(session_id, at=msg_dict.get("created_at"))
+            if msg_dict.get("role") == "system":
+                await db.update_branch(branch_id, system_msg_id=msg_id)
+        except Exception as exc:
+            _log.warning(
+                "live persist write failed for branch %s: %s",
+                branch_id,
+                exc,
+                exc_info=True,
+            )
+
+    return _on_message
+
+
+async def setup_agent_persist(
+    branch: Branch,
+    *,
+    agent_name: str | None = None,
+    artifacts_path: str | None = None,
+    artifact_contract: dict | None = None,
+    invocation_id: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    effort: str | None = None,
+    project: str | None = None,
+) -> dict | None:
+    from lionagi.session.session import Session
+    from lionagi.state import provenance as _provenance
+
+    db = None
+    session = None
+    try:
+        # Claim the branch BEFORE touching the shared DB registry: a branch
+        # still owned by a live persist session must be rejected here without
+        # side effects (registering a shared DB closes the previous handle,
+        # which would break the owning context's teardown).
+        session = Session(name="agent", default_branch=branch)
+        session_id = str(session.id)
+        branch_id = str(branch.id)
+
+        db = await _open_shared_db()
+
+        existing_branch = await db.get_branch(branch_id)
+        if existing_branch:
+            session_id = existing_branch["session_id"]
+            existing_session = await db.get_session(session_id)
+            session_prog_id = existing_session["progression_id"]
+            branch_prog_id = existing_branch["progression_id"]
+
+            if session_prog_id is None:
+                candidate = str(uuid.uuid4())
+                await db.create_progression(candidate)
+                effective = await db.repair_session_progression(session_id, candidate)
+                session_prog_id = effective or candidate
+            if branch_prog_id is None:
+                candidate = str(uuid.uuid4())
+                await db.create_progression(candidate)
+                effective = await db.repair_branch_progression(branch_id, candidate)
+                branch_prog_id = effective or candidate
+
+            existing_msg_ids = set(await db.get_progression(branch_prog_id))
+        else:
+            session_prog_id = str(uuid.uuid4())
+            branch_prog_id = str(uuid.uuid4())
+            existing_msg_ids = set()
+
+            await db.create_progression(session_prog_id)
+            await db.create_progression(branch_prog_id)
+
+            session_dict = session.to_dict(mode="db")
+            _proj, _proj_src = _resolve_project(project)
+            from lionagi.cli.kill import current_pid_markers
+
+            _node_meta = {**(session_dict.get("node_metadata") or {}), **current_pid_markers()}
+            await db.create_session(
+                {
+                    "id": session_id,
+                    "created_at": session_dict["created_at"],
+                    "node_metadata": _node_meta,
+                    "name": session_dict.get("name"),
+                    "user": session_dict.get("user"),
+                    "progression_id": session_prog_id,
+                    "first_msg_id": None,
+                    "last_msg_id": None,
+                    "invocation_kind": "agent",
+                    "agent_name": agent_name,
+                    "artifacts_path": artifacts_path,
+                    "artifact_contract_json": artifact_contract,
+                    "status": "running",
+                    "started_at": time.time(),
+                    "invocation_id": invocation_id,
+                    "model": model,
+                    "provider": provider,
+                    "effort": effort,
+                    "agent_hash": _provenance.agent_definition_hash(agent_name),
+                    "project": _proj,
+                    "project_source": _proj_src,
+                }
+            )
+
+            system_msg_id = None
+            if branch.system:
+                sys_dict = branch.system.to_dict(mode="db")
+                system_msg_id = sys_dict["id"]
+                await db.insert_message(sys_dict)
+
+            branch_dict = branch.to_dict(mode="db")
+            node_meta = branch_dict.get("node_metadata") or {}
+            if isinstance(node_meta, str):
+                node_meta = json.loads(node_meta)
+            if "chat_model" in branch_dict:
+                node_meta["chat_model"] = branch_dict["chat_model"]
+
+            await db.create_branch(
+                {
+                    "id": branch_id,
+                    "created_at": branch_dict["created_at"],
+                    "node_metadata": node_meta,
+                    "user": branch_dict.get("user"),
+                    "name": branch_dict.get("name"),
+                    "session_id": session_id,
+                    "progression_id": branch_prog_id,
+                    "system_msg_id": system_msg_id,
+                    "model": model,
+                    "provider": provider,
+                    "agent_name": agent_name,
+                }
+            )
+
+            from lionagi.hooks.bus import HookPoint
+
+            await session.hooks.emit(
+                HookPoint.SESSION_START,
+                session_id=session_id,
+                model=model,
+                provider=provider,
+                effort=effort,
+                agent_name=agent_name,
+                agent_hash=_provenance.agent_definition_hash(agent_name),
+                invocation_id=invocation_id,
+            )
+            await session.hooks.emit(
+                HookPoint.BRANCH_CREATE,
+                branch_id=branch_id,
+                model=model,
+                provider=provider,
+                agent_name=agent_name,
+            )
+
+        new_msg_ids: list = []
+        ctx = {
+            "db": db,
+            "session": session,
+            "branch": branch,
+            "session_id": session_id,
+            "session_prog_id": session_prog_id,
+            "branch_prog_id": branch_prog_id,
+            "existing_msg_ids": existing_msg_ids,
+            "new_msg_ids": new_msg_ids,
+            "artifacts_path": artifacts_path,
+            "artifact_contract": artifact_contract,
+        }
+
+        _on_message = _make_message_handler(
+            db,
+            branch_id,
+            session_id,
+            branch_prog_id,
+            session_prog_id,
+            dedup_set=existing_msg_ids,
+            new_msg_ids_list=new_msg_ids,
+        )
+
+        # Bind signal persistence through the already-open DB so every Signal
+        # emitted on this session's observer lands in session_signals without
+        # opening a new connection per signal (matches message-write cost).
+        session.observer.bind_db_persistence(session_id, db=db)
+
+        from lionagi.hooks import route_message_persistence
+
+        ctx["hook"] = route_message_persistence(session, branch, _on_message)
+        return ctx
+    except Exception as exc:
+        _log.warning(
+            "live persist setup failed (%s) — disabling persistence for this run",
+            exc,
+            exc_info=True,
+        )
+        # If the wrapper session already claimed the branch, release it so a
+        # later setup (or retry) can wrap the same branch again.
+        if session is not None:
+            try:
+                session.remove_branch(branch)
+            except Exception as release_exc:  # noqa: BLE001
+                _log.debug("branch ownership release failed: %s", release_exc)
+        if db is not None:
+            try:
+                await db.close()
+            except Exception as close_exc:
+                _log.warning("fallback db.close after setup failure also failed: %s", close_exc)
+            # Drop the now-closed handle so get_shared_db() can't hand it out.
+            from lionagi.state.db import unregister_shared_db
+
+            unregister_shared_db(db)
+        return None

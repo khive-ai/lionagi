@@ -11,9 +11,9 @@ from lionagi.ln.concurrency import CancelScope, move_on_after
 from lionagi.orchestration import plan
 from lionagi.orchestration.prompts import SYNTHESIS_INSTRUCTION
 
-from .._lifecycle import classify_exception
 from .._logging import log_error, progress
 from .._providers import parse_model_spec
+from .._util import classify_exception
 from ._common import (
     _create_fanout_team,
     _format_result_json,
@@ -61,10 +61,6 @@ async def _run_fanout(
     pack: str | None = None,
 ) -> str:
     """Three-phase fan-out: decompose → fan out → synthesize."""
-    from lionagi.ln.concurrency.errors import cache_cancelled_exc_class
-
-    cache_cancelled_exc_class()
-
     env = await setup_orchestration(
         pattern_name="Fanout",
         model_spec=model_spec,
@@ -152,16 +148,9 @@ async def _run_fanout_inner(
     team_name: str | None = None,
     _shared: dict | None = None,
 ) -> str:
-    """Inner fanout logic (no timeout wrapper).
-
-    Clean-break design: the orchestrator (casts ``orchestrator`` role) decomposes
-    the task into a ``list[TaskAssignment]`` (casts coordination emission) over
-    the role roster. Each assignment runs on a worker built from its casts role.
-    No bespoke ``AgentRequest`` model, no per-worker model field.
-    """
+    """Inner fanout logic without timeout wrapper."""
     t0 = time.monotonic()
 
-    # ── Phase 1: Orchestrator decomposes into TaskAssignments ─────────
     roster = available_roles()
     progress(f"Phase 1: Orchestrator decomposing task into ≤{num_workers} assignments...")
     assignments = await plan(
@@ -177,11 +166,9 @@ async def _run_fanout_inner(
         return "Orchestrator produced no assignments."
     progress(f"Phase 1 done ({t_decompose:.1f}s): {len(assignments)} assignments generated.")
 
-    # Worker model pool: heterogeneous fanout via --workers M1,M2 (assignment i
-    # uses pool[i % len]); without it, every worker uses the default model.
+    # Heterogeneous models via --workers M1,M2 (assignment i uses pool[i % len]).
     pool = [s.strip() for s in workers_str.split(",")] if workers_str else []
 
-    # Deduplicated names by assignee role (researcher, researcher-2, ...).
     worker_names: list[str] = [env.assign_name(ta.assignee) for ta in assignments]
 
     if team_name:
@@ -191,7 +178,6 @@ async def _run_fanout_inner(
     if _shared is not None:
         _shared["session"] = env.session
 
-    # ── Phase 2: Fan out — one worker branch per assignment ───────────
     fanned_nodes: list[str] = []
     fanned_labels: list[str] = []
 
@@ -227,7 +213,6 @@ async def _run_fanout_inner(
     )
     t_fanout = time.monotonic() - t1
 
-    # Collect results
     op_results = result2.get("operation_results", {})
     worker_results: list[dict] = []
     contexts: list[str] = []
@@ -246,14 +231,12 @@ async def _run_fanout_inner(
 
     progress(f"Phase 2 done ({t_fanout:.1f}s).")
 
-    # ── Incremental save: persist worker responses as files ──────────
     for wr in worker_results:
         (env.run.artifact_root / f"worker_{wr['worker']}.md").write_text(wr["response"])
     progress(f"Saved {len(worker_results)} worker results to {env.run.artifact_root}")
     if _shared is not None:
         _shared["saved_workers"] = worker_results
 
-    # ── Phase 3: Synthesis ────────────────────────────────────────────
     synthesis_result = None
     if with_synthesis and contexts:
         synth_spec = synthesis_model or model_spec
@@ -286,18 +269,15 @@ async def _run_fanout_inner(
 
         progress(f"Phase 3 done ({t_synth:.1f}s).")
 
-    # ── Output ────────────────────────────────────────────────────────
     if output_format == "json":
         output = _format_result_json(worker_results, synthesis_result)
     else:
         output = _format_result_text(worker_results, synthesis_result)
 
-    # ── Save synthesis to artifact_root ──────────────────────────────
     if synthesis_result:
         env.run.synthesis_path.write_text(synthesis_result["response"])
     progress(f"Saved to {env.run.artifact_root}")
 
-    # ── Post to team ─────────────────────────────────────────────────
     if env.team_data:
         _post_results_to_team(env.team_data, worker_results, worker_names, synthesis_result)
         progress(
@@ -307,7 +287,6 @@ async def _run_fanout_inner(
         progress(f"  li team receive -t {env.team_data['id']} --as orchestrator")
         progress(f"  li team show {env.team_data['id']}")
 
-    # ── Persist branches + manifest + hints ──────────────────────────
     finalize_orchestration(
         env,
         kind="fanout",

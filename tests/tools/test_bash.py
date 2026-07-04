@@ -270,7 +270,7 @@ async def test_pipe_operator_does_not_execute():
 
 
 # ---------------------------------------------------------------------------
-# C1: malformed command returns permission error response
+# Malformed command returns permission error response
 # ---------------------------------------------------------------------------
 
 
@@ -282,7 +282,7 @@ async def test_bash_tool_malformed_command_returns_permission_error_response():
 
 
 # ---------------------------------------------------------------------------
-# C2: Popen failure returns execution error response
+# Popen failure returns execution error response
 # ---------------------------------------------------------------------------
 
 
@@ -303,7 +303,7 @@ async def test_bash_tool_popen_failure_returns_execution_error(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# C3: MagicMock pid guard — os.killpg must not be called with non-int pid
+# MagicMock pid guard — os.killpg must not be called with non-int pid
 # ---------------------------------------------------------------------------
 
 
@@ -318,6 +318,10 @@ async def test_bash_tool_timeout_mock_pid_calls_kill_not_killpg(monkeypatch):
     # Set pid to a MagicMock object — isinstance(pid, int) returns False,
     # so the guard routes to proc.kill() instead of os.killpg().
     mock_proc.pid = MagicMock()
+    # EOF on read() so _subprocess_sync's drain threads exit instead of
+    # busy-spinning forever on a bare-mock stream (saturates CPU on CI).
+    mock_proc.stdout.read.return_value = b""
+    mock_proc.stderr.read.return_value = b""
     mock_proc.wait.side_effect = [subprocess.TimeoutExpired("cmd", 0.01), None]
     mock_proc.kill = MagicMock()
 
@@ -327,7 +331,9 @@ async def test_bash_tool_timeout_mock_pid_calls_kill_not_killpg(monkeypatch):
         return mock_proc
 
     monkeypatch.setattr(subprocess_mod.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(subprocess_mod.os, "killpg", lambda *a: killpg_calls.append(a))
+    import lionagi.ln._proc as proc_mod
+
+    monkeypatch.setattr(proc_mod.os, "killpg", lambda *a: killpg_calls.append(a))
 
     tool = BashTool()
     resp = await tool.handle_request(BashRequest(command="sleep 60", timeout=10))
@@ -351,6 +357,10 @@ async def test_bash_tool_timeout_invalid_pid_calls_kill_not_killpg(monkeypatch, 
 
     mock_proc = MagicMock()
     mock_proc.pid = invalid_pid
+    # EOF on read() so _subprocess_sync's drain threads exit instead of
+    # busy-spinning forever on a bare-mock stream (saturates CPU on CI).
+    mock_proc.stdout.read.return_value = b""
+    mock_proc.stderr.read.return_value = b""
     mock_proc.wait.side_effect = [subprocess.TimeoutExpired("cmd", 0.01), None]
     mock_proc.kill = MagicMock()
 
@@ -360,7 +370,9 @@ async def test_bash_tool_timeout_invalid_pid_calls_kill_not_killpg(monkeypatch, 
         return mock_proc
 
     monkeypatch.setattr(subprocess_mod.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(subprocess_mod.os, "killpg", lambda *a: killpg_calls.append(a))
+    import lionagi.ln._proc as proc_mod
+
+    monkeypatch.setattr(proc_mod.os, "killpg", lambda *a: killpg_calls.append(a))
 
     tool = BashTool()
     resp = await tool.handle_request(BashRequest(command="sleep 60", timeout=10))

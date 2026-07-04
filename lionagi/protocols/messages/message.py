@@ -39,18 +39,27 @@ class MessageContent(DataClass):
 
 
 class Message(Node, Sendable):
-    """Base class for all messages.
-
-    Serves both as LLM conversation messages (via subclasses with specific
-    roles and MessageContent) and as inter-entity exchange messages (with
-    arbitrary content and channel routing).
-
-    Subclasses set ``_role`` as a ClassVar to fix their role.
-    """
+    """Base class for all messages; subclasses fix their role via _role ClassVar."""
 
     _role: ClassVar[MessageRole] = MessageRole.UNSET
+    _content_type: ClassVar[type] = MessageContent
 
     content: Any = None
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _validate_content(cls, v: Any) -> Any:
+        t = cls._content_type
+        # base Message is a generic envelope (content: Any); only roled subclasses coerce
+        if t is MessageContent:
+            return v
+        if v is None:
+            return t()
+        if isinstance(v, dict):
+            return t.from_dict(v)
+        if isinstance(v, t):
+            return v
+        raise TypeError(f"content must be dict or {t.__name__} instance")
 
     def __init__(self, **kwargs):
         kwargs.pop("role", None)
@@ -107,22 +116,13 @@ class Message(Node, Sendable):
 
     @property
     def rendered(self) -> str:
-        """Render the message content as a string.
-
-        Delegates to the content's rendered property if available.
-        """
+        """Render the message content as a string, delegating to content.rendered if available."""
         if hasattr(self.content, "rendered"):
             return self.content.rendered
         return str(self.content) if self.content is not None else ""
 
     def update(self, sender=None, recipient=None, **kw):
-        """Update message fields.
-
-        Args:
-            sender: New sender role or ID.
-            recipient: New recipient role or ID.
-            **kw: Content updates to apply via from_dict() reconstruction.
-        """
+        """Update sender, recipient, and/or content fields in place."""
         if sender:
             self.sender = validate_sender_recipient(sender)
         if recipient:

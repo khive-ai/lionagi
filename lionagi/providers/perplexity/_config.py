@@ -12,7 +12,7 @@ class PerplexityConfigs(ProviderConfig, Enum):
         "chat/completions",
         ["chat"],
         EndpointType.API,
-        LazyType("lionagi.providers.perplexity.chat.models:PerplexityChatRequest"),
+        LazyType("lionagi.providers.perplexity.chat:PerplexityChatRequest"),
         "https://api.perplexity.ai",
         "bearer",
     )
@@ -20,5 +20,6 @@ class PerplexityConfigs(ProviderConfig, Enum):
 
 PerplexityConfigs._PROVIDER = "perplexity"
 PerplexityConfigs._PROVIDER_ALIASES = []
+PerplexityConfigs._API_KEY_ENV = "PERPLEXITY_API_KEY"
 
 __all__ = ("PerplexityConfigs",)

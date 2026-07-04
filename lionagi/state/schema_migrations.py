@@ -1,14 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Migration column definitions for StateDB._reconcile_columns.
-
-Each entry is ``(column_name, sqlite_column_def)`` where ``column_def``
-is valid in ``ALTER TABLE … ADD COLUMN``.  SQLite only allows CHECK
-constraints inline if they reference only the new column; we skip CHECKs
-in ALTER and rely on the Python validators in db.py to enforce them on
-old databases.
-"""
+"""ALTER TABLE column definitions consumed by StateDB._reconcile_columns for schema migrations."""
 
 from __future__ import annotations
 
@@ -46,6 +39,12 @@ MIGRATION_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # ADR-0029: resolved artifact contract and teardown result.
         ("artifact_contract_json", "JSON"),
         ("artifact_verification_json", "JSON"),
+        # Run usage populated at RunEnd.
+        ("input_tokens", "INTEGER"),
+        ("output_tokens", "INTEGER"),
+        ("total_cost_usd", "REAL"),
+        ("num_turns", "INTEGER"),
+        ("duration_ms", "REAL"),
     ],
     "branches": [
         ("system_msg_id", "TEXT"),

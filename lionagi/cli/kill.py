@@ -13,9 +13,9 @@ from typing import Any
 import psutil
 
 from ._logging import log_error, warn
-from ._process import _TABLE_TO_ENTITY_TYPE
-from ._process import pid_alive as _pid_alive
-from ._process import resolve_entity as _resolve_entity
+from ._util import _TABLE_TO_ENTITY_TYPE
+from ._util import pid_alive as _pid_alive
+from ._util import resolve_entity as _resolve_entity
 
 
 def _read_pid_from_entity(entity: dict[str, Any]) -> int | None:
@@ -60,6 +60,11 @@ def _cmdline_is_lionagi(cmdline: list[str], expected_cmd: str) -> bool:
     exe = os.path.basename(cmdline[0])
     if exe in ("li", expected_cmd):
         return True
+    # Shebang-launched console scripts: argv[0] is the Python interpreter and
+    # argv[1] is the script path (e.g. .venv/bin/li).
+    if exe.startswith("python") and len(cmdline) >= 2:
+        if os.path.basename(cmdline[1]) == "li":
+            return True
     for flag, mod in zip(cmdline, cmdline[1:], strict=False):
         if flag == "-m" and (mod == expected_cmd or mod.startswith(expected_cmd + ".")):
             return True
@@ -159,16 +164,14 @@ _PLAY_ACTIVE_STATUSES = frozenset(
 
 
 async def _list_child_invocations(db: Any, session_id: str) -> list[dict[str, Any]]:
-    cur = await db.db.execute("SELECT * FROM invocations WHERE status = 'running'")
-    rows = await cur.fetchall()
+    rows = await db.fetch_all("SELECT * FROM invocations WHERE status = 'running'", ())
     result = []
-    for row in rows:
-        d = dict(row)
-        child_cur = await db.db.execute(
+    for d in rows:
+        child_row = await db.fetch_one(
             "SELECT 1 FROM sessions WHERE invocation_id = ? LIMIT 1",
             (d["id"],),
         )
-        if await child_cur.fetchone() is not None:
+        if child_row is not None:
             result.append(d)
         elif d.get("id") == session_id:
             result.append(d)
@@ -181,15 +184,15 @@ async def _list_running_children(
     children: list[tuple[str, str, dict[str, Any]]] = []
 
     if entity_type == "show":
-        cur = await db.db.execute(
+        rows = await db.fetch_all(
             "SELECT * FROM plays WHERE show_id = ? AND status = 'running'",
             (entity_id,),
         )
-        for row in await cur.fetchall():
+        for row in rows:
             children.append(("plays", "play", db._row_to_dict(row)))
 
     if entity_type == "session":
-        cur = await db.db.execute(
+        rows = await db.fetch_all(
             "SELECT * FROM invocations "
             "WHERE status = 'running' AND id IN ("
             "  SELECT invocation_id FROM sessions "
@@ -197,15 +200,15 @@ async def _list_running_children(
             ")",
             (entity_id,),
         )
-        for row in await cur.fetchall():
+        for row in rows:
             children.append(("invocations", "invocation", db._row_to_dict(row)))
 
     if entity_type == "invocation":
-        cur = await db.db.execute(
+        rows = await db.fetch_all(
             "SELECT * FROM sessions WHERE invocation_id = ? AND status = 'running'",
             (entity_id,),
         )
-        for row in await cur.fetchall():
+        for row in rows:
             children.append(("sessions", "session", db._row_to_dict(row)))
 
     return children
@@ -223,16 +226,14 @@ async def _persist_cancel(
     """Write cancelled status + status_transition row."""
     play_terminal = {"merged", "escalated", "gate_failed", "blocked", "aborted_after_finish"}
     if entity_type == "play":
-        cur = await db.db.execute("SELECT status FROM plays WHERE id = ?", (entity_id,))
-        row = await cur.fetchone()
+        row = await db.fetch_one("SELECT status FROM plays WHERE id = ?", (entity_id,))
         if row is None:
             return
         if row["status"] in play_terminal:
             return
         target_status = "blocked"
     elif entity_type == "show":
-        cur = await db.db.execute("SELECT status FROM shows WHERE id = ?", (entity_id,))
-        row = await cur.fetchone()
+        row = await db.fetch_one("SELECT status FROM shows WHERE id = ?", (entity_id,))
         if row is None:
             return
         if row["status"] in ("completed", "aborted"):
@@ -243,11 +244,10 @@ async def _persist_cancel(
             "session": "sessions",
             "invocation": "invocations",
         }.get(entity_type, "sessions")
-        cur = await db.db.execute(
+        row = await db.fetch_one(
             f"SELECT status FROM {table} WHERE id = ?",  # noqa: S608
             (entity_id,),
         )
-        row = await cur.fetchone()
         if row is None:
             return
         if row["status"] != "running":
@@ -422,8 +422,7 @@ async def _play_child_stale(db: Any, play_row: dict[str, Any]) -> bool:
     session_id = play_row.get("session_id")
     if not session_id:
         return False
-    cur = await db.db.execute("SELECT status FROM sessions WHERE id = ?", (session_id,))
-    row = await cur.fetchone()
+    row = await db.fetch_one("SELECT status FROM sessions WHERE id = ?", (session_id,))
     if row is None:
         return False
     return row["status"] != "running"
@@ -431,8 +430,7 @@ async def _play_child_stale(db: Any, play_row: dict[str, Any]) -> bool:
 
 async def _show_children_all_terminal(db: Any, show_id: str) -> bool:
     """True if the show has >= 1 child play and all are terminal."""
-    cur = await db.db.execute("SELECT status FROM plays WHERE show_id = ?", (show_id,))
-    rows = await cur.fetchall()
+    rows = await db.fetch_all("SELECT status FROM plays WHERE show_id = ?", (show_id,))
     if not rows:
         return False
     return all(row["status"] not in _PLAY_ACTIVE_STATUSES for row in rows)
@@ -464,14 +462,12 @@ async def _do_kill_all_stale(
         for table in _STALE_SWEEP_ORDER:
             entity_type = _TABLE_TO_ENTITY_TYPE[table]
             live_status = live_status_for[table]
-            cur = await db.db.execute(
+            rows = await db.fetch_all(
                 f"SELECT * FROM {table} WHERE status = ?",  # noqa: S608
                 (live_status,),
             )
-            rows = await cur.fetchall()
 
-            for row in rows:
-                row_dict = db._row_to_dict(row)
+            for row_dict in (db._row_to_dict(r) for r in rows):
                 entity_id = row_dict["id"]
 
                 started = (
@@ -529,10 +525,8 @@ async def _do_kill_all_stale(
                 killed += 1
                 print(f"  cancelled stale {entity_type} {entity_id[:12]} (pid={pid})")
 
-        play_cur = await db.db.execute("SELECT * FROM plays WHERE status = 'running'")
-        play_rows = await play_cur.fetchall()
-        for row in play_rows:
-            row_dict = db._row_to_dict(row)
+        play_rows = await db.fetch_all("SELECT * FROM plays WHERE status = 'running'", ())
+        for row_dict in (db._row_to_dict(r) for r in play_rows):
             play_id = row_dict["id"]
 
             started = row_dict.get("started_at") or row_dict.get("created_at") or 0
@@ -575,10 +569,8 @@ async def _do_kill_all_stale(
             killed += 1
             print(f"  cancelled stale play {play_id[:12]} (child-derived)")
 
-        show_cur = await db.db.execute("SELECT * FROM shows WHERE status = 'active'")
-        show_rows = await show_cur.fetchall()
-        for row in show_rows:
-            row_dict = db._row_to_dict(row)
+        show_rows = await db.fetch_all("SELECT * FROM shows WHERE status = 'active'", ())
+        for row_dict in (db._row_to_dict(r) for r in show_rows):
             show_id = row_dict["id"]
 
             started = (

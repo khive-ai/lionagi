@@ -1,15 +1,6 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""Provider/model-spec tables and parsing — shared across service and agent layers.
-
-Model spec format: ``provider/model-effort``
-
-    claude/opus-4-7-high   → model="claude/opus-4-7", effort="high"
-    codex/gpt-5.4-xhigh   → model="codex/gpt-5.4", effort="xhigh"
-    claude/sonnet          → model="claude/sonnet", effort=None
-
-iModel handles provider/model splitting internally. We only strip effort.
-"""
+"""Provider/model-spec tables and ``parse_model_spec`` — strips effort suffix, expands aliases, shared across service and agent layers."""
 
 from __future__ import annotations
 
@@ -26,7 +17,9 @@ __all__ = (
     "PROVIDER_FAST_KWARGS",
     "PROVIDER_TO_ALIAS",
     "PROVIDER_YOLO_KWARGS",
+    "PROVIDERS_EFFORT_VIA_MODEL_NAME",
     "PROVIDERS_NO_EFFORT",
+    "normalize_effort",
     "parse_model_spec",
 )
 
@@ -43,6 +36,21 @@ EFFORT_LEVELS = frozenset(
         "max",
     }
 )
+
+
+def normalize_effort(effort: str | None) -> str | None:
+    """Case-fold a raw effort string to lionagi's lowercase vocabulary.
+
+    Every clamp table below (_CODEX_EFFORT_CLAMP, _clamp_claude_effort,
+    _GEMINI_EFFORT_CLAMP) is keyed on lowercase levels and falls back to a
+    default on a lookup miss, so an un-normalized value like "High" silently
+    misclamps rather than raising. Call this once at each boundary where a
+    raw effort string enters lionagi from outside (CLI flag, profile
+    frontmatter, orchestration spec) — accepted vocabulary is unchanged,
+    only case is folded.
+    """
+    return effort.lower() if isinstance(effort, str) else effort
+
 
 # Codex accepts none|minimal|low|medium|high|xhigh — NOT "max".
 # Profiles/orchestrators may emit "max"; clamp to "xhigh" for codex.
@@ -62,10 +70,30 @@ def _clamp_claude_effort(effort: str, model: str) -> str:
     return "high"
 
 
-# CLI providers authenticate via a local subprocess (ChatGPT/Claude
-# subscription), so their api_key is an irrelevant placeholder. API providers
-# (openai, deepseek, anthropic, …) resolve a real key from settings — passing a
-# placeholder there OVERRIDES that resolution and breaks auth.
+# agy (Antigravity CLI) has no effort flag or kwarg — effort is expressed only
+# as a Low/Medium/High suffix baked into the --model name, and Gemini 3.1 Pro
+# has no Medium tier. lionagi's 5-level none|minimal|low|medium|high|xhigh|max
+# collapses onto this 3-tier scale.
+_GEMINI_EFFORT_CLAMP: dict[str, str] = {
+    "none": "Low",
+    "minimal": "Low",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "High",
+    "max": "High",
+}
+
+
+def _clamp_gemini_effort(effort: str, is_pro: bool) -> str:
+    """Map lionagi's 5-level effort onto agy's Low/Medium/High tiers; Pro has no Medium."""
+    tier = _GEMINI_EFFORT_CLAMP.get(effort, "Medium")
+    if is_pro and tier == "Medium":
+        return "High"
+    return tier
+
+
+# CLI providers use subprocess auth; api_key is a placeholder. Passing a placeholder to API providers OVERRIDES key resolution.
 CLI_PROVIDERS: frozenset[str] = frozenset(
     {
         "claude_code",
@@ -81,7 +109,6 @@ CLI_PROVIDERS: frozenset[str] = frozenset(
 )
 
 
-# provider name → kwarg name for effort
 PROVIDER_EFFORT_KWARG: dict[str, str] = {
     "claude-code": "effort",
     "claude_code": "effort",
@@ -90,26 +117,37 @@ PROVIDER_EFFORT_KWARG: dict[str, str] = {
     "pi": "thinking",
 }
 
-# providers that do NOT support effort
-PROVIDERS_NO_EFFORT: frozenset[str] = frozenset(
+# agy-backed aliases (see lionagi/providers/google/gemini_code.py) fold effort
+# into the resolved --model name via resolve_agy_model instead of a kwarg —
+# classified separately from PROVIDER_EFFORT_KWARG below.
+PROVIDERS_EFFORT_VIA_MODEL_NAME: frozenset[str] = frozenset(
     {
         "gemini_code",
         "gemini-code",
         "gemini_cli",
         "gemini-cli",
+    }
+)
+
+# Bare "gemini" is the direct Google API provider (see
+# providers/google/_config.py:GeminiChatConfigs) — distinct from the agy CLI
+# above — and has no effort concept at all.
+PROVIDERS_NO_EFFORT: frozenset[str] = frozenset(
+    {
         "gemini",
     }
 )
 
-# Module-level invariant: a provider cannot be in both sets simultaneously.
-# A future maintainer adding a provider to the wrong set gets an ImportError
-# at startup instead of silent effort-kwarg corruption at runtime.
-# Using raise RuntimeError (not assert) so the check survives `python -O`.
-_overlap = PROVIDERS_NO_EFFORT & set(PROVIDER_EFFORT_KWARG)
+# Invariant: the three provider-effort classifications above are mutually exclusive; RuntimeError (not assert) survives -O.
+_overlap = (
+    (PROVIDERS_NO_EFFORT & set(PROVIDER_EFFORT_KWARG))
+    | (PROVIDERS_NO_EFFORT & PROVIDERS_EFFORT_VIA_MODEL_NAME)
+    | (set(PROVIDER_EFFORT_KWARG) & PROVIDERS_EFFORT_VIA_MODEL_NAME)
+)
 if _overlap:
     raise RuntimeError(
-        f"Provider classification conflict: {_overlap!r} appear in both "
-        "PROVIDERS_NO_EFFORT and PROVIDER_EFFORT_KWARG"
+        f"Provider classification conflict: {_overlap!r} appear in more than one "
+        "of PROVIDERS_NO_EFFORT, PROVIDER_EFFORT_KWARG, PROVIDERS_EFFORT_VIA_MODEL_NAME"
     )
 del _overlap
 
@@ -153,10 +191,10 @@ BACKENDS: dict[str, str] = {
     "claude-code": "claude_code/sonnet",
     "claude_code": "claude_code/sonnet",
     "codex": "codex/gpt-5.3-codex-spark",
-    "gemini-code": "gemini_code/gemini-3-flash-preview",
-    "gemini_code": "gemini_code/gemini-3-flash-preview",
-    "gemini-cli": "gemini_code/gemini-3-flash-preview",
-    "gemini_cli": "gemini_code/gemini-3-flash-preview",
+    "gemini-code": "gemini_code/gemini-3.5-flash",
+    "gemini_code": "gemini_code/gemini-3.5-flash",
+    "gemini-cli": "gemini_code/gemini-3.5-flash",
+    "gemini_cli": "gemini_code/gemini-3.5-flash",
     "pi": "pi/gemini-2.5-flash",
     "pi-code": "pi/gemini-2.5-flash",
     "pi_code": "pi/gemini-2.5-flash",
@@ -183,7 +221,7 @@ class ModelSpec:
         return self.model
 
 
-_CLAUDE_MODEL_PREFIXES = ("opus", "sonnet", "haiku")
+_CLAUDE_MODEL_PREFIXES = ("opus", "sonnet", "haiku", "fable")
 
 
 _CLAUDE_PROVIDER_NAMES = frozenset(
@@ -196,14 +234,7 @@ _CLAUDE_PROVIDER_NAMES = frozenset(
 
 
 def _normalize_model(spec_or_model: str, provider_hint: str | None = None) -> str:
-    """Normalize model name for the target provider.
-
-    Claude Code CLI accepts: 'sonnet', 'opus', 'haiku' (aliases)
-    or full names like 'claude-sonnet-4-6', 'claude-opus-4-7'.
-    'opus-4-7' is neither — normalize to 'claude-opus-4-7'.
-
-    Handles both 'provider/model' and bare 'model' inputs.
-    """
+    """Normalize model name: prefixes bare Claude model names (e.g. 'opus-4-7' → 'claude-opus-4-7')."""
     if "/" in spec_or_model:
         prov, model = spec_or_model.split("/", 1)
         normalized = _normalize_model_name(model, prov)
@@ -221,29 +252,17 @@ def _normalize_model_name(model: str, provider_hint: str | None = None) -> str:
 
 
 def parse_model_spec(spec: str) -> ModelSpec:
-    """Parse effort suffix from spec. Everything else stays intact for iModel.
-
-    Examples::
-        "claude/opus-4-7-high"   → ModelSpec("claude/opus-4-7", "high")
-        "codex/gpt-5.4-xhigh"   → ModelSpec("codex/gpt-5.4", "xhigh")
-        "claude/sonnet"          → ModelSpec("claude/sonnet", None)
-        "claude"                 → ModelSpec("claude_code/sonnet", None)  # alias
-        "gemini-code/gemini-3.1-pro-high" → ERROR (gemini has no effort)
-    """
-    # Alias expansion
+    """Parse provider/model-effort spec: strip effort suffix, expand aliases, validate effort support."""
     if spec in BACKENDS:
         return ModelSpec(model=BACKENDS[spec], effort=None)
 
-    # Split provider for effort validation
     provider_raw = spec.split("/")[0] if "/" in spec else spec
 
-    # Try to strip effort suffix from the full spec
     m = _EFFORT_SUFFIX_RE.match(spec)
     if m:
         model_clean = m.group(1)
         effort = m.group(2)
 
-        # Validate: provider supports effort?
         if provider_raw in PROVIDERS_NO_EFFORT:
             raise ValueError(
                 f"Provider '{provider_raw}' does not support effort levels. "

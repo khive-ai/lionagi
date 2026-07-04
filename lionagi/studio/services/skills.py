@@ -1,22 +1,22 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
+
+import anyio
+from fastapi import HTTPException
 
 from lionagi._paths import LIONAGI_HOME
 from lionagi.libs.frontmatter import parse_frontmatter as _parse_frontmatter
 
+from ..registry import studio_route
 from ._path_safety import public_path, safe_path_join
 
 SKILLS_ROOT = LIONAGI_HOME / "skills"
 
 
 def _find_skill_md(skill_dir: Any) -> Any | None:
-    """Return the primary .md file for a skill directory.
-
-    Checks for ``SKILL.md`` first (the canonical name used by all current
-    skills), then falls back to a file named ``{dir_name}.md`` to handle
-    the alternative layout described in the spec.
-    """
+    """Return the primary .md file for a skill directory — SKILL.md, then {dir_name}.md, then any .md."""
     canonical = skill_dir / "SKILL.md"
     if canonical.exists():
         return canonical
@@ -34,7 +34,6 @@ def list_skills() -> list[dict[str, Any]]:
     out = []
     for entry in sorted(SKILLS_ROOT.iterdir()):
         if entry.name.startswith("_"):
-            # Skip hidden/archive directories (e.g. _archive)
             continue
 
         if entry.is_dir():
@@ -42,7 +41,6 @@ def list_skills() -> list[dict[str, Any]]:
             if path is None:
                 continue
         elif entry.suffix == ".md":
-            # Direct .md file at skills root
             path = entry
         else:
             continue
@@ -69,7 +67,6 @@ def list_skills() -> list[dict[str, Any]]:
 
 
 def get_skill(name: str) -> dict[str, Any] | None:
-    # Validate path component — raises HTTPException(404) if unsafe
     safe_path_join(SKILLS_ROOT, name)
 
     skill_dir = SKILLS_ROOT / name
@@ -78,7 +75,6 @@ def get_skill(name: str) -> dict[str, Any] | None:
         if path is None:
             return None
     else:
-        # Try as a direct .md file
         stem = name.removesuffix(".md")
         path = SKILLS_ROOT / f"{stem}.md"
         if not path.exists():
@@ -101,3 +97,17 @@ def get_skill(name: str) -> dict[str, Any] | None:
         "allowed_tools": allowed_tools,
         "content": body,
     }
+
+
+@studio_route("/skills/", method="GET", area="skills", name="list_skills")
+async def list_skills_route() -> dict[str, Any]:
+    skills = await anyio.to_thread.run_sync(list_skills)
+    return {"skills": skills}
+
+
+@studio_route("/skills/{name}", method="GET", area="skills", name="get_skill")
+async def get_skill_route(name: str) -> dict[str, Any]:
+    skill = await anyio.to_thread.run_sync(partial(get_skill, name))
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+    return skill

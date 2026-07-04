@@ -1,18 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Parser-level regression tests for CWE-88 fix (closes #1404, codex round 2).
-
-These tests take the BUILT argv from build_argv() for each action_kind and run
-it through the real lionagi.cli.main.main() parser with terminal run functions
-patched.  They assert that hostile action_prompt values (--bypass, --yolo,
---fast, --verbose) arrive as the prompt VALUE rather than toggling the
-corresponding boolean flags.
-
-The structural fix: build_argv places a '--' end-of-options sentinel before
-positionals for agent/flow/fanout, and drops the prompt positional entirely
-for flow_yaml (the YAML file supplies the prompt via spec.get("prompt")).
-"""
+"""Parser-level regression tests: hostile action_prompt values must arrive as VALUE, not toggle flags (CWE-88)."""
 
 from __future__ import annotations
 
@@ -50,7 +39,7 @@ async def _fake_run_agent(
     fast: bool = False,
     verbose: bool = False,
     **kwargs: Any,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str | None]:
     _CAPTURED["agent"] = {
         "model_str": model_str,
         "prompt": prompt,
@@ -59,7 +48,7 @@ async def _fake_run_agent(
         "fast": fast,
         "verbose": verbose,
     }
-    return "output", "provider", "branch-id", "completed"
+    return "output", "provider", "branch-id", "completed", "sess-001"
 
 
 async def _fake_run_flow(
@@ -263,13 +252,7 @@ class TestFanoutParserPromptInjection:
 
 
 class TestFlowYamlParserPromptExclusion:
-    """flow_yaml: hostile action_prompt must not appear in argv at all.
-
-    The YAML spec file supplies the prompt (spec.get('prompt') overwrites
-    args.prompt at orchestrate/__init__.py ~line 431).  The built argv must
-    not contain the hostile string, and bypass/yolo/fast must all be False
-    when run through the real parser.
-    """
+    """flow_yaml: hostile action_prompt must not appear in argv; YAML spec supplies the prompt."""
 
     @pytest.mark.parametrize("hostile", HOSTILE_PROMPTS)
     def test_hostile_prompt_absent_from_argv(self, hostile: str) -> None:
@@ -304,30 +287,19 @@ class TestFlowYamlParserPromptExclusion:
 
         _reset()
 
-        # Write a controlled YAML file so the content is predictable.
-        fd, tmp_yaml = tempfile.mkstemp(suffix=".yaml", prefix="lionagi-test-")
+        # Use the generated temp file directly: the spec content is fully
+        # determined by action_flow_yaml plus the merged-in action_model.
+        sched = {
+            "id": "test",
+            "action_kind": "flow_yaml",
+            "action_model": "sonnet",
+            "action_prompt": hostile,
+            "action_project": None,
+            "action_extra_args": [],
+            "action_flow_yaml": "prompt: yaml-supplied-prompt\n",
+        }
+        full_argv, tmp_yaml = build_argv(sched, {})
         try:
-            with os.fdopen(fd, "w") as fh:
-                fh.write("prompt: yaml-supplied-prompt\n")
-
-            sched = {
-                "id": "test",
-                "action_kind": "flow_yaml",
-                "action_model": "sonnet",
-                "action_prompt": hostile,
-                "action_project": None,
-                "action_extra_args": [],
-                "action_flow_yaml": "prompt: yaml-supplied-prompt\n",
-            }
-            full_argv, gen_tmp = build_argv(sched, {})
-            # Discard the generated temp file; substitute our controlled one.
-            if gen_tmp and os.path.exists(gen_tmp):
-                os.unlink(gen_tmp)
-
-            # Swap -f <generated> → -f <our yaml>
-            f_idx = full_argv.index("-f")
-            full_argv[f_idx + 1] = tmp_yaml
-
             cli_argv = _argv_without_wrapper(full_argv)
 
             with (
@@ -342,6 +314,9 @@ class TestFlowYamlParserPromptExclusion:
             assert c["prompt"] == "yaml-supplied-prompt", (
                 f"Expected YAML prompt, got {c['prompt']!r}"
             )
+            assert c["model_spec"] == "sonnet", (
+                f"Expected the schedule's model to override the spec, got {c['model_spec']!r}"
+            )
             assert c["bypass"] is False, (
                 f"bypass toggled for flow_yaml with hostile action_prompt {hostile!r}"
             )
@@ -352,7 +327,7 @@ class TestFlowYamlParserPromptExclusion:
                 f"fast toggled for flow_yaml with hostile action_prompt {hostile!r}"
             )
         finally:
-            if os.path.exists(tmp_yaml):
+            if tmp_yaml and os.path.exists(tmp_yaml):
                 os.unlink(tmp_yaml)
 
 
@@ -434,12 +409,12 @@ class TestSentinelPlacement:
             assert "--bypass" not in argv, (
                 f"Hostile prompt must not appear in flow_yaml argv: {argv}"
             )
-            # Only model after sentinel — no prompt positional
+            # No positionals at all: the model is merged into the spec file
+            # and the YAML supplies the prompt.
             sep_idx = argv.index("--")
             after = argv[sep_idx + 1 :]
-            assert after == ["sonnet"], (
-                f"Expected only ['sonnet'] after '--' in flow_yaml, got {after}"
-            )
+            assert after == [], f"Expected nothing after '--' in flow_yaml, got {after}"
+            assert "sonnet" not in argv, f"model leaked into argv: {argv}"
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
@@ -471,18 +446,12 @@ class TestSentinelPlacement:
 
 
 # ---------------------------------------------------------------------------
-# Regression pin: '-- --' and '-- trailing' pass through (codex round 2)
+# Regression pin: '-- --' and '-- trailing' pass through
 # ---------------------------------------------------------------------------
 
 
 class TestDoubleDashSentinelEdgeCases:
-    """Pin that '-- --' and '-- trailing' reach the runner as prompt values.
-
-    Codex verified '-- --' works today; these tests pin that behaviour so a
-    future change does not silently regress it.  The exact token '--' is
-    rejected by validation (tested in test_argv_injection.py); these tests
-    cover the multi-token or longer forms that must remain permitted.
-    """
+    """Pin that '-- --' and '-- trailing' reach the runner as prompt values (multi-token forms permitted)."""
 
     def test_double_dash_space_double_dash_passes_through(self) -> None:
         """action_prompt='-- --' must reach _run_agent as the prompt VALUE."""
@@ -557,22 +526,14 @@ class TestDoubleDashSentinelEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# Parser-level: template-rendered sentinel rejection (codex round 3)
+# Parser-level: template-rendered sentinel rejection
 # ---------------------------------------------------------------------------
 
 
 class TestTemplateRenderedSentinelRejection:
-    """build_argv must validate action_prompt AFTER _render_template.
-
-    Codex round 3 finding: a stored '{{payload}}' passes pre-render validation,
-    but trigger_context {"payload": "--"} renders it into the forbidden sentinel
-    before argv construction.  The fix moves _validate_prompt to post-render.
-    These tests run through real build_argv (not the parser) to confirm that
-    the rendered reconstruction is caught at spawn time, not silently passed.
-    """
+    """build_argv must validate action_prompt AFTER template rendering so '{{payload}}'+sentinel fails."""
 
     def test_template_payload_renders_sentinel_agent_raises(self) -> None:
-        """agent: '{{payload}}' + {"payload": "--"} → ValueError before argv built."""
         import pytest as _pytest
 
         from lionagi.studio.scheduler.subprocess import build_argv
@@ -592,7 +553,6 @@ class TestTemplateRenderedSentinelRejection:
             )
 
     def test_template_payload_renders_sentinel_flow_raises(self) -> None:
-        """flow: '{{payload}}' + {"payload": "--"} → ValueError before argv built."""
         import pytest as _pytest
 
         from lionagi.studio.scheduler.subprocess import build_argv
@@ -612,7 +572,6 @@ class TestTemplateRenderedSentinelRejection:
             )
 
     def test_template_payload_renders_sentinel_fanout_raises(self) -> None:
-        """fanout: '{{payload}}' + {"payload": "--"} → ValueError before argv built."""
         import pytest as _pytest
 
         from lionagi.studio.scheduler.subprocess import build_argv

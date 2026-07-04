@@ -92,6 +92,20 @@ def check_paths_safe(
     return values
 
 
+def contain_and_resolve(path: str | Path, root: Path) -> Path:
+    """Resolve path under root; raise ValueError if it escapes."""
+    root_resolved = root.resolve()
+    resolved = (root / path).resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
+        raise ValueError(
+            f"Workspace path escapes repository bounds. "
+            f"Repository: {root_resolved}, Workspace: {resolved}"
+        ) from None
+    return resolved
+
+
 def contain_path_in_root(
     value: str | Path,
     root: Path,
@@ -178,11 +192,7 @@ def validate_name(value: str, label: str = "name") -> str:
 
 
 def validate_bare_name(name: str, label: str = "name") -> str:
-    """Validate a bare identifier: ASCII letters, digits, underscores, hyphens only.
-
-    Rejects empty strings, path separators, '.', '..', leading dots, glob chars,
-    and any character outside [A-Za-z0-9_-]. Raises ValueError on violation.
-    """
+    """Validate bare identifier [A-Za-z0-9_-]; rejects empty, separators, dots, globs. Raises ValueError."""
     if not name or not _BARE_NAME_RE.match(name):
         raise ValueError(
             f"invalid {label} {name!r}: must be a bare identifier "
@@ -193,13 +203,7 @@ def validate_bare_name(name: str, label: str = "name") -> str:
 
 
 def validate_path_component(component: str, label: str = "component") -> str:
-    """Validate a single path component for use as a filesystem path segment.
-
-    Rejects: empty, path separators (/\\), NUL, '.', '..', and leading dots.
-    Less strict than validate_bare_name — allows Unicode and most punctuation,
-    but blocks the characters that enable path traversal or hidden-file tricks.
-    Raises ValueError on violation.
-    """
+    """Validate a path segment; rejects empty, separators, NUL, dots, and leading dots. Raises ValueError."""
     if not component or not isinstance(component, str):
         raise ValueError(f"invalid {label}: empty or not a string")
     if "/" in component or "\\" in component or "\x00" in component:

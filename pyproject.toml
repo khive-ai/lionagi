@@ -1,6 +1,6 @@
 [project]
 name = "lionagi"
-version = "0.27.0"
+version = "0.27.2"
 description = "An Intelligence Operating System."
 authors = [
     { name = "HaiyangLi", email = "quantocean.li@gmail.com" },
@@ -9,10 +9,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "aiocache>=0.12.0",
-    "aiohttp>=3.13.0",
+    "aiohttp>=3.14.1",
     "anyio>=4.10.0",
-    "backoff>=2.1.0",
-    "croniter>=1.4",
     "json-repair>=0.58.0",
     "msgspec>=0.20.0",
     "pydantic>=2.8.0",
@@ -21,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "tiktoken>=0.10.0",
     "aiosqlite>=0.21.0",
+    "sqlalchemy[asyncio]>=2.0.0",
     "orjson>=3.11.8",
     "psutil>=5.9.0",
     "pyyaml>=6.0",
@@ -73,6 +72,7 @@ dev = [
     "pytest-timeout>=2.4.0",
     "pytest-benchmark>=5.1.0",
     "httpx>=0.28.1",
+    "testcontainers[postgres]>=4.0",
 ]
 
 [project.scripts]
@@ -90,6 +90,9 @@ ollama = [
 
 mcp = [
     "fastmcp>=3.2.0",
+    # fastmcp -> mcp pulls Starlette transitively but mcp only pins
+    # starlette>=0.27, so floor the patched version here too (mirrors [studio]).
+    "starlette>=1.3.1",
 ]
 
 rich = [
@@ -105,9 +108,11 @@ pandas = [
 ]
 
 postgres = [
+    # sqlalchemy[asyncio] is now a core dependency (the StateDB backend is
+    # built on SQLAlchemy-Core for both the default sqlite path and postgres);
+    # this extra only adds the postgres driver stack.
     "pydapter[postgres]>=1.3.2",
     "asyncpg>=0.27.0",
-    "sqlalchemy[asyncio]>=2.0.0",
 ]
 
 sqlite = [
@@ -135,22 +140,12 @@ sandbox = [
     "uvicorn>=0.34.0",
 ]
 
-testing = [
-    # Optional YAML support for ScriptModel.from_yaml(); JSON/dict workflows
-    # work without this extra.
-    "pyyaml>=6.0",
-]
-
 studio = [
     "fastapi>=0.115",
     "uvicorn>=0.34",
-    "pyyaml>=6.0",
-    "starlette>=1.0.1",
-    # F-A4-9 (ADR-0018 §"li studio extras dependency"): aiosqlite is required
-    # by the studio services that query state.db directly (sessions, shows, runs,
-    # definitions). It is also listed as a core dep but explicit in the extra
-    # keeps the [studio] group self-contained for pip install lionagi[studio].
-    "aiosqlite>=0.21.0",
+    "starlette>=1.3.1",
+    "croniter>=1.4",
+    "httpx>=0.28.1",
 ]
 
 all = [
@@ -163,7 +158,8 @@ all = [
     "lionagi[graph]",
     "lionagi[sqlite]",
     "lionagi[xml]",
-    "lionagi[ag2]"
+    "lionagi[ag2]",
+    "lionagi[studio]"
 ]
 
 
@@ -262,17 +258,37 @@ exclude = [
     "logs/*"
 ]
 
+[tool.pyright]
+include = ["lionagi"]
+exclude = [
+    "tests",
+    "apps/studio/frontend",
+    "**/__pycache__",
+    "**/node_modules",
+    ".venv",
+    "dist",
+    "build",
+]
+typeCheckingMode = "basic"
+pythonVersion = "3.10"
+reportMissingImports = "warning"
+reportMissingModuleSource = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
+reportUnknownParameterType = "none"
+
 [tool.uv]
 # Force minimum versions for transitive deps with known vulnerabilities
 constraint-dependencies = [
     "authlib>=1.6.11",      # CVE: CSRF when using cache
-    "python-multipart>=0.0.27",  # CVE: DoS via unbounded multipart part headers
+    "python-multipart>=0.0.31",  # CVE: DoS via unbounded multipart part headers; quadratic querystring parsing; param smuggling
     "pytest>=9.0.3",        # CVE: vulnerable tmpdir handling
     "pillow>=12.2.0",       # CVE: FITS GZIP decompression bomb
-    "pyjwt>=2.12.0",        # CVE: unknown crit header extensions
-    "tornado>=6.5.5",       # CVE: multipart DoS, cookie validation
+    "pyjwt>=2.13.0",        # CVE: PyJWK HMAC/alg-allowlist bypass, PyJWKClient SSRF + DoS
+    "tornado>=6.5.7",       # CVE: gzip bomb, auth-header redirect leak, curl credential leak
     "cairosvg>=2.9.0",      # CVE: recursive <use> exponential DoS
-    "cryptography>=46.0.7", # CVE: buffer overflow on non-contiguous buffers; DNS name constraint enforcement
+    "cryptography>=48.0.1", # CVE: vulnerable OpenSSL bundled in wheels
     "requests>=2.33.0",     # CVE: insecure temp file reuse in extract_zipped_paths
     "pygments>=2.20.0",     # CVE: ReDoS in GUID regex
     "lxml>=6.1.0",          # CVE-2026-41066: XXE via default iterparse / ETCompatXMLParser config

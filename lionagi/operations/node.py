@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, PrivateAttr
 
+from lionagi._errors import ExecutionError, OperationError
 from lionagi.protocols.types import ID, Event, Node
 
 BranchOperations = Literal[
@@ -22,14 +23,7 @@ logger = logging.getLogger("operation")
 
 
 class Operation(Node, Event):
-    """Operation node for flow graphs.
-
-    Does NOT override invoke(). The state machine (idempotency, status
-    transitions, error handling) lives in Event.invoke(). Subclasses
-    only implement _invoke().
-
-    Set ``_branch`` before calling ``invoke()``.
-    """
+    """Operation node for flow graphs; set ``_branch`` before calling ``invoke()``."""
 
     operation: BranchOperations | str
     parameters: dict[str, Any] | BaseModel = Field(
@@ -65,7 +59,6 @@ class Operation(Node, Event):
 
     @property
     def request(self) -> dict:
-        # Convert parameters to dict if it's a BaseModel
         params = self.parameters
         if hasattr(params, "model_dump"):
             params = params.model_dump()
@@ -76,24 +69,20 @@ class Operation(Node, Event):
 
     @property
     def response(self):
-        """Get the response from the execution."""
         return self.execution.response if self.execution else None
 
     async def _invoke(self):
-        """Execute the operation on the pre-set branch.
-
-        Called by Event.invoke() which handles all state transitions.
-        """
+        """Execute the operation on the pre-set branch; called by Event.invoke()."""
         branch = self._branch
         if branch is None:
-            raise RuntimeError(
+            raise ExecutionError(
                 "Operation._branch must be set before invoke(). "
                 "Use operation._branch = branch before calling invoke()."
             )
 
         meth = branch.get_operation(self.operation)
         if meth is None:
-            raise ValueError(f"Unsupported operation type: {self.operation}")
+            raise OperationError(f"Unsupported operation type: {self.operation}")
 
         self.branch_id = branch.id
 

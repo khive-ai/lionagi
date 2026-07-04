@@ -11,29 +11,346 @@ from lionagi._errors import TimeoutError as LionTimeoutError
 from lionagi.libs.path_safety import validate_path_component as validate_path_component
 from lionagi.ln.concurrency import is_cancelled, run_async
 
-from .._lifecycle import EXIT_CODE_BY_STATUS
 from .._logging import hint, log_error
 from .._providers import add_common_cli_args
-from ._spec import (
-    _coerce_arg_value,
-    _derive_args_schema_from_spec,
-    _interpolate_prompt,
-    _load_flow_spec,
-    _resolve_playbook_path,
-    _validate_args_schema,
-    _validate_spec_fields,
-)
-from ._spec import (
-    _parse_argument_hint as _parse_argument_hint,
-)
-from ._spec import (
-    _scan_argv_for_playbook_name as _scan_argv_for_playbook_name,
-)
-from ._spec import (
-    inject_playbook_schema_into_parser as inject_playbook_schema_into_parser,
-)
+from .._util import EXIT_CODE_BY_STATUS
+from ._checkpoint import FlowResumeError
 from .fanout import _run_fanout
-from .flow import FlowPlanError, _run_flow
+from .flow import FlowPlanError, _resume_flow, _run_flow
+
+# ── flow-spec helpers ────────────────────────────────────────────────────────
+
+
+def _scan_argv_for_playbook_name(argv: list[str]) -> str | None:
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in ("-p", "--playbook"):
+            if i + 1 < len(argv):
+                return argv[i + 1]
+            return None
+        if tok.startswith("--playbook="):
+            return tok.split("=", 1)[1]
+        i += 1
+    return None
+
+
+def _derive_args_schema_from_spec(spec: dict) -> dict:
+    if isinstance(spec.get("args"), dict):
+        schema: dict = {}
+        for name, field in spec["args"].items():
+            if not isinstance(field, dict):
+                continue
+            schema[name] = {
+                "type": field.get("type", "str"),
+                "default": field.get("default"),
+                "help": field.get("help", ""),
+            }
+        return schema
+    if spec.get("argument-hint"):
+        return _parse_argument_hint(spec["argument-hint"])
+    return {}
+
+
+def inject_playbook_schema_into_parser(
+    flow_parser: argparse.ArgumentParser, argv: list[str]
+) -> dict:
+    """Pre-scan argv for playbook; inject declared args as parser flags."""
+    name = _scan_argv_for_playbook_name(argv)
+    if not name:
+        return {}
+    path, err = _resolve_playbook_path(name)
+    if err is not None:
+        return {}  # Defer error reporting to run_orchestrate
+    spec = _load_flow_spec(str(path))
+    if not isinstance(spec, dict):
+        return {}
+    schema = _derive_args_schema_from_spec(spec)
+    if not schema:
+        return {}
+    reserved: set[str] = set()
+    for action in flow_parser._actions:
+        for opt in getattr(action, "option_strings", ()):
+            reserved.add(opt)
+    resolved_schema: dict = {}
+    for arg_name, field in schema.items():
+        cli_flag = "--" + arg_name.replace("_", "-")
+        if cli_flag in reserved:
+            import logging as _logging
+
+            _logging.getLogger("lionagi.cli").warning(
+                "playbook arg %r (%s) collides with built-in flag; "
+                "rename it in the playbook to use it",
+                arg_name,
+                cli_flag,
+            )
+            continue
+        type_str = field.get("type", "str")
+        help_text = field.get("help", "")
+        if type_str == "bool":
+            flow_parser.add_argument(
+                cli_flag,
+                dest=arg_name,
+                action="store_true",
+                default=None,
+                help=help_text,
+            )
+        else:
+            flow_parser.add_argument(
+                cli_flag,
+                dest=arg_name,
+                default=None,
+                help=help_text,
+                metavar=type_str.upper(),
+            )
+        resolved_schema[arg_name] = field
+    flow_parser.set_defaults(_playbook_args_schema=resolved_schema)
+    return resolved_schema
+
+
+def _resolve_playbook_path(name: str) -> tuple[object, str | None]:
+    """Resolve a playbook NAME to (Path, None) or (None, error_message)."""
+    from pathlib import Path
+
+    from lionagi.libs.path_safety import validate_path_component
+
+    if not name or not isinstance(name, str):
+        return None, "playbook name must be a non-empty string"
+    try:
+        validate_path_component(name, label="playbook NAME")
+    except ValueError:
+        return (
+            None,
+            f"playbook NAME must be a bare identifier, got {name!r}. "
+            "Use -f /abs/path.yaml for ad-hoc specs.",
+        )
+    root = Path("~/.lionagi/playbooks").expanduser()
+    candidate = root / f"{name}.playbook.yaml"
+    if not candidate.is_file():
+        # Look for near-matches to suggest.
+        suggestions = []
+        if root.is_dir():
+            for p in sorted(root.glob("*.playbook.yaml")):
+                suggestions.append(p.stem.removesuffix(".playbook"))
+        hint_text = (
+            f" Available: {', '.join(suggestions[:10])}"
+            if suggestions
+            else " No playbooks found in ~/.lionagi/playbooks/"
+        )
+        return None, f"playbook not found: {candidate}.{hint_text}"
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_candidate = candidate.resolve(strict=True)
+        resolved_candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return (
+            None,
+            f"playbook {name!r} resolves outside playbooks root (symlink escape blocked)",
+        )
+    return candidate, None
+
+
+def _parse_argument_hint(hint: str) -> dict:
+    """Parse CC-style argument-hint string into an args schema."""
+    import re
+
+    schema: dict = {}
+    pattern = re.compile(r"\[--([a-zA-Z][a-zA-Z0-9_-]*)(?:\s+([A-Z_][A-Z0-9_]*))?\]")
+    for match in pattern.finditer(hint or ""):
+        flag_name = match.group(1).replace("-", "_")
+        value_placeholder = match.group(2)
+        if value_placeholder is None:
+            schema[flag_name] = {"type": "bool", "default": False}
+        else:
+            schema[flag_name] = {"type": "str", "default": None}
+    return schema
+
+
+def _validate_args_schema(args_schema) -> str | None:
+    if not isinstance(args_schema, dict):
+        return f"spec field 'args' must be a dict, got {type(args_schema).__name__}"
+    valid_types = {"str", "int", "float", "bool"}
+    for name, spec in args_schema.items():
+        if not isinstance(name, str) or not name.replace("_", "").isalnum():
+            return f"args key {name!r} must be an alphanumeric identifier"
+        if not isinstance(spec, dict):
+            return f"args[{name!r}] must be a dict, got {type(spec).__name__}"
+        type_str = spec.get("type", "str")
+        if type_str not in valid_types:
+            return f"args[{name!r}].type must be one of {sorted(valid_types)}, got {type_str!r}"
+    return None
+
+
+def _coerce_arg_value(name: str, value, type_str: str):
+    if value is None:
+        return None, None
+    if type_str == "bool":
+        return bool(value), None
+    if type_str == "str":
+        return str(value), None
+    try:
+        if type_str == "int":
+            return int(value), None
+        if type_str == "float":
+            return float(value), None
+    except (TypeError, ValueError):
+        return (
+            None,
+            f"arg --{name.replace('_', '-')} expected {type_str}, got {value!r}",
+        )
+    return value, None
+
+
+def _load_flow_spec(path: str) -> dict | None:
+    from pathlib import Path
+
+    p = Path(path).expanduser()
+    if not p.is_file():
+        log_error(f"spec file not found: {p}")
+        return None
+    text = p.read_text()
+    suffix = p.suffix.lower()
+    try:
+        if suffix in (".yaml", ".yml"):
+            import yaml
+
+            data = yaml.safe_load(text) or {}
+        elif suffix == ".json":
+            import json
+
+            data = json.loads(text)
+        else:
+            import yaml
+
+            try:
+                data = yaml.safe_load(text) or {}
+            except Exception:
+                import json
+
+                data = json.loads(text)
+    except Exception as e:
+        log_error(f"failed to parse spec file {p}: {e}")
+        return None
+
+    if not isinstance(data, dict):
+        log_error("spec file must contain a YAML/JSON object")
+        return None
+    preserve_dashed = {"argument-hint"}
+    normalized: dict = {}
+    for key, value in data.items():
+        if key in preserve_dashed or "-" not in key:
+            normalized[key] = value
+        else:
+            normalized[key.replace("-", "_")] = value
+    return normalized
+
+
+def _validate_spec_fields(spec: dict) -> str | None:
+    if "workers" in spec:
+        workers = spec["workers"]
+        if not isinstance(workers, int) or isinstance(workers, bool):
+            return f"spec field 'workers' must be an integer, got {type(workers).__name__}"
+        if not (1 <= workers <= 32):
+            return f"spec field 'workers' must be in [1, 32], got {workers}"
+
+    for key in ("max_ops", "max_agents"):
+        if key not in spec:
+            continue
+        value = spec[key]
+        if not isinstance(value, int) or isinstance(value, bool):
+            return f"spec field {key!r} must be an integer, got {type(value).__name__}"
+        if not (0 <= value <= 50):
+            return f"spec field {key!r} must be in [0, 50] (0 = unlimited), got {value}"
+
+    effort = spec.get("effort")
+    if effort is not None:
+        from .._providers import EFFORT_LEVELS
+
+        if not isinstance(effort, str):
+            return f"spec field 'effort' must be a string, got {type(effort).__name__}"
+        if effort not in EFFORT_LEVELS:
+            allowed = sorted(EFFORT_LEVELS)
+            return f"spec field 'effort' must be one of {allowed}, got {effort!r}"
+
+    if "with_synthesis" in spec:
+        val = spec["with_synthesis"]
+        if not isinstance(val, bool | str):
+            return (
+                f"spec field 'with_synthesis' must be bool or str (model spec), "
+                f"got {type(val).__name__}"
+            )
+
+    for bool_field in ("bare", "dry_run", "show_graph"):
+        if bool_field in spec:
+            val = spec[bool_field]
+            if not isinstance(val, bool):
+                return f"spec field {bool_field!r} must be a bool, got {type(val).__name__}"
+
+    if "prompt" in spec:
+        prompt = spec["prompt"]
+        if not isinstance(prompt, str):
+            return f"spec field 'prompt' must be a string, got {type(prompt).__name__}"
+        if len(prompt) > 8192:
+            return "spec field 'prompt' exceeds maximum length of 8192 characters"
+
+    if "save" in spec:
+        save = spec["save"]
+        if not isinstance(save, str):
+            return f"spec field 'save' must be a string, got {type(save).__name__}"
+
+    for str_field in ("model", "agent", "team_mode", "team_attach", "reactive"):
+        if str_field in spec:
+            val = spec[str_field]
+            if not isinstance(val, str):
+                return f"spec field {str_field!r} must be a string, got {type(val).__name__}"
+
+    if "artifacts" in spec:
+        artifacts = spec["artifacts"]
+        if artifacts is None:
+            return "spec field 'artifacts' must be a dict, got NoneType"
+        try:
+            from lionagi.state.artifact_verifier import (
+                validate_artifact_contract,
+                warn_unknown_artifact_keys,
+            )
+
+            validate_artifact_contract(artifacts)
+            import logging as _logging
+
+            _cli_log = _logging.getLogger("lionagi.cli")
+            warn_unknown_artifact_keys(
+                artifacts,
+                source="playbook",
+                emit=_cli_log.warning,
+            )
+        except Exception as exc:
+            return f"spec field 'artifacts' is invalid: {exc}"
+
+    return None
+
+
+def _interpolate_prompt(template: str, positional: str | None, playbook_args: dict) -> str:
+    """Interpolate {input} + playbook args into the prompt template."""
+    if not template:
+        return positional or ""
+
+    ctx: dict = dict(playbook_args)
+    if positional is not None:
+        ctx["input"] = positional
+
+    import re
+
+    placeholders = set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", template))
+    if not placeholders and positional is not None:
+        return template + "\n\n" + positional
+
+    def _sub(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key in ctx:
+            return str(ctx[key])
+        return match.group(0)
+
+    return re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", _sub, template)
 
 
 def add_orchestrate_subparser(
@@ -315,9 +632,112 @@ def add_orchestrate_subparser(
             "alone may spawn. Caps still apply via --max-ops."
         ),
     )
+    fl.add_argument(
+        "--resume",
+        metavar="RUN_OR_SESSION_ID",
+        default=None,
+        help=(
+            "Resume a checkpointed flow from a prior process (by run id, or "
+            "any session/invocation/play id backed by one). Replays the "
+            "persisted plan verbatim — no planner call, no other flow flags "
+            "read (model/prompt/playbook/etc. all come from the checkpoint). "
+            "Distinct from `li o ctl resume`, which un-pauses a still-running "
+            "session."
+        ),
+    )
+    fl.add_argument(
+        "--allow-degraded-context",
+        action="store_true",
+        help=(
+            "With --resume: proceed even when a pending op declared "
+            "inherit_context — it runs against an empty branch instead of "
+            "its predecessor's conversation history, which resume does not "
+            "restore. Without this flag such ops refuse loudly, naming them."
+        ),
+    )
     add_common_cli_args(fl)
 
-    return {"fanout": fo, "flow": fl}
+    # `li o ctl status <id>` — generic alias into the same status renderer as
+    # `li agent status` / `li play status` (ADR-0085 section 6). `pause` /
+    # `resume` / `msg` queue session_controls rows consumed by the control
+    # poller running alongside a live flow's heartbeat loop (ADR-0085 part 1).
+    # `stop` is out of scope for this slice — it depends on the checkpoint
+    # writer, which lands separately.
+    ctl = orch_sub.add_parser(
+        "ctl",
+        help="Control-plane surfaces for a run (status, pause, resume, msg).",
+        description="Read-only and control operations addressed by run id.",
+    )
+    ctl_sub = ctl.add_subparsers(dest="ctl_command", required=True)
+    ctl_status = ctl_sub.add_parser(
+        "status",
+        help="Show lifecycle status for a session, invocation, or play by id.",
+        description=(
+            "Generic id-addressed status lookup — no agent/play kind scoping, so "
+            "<id> is required (no 'latest run' default). Prefer `li agent status` "
+            "/ `li play status` when the kind is known."
+        ),
+    )
+    ctl_status.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
+    ctl_status.add_argument(
+        "--json", action="store_true", dest="as_json", help="Emit a stable JSON object."
+    )
+
+    ctl_pause = ctl_sub.add_parser(
+        "pause",
+        help="Queue a pause for a running flow.",
+        description=(
+            "Queues a pause control row; the target flow's control poller applies "
+            "it at the next op boundary (idempotent — safe to queue more than once)."
+        ),
+    )
+    ctl_pause.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
+
+    ctl_resume = ctl_sub.add_parser(
+        "resume",
+        help="Queue a resume for a paused flow.",
+        description="Queues a resume control row, releasing a pending pause gate.",
+    )
+    ctl_resume.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
+
+    ctl_msg = ctl_sub.add_parser(
+        "msg",
+        help="Queue an operator message for a running flow (context mode only).",
+        description=(
+            "Queues a message control row; the control poller deep-merges it into "
+            "the flow's workspace context, visible to any op not yet started. "
+            "Op-mode injection (--as-op) is not supported by this command yet."
+        ),
+    )
+    ctl_msg.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
+    ctl_msg.add_argument("text", help="Message text to inject into the flow context.")
+
+    return {"fanout": fo, "flow": fl, "ctl": ctl}
+
+
+def _run_orch_command(coro, *, verbose: bool, extra_handlers: tuple = ()) -> tuple[object, int]:
+    """Run an orchestration coroutine, map shared exceptions to exit codes.
+
+    Returns (result, exit_code).  extra_handlers is a tuple of (ExcType, exit_code)
+    pairs checked before the shared map, allowing callers to handle pattern-specific
+    exceptions without repeating the common mapping.
+    """
+    try:
+        result = run_async(coro)
+    except (TimeoutError, LionTimeoutError) as e:
+        log_error(str(e))
+        return None, EXIT_CODE_BY_STATUS["timed_out"]
+    except KeyboardInterrupt:
+        return None, EXIT_CODE_BY_STATUS["aborted"]
+    except BaseException as exc:
+        for exc_type, code in extra_handlers:
+            if isinstance(exc, exc_type):
+                log_error(str(exc))
+                return None, code
+        if is_cancelled(exc):
+            return None, EXIT_CODE_BY_STATUS["cancelled"]
+        raise
+    return result, 0
 
 
 def run_orchestrate(args: argparse.Namespace) -> int:
@@ -331,49 +751,61 @@ def run_orchestrate(args: argparse.Namespace) -> int:
         with_synthesis = synth is not False
         synthesis_model = synth if isinstance(synth, str) else None
 
-        try:
-            output = run_async(
-                _run_fanout(
-                    model_spec=args.model or "",
-                    prompt=args.prompt,
-                    num_workers=args.num_workers,
-                    workers_str=args.workers,
-                    with_synthesis=with_synthesis,
-                    synthesis_model=synthesis_model,
-                    synthesis_prompt=args.synthesis_prompt,
-                    max_concurrent=args.max_concurrent,
-                    yolo=args.yolo,
-                    bypass=getattr(args, "bypass", False),
-                    verbose=args.verbose,
-                    effort=args.effort,
-                    theme=args.theme,
-                    output_format=args.output,
-                    save_dir=args.save,
-                    team_name=args.team_mode,
-                    cwd=args.cwd,
-                    timeout=args.timeout,
-                    agent_name=args.agent,
-                    fast=getattr(args, "fast", False),
-                    playbook_name=getattr(args, "playbook", None),
-                    invocation_id=getattr(args, "invocation", None),
-                    project=getattr(args, "project", None),
-                    pack=getattr(args, "pack", None),
-                )
-            )
-        except (TimeoutError, LionTimeoutError) as e:
-            log_error(str(e))
-            return EXIT_CODE_BY_STATUS["timed_out"]
-        except KeyboardInterrupt:
-            return EXIT_CODE_BY_STATUS["aborted"]
-        except BaseException as exc:
-            if is_cancelled(exc):
-                return EXIT_CODE_BY_STATUS["cancelled"]
-            raise
+        output, rc = _run_orch_command(
+            _run_fanout(
+                model_spec=args.model or "",
+                prompt=args.prompt,
+                num_workers=args.num_workers,
+                workers_str=args.workers,
+                with_synthesis=with_synthesis,
+                synthesis_model=synthesis_model,
+                synthesis_prompt=args.synthesis_prompt,
+                max_concurrent=args.max_concurrent,
+                yolo=args.yolo,
+                bypass=getattr(args, "bypass", False),
+                verbose=args.verbose,
+                effort=args.effort,
+                theme=args.theme,
+                output_format=args.output,
+                save_dir=args.save,
+                team_name=args.team_mode,
+                cwd=args.cwd,
+                timeout=args.timeout,
+                agent_name=args.agent,
+                fast=getattr(args, "fast", False),
+                playbook_name=getattr(args, "playbook", None),
+                invocation_id=getattr(args, "invocation", None),
+                project=getattr(args, "project", None),
+                pack=getattr(args, "pack", None),
+            ),
+            verbose=args.verbose,
+        )
+        if rc != 0:
+            return rc
         if not args.verbose:
             print(output)
         return 0
 
     if args.orch_command == "flow":
+        resume_target = getattr(args, "resume", None)
+        if resume_target:
+            flow_result, rc = _run_orch_command(
+                _resume_flow(
+                    resume_target,
+                    allow_degraded_context=getattr(args, "allow_degraded_context", False),
+                    dry_run=args.dry_run,
+                    show_graph=getattr(args, "show_graph", False),
+                ),
+                verbose=args.verbose,
+                extra_handlers=((FlowResumeError, EXIT_CODE_BY_STATUS["failed"]),),
+            )
+            if rc != 0:
+                return rc
+            output, terminal_status = flow_result
+            if not args.verbose:
+                print(output)
+            return EXIT_CODE_BY_STATUS.get(terminal_status, 0)
+
         playbook_name = getattr(args, "playbook", None)
         playbook_artifacts: dict | None = None
         file_spec = getattr(args, "file", None)
@@ -528,56 +960,68 @@ def run_orchestrate(args: argparse.Namespace) -> int:
         with_synthesis = synth is not False
         synthesis_model = synth if isinstance(synth, str) else None
 
-        try:
-            output, terminal_status = run_async(
-                _run_flow(
-                    model_spec=args.model or "",
-                    prompt=args.prompt,
-                    with_synthesis=with_synthesis,
-                    synthesis_model=synthesis_model,
-                    max_concurrent=args.max_concurrent,
-                    yolo=args.yolo,
-                    bypass=getattr(args, "bypass", False),
-                    verbose=args.verbose,
-                    effort=args.effort,
-                    theme=args.theme,
-                    output_format=args.output,
-                    save_dir=args.save,
-                    team_name=args.team_mode,
-                    team_attach=getattr(args, "team_attach", None),
-                    cwd=args.cwd,
-                    timeout=args.timeout,
-                    agent_name=args.agent,
-                    bare=args.bare,
-                    workers_str=args.workers,
-                    max_ops=args.max_ops,
-                    dry_run=args.dry_run,
-                    show_graph=getattr(args, "show_graph", False),
-                    reactive_spec=getattr(args, "reactive", None) or "all",
-                    fast=getattr(args, "fast", False),
-                    playbook_name=playbook_name,
-                    playbook_artifacts=playbook_artifacts,
-                    invocation_id=getattr(args, "invocation", None),
-                    project=getattr(args, "project", None),
-                    pack=getattr(args, "pack", None),
-                )
-            )
-        except (TimeoutError, LionTimeoutError) as e:
-            log_error(str(e))
-            return EXIT_CODE_BY_STATUS["timed_out"]
-        except KeyboardInterrupt:
-            return EXIT_CODE_BY_STATUS["aborted"]
-        except FlowPlanError as e:
+        flow_result, rc = _run_orch_command(
+            _run_flow(
+                model_spec=args.model or "",
+                prompt=args.prompt,
+                with_synthesis=with_synthesis,
+                synthesis_model=synthesis_model,
+                max_concurrent=args.max_concurrent,
+                yolo=args.yolo,
+                bypass=getattr(args, "bypass", False),
+                verbose=args.verbose,
+                effort=args.effort,
+                theme=args.theme,
+                output_format=args.output,
+                save_dir=args.save,
+                team_name=args.team_mode,
+                team_attach=getattr(args, "team_attach", None),
+                cwd=args.cwd,
+                timeout=args.timeout,
+                agent_name=args.agent,
+                bare=args.bare,
+                workers_str=args.workers,
+                max_ops=args.max_ops,
+                dry_run=args.dry_run,
+                show_graph=getattr(args, "show_graph", False),
+                reactive_spec=getattr(args, "reactive", None) or "all",
+                fast=getattr(args, "fast", False),
+                playbook_name=playbook_name,
+                playbook_artifacts=playbook_artifacts,
+                invocation_id=getattr(args, "invocation", None),
+                project=getattr(args, "project", None),
+                pack=getattr(args, "pack", None),
+            ),
+            verbose=args.verbose,
             # planning produced no usable DAG — fail loud with actionable message
-            log_error(str(e))
-            return EXIT_CODE_BY_STATUS["failed"]
-        except BaseException as exc:
-            if is_cancelled(exc):
-                return EXIT_CODE_BY_STATUS["cancelled"]
-            raise
+            extra_handlers=((FlowPlanError, EXIT_CODE_BY_STATUS["failed"]),),
+        )
+        if rc != 0:
+            return rc
+        output, terminal_status = flow_result
         if not args.verbose:
             print(output)
         return EXIT_CODE_BY_STATUS.get(terminal_status, 0)
+
+    if args.orch_command == "ctl":
+        if args.ctl_command == "status":
+            from lionagi.cli.status import run_ctl_status
+
+            return run_ctl_status(args)
+        if args.ctl_command == "pause":
+            from ._control import run_ctl_pause
+
+            return run_ctl_pause(args)
+        if args.ctl_command == "resume":
+            from ._control import run_ctl_resume
+
+            return run_ctl_resume(args)
+        if args.ctl_command == "msg":
+            from ._control import run_ctl_msg
+
+            return run_ctl_msg(args)
+        log_error(f"Unknown ctl command: {args.ctl_command}")
+        return 1
 
     log_error(f"Unknown orchestrate command: {args.orch_command}")
     return 1

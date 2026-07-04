@@ -1,18 +1,18 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""ADR-0020 invocations service.
-
-Backs the /api/invocations endpoints. Reads from state.db's
-``invocations`` and ``sessions`` tables.
-"""
+"""ADR-0020 invocations service — backs /api/invocations endpoints."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
+from fastapi import Query
+
+from lionagi._errors import NotFoundError
 from lionagi.state.db import DEFAULT_DB_PATH, StateDB
 
+from ..registry import studio_route
 from ._io import parse_json_col as _parse_json_col
 
 
@@ -44,6 +44,9 @@ async def list_invocations(
                 "started_at": r["started_at"],
                 "ended_at": r.get("ended_at"),
                 "status": r["status"],
+                "status_reason_code": r.get("status_reason_code"),
+                "status_reason_summary": r.get("status_reason_summary"),
+                "status_evidence_refs": _parse_json_col(r.get("status_evidence_refs")),
                 "session_count": r.get("session_count", 0),
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
@@ -71,11 +74,7 @@ async def get_invocation(invocation_id: str) -> dict[str, Any] | None:
             except json.JSONDecodeError:
                 node_meta = None
         sessions = await db.list_sessions_for_invocation(invocation_id)
-        # ADR-0021: surface structured outcomes alongside child sessions
-        # so the invocation detail page can render verdict / CI / gate
-        # cards inline. Filesystem blobs (file_path) are included by
-        # reference; the frontend renders them as JSON when the kind is
-        # unknown.
+        # ADR-0021: structured outcomes alongside child sessions for the invocation detail page.
         artifacts = await db.list_artifacts_for_invocation(invocation_id)
     return {
         "id": row["id"],
@@ -85,12 +84,13 @@ async def get_invocation(invocation_id: str) -> dict[str, Any] | None:
         "started_at": row["started_at"],
         "ended_at": row.get("ended_at"),
         "status": row["status"],
+        "status_reason_code": row.get("status_reason_code"),
+        "status_reason_summary": row.get("status_reason_summary"),
+        "status_evidence_refs": _parse_json_col(row.get("status_evidence_refs")),
         "session_count": row.get("session_count", 0),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "node_metadata": node_meta,
-        # Sessions ordered by creation; minimal projection — Studio's
-        # session detail page is the authority for any single session.
         "sessions": [
             {
                 "id": s["id"],
@@ -113,15 +113,10 @@ async def get_invocation(invocation_id: str) -> dict[str, Any] | None:
 
 
 def _serialize_artifact(row: dict[str, Any]) -> dict[str, Any]:
-    """Common artifact projection for /api/invocations and /api/artifacts.
-
-    SQLite returns JSON columns as strings; decode here so the frontend
-    gets a real object instead of a doubly-encoded string.
-    """
+    """Common artifact projection — decodes JSON content columns so the frontend gets real objects."""
     raw_content = row.get("content")
     if isinstance(raw_content, str):
         parsed = _parse_json_col(raw_content)
-        # If still a string, parse failed — surface None rather than a doubly-encoded string
         content = parsed if not isinstance(parsed, str) else None
     else:
         content = raw_content
@@ -154,3 +149,57 @@ async def get_artifact(artifact_id: str) -> dict[str, Any] | None:
     async with StateDB() as db:
         row = await db.get_artifact(artifact_id)
     return _serialize_artifact(row) if row else None
+
+
+@studio_route("/invocations/", method="GET", area="invocations", name="list_invocations")
+async def list_invocations_route(
+    skill: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    rows = await list_invocations(skill=skill, status=status, limit=limit, offset=offset)
+    return {
+        "invocations": rows,
+        "limit": limit,
+        "offset": offset,
+        # We don't compute total separately — the page is the slice the
+        # client asked for. Studio's pagination uses has_next instead of
+        # absolute totals.
+        "has_next": len(rows) == limit,
+    }
+
+
+@studio_route(
+    "/invocations/{invocation_id}", method="GET", area="invocations", name="get_invocation"
+)
+async def get_invocation_route(invocation_id: str) -> dict[str, Any]:
+    data = await get_invocation(invocation_id)
+    if data is None:
+        raise NotFoundError(f"Invocation '{invocation_id}' not found")
+    return data
+
+
+@studio_route(
+    "/artifacts/{artifact_id}",
+    method="GET",
+    area="invocations",
+    tags=["artifacts"],
+    name="get_artifact",
+)
+async def get_artifact_route(artifact_id: str) -> dict[str, Any]:
+    data = await get_artifact(artifact_id)
+    if data is None:
+        raise NotFoundError(f"Artifact '{artifact_id}' not found")
+    return data
+
+
+# Convenience: sessions don't have their own router-level artifacts endpoint
+# (sessions.router predates ADR-0021). This sub-route under /api/artifacts
+# keeps the artifact concern in one place.
+@studio_route(
+    "/artifacts/by-session/{session_id}", method="GET", area="invocations", tags=["artifacts"]
+)
+async def list_for_session(session_id: str) -> dict[str, Any]:
+    rows = await list_artifacts_for_session(session_id)
+    return {"artifacts": rows}

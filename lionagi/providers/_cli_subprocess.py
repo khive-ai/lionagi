@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import asyncio
 import codecs
-import contextlib
 import json
 import logging
-import os
-import signal
+import shutil
 from collections.abc import AsyncIterator, Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
+
+from lionagi.libs.path_safety import contain_and_resolve
+from lionagi.libs.schema.as_readable import as_readable
+from lionagi.ln._proc import aterminate_process_group
 
 log = logging.getLogger(__name__)
 
@@ -29,22 +32,7 @@ async def ndjson_from_cli(
     stdin: Any = asyncio.subprocess.DEVNULL,
     tail_repair: Callable[[str], dict | None] | None = None,
 ) -> AsyncIterator[dict]:
-    """Yield dicts from an NDJSON-emitting CLI subprocess.
-
-    Args:
-        cmd: Command and arguments to execute.
-        cwd: Working directory for the subprocess.
-        env: Environment for the subprocess.
-        stdin: Passed to ``create_subprocess_exec`` unless it is the
-            ``_INHERIT_STDIN`` sentinel, in which case ``stdin`` is omitted so
-            the child inherits the parent's stdin.  Default is DEVNULL (matches
-            old Claude/Codex behaviour).
-        tail_repair: Optional callable invoked on the final buffer when
-            ``raw_decode`` fails.  If it returns a dict that dict is yielded;
-            if it returns ``None`` the tail is logged and dropped.  Only Claude
-            passes a repair callback; all other providers leave this ``None``
-            and get the old drop-on-failure behaviour.
-    """
+    """Yield dicts from an NDJSON-emitting CLI subprocess; tail_repair handles malformed final chunks."""
     kwargs: dict[str, Any] = dict(
         cwd=str(cwd) if cwd else None,
         env=env,
@@ -58,14 +46,7 @@ async def ndjson_from_cli(
     # Capture PGID immediately — if we wait until teardown, the child may have
     # exited and been reaped, and os.getpgid(proc.pid) would raise
     # ProcessLookupError. start_new_session=True makes pgid == proc.pid.
-    # Guard against mocked subprocesses in tests where proc.pid may not be a
-    # real int: a MagicMock.pid coerces to 1 via __int__, and
-    # os.killpg(1, SIGTERM) signals init/the CI runner.
-    # os.killpg is POSIX-only: on Windows leave _pgid None so the group-kill
-    # path is skipped and cleanup falls through to proc.terminate()/kill().
-    _pgid: int | None = (
-        proc.pid if hasattr(os, "killpg") and isinstance(proc.pid, int) and proc.pid > 1 else None
-    )
+    # The pid-guard and platform check live in aterminate_process_group.
 
     decoder = codecs.getincrementaldecoder("utf-8")()
     json_decoder = json.JSONDecoder()
@@ -153,22 +134,7 @@ async def ndjson_from_cli(
             raise RuntimeError(err or f"CLI subprocess exited with code {rc}")
 
     finally:
-        pgid = _pgid
-        if pgid is not None:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(pgid, signal.SIGTERM)
-        with contextlib.suppress(ProcessLookupError):
-            proc.terminate()
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
-            if pgid is not None:
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(pgid, signal.SIGKILL)
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                await proc.wait()
+        await aterminate_process_group(proc, grace=5.0)
 
         # Reap the stderr drain task — contextlib.suppress(Exception) does NOT
         # catch CancelledError (BaseException), so we suppress it explicitly.
@@ -193,18 +159,36 @@ def resolve_cli_workspace(repo: Path | None, workspace: str | None) -> Path:
     if ".." in ws_path.parts:
         raise ValueError(f"Directory traversal detected in workspace path: {workspace}")
 
-    repo_resolved = repo.resolve()
-    result = (repo / ws_path).resolve()
+    return contain_and_resolve(ws_path, repo)
 
-    try:
-        result.relative_to(repo_resolved)
-    except ValueError:
-        raise ValueError(
-            f"Workspace path escapes repository bounds. "
-            f"Repository: {repo_resolved}, Workspace: {result}"
-        ) from None
 
-    return result
+def validate_message_prompt(data: dict) -> dict:
+    """Extract prompt from a messages list when prompt is not already set.
+
+    Shared by Gemini, Pi, and Codex request models. Extracts non-system message
+    content into prompt; hoists the first system message into system_prompt.
+    """
+    from lionagi import ln
+
+    if data.get("prompt"):
+        return data
+
+    if not (msg := data.get("messages")):
+        raise ValueError("messages or prompt required")
+
+    prompts = []
+    for message in msg:
+        if message["role"] != "system":
+            content = message["content"]
+            if isinstance(content, dict | list):
+                prompts.append(ln.json_dumps(content))
+            else:
+                prompts.append(content)
+        elif message["role"] == "system" and not data.get("system_prompt"):
+            data["system_prompt"] = message["content"]
+
+    data["prompt"] = "\n".join(prompts)
+    return data
 
 
 def build_declarative_cli_args(model_instance: Any) -> list[str]:
@@ -255,3 +239,28 @@ def build_declarative_cli_args(model_instance: Any) -> list[str]:
             args.extend([flag, str(val)])
 
     return args
+
+
+def discover_cli(binary: str) -> tuple[bool, str | None]:
+    """Return (available, resolved_path_or_name) for a CLI binary discovered on PATH."""
+    candidate = shutil.which(binary) or binary
+    if shutil.which(candidate):
+        return True, candidate
+    return False, None
+
+
+def make_cli_flag(
+    flag: str,
+    order: int,
+    kind: str = "value",
+    *,
+    neg_flag: str | None = None,
+) -> dict[str, Any]:
+    """Build a json_schema_extra dict describing a declarative CLI flag (see build_declarative_cli_args)."""
+    d: dict[str, Any] = {"cli_flag": flag, "cli_order": order, "cli_kind": kind}
+    if neg_flag:
+        d["cli_neg_flag"] = neg_flag
+    return d
+
+
+print_readable = partial(as_readable, md=True, display_str=True)

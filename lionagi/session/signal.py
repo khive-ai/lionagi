@@ -1,11 +1,25 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Observable envelope carrying payloads into the reactive bus.
+"""Signal types and per-node lifecycle projection for the reactive bus (ADR-0083).
 
-``NodeLifecycleState`` and ``lane_for`` provide the canonical per-node
-lifecycle projection (ADR-0083). Callers pre-filter signals to one node id
-and call ``lane_for`` to derive the current lane without bespoke parsing.
+Payload contract (schema_version=1):
+  RunStart        — no payload fields
+  RunEnd          — input_tokens, output_tokens, total_cost_usd, num_turns, duration_ms
+  RunFailed       — data: exception
+  NodeSpawned     — op_id, parent_id, independent, assignee, instruction
+  NodeQueued      — op_id, name, elapsed, parent_id, depends_on
+  NodeStarted     — op_id, name, elapsed, parent_id, depends_on
+  NodeCompleted   — op_id, name, elapsed, parent_id, depends_on
+  NodeFailed      — op_id, name, elapsed, parent_id, depends_on
+  NodeAwaitingApproval — op_id, name, reason
+  NodeEscalated   — op_id, name, reason, route, escalation_request
+  NodePaused      — op_id, name
+  GateDenied      — data: any
+  MessageAdded    — data: RoledMessage (stored as message_ref in payload)
+
+Version policy: schema_version is bumped on any breaking field removal or rename.
+Adding nullable fields is non-breaking and does not bump the version.
 """
 
 from __future__ import annotations
@@ -23,17 +37,23 @@ __all__ = (
     "RunStart",
     "RunEnd",
     "RunFailed",
+    "NodeSpawned",
     "NodeStarted",
     "NodeCompleted",
     "NodeFailed",
     "NodeQueued",
     "NodeAwaitingApproval",
     "NodeEscalated",
+    "NodePaused",
     "GateDenied",
     "MessageAdded",
     "NodeLifecycleState",
     "lane_for",
+    "build_run_end",
+    "SIGNAL_SCHEMA_VERSION",
 )
+
+SIGNAL_SCHEMA_VERSION: int = 1
 
 
 class Signal(Element):
@@ -41,6 +61,7 @@ class Signal(Element):
 
     data: Any = None
     emitter_role: str | None = None
+    schema_version: int = SIGNAL_SCHEMA_VERSION
 
 
 class StructuredOutput(Signal):
@@ -54,11 +75,27 @@ class RunStart(Signal):
 
 
 class RunEnd(Signal):
-    """Run lifecycle: completed. data is the result."""
+    """Run lifecycle: completed. Usage fields are populated when available."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    num_turns: int = 0
+    duration_ms: float = 0.0
 
 
 class RunFailed(Signal):
     """Run lifecycle: raised. data is the exception."""
+
+
+class NodeSpawned(Signal):
+    """A DAG node was accepted into the running graph (reactive spawn)."""
+
+    op_id: str = ""
+    parent_id: str | None = None
+    independent: bool = False
+    assignee: str | None = None
+    instruction: str | None = None
 
 
 class NodeStarted(Signal):
@@ -67,6 +104,8 @@ class NodeStarted(Signal):
     op_id: str = ""
     name: str = ""
     elapsed: float = 0.0
+    parent_id: str | None = None
+    depends_on: list[str] = []
 
 
 class NodeCompleted(Signal):
@@ -75,6 +114,8 @@ class NodeCompleted(Signal):
     op_id: str = ""
     name: str = ""
     elapsed: float = 0.0
+    parent_id: str | None = None
+    depends_on: list[str] = []
 
 
 class NodeFailed(Signal):
@@ -83,6 +124,8 @@ class NodeFailed(Signal):
     op_id: str = ""
     name: str = ""
     elapsed: float = 0.0
+    parent_id: str | None = None
+    depends_on: list[str] = []
 
 
 class GateDenied(Signal):
@@ -107,6 +150,8 @@ class NodeQueued(Signal):
     op_id: str = ""
     name: str = ""
     elapsed: float = 0.0
+    parent_id: str | None = None
+    depends_on: list[str] = []
 
 
 class NodeAwaitingApproval(Signal):
@@ -118,15 +163,7 @@ class NodeAwaitingApproval(Signal):
 
 
 class NodeEscalated(Signal):
-    """A DAG operation node escalated — out of depth or no higher tier available.
-
-    ``route`` is ``"higher_tier"`` when a re-dispatch is scheduled or
-    ``"give_up"`` when no escalation path is configured. The
-    ``escalation_request`` field carries the original request payload for
-    the audit trail; it is stored in a named field rather than ``Signal.data``
-    to prevent the observer's payload-matching from re-firing the escalation
-    handler when this signal is emitted.
-    """
+    """A DAG node escalated; route is "higher_tier" or "give_up" (see docs/reference/testing-state-session.md)."""
 
     op_id: str = ""
     name: str = ""
@@ -135,11 +172,18 @@ class NodeEscalated(Signal):
     escalation_request: Any = None
 
 
+class NodePaused(Signal):
+    """A DAG operation node is blocked at an operation boundary, awaiting resume()."""
+
+    op_id: str = ""
+    name: str = ""
+
+
 # -- Lifecycle projection (ADR-0083) ------------------------------------------
 
-#: The six canonical per-node lifecycle states.
+#: The seven canonical per-node lifecycle states.
 NodeLifecycleState = Literal[
-    "queued", "running", "awaiting_approval", "succeeded", "failed", "escalated"
+    "queued", "running", "awaiting_approval", "paused", "succeeded", "failed", "escalated"
 ]
 
 _TERMINAL: frozenset[str] = frozenset({"succeeded", "failed", "escalated"})
@@ -153,6 +197,8 @@ def _signal_to_state(sig: Any) -> NodeLifecycleState | None:
         return "running"
     if isinstance(sig, NodeAwaitingApproval):
         return "awaiting_approval"
+    if isinstance(sig, NodePaused):
+        return "paused"
     if isinstance(sig, NodeCompleted | RunEnd):
         return "succeeded"
     if isinstance(sig, NodeFailed | RunFailed):
@@ -169,17 +215,7 @@ def _signal_to_state(sig: Any) -> NodeLifecycleState | None:
 
 
 def lane_for(signals: Iterable[Signal | Any]) -> NodeLifecycleState:
-    """Project an ordered, single-node signal stream into its current lifecycle lane.
-
-    Callers must pre-filter *signals* to one operation/node id. The default
-    state (empty stream) is ``"queued"``. Terminal states (``succeeded``,
-    ``failed``, ``escalated``) are sticky: later non-retry signals cannot
-    override them. A subsequent ``NodeQueued`` or ``NodeStarted`` signal
-    represents a new attempt and resets the state.
-
-    ``RunStart`` / ``RunEnd`` are run-scoped fallbacks — valid only for
-    single-run cards where no node-specific signal is present.
-    """
+    """Project a pre-filtered single-node signal stream to its current lifecycle lane; terminal states are sticky."""
     state: NodeLifecycleState = "queued"
     in_terminal: bool = False
     for sig in signals:
@@ -192,3 +228,76 @@ def lane_for(signals: Iterable[Signal | Any]) -> NodeLifecycleState:
         state = new
         in_terminal = state in _TERMINAL
     return state
+
+
+def _collect_branch_usage(branch: Any) -> dict[str, Any]:
+    """Sum provider-reported usage across all AssistantResponse messages on branch.
+
+    Returns dict with keys: input_tokens, output_tokens, total_cost_usd, num_turns.
+    All zero when no provider data is available (subscription runs, tests).
+    """
+    input_tokens = 0
+    output_tokens = 0
+    total_cost_usd = 0.0
+    num_turns = 0
+
+    try:
+        messages = list(branch.msgs.messages)
+    except Exception:  # noqa: BLE001
+        return {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0, "num_turns": 0}
+
+    for msg in messages:
+        mr = (
+            getattr(msg, "metadata", {}).get("model_response") if hasattr(msg, "metadata") else None
+        )
+        if not isinstance(mr, dict):
+            continue
+        usage = mr.get("usage") if isinstance(mr.get("usage"), dict) else mr
+        input_tokens += int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
+        output_tokens += int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
+        cost = mr.get("total_cost_usd") or mr.get("cost")
+        if isinstance(cost, (int, float)):
+            total_cost_usd += float(cost)
+        num_turns += int(mr.get("num_turns", 0) or 0)
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_cost_usd": total_cost_usd,
+        "num_turns": num_turns,
+    }
+
+
+def _collect_multi_branch_usage(branches: Iterable[Any]) -> dict[str, Any]:
+    """Sum provider-reported usage across multiple branches (multi-leg DAG runs).
+
+    Applies _collect_branch_usage to each branch and adds the per-branch totals
+    together. Same key shape as _collect_branch_usage: input_tokens,
+    output_tokens, total_cost_usd, num_turns. duration_ms is deliberately not
+    included here — wall-clock across parallel legs isn't simply summable, so
+    the CLI teardown path leaves it unset for orchestration sessions too.
+    """
+    input_tokens = 0
+    output_tokens = 0
+    total_cost_usd = 0.0
+    num_turns = 0
+
+    for branch in branches:
+        usage = _collect_branch_usage(branch)
+        input_tokens += usage["input_tokens"]
+        output_tokens += usage["output_tokens"]
+        total_cost_usd += usage["total_cost_usd"]
+        num_turns += usage["num_turns"]
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_cost_usd": total_cost_usd,
+        "num_turns": num_turns,
+    }
+
+
+def build_run_end(branch: Any, *, duration_ms: float = 0.0, result: Any = None) -> RunEnd:
+    """Build a RunEnd signal with usage populated from branch message history."""
+    usage = _collect_branch_usage(branch)
+    return RunEnd(data=result, duration_ms=duration_ms, **usage)

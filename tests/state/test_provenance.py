@@ -1,12 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0022 provenance tests.
-
-Covers: agent_definition_hash() lookup + hashing, resolve_model_spec()
-canonicalization, and the DB write path (model/provider/effort/agent_hash
-columns on sessions, model/provider/agent_name on branches).
-"""
+"""ADR-0022 provenance tests — agent_definition_hash(), resolve_model_spec(), and the DB write path for provenance columns."""
 
 from __future__ import annotations
 
@@ -209,3 +204,23 @@ async def test_update_session_allows_provenance_columns(db: StateDB):
     assert row["model"] == "openai/gpt-4.1"
     assert row["provider"] == "openai"
     assert row["effort"] == "medium"
+
+
+async def test_set_session_provenance_rolls_back_on_upsert_failure(db: StateDB, monkeypatch):
+    """A failing project upsert must not leave the session half of the write committed."""
+    prog_id = _uid()
+    sid = _uid()
+    await db.create_progression(prog_id)
+    await db.create_session({"id": sid, "progression_id": prog_id, "status": "running"})
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("upsert failed")
+
+    monkeypatch.setattr(db, "_upsert_project_stmt", _boom)
+
+    with pytest.raises(RuntimeError, match="upsert failed"):
+        await db.set_session_provenance(sid, project="acme", project_source="config_toml")
+
+    # After a failed transaction, the engine should not hold an open transaction.
+    row = await db.get_session(sid)
+    assert row["project"] is None

@@ -57,6 +57,25 @@ def test_search_request_custom_fields():
     assert req.max_results == 10
 
 
+def test_search_request_accepts_explicit_null():
+    # LLM tool calls often emit explicit null for optional fields; this must
+    # validate (and pass None through) rather than fail, so the handler can
+    # coalesce to its defaults.
+    req = SearchRequest(action=SearchAction.grep, pattern="x", path=None, max_results=None)
+    assert req.path is None
+    assert req.max_results is None
+
+
+async def test_grep_with_explicit_null_coalesces_to_defaults(tmp_path):
+    (tmp_path / "alpha.py").write_text("def hello():\n    pass\n")
+    tool = SearchTool(workspace_root=str(tmp_path))
+    resp = await tool.handle_request(
+        SearchRequest(action=SearchAction.grep, pattern="hello", path=None, max_results=None)
+    )
+    assert resp.success is True
+    assert resp.count > 0
+
+
 # ---------------------------------------------------------------------------
 # SearchResponse model
 # ---------------------------------------------------------------------------
@@ -299,7 +318,7 @@ async def test_to_tool_callable_executes(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# A12: grep timeout returns structured error
+# Grep timeout returns structured error
 # ---------------------------------------------------------------------------
 
 
@@ -323,7 +342,7 @@ async def test_search_tool_grep_timeout_returns_structured_error(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# A13: find nonzero exit with stderr returns error response
+# Find nonzero exit with stderr returns error response
 # ---------------------------------------------------------------------------
 
 
@@ -494,8 +513,8 @@ def test_to_tool_custom_system_tool_name():
 
 # ---------------------------------------------------------------------------
 # Regression: rc=-1 (subprocess launch failure) must be success=False
-# (Finding 2: _subprocess_sync returns rc=-1 on launch error, old code
-# only checked rc==2, so rc==-1 fell through to success=True)
+# (_subprocess_sync returns rc=-1 on launch error; old code only checked
+# rc==2, so rc==-1 fell through to success=True)
 # ---------------------------------------------------------------------------
 
 

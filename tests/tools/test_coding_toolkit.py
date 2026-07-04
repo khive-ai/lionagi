@@ -37,8 +37,8 @@ def _tool_fn(tools, name):
 def test_bind_returns_lean_default(tmp_path):
     _, _, tools = _make_toolkit(tmp_path)
     assert (
-        len(tools) == 5
-    )  # reader/editor/bash/search/code_check; context/sandbox/subagent are opt-in
+        len(tools) == 7
+    )  # reader/editor/bash/search/code_check/code_nav/ast_search; context/sandbox/subagent are opt-in
 
 
 def test_bind_all_tools_async(tmp_path):
@@ -58,6 +58,8 @@ def test_bind_tool_names(tmp_path):
         "bash",
         "search",
         "code_check",
+        "code_nav",
+        "ast_search",
     }
 
 
@@ -272,7 +274,7 @@ async def test_search_rejects_path_outside_workspace(tmp_path, action, pattern):
 
 
 # ---------------------------------------------------------------------------
-# C5: reader rejects workspace escape
+# Reader rejects workspace escape
 # ---------------------------------------------------------------------------
 
 
@@ -289,7 +291,7 @@ async def test_coding_toolkit_reader_rejects_workspace_escape(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# C6: editor reports ambiguous replacement without writing
+# Editor reports ambiguous replacement without writing
 # ---------------------------------------------------------------------------
 
 
@@ -320,7 +322,7 @@ async def test_coding_toolkit_editor_reports_ambiguous_replacement_without_writi
 
 
 def test_reader_request_schema_is_canonical():
-    """CodingToolkit's reader tool_def must reference the canonical ReaderRequest."""
+    """reader tool_def must use canonical ReaderRequest from tools/file/reader.py."""
     from lionagi.tools.coding import CodingToolkit
     from lionagi.tools.file.reader import ReaderRequest as CanonicalReaderRequest
 
@@ -334,7 +336,7 @@ def test_reader_request_schema_is_canonical():
 
 
 def test_editor_request_schema_is_canonical():
-    """CodingToolkit's editor tool_def must reference the canonical EditorRequest."""
+    """editor tool_def must use canonical EditorRequest from tools/file/editor.py."""
     from lionagi.tools.coding import CodingToolkit
     from lionagi.tools.file.editor import EditorRequest as CanonicalEditorRequest
 
@@ -379,7 +381,6 @@ async def test_reader_open_missing_path_fails(tmp_path):
 
 
 async def test_reader_open_caches_and_read_serves_from_cache(tmp_path, monkeypatch):
-    """After a successful open, subsequent read on the same path uses the cache."""
     import time
 
     import lionagi.tools.coding as _coding_mod
@@ -421,11 +422,7 @@ async def test_reader_open_caches_and_read_serves_from_cache(tmp_path, monkeypat
 
 
 def test_coding_toolkit_reader_schema_requires_path(tmp_path):
-    """CodingToolkit reader bind — LLM-facing schema must mark 'path' as required.
-
-    This guards against schema drift where path reverts to Optional: an LLM
-    that omits path would pass JSON schema validation but fail at runtime.
-    """
+    """LLM-facing reader schema must mark 'path' as required to guard against schema drift."""
     _, _, tools = _make_toolkit(tmp_path)
     reader_tool = next(t for t in tools if t.func_callable.__name__ == "reader")
     required = reader_tool.tool_schema["function"]["parameters"]["required"]
@@ -451,13 +448,10 @@ def test_coding_toolkit_reader_request_options_raises_without_path(tmp_path):
 
 @pytest.mark.parametrize("action", ["open", "read", "list_dir"])
 async def test_empty_path_exactly_matches_reader_tool(tmp_path, action):
-    """Every reader action with an empty path returns byte-identical output to
-    ReaderTool's canonical pre-dispatch guard:
-    {'success': False, 'content': None, 'error': "'path' is required"}.
+    """Every reader action with empty path returns byte-identical output to ReaderTool's guard.
 
-    Codex round-1/round-2 findings: the wrapper omitted 'content' and used a
-    divergent error string for open, and list_dir fell through the guard
-    entirely, listing the workspace root instead of erroring.
+    Regression: the wrapper omitted 'content' and used a divergent error string for open,
+    and list_dir fell through the guard entirely, listing the workspace root instead of erroring.
     """
     from lionagi.tools.file.reader import ReaderTool
 
@@ -525,7 +519,7 @@ async def test_open_nonexistent_pdf_equivalence(tmp_path):
 
 
 async def test_read_offset_beyond_cached_doc_equivalence(tmp_path, monkeypatch):
-    """Offset beyond end of cached doc: both tools return success=True with empty/minimal content."""
+    """Offset beyond end of cached doc: both CodingToolkit and ReaderTool return success=True."""
     import time
 
     import lionagi.tools.coding as _coding_mod

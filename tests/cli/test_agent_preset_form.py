@@ -1,20 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for 'li agent --preset' (3a) and 'li agent --form' (3b).
-
-Parser-level tests: flag parsing, choices rejection, file-not-found, invalid
-spec → rc!=0 + error message.
-
-Behaviour tests with runner patched: assert AgentConfig.coding() is used when
---preset coding is given; assert WorkForm validation gate fires before any LLM
-call.
-
-Error-channel assertions use ``log_error`` capture rather than capsys because
-``configure_cli_logging()`` sets ``propagate=False`` on ``lionagi.cli.*``
-loggers so pytest's caplog/capsys may not receive the output.  We monkeypatch
-``log_error`` directly and inspect the captured message list.
-"""
+"""Tests for 'li agent --preset' and 'li agent --form': parser, validation, and error routing."""
 
 from __future__ import annotations
 
@@ -53,10 +40,16 @@ def _parse(argv: list[str]):
 
 
 def _agent_args(**overrides):
-    """Return a Namespace suitable for run_agent() with sensible defaults."""
+    """Return a Namespace suitable for run_agent() with sensible defaults.
+
+    Mirrors the parser namespace: positionals arrive as the `query` bucket
+    (model= / prompt= overrides are folded in for test readability)."""
+    model = overrides.pop("model", "claude")
+    prompt = overrides.pop("prompt", "do stuff")
     defaults = dict(
-        model="claude",
-        prompt="do stuff",
+        query=[q for q in (model, prompt) if q is not None],
+        prompt_flag=None,
+        prompt_file=None,
         agent=None,
         resume=None,
         continue_last=False,
@@ -246,7 +239,7 @@ class TestFormValidationGate:
 
         async def fake_run(*a, **kw):
             llm_called.append(1)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run)
 
@@ -270,7 +263,7 @@ class TestFormValidationGate:
 
         async def fake_run(*a, **kw):
             llm_called.append(1)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run)
 
@@ -296,7 +289,7 @@ class TestFormValidationGate:
 
         async def fake_run(*a, **kw):
             llm_called.append(1)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run)
 
@@ -329,7 +322,7 @@ class TestFormValidationGate:
 
         async def fake_run_agent(model_str, prompt, **kw):
             captured_prompts.append(prompt)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run_agent)
 
@@ -354,7 +347,7 @@ class TestFormValidationGate:
 
         async def fake_run_agent(model_str, prompt, **kw):
             captured_prompts.append(prompt)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run_agent)
 
@@ -383,7 +376,7 @@ class TestPresetCodingBehaviour:
 
         async def spy_run_agent(model_str, prompt, **kw):
             captured_kwargs.append(kw)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", spy_run_agent)
 
@@ -404,7 +397,7 @@ class TestPresetCodingBehaviour:
 
         async def spy_run_agent(model_str, prompt, **kw):
             captured_kwargs.append(kw)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", spy_run_agent)
 
@@ -424,7 +417,7 @@ class TestPresetCodingBehaviour:
 
         async def spy_run_agent(model_str, prompt, **kw):
             captured_kwargs.append(kw)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", spy_run_agent)
 
@@ -504,7 +497,7 @@ async def test_run_agent_preset_coding_creates_preset_config(monkeypatch, tmp_pa
 
     from lionagi.cli.agent import _run_agent
 
-    result, provider, branch_id, status = await _run_agent(
+    result, provider, branch_id, status, session_id = await _run_agent(
         "claude/sonnet", "build a feature", preset="coding"
     )
 
@@ -644,7 +637,7 @@ async def test_run_agent_continue_last_with_preset_raises(monkeypatch, tmp_path)
 
 
 # ---------------------------------------------------------------------------
-# Finding 1: profile + preset system prompt composition
+# profile + preset system prompt composition
 # ---------------------------------------------------------------------------
 
 
@@ -661,7 +654,7 @@ async def test_run_agent_preset_and_profile_single_system_message_with_both(monk
     from types import SimpleNamespace as _NS
 
     from lionagi import Branch as _Branch
-    from lionagi.cli._agents import AgentProfile  # type: ignore[attr-defined]
+    from lionagi.cli._providers import AgentProfile  # type: ignore[attr-defined]
 
     branches_created: list = []
     real_branch_init = _Branch.__init__
@@ -685,6 +678,8 @@ async def test_run_agent_preset_and_profile_single_system_message_with_both(monk
         raw_body=PROFILE_RAW_BODY,
         lion_system=True,
         artifact_defaults=None,
+        timeout=None,
+        resume_on_timeout=False,
     )
     import lionagi.cli.agent as agent_mod
 
@@ -745,6 +740,8 @@ async def test_run_agent_profile_without_preset_system_prompt_unchanged(monkeypa
         fast_mode=False,
         system_prompt=PROFILE_PROMPT,
         artifact_defaults=None,
+        timeout=None,
+        resume_on_timeout=False,
     )
     import lionagi.cli.agent as agent_mod
 
@@ -768,7 +765,7 @@ async def test_run_agent_profile_without_preset_system_prompt_unchanged(monkeypa
 
 
 # ---------------------------------------------------------------------------
-# Finding 2: form spec closed schema enforcement
+# form spec closed schema enforcement
 # ---------------------------------------------------------------------------
 
 
@@ -828,7 +825,7 @@ class TestFormSpecClosedSchema:
 
         async def fake_run(*a, **kw):
             llm_called.append(1)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run)
 
@@ -856,7 +853,7 @@ class TestFormSpecClosedSchema:
 
         async def fake_run(*a, **kw):
             llm_called.append(1)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run)
 
@@ -873,7 +870,7 @@ class TestFormSpecClosedSchema:
 
 
 # ---------------------------------------------------------------------------
-# Finding 3: directory --form path → rc=1, clear error, no traceback
+# directory --form path → rc=1, clear error, no traceback
 # ---------------------------------------------------------------------------
 
 
@@ -890,7 +887,7 @@ class TestFormDirectoryPath:
 
         async def fake_run(*a, **kw):
             llm_called.append(1)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run)
 
@@ -907,7 +904,7 @@ class TestFormDirectoryPath:
 
 
 # ---------------------------------------------------------------------------
-# Round-2 Finding 1: non-mapping fields / values probe shapes
+# non-mapping fields / values probe shapes
 # ---------------------------------------------------------------------------
 
 
@@ -953,7 +950,7 @@ class TestFormNonMappingTypes:
 
         async def fake_run(*a, **kw):
             llm_called.append(1)
-            return ("done", "claude", "br-001", "completed")
+            return ("done", "claude", "br-001", "completed", "sess-001")
 
         monkeypatch.setattr(agent_mod, "_run_agent", fake_run)
         errors: list[str] = []
@@ -977,7 +974,7 @@ class TestFormNonMappingTypes:
 
 
 # ---------------------------------------------------------------------------
-# Round-2 Finding 2: LION_SYSTEM_MESSAGE dedup with real profile files
+# LION_SYSTEM_MESSAGE dedup with real profile files
 # ---------------------------------------------------------------------------
 
 
@@ -987,7 +984,7 @@ def _make_agents_dir(tmp_path, monkeypatch):
     agents_dir = lionagi_dir / "agents"
     agents_dir.mkdir(parents=True)
 
-    import lionagi.cli._agents as agents_mod
+    import lionagi.cli._providers as agents_mod
 
     monkeypatch.setattr(agents_mod, "_find_lionagi_dirs", lambda: [lionagi_dir])
     return agents_dir

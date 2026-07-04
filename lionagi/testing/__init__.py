@@ -1,39 +1,11 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""``lionagi.testing`` — test infrastructure for the Lion ecosystem.
+"""Supported public testing surface for lionagi downstream projects.
 
-The two big things this module gives you:
-
-1. **``TestBranch`` / ``ScriptedEndpoint``** — a real endpoint registered as
-   ``provider="scripted"`` that serves canned responses from a YAML/JSON/dict
-   fixture. Branches built via ``TestBranch.from_*`` go through the production
-   code path (rate limiter, payload builder, AssistantResponse parser) but
-   never touch the network. Lets you assert on what the agent actually sent.
-
-2. **``LionAGIMockFactory``** — the legacy ``AsyncMock``-backed factory,
-   preserved here so existing tests keep working. New tests should prefer
-   ``TestBranch``.
-
-Plus helpers (``AsyncTestHelpers``, ``ValidationHelpers``, ``TestDataHelpers``),
-fixture loaders (``TestDataLoader`` + bundled JSON), and a pytest plugin
-exposing all the standard fixtures.
-
-Quick start::
-
-    from lionagi.testing import TestBranch
-
-    branch = TestBranch.from_text("hello back")
-    assert await branch.chat("hello") == "hello back"
-    assert TestBranch.calls(branch)[0].last_user_message == "hello"
-
-Subprocess tests::
-
-    from lionagi.testing import scripted_env
-    import subprocess
-
-    with scripted_env("tests/fixtures/scripts/foo.yaml"):
-        r = subprocess.run(["li", "agent", "hi"], capture_output=True, text=True)
+Provides scripted endpoints, mock factories, pytest fixtures, async helpers,
+and test-data loaders. Register ``lionagi.testing.pytest_plugin`` in your
+conftest (or ``pytest_plugins``) to get the bundled fixtures automatically.
 """
 
 from __future__ import annotations
@@ -70,7 +42,6 @@ from .helpers import (
     MockElement,
     TestDataHelpers,
     ValidationHelpers,
-    make_mock_element_class,
 )
 from .loaders import (
     TestDataLoader,
@@ -117,7 +88,6 @@ __all__ = (
     "TestDataHelpers",
     "TestDataLoader",
     "ValidationHelpers",
-    "make_mock_element_class",
     "get_api_response",
     "get_conversation",
     "get_error_scenario",

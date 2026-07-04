@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from functools import partial
+from typing import Annotated, Any
 
+import anyio
 import yaml
+from fastapi import Body, HTTPException
 
 from lionagi._paths import LIONAGI_HOME
 from lionagi.libs.frontmatter import parse_frontmatter as _parse_frontmatter
 
+from ..registry import studio_route
 from ._path_safety import public_path, safe_path_join
 
 _AGENTS_ROOT = LIONAGI_HOME / "agents"
@@ -64,7 +68,6 @@ def list_agents() -> list[dict[str, Any]]:
 
 
 def get_agent(name: str) -> dict[str, Any] | None:
-    # Validate path component — raises HTTPException(404) if unsafe
     safe_path_join(_AGENTS_ROOT, name)
 
     stem = name.removesuffix(".md")
@@ -78,7 +81,6 @@ def get_agent(name: str) -> dict[str, Any] | None:
     fm, body = _parse_frontmatter(text)
     fm = _normalize_frontmatter(fm)
 
-    # Flatten into AgentProfile shape expected by the frontend
     result: dict[str, Any] = {
         "name": stem,
         "path": public_path(path),
@@ -88,16 +90,10 @@ def get_agent(name: str) -> dict[str, Any] | None:
         "guidance": fm.get("guidance") or None,
     }
 
-    # Bool fields: always emit the CLI default so Studio's API response matches
-    # what the CLI resolves for absent keys (lionagi/cli/_agents.py:180-192,
-    # lionagi/agent/config.py:52-53).
     result["yolo"] = bool(fm.get("yolo", False))
     result["fast_mode"] = bool(fm.get("fast_mode", False))
     result["lion_system"] = bool(fm.get("lion_system", True))
 
-    # Preserve remaining optional fields only when present in frontmatter.
-    # `effort` is canonical; `reasoning_effort` is accepted only as a legacy
-    # read fallback.
     for optional_key in ("permission_mode", "effort", "description"):
         if optional_key in fm:
             result[optional_key] = fm[optional_key]
@@ -125,14 +121,7 @@ _KNOWN_FRONTMATTER_KEYS = (
 
 
 def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
-    """Write an agent profile back to disk.
-
-    Unknown frontmatter keys (e.g. ``yolo``, ``max-ops``) are preserved so
-    hand-authored agent files don't lose configuration on save.
-    If the file is a symlink (the common case — ``~/.lionagi/agents/*`` points
-    at ``firm/agents/*``), the write follows the link so the real source file
-    is updated.
-    """
+    """Write an agent profile back to disk; preserves unknown frontmatter keys; follows symlinks."""
     safe_path_join(_AGENTS_ROOT, name)
     stem = name.removesuffix(".md")
     path = _AGENTS_ROOT / f"{stem}.md"
@@ -146,8 +135,6 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
     existing_fm, existing_body = _parse_frontmatter(existing_text)
     existing_fm = _normalize_frontmatter(existing_fm)
 
-    # Merge: start with everything that was there, overlay known keys from
-    # the request. A key explicitly set to "" or None is treated as "clear".
     fm: dict[str, Any] = dict(existing_fm)
     incoming = _normalize_frontmatter(data)
     for key in _KNOWN_FRONTMATTER_KEYS:
@@ -166,9 +153,6 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
         else:
             fm.pop("model", None)
 
-    # system_prompt convention: body of the markdown file. Frontmatter
-    # ``system_prompt`` is supported on read but we always write to the body
-    # so existing agent .md files (which use the body) stay readable.
     new_body = data.get("system_prompt")
     if new_body is None:
         new_body = existing_body
@@ -180,8 +164,54 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any] | None:
     else:
         new_text = f"{new_body}\n" if new_body else ""
 
-    # open(..., "w") on a symlink truncates the target, not the link — exactly
-    # what we want.
     path.write_text(new_text)
 
     return get_agent(name)
+
+
+@studio_route("/agents/", method="GET", area="agents", name="list_agents")
+async def list_agents_route() -> dict[str, Any]:
+    agents = await anyio.to_thread.run_sync(list_agents)
+    return {"agents": agents}
+
+
+@studio_route("/agents/{name}", method="GET", area="agents", name="get_agent")
+async def get_agent_route(name: str) -> dict[str, Any]:
+    agent = await anyio.to_thread.run_sync(partial(get_agent, name))
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+    return agent
+
+
+@studio_route("/agents/{name}", method="POST", area="agents")
+async def create_agent(name: str) -> dict[str, Any]:
+    # TODO(lift-backend-writes)
+    raise HTTPException(status_code=501, detail="Not implemented")
+
+
+@studio_route("/agents/{name}", method="PUT", area="agents", name="update_agent")
+async def update_agent_route(
+    name: str, body: Annotated[dict[str, Any], Body(...)]
+) -> dict[str, Any]:
+    updated = await anyio.to_thread.run_sync(partial(update_agent, name, body))
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+    return updated
+
+
+@studio_route("/agents/{name}", method="DELETE", area="agents")
+async def delete_agent(name: str) -> dict[str, Any]:
+    # TODO(lift-backend-writes)
+    raise HTTPException(status_code=501, detail="Not implemented")
+
+
+@studio_route("/agents/{name}/validate", method="POST", area="agents")
+async def validate_agent(name: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
+    errors: list[str] = []
+    if not (body.get("name") or "").strip():
+        errors.append("name is required")
+    if not (body.get("provider") or "").strip():
+        errors.append("provider is required")
+    if not (body.get("model") or "").strip():
+        errors.append("model is required")
+    return {"ok": not errors, "errors": errors or None}

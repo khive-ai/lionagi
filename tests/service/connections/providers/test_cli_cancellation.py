@@ -1,14 +1,6 @@
 """Regression tests for CLI subprocess cancellation (Ctrl+C / SIGINT).
 
-Root cause: Without start_new_session=True, Ctrl+C sends
-SIGINT to both Python and the CLI subprocess. The child handles SIGINT
-gracefully and exits with a partial result, causing auto_finish to spawn
-a new session instead of stopping.
-
-These tests verify:
-1. Subprocesses are spawned in isolated sessions (start_new_session=True)
-2. CancelledError during streaming propagates without triggering auto_finish
-3. The aclosing() cleanup path terminates the subprocess
+Covers start_new_session isolation, CancelledError propagation without auto_finish, and aclosing() cleanup.
 """
 
 from __future__ import annotations
@@ -29,12 +21,11 @@ class TestSubprocessSessionIsolation:
 
     @pytest.mark.asyncio
     async def test_claude_cli_uses_start_new_session(self):
-        """Claude CLI subprocess must use start_new_session=True."""
-        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(prompt="test")
 
-        from lionagi.providers.anthropic.claude_code.models import _ndjson_from_cli
+        from lionagi.providers.anthropic.claude_code import _ndjson_from_cli
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_proc = MagicMock()
@@ -61,15 +52,14 @@ class TestSubprocessSessionIsolation:
 
     @pytest.mark.asyncio
     async def test_codex_cli_uses_start_new_session(self):
-        """Codex CLI subprocess must use start_new_session=True."""
-        from lionagi.providers.openai.codex.models import CodexCodeRequest
+        from lionagi.providers.openai.codex import CodexCodeRequest
 
         request = CodexCodeRequest(prompt="test")
 
-        from lionagi.providers.openai.codex.models import _ndjson_from_cli
+        from lionagi.providers.openai.codex import _ndjson_from_cli
 
         with (
-            patch("lionagi.providers.openai.codex.models.CODEX_CLI", "codex"),
+            patch("lionagi.providers.openai.codex.CODEX_CLI", "codex"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
             mock_proc = MagicMock()
@@ -92,15 +82,14 @@ class TestSubprocessSessionIsolation:
 
     @pytest.mark.asyncio
     async def test_gemini_cli_uses_start_new_session(self):
-        """Gemini CLI subprocess must use start_new_session=True."""
-        from lionagi.providers.google.gemini_code.models import GeminiCodeRequest
+        from lionagi.providers.google.gemini_code import GeminiCodeRequest
 
         request = GeminiCodeRequest(prompt="test")
 
-        from lionagi.providers.google.gemini_code.models import _ndjson_from_cli
+        from lionagi.providers.google.gemini_code import _ndjson_from_cli
 
         with (
-            patch("lionagi.providers.google.gemini_code.models.GEMINI_CLI", "gemini"),
+            patch("lionagi.providers.google.gemini_code.AGY_CLI", "agy"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
             mock_proc = MagicMock()
@@ -132,22 +121,20 @@ class TestCancellationSkipsAutoFinish:
 
     @pytest.mark.asyncio
     async def test_cancelled_error_skips_auto_finish(self):
-        """CancelledError during first stream must not spawn a second request."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
+        from lionagi.providers.anthropic.claude_code import (
             ClaudeCodeCLIEndpoint,
         )
 
         stream_call_count = 0
 
         async def cancelling_stream(*args, **kwargs):
-            """Yields one chunk then raises CancelledError (simulates Ctrl+C)."""
             nonlocal stream_call_count
             stream_call_count += 1
             yield MagicMock(text="partial")
             raise asyncio.CancelledError()
 
         with patch(
-            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.stream_claude_code_cli",
             side_effect=cancelling_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -167,8 +154,7 @@ class TestCancellationSkipsAutoFinish:
 
     @pytest.mark.asyncio
     async def test_keyboard_interrupt_skips_auto_finish(self):
-        """KeyboardInterrupt during streaming must not spawn a second request."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
+        from lionagi.providers.anthropic.claude_code import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -181,7 +167,7 @@ class TestCancellationSkipsAutoFinish:
             raise KeyboardInterrupt()
 
         with patch(
-            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.stream_claude_code_cli",
             side_effect=interrupting_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -197,20 +183,14 @@ class TestCancellationSkipsAutoFinish:
 
     @pytest.mark.asyncio
     async def test_task_cancel_skips_auto_finish(self):
-        """Task.cancel() (non-SIGINT) during streaming must not spawn a second request.
-
-        This tests the actual regression scenario: the stream completes normally
-        (subprocess exits gracefully), but the Python task is cancelled by the
-        executor/timeout. The _cancelled sentinel guard must prevent auto_finish.
-        """
-        from lionagi.providers.anthropic.claude_code.endpoint import (
+        """Task.cancel() must not trigger auto_finish even when subprocess exits gracefully."""
+        from lionagi.providers.anthropic.claude_code import (
             ClaudeCodeCLIEndpoint,
         )
 
         stream_call_count = 0
 
         async def stream_then_cancel(*args, **kwargs):
-            """Yields chunks normally, then the task gets cancelled externally."""
             nonlocal stream_call_count
             stream_call_count += 1
             yield MagicMock(text="partial")
@@ -218,7 +198,7 @@ class TestCancellationSkipsAutoFinish:
             raise asyncio.CancelledError()
 
         with patch(
-            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.stream_claude_code_cli",
             side_effect=stream_then_cancel,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -234,11 +214,10 @@ class TestCancellationSkipsAutoFinish:
 
     @pytest.mark.asyncio
     async def test_normal_completion_still_triggers_auto_finish(self):
-        """Normal stream completion should still trigger auto_finish when needed."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
+        from lionagi.providers.anthropic.claude_code import (
             ClaudeCodeCLIEndpoint,
+            ClaudeSession,
         )
-        from lionagi.providers.anthropic.claude_code.models import ClaudeSession
 
         stream_call_count = 0
         mock_session = MagicMock(spec=ClaudeSession)
@@ -257,7 +236,7 @@ class TestCancellationSkipsAutoFinish:
                 yield mock_session
 
         with patch(
-            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.stream_claude_code_cli",
             side_effect=normal_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -289,9 +268,8 @@ class TestNdjsonCleanupPropagation:
 
     @pytest.mark.asyncio
     async def test_cancelled_error_not_swallowed_by_finally(self):
-        """CancelledError from proc.wait() timeout must propagate, not be caught."""
-        # This tests the fix: except asyncio.TimeoutError (not CancelledError)
-        from lionagi.providers.anthropic.claude_code.models import (
+        # Fix: except asyncio.TimeoutError (not CancelledError)
+        from lionagi.providers.anthropic.claude_code import (
             ClaudeCodeRequest,
             _ndjson_from_cli,
         )
@@ -338,8 +316,7 @@ class TestToolAllowlistArgs:
     """Verify tool names are passed without embedded quotes to subprocess."""
 
     def test_allowed_tools_no_embedded_quotes(self):
-        """Tool names in --allowedTools must not have embedded quote chars."""
-        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(
             prompt="test",
@@ -363,8 +340,7 @@ class TestToolAllowlistArgs:
             assert tool in {"Bash", "Read", "Write"}
 
     def test_disallowed_tools_no_embedded_quotes(self):
-        """Tool names in --disallowedTools must not have embedded quote chars."""
-        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(
             prompt="test",
@@ -383,8 +359,7 @@ class TestToolAllowlistArgs:
             assert '"' not in tool
 
     def test_mcp_config_no_embedded_quotes(self):
-        """--mcp-config path must not have embedded quote chars."""
-        from lionagi.providers.anthropic.claude_code.models import ClaudeCodeRequest
+        from lionagi.providers.anthropic.claude_code import ClaudeCodeRequest
 
         request = ClaudeCodeRequest(
             prompt="test",
@@ -406,10 +381,9 @@ class TestSessionIsolation:
     """Verify each stream_claude_code_cli call gets its own session."""
 
     def test_default_session_is_none_not_shared_instance(self):
-        """stream_claude_code_cli must default session to None, not a shared instance."""
         import inspect
 
-        from lionagi.providers.anthropic.claude_code.models import (
+        from lionagi.providers.anthropic.claude_code import (
             stream_claude_code_cli,
         )
 
@@ -431,8 +405,7 @@ class TestEmptyResponsesGuard:
 
     @pytest.mark.asyncio
     async def test_auto_finish_with_empty_responses(self):
-        """auto_finish must not IndexError when no chunks were received."""
-        from lionagi.providers.anthropic.claude_code.endpoint import (
+        from lionagi.providers.anthropic.claude_code import (
             ClaudeCodeCLIEndpoint,
         )
 
@@ -441,7 +414,7 @@ class TestEmptyResponsesGuard:
             yield  # make it an async generator
 
         with patch(
-            "lionagi.providers.anthropic.claude_code.endpoint.stream_claude_code_cli",
+            "lionagi.providers.anthropic.claude_code.stream_claude_code_cli",
             side_effect=empty_stream,
         ):
             endpoint = ClaudeCodeCLIEndpoint()
@@ -484,8 +457,7 @@ class TestProcessGroupCleanup:
 
     @pytest.mark.asyncio
     async def test_gemini_cleanup_calls_killpg(self):
-        """Gemini _ndjson_from_cli cleanup must call os.killpg."""
-        from lionagi.providers.google.gemini_code.models import (
+        from lionagi.providers.google.gemini_code import (
             GeminiCodeRequest,
             _ndjson_from_cli,
         )
@@ -495,10 +467,10 @@ class TestProcessGroupCleanup:
         killpg_calls: list[tuple] = []
 
         with (
-            patch("lionagi.providers.google.gemini_code.models.GEMINI_CLI", "gemini"),
+            patch("lionagi.providers.google.gemini_code.AGY_CLI", "agy"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
             patch(
-                "lionagi.providers._cli_subprocess.os.killpg",
+                "lionagi.ln._proc.os.killpg",
                 side_effect=lambda pgid, sig: killpg_calls.append((pgid, sig)),
             ),
         ):
@@ -516,18 +488,17 @@ class TestProcessGroupCleanup:
 
     @pytest.mark.asyncio
     async def test_pi_cleanup_calls_killpg(self):
-        """Pi _ndjson_from_cli cleanup must call os.killpg."""
-        from lionagi.providers.pi.cli.models import PiCodeRequest, _ndjson_from_cli
+        from lionagi.providers.pi.cli import PiCodeRequest, _ndjson_from_cli
 
         request = PiCodeRequest(prompt="test")
         mock_proc = _make_mock_proc(pid=9002)
         killpg_calls: list[tuple] = []
 
         with (
-            patch("lionagi.providers.pi.cli.models.PI_CLI", "pi"),
+            patch("lionagi.providers.pi.cli.PI_CLI", "pi"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
             patch(
-                "lionagi.providers._cli_subprocess.os.killpg",
+                "lionagi.ln._proc.os.killpg",
                 side_effect=lambda pgid, sig: killpg_calls.append((pgid, sig)),
             ),
         ):
@@ -544,8 +515,8 @@ class TestProcessGroupCleanup:
 
     @pytest.mark.asyncio
     async def test_gemini_mock_pid_guard_skips_killpg(self):
-        """Gemini must NOT call os.killpg when proc.pid is a mock (pid > 1 guard)."""
-        from lionagi.providers.google.gemini_code.models import (
+        """pid=1 must be filtered by the safety guard, not passed to os.killpg."""
+        from lionagi.providers.google.gemini_code import (
             GeminiCodeRequest,
             _ndjson_from_cli,
         )
@@ -559,10 +530,10 @@ class TestProcessGroupCleanup:
         killpg_calls: list = []
 
         with (
-            patch("lionagi.providers.google.gemini_code.models.GEMINI_CLI", "gemini"),
+            patch("lionagi.providers.google.gemini_code.AGY_CLI", "agy"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
             patch(
-                "lionagi.providers._cli_subprocess.os.killpg",
+                "lionagi.ln._proc.os.killpg",
                 side_effect=lambda pgid, sig: killpg_calls.append((pgid, sig)),
             ),
         ):
@@ -580,20 +551,18 @@ class TestProcessGroupCleanup:
 
     @pytest.mark.asyncio
     async def test_gemini_cleanup_no_killpg_platform(self, monkeypatch):
-        """On a platform without os.killpg (Windows), cleanup must
-        fall through to proc.terminate() instead of raising AttributeError from
-        the finally block (which only suppresses ProcessLookupError)."""
-        import lionagi.providers._cli_subprocess as cli_sub
-        from lionagi.providers.google.gemini_code import models
+        """When os.killpg is absent (Windows), cleanup must fall through to proc.terminate()."""
+        import lionagi.ln._proc as proc_mod
+        from lionagi.providers.google import gemini_code as models
 
         request = models.GeminiCodeRequest(prompt="test")
         mock_proc = _make_mock_proc(pid=9101)
 
         # Simulate Windows: os.killpg does not exist.
-        monkeypatch.delattr(cli_sub.os, "killpg", raising=False)
+        monkeypatch.delattr(proc_mod.os, "killpg", raising=False)
 
         with (
-            patch("lionagi.providers.google.gemini_code.models.GEMINI_CLI", "gemini"),
+            patch("lionagi.providers.google.gemini_code.AGY_CLI", "agy"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
             mock_exec.return_value = mock_proc
@@ -608,18 +577,17 @@ class TestProcessGroupCleanup:
 
     @pytest.mark.asyncio
     async def test_pi_cleanup_no_killpg_platform(self, monkeypatch):
-        """Pi cleanup must not raise AttributeError when os.killpg
-        is unavailable (Windows); it falls back to proc.terminate()."""
-        import lionagi.providers._cli_subprocess as cli_sub
-        from lionagi.providers.pi.cli import models
+        """When os.killpg is absent (Windows), Pi cleanup must fall through to proc.terminate()."""
+        import lionagi.ln._proc as proc_mod
+        from lionagi.providers.pi import cli as models
 
         request = models.PiCodeRequest(prompt="test")
         mock_proc = _make_mock_proc(pid=9102)
 
-        monkeypatch.delattr(cli_sub.os, "killpg", raising=False)
+        monkeypatch.delattr(proc_mod.os, "killpg", raising=False)
 
         with (
-            patch("lionagi.providers.pi.cli.models.PI_CLI", "pi"),
+            patch("lionagi.providers.pi.cli.PI_CLI", "pi"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
             mock_exec.return_value = mock_proc
@@ -639,12 +607,12 @@ class TestKillpgUnavailablePlatform:
 
     @pytest.mark.asyncio
     async def test_claude_cleanup_no_killpg_platform(self, monkeypatch):
-        import lionagi.providers._cli_subprocess as cli_sub
-        from lionagi.providers.anthropic.claude_code import models
+        import lionagi.ln._proc as proc_mod
+        from lionagi.providers.anthropic import claude_code as models
 
         request = models.ClaudeCodeRequest(prompt="test")
         mock_proc = _make_mock_proc(pid=9201)
-        monkeypatch.delattr(cli_sub.os, "killpg", raising=False)
+        monkeypatch.delattr(proc_mod.os, "killpg", raising=False)
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = mock_proc
@@ -656,15 +624,15 @@ class TestKillpgUnavailablePlatform:
 
     @pytest.mark.asyncio
     async def test_codex_cleanup_no_killpg_platform(self, monkeypatch):
-        import lionagi.providers._cli_subprocess as cli_sub
-        from lionagi.providers.openai.codex import models
+        import lionagi.ln._proc as proc_mod
+        from lionagi.providers.openai import codex as models
 
         request = models.CodexCodeRequest(prompt="test")
         mock_proc = _make_mock_proc(pid=9202)
-        monkeypatch.delattr(cli_sub.os, "killpg", raising=False)
+        monkeypatch.delattr(proc_mod.os, "killpg", raising=False)
 
         with (
-            patch("lionagi.providers.openai.codex.models.CODEX_CLI", "codex"),
+            patch("lionagi.providers.openai.codex.CODEX_CLI", "codex"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
             mock_exec.return_value = mock_proc
@@ -681,20 +649,13 @@ class TestKillpgUnavailablePlatform:
 
 
 class TestStderrDeadlockPrevention:
-    """stderr-heavy subprocesses must not deadlock.
-
-    Gemini and Pi now drain stderr concurrently via an asyncio task.
-    We feed a large stderr payload and verify:
-    1. The stream completes without hanging.
-    2. The drained bytes appear in the error message on non-zero exit.
-    """
+    """Gemini and Pi drain stderr concurrently; a large payload must not deadlock."""
 
     @pytest.mark.asyncio
     async def test_gemini_large_stderr_does_not_deadlock(self):
-        """Gemini _ndjson_from_cli must not deadlock with large stderr."""
         import asyncio
 
-        from lionagi.providers.google.gemini_code.models import (
+        from lionagi.providers.google.gemini_code import (
             GeminiCodeRequest,
             _ndjson_from_cli,
         )
@@ -723,9 +684,9 @@ class TestStderrDeadlockPrevention:
         mock_proc.kill = MagicMock()
 
         with (
-            patch("lionagi.providers.google.gemini_code.models.GEMINI_CLI", "gemini"),
+            patch("lionagi.providers.google.gemini_code.AGY_CLI", "agy"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
-            patch("lionagi.providers._cli_subprocess.os.killpg"),
+            patch("lionagi.ln._proc.os.killpg"),
         ):
             mock_exec.return_value = mock_proc
 
@@ -741,8 +702,7 @@ class TestStderrDeadlockPrevention:
 
     @pytest.mark.asyncio
     async def test_pi_large_stderr_does_not_deadlock(self):
-        """Pi _ndjson_from_cli must not deadlock with large stderr."""
-        from lionagi.providers.pi.cli.models import PiCodeRequest, _ndjson_from_cli
+        from lionagi.providers.pi.cli import PiCodeRequest, _ndjson_from_cli
 
         request = PiCodeRequest(prompt="test")
         large_stderr = b"E: " + b"y" * 65536
@@ -767,9 +727,9 @@ class TestStderrDeadlockPrevention:
         mock_proc.kill = MagicMock()
 
         with (
-            patch("lionagi.providers.pi.cli.models.PI_CLI", "pi"),
+            patch("lionagi.providers.pi.cli.PI_CLI", "pi"),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
-            patch("lionagi.providers._cli_subprocess.os.killpg"),
+            patch("lionagi.ln._proc.os.killpg"),
         ):
             mock_exec.return_value = mock_proc
 

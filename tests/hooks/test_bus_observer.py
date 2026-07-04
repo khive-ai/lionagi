@@ -1,13 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0076 — HookBus re-based onto the observer transport.
-
-The observer is the single event *record*; HookBus is the ordered /
-blocking dispatch *discipline* over it. These tests prove a bound bus
-records a HookSignal per emit, reactive observers can subscribe, and the
-ordered / StopHook / blocking semantics are unchanged.
-"""
+"""ADR-0076 — HookBus observer transport: bound bus records HookSignals, reactive subscription, and dispatch semantics."""
 
 from __future__ import annotations
 
@@ -26,15 +20,19 @@ from lionagi.session.observer import SessionObserver
 
 
 async def test_bound_emit_records_hooksignal_on_observer():
+    # MESSAGE_ADD is intentionally suppressed from the HookSignal transport:
+    # MessageAdded is the canonical signal for that event (emitted via
+    # on_message_added), so a duplicate HookSignal would produce noise.
+    # Handlers still fire; only the _record() call is skipped.
     obs = SessionObserver()
     bus = HookBus(observer=obs)
+    handler_calls: list = []
+    bus.on(HookPoint.MESSAGE_ADD, lambda **kw: handler_calls.append(kw))
     await bus.emit(HookPoint.MESSAGE_ADD, message={}, session_id="s")
 
     recs = obs.by_type(HookSignal)
-    assert len(recs) == 1
-    # HookPoint is a str-enum stored by value on the Signal — compare by ==.
-    assert recs[0].point == HookPoint.MESSAGE_ADD
-    assert recs[0].kwargs == {"message": {}, "session_id": "s"}
+    assert len(recs) == 0  # no HookSignal for MESSAGE_ADD
+    assert len(handler_calls) == 1  # handler still ran
 
 
 async def test_unbound_bus_records_nothing():
@@ -89,6 +87,9 @@ async def test_ordered_dispatch_unchanged_when_bound():
 
 
 async def test_stop_hook_short_circuits_yet_still_records():
+    # Use SESSION_START (not MESSAGE_ADD) so the HookSignal _is_ recorded.
+    # MESSAGE_ADD suppresses HookSignal by design; short-circuit semantics are
+    # verified here on a point that does record.
     obs = SessionObserver()
     bus = HookBus(observer=obs)
     calls: list[str] = []
@@ -100,9 +101,9 @@ async def test_stop_hook_short_circuits_yet_still_records():
     async def never(**kw):  # pragma: no cover
         calls.append("never")
 
-    bus.on(HookPoint.MESSAGE_ADD, stopper)
-    bus.on(HookPoint.MESSAGE_ADD, never)
-    await bus.emit(HookPoint.MESSAGE_ADD, message={}, session_id="s")
+    bus.on(HookPoint.SESSION_START, stopper)
+    bus.on(HookPoint.SESSION_START, never)
+    await bus.emit(HookPoint.SESSION_START, session_id="s")
 
     assert calls == ["stopper"]  # short-circuit intact
     assert len(obs.by_type(HookSignal)) == 1  # a short-circuited emit is still recorded

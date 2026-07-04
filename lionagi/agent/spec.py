@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lionagi.agent.config import HooksMixin, _wire_secure_guards
 from lionagi.casts.pack import Pack
 from lionagi.casts.profile import Profile
 
@@ -17,17 +16,44 @@ if TYPE_CHECKING:
 
     from .permissions import PermissionPolicy
 
-__all__ = ("AgentSpec",)
+__all__ = ("AgentSpec", "HooksMixin")
+
+
+class HooksMixin:
+    """Shared hook-registration helpers for agent spec dataclasses."""
+
+    hook_handlers: dict[str, list[Callable]]
+
+    def pre(self, tool_name: str, handler: Callable) -> HooksMixin:
+        self.hook_handlers.setdefault(f"pre:{tool_name}", []).append(handler)
+        return self
+
+    def post(self, tool_name: str, handler: Callable) -> HooksMixin:
+        self.hook_handlers.setdefault(f"post:{tool_name}", []).append(handler)
+        return self
+
+    def on_error(self, tool_name: str, handler: Callable) -> HooksMixin:
+        self.hook_handlers.setdefault(f"error:{tool_name}", []).append(handler)
+        return self
+
+
+def _wire_secure_guards(obj: HooksMixin, cwd: str | None) -> None:
+    """Register the standard destructive-command + path-containment guards.
+
+    ``obj`` must support .pre() (HooksMixin).
+    """
+    from lionagi.agent.hooks import guard_destructive, guard_paths
+
+    obj.pre("bash", guard_destructive)
+    workspace_root = str(Path(cwd) if cwd else Path.cwd())
+    path_guard = guard_paths(allowed_paths=[workspace_root])
+    obj.pre("reader", path_guard)
+    obj.pre("editor", path_guard)
 
 
 @dataclass
 class AgentSpec(HooksMixin):
-    """Universal runtime agent spec: Profile (identity) + runtime concerns.
-
-    This is the orchestration-facing composition surface. Every entry point
-    (CLI, programmatic create_agent, flow wiring) composes to AgentSpec and
-    builds a Branch from it.
-    """
+    """Universal runtime spec: Profile (identity) plus model, tools, hooks, and permissions."""
 
     profile: Profile
     model: str | None = None
@@ -62,12 +88,7 @@ class AgentSpec(HooksMixin):
         cwd: str | None = None,
         yolo: bool = False,
     ) -> AgentSpec:
-        """Build an AgentSpec from a role name/object + optional overrides.
-
-        ``emits`` overrides *what* capability models are granted: ``None`` uses
-        the role's declared contract; a tuple grants exactly those models (plus
-        EscalationRequest). Engines pass it for stage-specific event types.
-        """
+        """Build an AgentSpec from a role name/object; ``emits=None`` uses role's declared contract."""
         prof = Profile.compose(role, modes=modes)
         perm = _resolve_permissions(permissions)
         return cls(
@@ -95,18 +116,7 @@ class AgentSpec(HooksMixin):
         secure: bool = True,
         **kwargs: Any,
     ) -> AgentSpec:
-        """Preset for a coding agent — implementer role + coding tools.
-
-        By default (``secure=True``), wires two guards:
-
-        - ``guard_destructive`` as a pre-hook on ``bash`` — blocks destructive
-          shell commands (rm -rf, force-push, etc.).
-        - ``guard_paths`` as a pre-hook on ``reader`` and ``editor`` — restricts
-          file access to the workspace root (``cwd`` if provided, else
-          ``Path.cwd()`` at call time).
-
-        Set ``secure=False`` to disable these defaults and manage hooks manually.
-        """
+        """Preset for a coding agent; ``secure=True`` wires guard_destructive + guard_paths."""
         spec = cls.compose(
             "implementer",
             model=model,
@@ -139,8 +149,8 @@ class AgentSpec(HooksMixin):
             cwd=data.get("cwd"),
             yolo=data.get("yolo", False),
         )
-        # Restore lion_system from YAML when explicitly set; compose() defaults
-        # to True so a saved False would be silently dropped (LIONAGI-AUDIT-005).
+        # compose() defaults lion_system to True, so a saved False must be
+        # restored explicitly or it would be silently dropped.
         if "lion_system" in data:
             spec.lion_system = bool(data["lion_system"])
         return spec
@@ -153,13 +163,7 @@ class AgentSpec(HooksMixin):
         return "\n\n".join(parts)
 
     def emission_operable(self) -> Operable | None:
-        """Return the Operable for emission granting, or None.
-
-        ``grant_emissions=False`` disables granting entirely. Otherwise an
-        explicit ``emits`` tuple overrides *what* is granted (empty tuple ⇒
-        grant nothing, since ``build_emission_operable(())`` is None); ``None``
-        falls back to the role's declared contract.
-        """
+        """Return Operable for capability granting, or None when grant_emissions=False."""
         if not self.grant_emissions:
             return None
         if self.emits is not None:
@@ -220,38 +224,6 @@ class AgentSpec(HooksMixin):
             lines.extend(f"- {e}" for e in policy.escalations)
         return "\n".join(lines)
 
-    @classmethod
-    def from_legacy(cls, config: Any) -> AgentSpec:
-        """Bridge a legacy AgentConfig into an AgentSpec."""
-        from .permissions import PermissionPolicy
-
-        perm: PermissionPolicy | None = None
-        if config.permissions:
-            if isinstance(config.permissions, PermissionPolicy):
-                perm = config.permissions
-            elif isinstance(config.permissions, dict):
-                perm = PermissionPolicy.from_dict(config.permissions)
-
-        role = config.role or "implementer"
-        prof = Profile.compose(role=role, modes=config.modes or [])
-
-        return cls(
-            profile=prof,
-            model=config.model,
-            effort=config.effort,
-            tools=tuple(config.tools or []),
-            permissions=perm,
-            grant_emissions=True,
-            pack="default",
-            lion_system=config.lion_system,
-            extra_prompt=config.system_prompt or None,
-            hook_handlers={k: list(v) for k, v in config.hook_handlers.items()},
-            cwd=config.cwd,
-            yolo=config.yolo,
-            mcp_servers=config.mcp_servers,
-            mcp_config_path=config.mcp_config_path,
-        )
-
 
 def _resolve_permissions(permissions: Any) -> PermissionPolicy | None:
     from .permissions import PermissionPolicy
@@ -282,9 +254,7 @@ def _load_pack(pack: str | Pack) -> Pack | None:
     if isinstance(pack, Pack):
         return pack
     if pack == "default":
-        from importlib.resources import as_file, files
+        from lionagi.casts.catalog import _load_packaged_pack
 
-        packaged = files("lionagi.casts").joinpath("packs", "default.yaml")
-        with as_file(packaged) as p:
-            return Pack.from_file(p)
+        return _load_packaged_pack(raise_on_error=True)
     return None

@@ -10,10 +10,10 @@ from pydantic import BaseModel
 
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.libs.validate.common_field_validators import validate_model_to_type
-from lionagi.ln.fuzzy import FuzzyMatchKeysParams
 from lionagi.models.field_model import FieldModel
 from lionagi.service.imodel import iModel
 
+from .._defaults import make_parse_param
 from ..fields import Instruct
 from ..types import ActionParam, ChatParam, HandleValidation, InterpretParam, ParseParam
 from .utils import Analysis, ReActAnalysis
@@ -55,14 +55,11 @@ async def ReAct(  # noqa: N802  # public name is the ReAct acronym
 ):
     """ReAct reasoning loop with legacy API - wrapper around ReAct_v1."""
 
-    # Handle legacy verbose parameter
     if "verbose" in kwargs:
         verbose_analysis = kwargs.pop("verbose")
 
-    # Convert Instruct to dict if needed
     instruct_dict = instruct.to_dict() if isinstance(instruct, Instruct) else dict(instruct)
 
-    # Build InterpretParam if interpretation requested
     intp_param = None
     if interpret:
         intp_param = InterpretParam(
@@ -83,7 +80,6 @@ async def ReAct(  # noqa: N802  # public name is the ReAct acronym
         imodel_kw=kwargs,
     )
 
-    # Build ActionParam
     action_param = None
     if tools is not None or tool_schemas is not None:
         from ..act.act import _get_default_call_params
@@ -96,19 +92,12 @@ async def ReAct(  # noqa: N802  # public name is the ReAct acronym
             verbose_action=False,
         )
 
-    # Build ParseParam
-    from ..parse.parse import get_default_call
-
-    parse_param = ParseParam(
-        response_format=ReActAnalysis,  # Initial format
-        fuzzy_match_params=FuzzyMatchKeysParams(),
+    parse_param = make_parse_param(
+        ReActAnalysis,
+        analysis_model or branch.chat_model,
         handle_validation="return_value",
-        alcall_params=get_default_call(),
-        imodel=analysis_model or branch.chat_model,
-        imodel_kw={},
     )
 
-    # Response context for final answer
     resp_ctx = response_kwargs or {}
     if response_format:
         resp_ctx["response_format"] = response_format
@@ -122,10 +111,10 @@ async def ReAct(  # noqa: N802  # public name is the ReAct acronym
         intp_param=intp_param,
         resp_ctx=resp_ctx,
         reasoning_effort=reasoning_effort,
-        reason=True,  # ReAct always uses reasoning
+        reason=True,
         field_models=None,
         handle_validation="return_value",
-        invoke_actions=True,  # ReAct always invokes actions
+        invoke_actions=True,
         clear_messages=False,
         intermediate_response_options=intermediate_response_options,
         intermediate_listable=intermediate_listable,
@@ -139,6 +128,106 @@ async def ReAct(  # noqa: N802  # public name is the ReAct acronym
         return_analysis=return_analysis,
         between_rounds=kwargs.get("between_rounds"),
     )
+
+
+def prepare_react_kw(  # noqa: N802
+    branch: "Branch",
+    instruct_dict: dict,
+    *,
+    instruction_fallback: str = "",
+    interpret: bool = False,
+    interpret_domain: str | None = None,
+    interpret_style: str | None = None,
+    interpret_sample: str | None = None,
+    interpret_model: iModel | None = None,
+    interpret_kwargs: dict | None = None,
+    tools: Any = None,
+    tool_schemas: Any = None,
+    response_format: type[BaseModel] | BaseModel = None,
+    intermediate_response_options: list[BaseModel] | BaseModel = None,
+    intermediate_listable: bool = False,
+    reasoning_effort: Literal["low", "medium", "high"] = None,
+    extension_allowed: bool = True,
+    max_extensions: int | None = 3,
+    response_kwargs: dict | None = None,
+    display_as: Literal["json", "yaml"] = "yaml",
+    analysis_model: iModel | None = None,
+    verbose_analysis: bool = False,
+    verbose_length: int = None,
+    include_token_usage_to_model: bool = True,
+    continue_after_failed_response: bool = False,
+    imodel_kw: dict | None = None,
+) -> dict:
+    """Build the kwargs dict for ReActStream from high-level parameters.
+
+    Accepts an already-merged instruct_dict so callers can normalize their
+    input (via _merge_instruct or instruct.to_dict()) before calling.
+    """
+    intp_param = None
+    if interpret:
+        intp_param = InterpretParam(
+            domain=interpret_domain or "general",
+            style=interpret_style or "concise",
+            sample_writing=interpret_sample or "",
+            imodel=interpret_model or analysis_model or branch.chat_model,
+            imodel_kw=interpret_kwargs or {},
+        )
+
+    chat_param = ChatParam.from_branch(
+        branch,
+        guidance=instruct_dict.get("guidance"),
+        context=instruct_dict.get("context"),
+        tool_schemas=tool_schemas or [],
+        include_token_usage_to_model=include_token_usage_to_model,
+        imodel=analysis_model or branch.chat_model,
+        imodel_kw=imodel_kw or {},
+    )
+
+    action_param = None
+    if tools is not None or tool_schemas is not None:
+        from ..act.act import _get_default_call_params
+
+        action_param = ActionParam(
+            action_call_params=_get_default_call_params(),
+            tools=tools or True,
+            strategy="concurrent",
+            suppress_errors=True,
+            verbose_action=False,
+        )
+
+    parse_param = make_parse_param(
+        ReActAnalysis,
+        analysis_model or branch.chat_model,
+        handle_validation="return_value",
+    )
+
+    resp_ctx = response_kwargs or {}
+    if response_format:
+        resp_ctx["response_format"] = response_format
+
+    return {
+        "instruction": instruct_dict.get("instruction", instruction_fallback),
+        "chat_param": chat_param,
+        "action_param": action_param,
+        "parse_param": parse_param,
+        "intp_param": intp_param,
+        "resp_ctx": resp_ctx,
+        "reasoning_effort": reasoning_effort,
+        "reason": True,
+        "field_models": None,
+        "handle_validation": "return_value",
+        "invoke_actions": True,
+        "clear_messages": False,
+        "intermediate_response_options": intermediate_response_options,
+        "intermediate_listable": intermediate_listable,
+        "intermediate_nullable": False,
+        "max_extensions": max_extensions,
+        "extension_allowed": extension_allowed,
+        "verbose_analysis": verbose_analysis,
+        "display_as": display_as,
+        "verbose_length": verbose_length,
+        "continue_after_failed_response": continue_after_failed_response,
+    }
 
 
 async def ReAct_v1(  # noqa: N802  # public name preserves the ReAct acronym
@@ -167,80 +256,44 @@ async def ReAct_v1(  # noqa: N802  # public name preserves the ReAct acronym
     return_analysis: bool = False,
     between_rounds: Callable[["Branch", int], Awaitable[str | None]] | None = None,
 ):
-    """
-    Context-based ReAct implementation - collects all outputs from ReActStream.
-
-    Args:
-        return_analysis: If True, returns list of all intermediate analyses.
-                        If False, returns only the final result.
-    """
+    """Collect all ReActStream outputs; return list of analyses when return_analysis=True, else the final result."""
     outs = []
 
-    if verbose_analysis:
-        async for i in ReActStream(
-            branch=branch,
-            instruction=instruction,
-            chat_param=chat_param,
-            action_param=action_param,
-            parse_param=parse_param,
-            intp_param=intp_param,
-            resp_ctx=resp_ctx,
-            reasoning_effort=reasoning_effort,
-            reason=reason,
-            field_models=field_models,
-            handle_validation=handle_validation,
-            invoke_actions=invoke_actions,
-            clear_messages=clear_messages,
-            intermediate_response_options=intermediate_response_options,
-            intermediate_listable=intermediate_listable,
-            intermediate_nullable=intermediate_nullable,
-            max_extensions=max_extensions,
-            extension_allowed=extension_allowed,
-            verbose_analysis=verbose_analysis,
-            display_as=display_as,
-            verbose_length=verbose_length,
-            continue_after_failed_response=continue_after_failed_response,
-            between_rounds=between_rounds,
-        ):
+    async for i in ReActStream(
+        branch=branch,
+        instruction=instruction,
+        chat_param=chat_param,
+        action_param=action_param,
+        parse_param=parse_param,
+        intp_param=intp_param,
+        resp_ctx=resp_ctx,
+        reasoning_effort=reasoning_effort,
+        reason=reason,
+        field_models=field_models,
+        handle_validation=handle_validation,
+        invoke_actions=invoke_actions,
+        clear_messages=clear_messages,
+        intermediate_response_options=intermediate_response_options,
+        intermediate_listable=intermediate_listable,
+        intermediate_nullable=intermediate_nullable,
+        max_extensions=max_extensions,
+        extension_allowed=extension_allowed,
+        verbose_analysis=verbose_analysis,
+        display_as=display_as,
+        verbose_length=verbose_length,
+        continue_after_failed_response=continue_after_failed_response,
+        between_rounds=between_rounds,
+    ):
+        if verbose_analysis:
             analysis, str_ = i
-            # str_ is already formatted markdown - just print it
-            as_readable(
-                str_,
-                md=True,
-                display_str=True,
-            )
+            as_readable(str_, md=True, display_str=True)
             outs.append(analysis)
-    else:
-        async for i in ReActStream(
-            branch=branch,
-            instruction=instruction,
-            chat_param=chat_param,
-            action_param=action_param,
-            parse_param=parse_param,
-            intp_param=intp_param,
-            resp_ctx=resp_ctx,
-            reasoning_effort=reasoning_effort,
-            reason=reason,
-            field_models=field_models,
-            handle_validation=handle_validation,
-            invoke_actions=invoke_actions,
-            clear_messages=clear_messages,
-            intermediate_response_options=intermediate_response_options,
-            intermediate_listable=intermediate_listable,
-            intermediate_nullable=intermediate_nullable,
-            max_extensions=max_extensions,
-            extension_allowed=extension_allowed,
-            display_as=display_as,
-            verbose_length=verbose_length,
-            continue_after_failed_response=continue_after_failed_response,
-            between_rounds=between_rounds,
-        ):
+        else:
             outs.append(i)
 
     if return_analysis:
         return outs
 
-    # Extract answer from the final Analysis object
     final_result = outs[-1]
     if hasattr(final_result, "answer"):
         return final_result.answer
@@ -322,7 +375,6 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
 ) -> AsyncGenerator:
     """Core ReAct streaming implementation with context-based architecture."""
 
-    # Validate and clamp max_extensions
     if max_extensions and max_extensions > 100:
         logger.warning("max_extensions should not exceed 100; defaulting to 100.")
         max_extensions = 100
@@ -340,14 +392,12 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
         else:
             return s_
 
-    # Step 1: Interpret instruction if requested
     intp = None
     if intp_param:
         from ..interpret.interpret import interpret
 
         intp = await interpret(branch, instruction, intp_param)
 
-    # Step 2: Handle field models
     fms = handle_field_models(
         field_models,
         intermediate_response_options,
@@ -355,17 +405,14 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
         intermediate_nullable,
     )
 
-    # Step 3: Initial ReAct analysis
     from ..operate.operate import operate
 
-    # Build context for initial analysis
     initial_chat_param = chat_param.with_updates(response_format=ReActAnalysis)
 
     initial_parse_param = (
         parse_param.with_updates(response_format=ReActAnalysis) if parse_param else None
     )
 
-    # Add proper extension prompt for initial analysis
     initial_instruction = instruction
     if intp is not None:
         initial_instruction += f"\n\nInterpreted instruction: {intp}"
@@ -392,7 +439,6 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
     out = verbose_yield("\n### ReAct Round No.1 Analysis:\n", analysis)
     yield out
 
-    # Step 4: Extension loop
     extensions = max_extensions or 0
     round_count = 1
 
@@ -413,7 +459,6 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
         else:
             new_instruction = ReActAnalysis.CONTINUE_EXT_PROMPT.format(extensions=exts)
 
-        # Use with_updates to create new context instances
         updates = {"response_format": ReActAnalysis}
 
         if reasoning_effort:
@@ -431,7 +476,6 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
 
         _cctx = chat_param.with_updates(**updates)
 
-        # Import default call params if needed
         from ..act.act import _get_default_call_params
 
         _actx = (
@@ -487,7 +531,6 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
 
         kwargs = prepare_analysis_kwargs(extensions)
 
-        # Build parse context for extension
         ext_parse_param = (
             parse_param.with_updates(response_format=kwargs["chat_param"].response_format)
             if parse_param
@@ -503,7 +546,7 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
             handle_validation=handle_validation,
             invoke_actions=invoke_actions,
             skip_validation=False,
-            clear_messages=False,  # Keep messages to maintain context
+            clear_messages=False,
             reason=kwargs.get("reason", True),
             field_models=kwargs.get("field_models"),
         )
@@ -523,17 +566,14 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
         if extensions:
             extensions -= 1
 
-    # Step 5: Final answer
     answer_prompt = ReActAnalysis.ANSWER_PROMPT.format(instruction=instruction)
 
     final_response_format = resp_ctx.get("response_format") if resp_ctx else None
     if not final_response_format:
         final_response_format = Analysis
 
-    # Build contexts for final answer
     resp_ctx_updates = {"response_format": final_response_format}
     if resp_ctx:
-        # Merge resp_ctx into updates (filter allowed keys)
         for k, v in resp_ctx.items():
             if k in chat_param.allowed() and k != "response_format":
                 resp_ctx_updates[k] = v
@@ -544,25 +584,21 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
         parse_param.with_updates(response_format=final_response_format) if parse_param else None
     )
 
-    # Build operate kwargs, honoring response_kwargs
     operate_kwargs = {
         "branch": branch,
         "instruction": answer_prompt,
         "chat_param": final_chat_param,
-        "action_param": None,  # No actions in final answer
+        "action_param": None,
         "parse_param": final_parse_param,
         "invoke_actions": False,
         "clear_messages": False,
-        "reason": False,  # No reasoning wrapper in final answer
+        "reason": False,
         "field_models": None,
-        # Defaults that can be overridden by resp_ctx
         "handle_validation": handle_validation,
         "skip_validation": False,
     }
 
-    # Honor response_kwargs for final answer generation
     if resp_ctx:
-        # Extract operate specific parameters from resp_ctx
         operate_params = {
             "skip_validation",
             "handle_validation",
@@ -587,6 +623,5 @@ async def ReActStream(  # noqa: N802  # public name preserves the ReAct acronym
     except Exception:
         out = branch.msgs.last_response.response
 
-    # Don't extract .answer - return the full Analysis object
     _o = verbose_yield("\n### ReAct Final Answer:\n", out)
     yield _o

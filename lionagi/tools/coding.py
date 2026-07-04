@@ -19,7 +19,12 @@ from lionagi.protocols.action.tool import Tool
 
 from ._subprocess import _SHELL_CONTROL, _subprocess_sync
 from .base import LionTool
+from .code.ast_search import AstSearchRequest, _ast_search_sync
+from .code.bash import BashRequest
 from .code.check import CodeCheckRequest, _resolve_check_paths, _ruff_check_sync
+from .code.nav import NavRequest, _find_definition_sync, _find_references_sync, _outline_sync
+from .code.search import SearchAction as SearchAction  # re-export: preserves the public API
+from .code.search import SearchRequest
 from .context.context import ContextRequest, ContextTool
 from .file.editor import EditorRequest, _write_text_no_follow
 from .file.reader import ReaderRequest, _evict_expired, _open_sync, _read_cached
@@ -34,61 +39,10 @@ if TYPE_CHECKING:
 # Request models (LLM-facing schemas)
 # ---------------------------------------------------------------------------
 # ReaderRequest and EditorRequest are imported from file/reader.py and
-# file/editor.py — those are the canonical definitions. BashRequest,
-# SearchRequest, SandboxRequest, and SubagentRequest have no standalone
-# equivalent and are defined here.
-
-
-class BashRequest(BaseModel):
-    command: str = Field(
-        ...,
-        description=(
-            "A single shell command to execute. Shell control operators are NOT "
-            "supported and will be rejected — no `&&`, `||`, `|`, `;`, redirects "
-            "(`<`/`>`), backticks, or `$(...)`. Run one command per call; to work in "
-            "a directory pass cwd= instead of `cd x && ...`."
-        ),
-    )
-    timeout: int | None = Field(
-        None,
-        description="Timeout in milliseconds. Default 30000, max 300000.",
-    )
-    cwd: str | None = Field(
-        None,
-        description="Working directory. Defaults to current directory.",
-    )
-
-
-class SearchAction(str, Enum):
-    grep = "grep"
-    find = "find"
-
-
-class SearchRequest(BaseModel):
-    action: SearchAction = Field(
-        ...,
-        description=(
-            "Action to perform. One of:\n"
-            "- 'grep': Search file contents with regex pattern.\n"
-            "- 'find': Find files by name pattern."
-        ),
-    )
-    pattern: str = Field(
-        ...,
-        description="Regex pattern (for 'grep') or glob pattern (for 'find').",
-    )
-    path: str | None = Field(
-        None,
-        description="File or directory to search in. Defaults to current directory.",
-    )
-    include: str | None = Field(
-        None,
-        description="Glob filter for grep, e.g. '*.py'. Only for 'grep'.",
-    )
-    max_results: int | None = Field(
-        None,
-        description="Max results to return. Default 50 for grep, 100 for find.",
-    )
+# file/editor.py. BashRequest, SearchAction, and SearchRequest are imported
+# from code/bash.py and code/search.py — those are the canonical definitions.
+# SandboxRequest and SubagentRequest have no standalone equivalent and are
+# defined here.
 
 
 class SandboxAction(str, Enum):
@@ -325,12 +279,22 @@ ALL_CODING_TOOLS: tuple[str, ...] = (
     "bash",
     "search",
     "code_check",
+    "code_nav",
+    "ast_search",
     "context",
     "sandbox",
     "subagent",
 )
 
-DEFAULT_CODING_TOOLS: tuple[str, ...] = ("reader", "editor", "bash", "search", "code_check")
+DEFAULT_CODING_TOOLS: tuple[str, ...] = (
+    "reader",
+    "editor",
+    "bash",
+    "search",
+    "code_check",
+    "code_nav",
+    "ast_search",
+)
 
 
 class CodingToolkit(LionTool):
@@ -870,12 +834,71 @@ class CodingToolkit(LionTool):
             resp = await run_sync(_ruff_check_sync, resolved_paths, max_diagnostics)
             return resp.model_dump()
 
+        async def code_nav(action: str, path: str, symbol: str | None = None) -> dict:
+            """Navigate Python source without reading the full file.
+
+            Actions:
+            - 'outline': list all class/function signatures in a file (cheap context).
+            - 'find_definition': locate where a named symbol is defined.
+            - 'find_references': find all uses of a symbol in the file.
+            """
+            try:
+                resolved = str(_resolve_workspace_path(path, workspace_root))
+            except PermissionError as exc:
+                return {"success": False, "items": [], "error": str(exc)}
+            if action == "outline":
+                resp = await run_sync(_outline_sync, resolved)
+            elif action == "find_definition":
+                if not symbol:
+                    return {
+                        "success": False,
+                        "items": [],
+                        "error": "'symbol' required for find_definition.",
+                    }
+                resp = await run_sync(_find_definition_sync, resolved, symbol)
+            elif action == "find_references":
+                if not symbol:
+                    return {
+                        "success": False,
+                        "items": [],
+                        "error": "'symbol' required for find_references.",
+                    }
+                resp = await run_sync(_find_references_sync, resolved, symbol)
+            else:
+                return {"success": False, "items": [], "error": f"Unknown action: {action!r}."}
+            return resp.model_dump()
+
+        async def ast_search(
+            pattern: str,
+            path: str = ".",
+            lang: str = "python",
+            max_results: int = 50,
+        ) -> dict:
+            """Search source code by AST shape using ast-grep (sg).
+
+            Finds structural patterns rather than text — catches syntax constructs
+            regardless of whitespace. Returns status='unavailable' if the sg binary
+            is absent (not an error).
+            """
+            try:
+                resolved = str(_resolve_workspace_path(path, workspace_root))
+            except PermissionError as exc:
+                from .code.ast_search import AstSearchResponse
+
+                return AstSearchResponse(status="error", summary=str(exc)).model_dump()
+            resp = await run_sync(
+                _ast_search_sync, pattern, resolved, lang, max_results, str(workspace_root)
+            )
+            return resp.model_dump()
+
         tool_defs = [
             ("reader", reader, ReaderRequest),
             ("editor", editor, EditorRequest),
             ("bash", bash, BashRequest),
             ("search", search, SearchRequest),
             ("code_check", code_check, CodeCheckRequest),
+            ("code_nav", code_nav, NavRequest),
+            ("ast_search", ast_search, AstSearchRequest),
             ("context", context, ContextRequest),
             ("sandbox", sandbox, SandboxRequest),
             ("subagent", subagent, SubagentRequest),

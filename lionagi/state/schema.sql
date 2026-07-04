@@ -169,7 +169,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- Resolved contract snapshot written at session creation and verifier
   -- result written at teardown. NULL contract means verification skipped.
   artifact_contract_json      JSON,
-  artifact_verification_json  JSON
+  artifact_verification_json  JSON,
+  -- ── Run usage (populated at RunEnd) ───────────────────────────────────
+  input_tokens    INTEGER,   -- prompt tokens (uncached)
+  output_tokens   INTEGER,   -- completion tokens
+  total_cost_usd  REAL,      -- 0 for subscription runs
+  num_turns       INTEGER,   -- LLM turns in the run
+  duration_ms     REAL       -- wall-clock run duration in milliseconds
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_updated
@@ -487,7 +493,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_events_target
 -- ── Artifacts (ADR-0021) ─────────────────────────────────────────────────
 -- Structured skill outputs (review verdicts, gate verdicts, CI results,
 -- ...). The split is DB-for-structured, filesystem-for-blobs: `content`
--- holds the SkillOutcome.model_dump() JSON; `file_path` optionally
+-- holds the outcome's JSON payload; `file_path` optionally
 -- points to a large blob (full log, generated artifact, worktree diff).
 -- `kind` is the discriminator the frontend renderer dispatches on.
 
@@ -642,3 +648,26 @@ CREATE INDEX IF NOT EXISTS idx_engine_defs_kind
   ON engine_defs(kind);
 CREATE INDEX IF NOT EXISTS idx_engine_defs_updated
   ON engine_defs(updated_at DESC);
+
+-- ── Session controls (ADR-0085 part 1: run control plane transport) ───────────
+-- One row per operator control verb queued against a live session.  A poller
+-- task in cli/orchestrate/flow.py's _execute_dag (same lifecycle as the
+-- heartbeat loop) reads unapplied rows (applied_at IS NULL) and applies them
+-- against the running executor.  Apply/stamp ordering is verb-classed:
+-- pause/resume/stop are idempotent (apply, then stamp), message is not
+-- (stamp 'applying', then apply, then finalize).  'stop' is schema-reserved
+-- for a later slice (the checkpoint writer); no CLI verb emits it yet.
+
+CREATE TABLE IF NOT EXISTS session_controls (
+  id          TEXT    PRIMARY KEY,         -- uuid4 hex
+  session_id  TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  verb        TEXT    NOT NULL
+              CHECK(verb IN ('pause', 'resume', 'message', 'stop')),
+  payload     JSON,                        -- verb-specific; NULL for pause/resume
+  created_at  REAL    NOT NULL,
+  applied_at  REAL,                        -- NULL until the poller consumes it
+  result      TEXT                         -- 'applying' | 'applied' | 'rejected:<reason>'
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_controls_pending
+  ON session_controls(session_id, applied_at) WHERE applied_at IS NULL;

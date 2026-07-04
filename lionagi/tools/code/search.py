@@ -46,7 +46,7 @@ class SearchRequest(BaseModel):
             "For 'find': a shell glob pattern to match filenames (e.g. '*.py', 'test_*')."
         ),
     )
-    path: str = Field(
+    path: str | None = Field(
         default=".",
         description=(
             "File or directory to search. Defaults to '.' (current directory). "
@@ -61,7 +61,7 @@ class SearchRequest(BaseModel):
             "(e.g. '*.py'). Passed as --include to grep."
         ),
     )
-    max_results: int = Field(
+    max_results: int | None = Field(
         default=50,
         description=(
             "Maximum number of results to return. "
@@ -163,17 +163,7 @@ def _find_sync(
 
 
 class SearchTool(LionTool):
-    """Filesystem search tool (grep/find) with optional workspace containment.
-
-    When *workspace_root* is supplied at construction time, every search path
-    is resolved and checked to remain within that root before the subprocess
-    is launched.  Paths that escape the root are rejected with a PermissionError
-    (returned as a SearchResponse with success=False).
-
-    If *workspace_root* is None (the default), no containment is applied —
-    callers should pair this with a :class:`lionagi.agent.permissions.PermissionPolicy`
-    allowlist, or set the root via ``create_agent()`` / ``AgentConfig``.
-    """
+    """Filesystem grep/find tool with optional workspace-root containment."""
 
     is_lion_system_tool = True
     system_tool_name = "search_tool"
@@ -195,9 +185,13 @@ class SearchTool(LionTool):
         if isinstance(request, dict):
             request = SearchRequest(**request)
 
+        # Callers (LLM tool calls) may send explicit null for optional fields; treat as defaults.
+        path = request.path or "."
+        max_results = request.max_results or 50
+
         # Validate path before launching subprocess (fail-closed)
         try:
-            _validate_search_path(request.path, self._workspace_root)
+            _validate_search_path(path, self._workspace_root)
         except PermissionError as exc:
             return SearchResponse(success=False, error=str(exc), count=0)
 
@@ -205,17 +199,17 @@ class SearchTool(LionTool):
             return await run_sync(
                 _grep_sync,
                 request.pattern,
-                request.path,
+                path,
                 request.include,
-                request.max_results,
+                max_results,
                 self._workspace_root,
             )
         if request.action == SearchAction.find:
             return await run_sync(
                 _find_sync,
-                request.path,
+                path,
                 request.pattern,
-                request.max_results,
+                max_results,
                 self._workspace_root,
             )
         return SearchResponse(success=False, error="Unknown action", count=0)

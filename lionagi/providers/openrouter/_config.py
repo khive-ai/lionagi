@@ -12,7 +12,7 @@ class OpenRouterConfigs(ProviderConfig, Enum):
         "chat/completions",
         ["chat", "chat/completions"],
         EndpointType.API,
-        LazyType("lionagi.providers.openrouter.chat.models:OpenRouterRequest"),
+        LazyType("lionagi.providers.openrouter.chat:OpenRouterRequest"),
         "https://openrouter.ai/api/v1",
         "bearer",
     )
@@ -20,5 +20,6 @@ class OpenRouterConfigs(ProviderConfig, Enum):
 
 OpenRouterConfigs._PROVIDER = "openrouter"
 OpenRouterConfigs._PROVIDER_ALIASES = ["open-router"]
+OpenRouterConfigs._API_KEY_ENV = "OPENROUTER_API_KEY"
 
 __all__ = ("OpenRouterConfigs",)

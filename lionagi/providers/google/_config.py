@@ -12,7 +12,7 @@ class GeminiChatConfigs(ProviderConfig, Enum):
         "chat/completions",
         ["chat"],
         EndpointType.API,
-        LazyType("lionagi.providers.openai.chat.models:OpenAIChatCompletionsRequest"),
+        LazyType("lionagi.providers.openai._chat_schemas:OpenAIChatCompletionsRequest"),
         "https://generativelanguage.googleapis.com/v1beta/openai",
         "bearer",
     )
@@ -20,6 +20,7 @@ class GeminiChatConfigs(ProviderConfig, Enum):
 
 GeminiChatConfigs._PROVIDER = "gemini"
 GeminiChatConfigs._PROVIDER_ALIASES = ["gemini-api"]
+GeminiChatConfigs._API_KEY_ENV = "GEMINI_API_KEY"
 
 
 class GeminiCodeConfigs(ProviderConfig, Enum):
@@ -27,7 +28,7 @@ class GeminiCodeConfigs(ProviderConfig, Enum):
         "query_cli",
         ["cli"],
         EndpointType.AGENTIC,
-        LazyType("lionagi.providers.google.gemini_code.models:GeminiCodeRequest"),
+        LazyType("lionagi.providers.google.gemini_code:GeminiCodeRequest"),
     )
 
 

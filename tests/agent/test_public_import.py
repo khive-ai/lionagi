@@ -1,17 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Regression tests for the lionagi.agent public import surface.
-
-``import lionagi.agent`` transitively imports lionagi/agent/settings.py, which
-imports PyYAML at module level. On a base install where PyYAML was only an
-optional dependency this raised ModuleNotFoundError.
-
-Fix: PyYAML is declared as a core runtime dependency, so the public package
-surface imports cleanly on a base install. These tests guard both halves: the
-import succeeds, and PyYAML stays a core (non-optional) dependency so the
-failure cannot silently return.
-"""
+"""Guards that lionagi.agent imports cleanly and PyYAML stays a core dependency."""
 
 from __future__ import annotations
 
@@ -25,7 +15,7 @@ def test_lionagi_agent_public_surface_imports():
     """``import lionagi.agent`` exposes its documented public surface."""
     mod = importlib.import_module("lionagi.agent")
 
-    assert hasattr(mod, "AgentConfig"), "AgentConfig must be accessible after import"
+    assert hasattr(mod, "AgentSpec"), "AgentSpec must be accessible after import"
     assert hasattr(mod, "load_settings"), "load_settings must be accessible after import"
     assert hasattr(mod, "create_agent"), "create_agent must be accessible after import"
 

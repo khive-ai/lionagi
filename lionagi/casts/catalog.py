@@ -1,11 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Read-only casts catalog — roles, modes, and their emission contracts.
-
-This module is the documented seam for metadata inspection. It is data-only:
-nothing here mutates casts state or executes agent behavior.
-"""
+"""Read-only catalog of built-in casts roles, modes, and emission contracts."""
 
 from __future__ import annotations
 
@@ -14,8 +10,12 @@ from .pattern import Mode, Role, list_modes, list_roles
 __all__ = ("build_catalog",)
 
 
-def _load_default_pack():
-    """Load the default pack; returns None if unavailable."""
+def _load_packaged_pack(*, raise_on_error: bool = False):
+    """Load the packaged default pack from the lionagi.casts resource tree.
+
+    Returns the Pack on success. On failure, raises if raise_on_error is True,
+    otherwise returns None.
+    """
     try:
         from importlib.resources import as_file, files
 
@@ -25,16 +25,18 @@ def _load_default_pack():
         with as_file(packaged) as p:
             return Pack.from_file(p)
     except Exception:
+        if raise_on_error:
+            raise
         return None
 
 
-def _emission_entries(role: Role) -> list[dict]:
-    """Derive emission entries from role.emission_operable() — the real port surface.
+def _load_default_pack():
+    """Load the default pack; returns None if unavailable."""
+    return _load_packaged_pack(raise_on_error=False)
 
-    Each entry exposes {model: "PascalCase", key: "snake_case"}.
-    Includes EscalationRequest for every emitting role (injected by
-    build_emission_operable) and is absent for roles with no emits.
-    """
+
+def _emission_entries(role: Role) -> list[dict]:
+    """Return [{model, key}] entries from the role's emission operable; empty list if none."""
     op = role.emission_operable()
     if op is None:
         return []
@@ -82,14 +84,7 @@ def _mode_entry(mode: Mode) -> dict:
 
 
 def build_catalog() -> dict:
-    """Return the full casts catalog as a plain dict.
-
-    Roles include their real emission port surface (derived from
-    emission_operable, which adds EscalationRequest implicitly) and
-    the default-pack config overlay (policy + runtime config). Modes
-    include conflict declarations. The pack section is null per role
-    when the default pack cannot be loaded.
-    """
+    """Return the full casts catalog as a plain dict with roles, modes, and default-pack overlays."""
     pack = _load_default_pack()
     roles = [_role_entry(Role.load(n), pack) for n in list_roles()]
     modes = [_mode_entry(Mode.load(n)) for n in list_modes()]

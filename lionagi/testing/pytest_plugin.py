@@ -1,15 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""pytest fixtures bundled with ``lionagi.testing``.
-
-Enable in any pytest project by adding the plugin module to ``conftest.py``::
-
-    pytest_plugins = ["lionagi.testing.pytest_plugin"]
-
-Provides ergonomic fixtures for both the new scripted-endpoint workflow and
-the legacy AsyncMock factory — pick whichever fits the test.
-"""
+"""pytest fixtures bundled with ``lionagi.testing`` (see docs/reference/testing-state-session.md)."""
 
 from __future__ import annotations
 
@@ -78,14 +70,6 @@ def sample_error_scenarios(test_data_loader: TestDataLoader) -> dict[str, Any]:
 def mocked_branch(mock_factory):
     """Branch with an AsyncMock-backed iModel. Returns a plain text response."""
     return mock_factory.create_mocked_branch()
-
-
-@pytest.fixture
-def mocked_branch_with_custom_response(mock_factory) -> Callable[..., Any]:
-    def _create_branch(response: Any = "custom test response", **kwargs: Any):
-        return mock_factory.create_mocked_branch(response=response, **kwargs)
-
-    return _create_branch
 
 
 @pytest.fixture

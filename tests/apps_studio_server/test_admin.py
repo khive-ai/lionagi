@@ -1,4 +1,4 @@
-"""Tests for #1014 admin doctor and prune endpoints."""
+"""Tests for admin doctor and prune endpoints."""
 
 from __future__ import annotations
 
@@ -39,11 +39,10 @@ async def _seed_running_session(
             }
         )
         if artifacts_path is not None:
-            await db.db.execute(
+            await db.execute(
                 "UPDATE sessions SET artifacts_path = ? WHERE id = ?",
                 (artifacts_path, session_id),
             )
-            await db.db.commit()
 
 
 def _make_client(tmp_path, monkeypatch, db_path: Path) -> TestClient:
@@ -121,7 +120,7 @@ def test_admin_prune_rejects_empty_body(tmp_path, monkeypatch):
     assert r.status_code == 422
 
 
-# ─── ADR-0024: /api/admin/health + /api/admin/transition ─────────────────────
+# ─── /api/admin/health + /api/admin/transition ───────────────────────────────
 
 
 def test_admin_health_reports_status_and_health_buckets(tmp_path, monkeypatch):
@@ -137,7 +136,7 @@ def test_admin_health_reports_status_and_health_buckets(tmp_path, monkeypatch):
     assert "by_health" in sess
     # Seeded one running session.
     assert sess["by_status"].get("running") == 1
-    # All ADR-0024 health buckets sum to total.
+    # All health buckets sum to total.
     assert sum(sess["by_health"].values()) == sess["total"]
 
 
@@ -175,7 +174,7 @@ def test_admin_transition_marks_running_session_failed(tmp_path, monkeypatch):
 
 
 def test_admin_transition_rejects_invalid_target(tmp_path, monkeypatch):
-    """ADR-0025: admin operators cannot mark sessions completed or timed_out."""
+    """Admin operators cannot mark sessions completed or timed_out."""
     db_path = tmp_path / "state.db"
     client = _make_client(tmp_path, monkeypatch, db_path)
     r = client.post(
@@ -190,7 +189,7 @@ def test_admin_transition_rejects_invalid_target(tmp_path, monkeypatch):
 
 
 def test_admin_transition_skips_non_running(tmp_path, monkeypatch):
-    """Already-terminal sessions are reported as skipped, not silently no-op."""
+    """Already-terminal sessions are reported as skipped, not silently no-op'd."""
     db_path = tmp_path / "state.db"
     sid = str(uuid.uuid4())
     _run(_seed_running_session(db_path, sid))
@@ -218,7 +217,7 @@ def test_admin_transition_skips_non_running(tmp_path, monkeypatch):
 
 
 def test_admin_transition_requires_reason(tmp_path, monkeypatch):
-    """Omitting both reason_code and reason returns 400 (not 422)."""
+    """Omitting both reason_code and reason returns 400, not 422."""
     db_path = tmp_path / "state.db"
     client = _make_client(tmp_path, monkeypatch, db_path)
     r = client.post(
@@ -232,7 +231,7 @@ def test_admin_transition_requires_reason(tmp_path, monkeypatch):
 
 
 def test_admin_transition_rejects_healthy_session(tmp_path, monkeypatch):
-    """ADR-0024 health guard: fresh running session with recent activity → 422."""
+    """Health guard: fresh running session with recent activity must return 422."""
     import lionagi.studio.services.admin as admin_mod
 
     db_path = tmp_path / "state.db"
@@ -256,17 +255,11 @@ def test_admin_transition_rejects_healthy_session(tmp_path, monkeypatch):
     assert "healthy" in r.json()["detail"].lower()
 
 
-# ─── ADR-0024/FIX-2: health guard re-evaluated per session, not pre-computed ──
+# ─── health guard re-evaluated per session, not pre-computed ─────────────────
 
 
 def test_admin_transition_guard_re_evaluates_health_per_call(tmp_path, monkeypatch):
-    """Health guard reads current session state on each transition_sessions call.
-
-    Bumping last_message_at between two calls changes the health classification;
-    the guard must use the freshest DB state each time (not a pre-computed snapshot).
-    This verifies the merged per-session classify+UPDATE loop correctly re-reads
-    state, minimizing the TOCTOU window between health check and destructive write.
-    """
+    """Health guard reads current DB state on each call, not a pre-computed snapshot."""
     import lionagi.studio.services.admin as admin_mod
 
     db_path = tmp_path / "state.db"
@@ -280,11 +273,10 @@ def test_admin_transition_guard_re_evaluates_health_per_call(tmp_path, monkeypat
     # idle_seconds=2h > IDLE_THRESHOLD(1h) but < 6h → IDLE → refused.
     async def _set_idle():
         async with StateDB(db_path) as db:
-            await db.db.execute(
+            await db.execute(
                 "UPDATE sessions SET last_message_at = ?, invocation_kind = ? WHERE id = ?",
                 (time.time() - 7200, "agent", sid),
             )
-            await db.db.commit()
 
     _run(_set_idle())
 
@@ -301,11 +293,10 @@ def test_admin_transition_guard_re_evaluates_health_per_call(tmp_path, monkeypat
     # Bump last_message_at past the 6h agent threshold → UNRESPONSIVE → allowed.
     async def _bump_past_threshold():
         async with StateDB(db_path) as db:
-            await db.db.execute(
+            await db.execute(
                 "UPDATE sessions SET last_message_at = ? WHERE id = ?",
                 (time.time() - 7 * 3600, sid),
             )
-            await db.db.commit()
 
     _run(_bump_past_threshold())
 
@@ -320,18 +311,11 @@ def test_admin_transition_guard_re_evaluates_health_per_call(tmp_path, monkeypat
     assert body["skipped"] == []
 
 
-# ─── ADR-0028: reason_code in TransitionBody ────────────────────────────────
+# ─── reason_code in TransitionBody ───────────────────────────────────────────
 
 
 def test_admin_transition_with_reason_code_succeeds(tmp_path, monkeypatch):
-    """New-style clients can pass reason_code; classifier-HEALTHY path
-    preserves the operator's code.
-
-    Pin the classifier deterministically — without this, the seeded
-    session looks orphaned (no live process, no artifacts) and the
-    real test target (operator-code preservation) is masked. The
-    classifier-override paths get their own tests below.
-    """
+    """New-style clients can pass reason_code; classifier pins are deterministic."""
     db_path = tmp_path / "state.db"
     sid = str(uuid.uuid4())
     _run(_seed_running_session(db_path, sid))
@@ -367,8 +351,7 @@ def test_admin_transition_with_reason_code_succeeds(tmp_path, monkeypatch):
             async with StateDB(db_path) as db:
                 row = await db.get_session(sid)
                 if row and row["status"] != "running":
-                    await db.db.execute("UPDATE sessions SET status='running' WHERE id=?", (sid,))
-                    await db.db.commit()
+                    await db.execute("UPDATE sessions SET status='running' WHERE id=?", (sid,))
 
         _run(_ensure_running())
         r = client.post(
@@ -392,12 +375,11 @@ def test_admin_transition_with_reason_code_succeeds(tmp_path, monkeypatch):
             assert row["status"] == "failed"
             assert row["status_reason_code"] == "session.stale.no_heartbeat"
             assert row["status_reason_summary"] == "Operator forced failure after alert."
-            cur = await db.db.execute(
+            rows = await db.fetch_all(
                 "SELECT reason_code, previous_status, status, evidence_refs "
                 "FROM status_transitions WHERE entity_id = ?",
                 (sid,),
             )
-            rows = await cur.fetchall()
             assert len(rows) == 1
             assert rows[0]["reason_code"] == "session.stale.no_heartbeat"
             assert rows[0]["previous_status"] == "running"
@@ -426,13 +408,7 @@ def test_admin_transition_with_reason_code_succeeds(tmp_path, monkeypatch):
 def test_admin_transition_phantom_classifier_override(
     tmp_path, monkeypatch, phantom_reason, expected_code, expected_evidence_kind
 ):
-    """Each PhantomReason value maps to its specific reason code, and the
-    classifier override wins over the operator's chosen code.
-
-    Pin the classifier so the assertion is deterministic — without
-    monkeypatching the test would race against the actual fs/ps state
-    of the seeded session.
-    """
+    """Each PhantomReason maps to its reason code and the classifier override wins."""
     db_path = tmp_path / "state.db"
     sid = str(uuid.uuid4())
     _run(_seed_running_session(db_path, sid))
@@ -466,11 +442,10 @@ def test_admin_transition_phantom_classifier_override(
             )
             import json as _json
 
-            cur = await db.db.execute(
+            row_t = await db.fetch_one(
                 "SELECT evidence_refs FROM status_transitions WHERE entity_id = ?",
                 (sid,),
             )
-            row_t = await cur.fetchone()
             refs = _json.loads(row_t["evidence_refs"] or "[]")
             assert any(r.get("kind") == expected_evidence_kind for r in refs), (
                 f"evidence missing {expected_evidence_kind} kind: {refs}"
@@ -480,7 +455,7 @@ def test_admin_transition_phantom_classifier_override(
 
 
 def test_admin_transition_invalid_reason_code_returns_400(tmp_path, monkeypatch):
-    """An unrecognised reason_code returns HTTP 400 before touching the DB."""
+    """An unrecognised reason_code returns 400 before touching the DB."""
     db_path = tmp_path / "state.db"
     client = _make_client(tmp_path, monkeypatch, db_path)
 
@@ -497,12 +472,7 @@ def test_admin_transition_invalid_reason_code_returns_400(tmp_path, monkeypatch)
 
 
 def test_admin_transition_legacy_reason_backwards_compat(tmp_path, monkeypatch):
-    """Old clients that send only 'reason' (no reason_code) still succeed.
-
-    The router synthesises a reason_code from target_status and uses the
-    free-text 'reason' as reason_summary; classifier override applies as
-    usual (here pinned to STALE for determinism).
-    """
+    """Old clients that send only 'reason' (no reason_code) still succeed."""
     db_path = tmp_path / "state.db"
     sid = str(uuid.uuid4())
     _run(_seed_running_session(db_path, sid))

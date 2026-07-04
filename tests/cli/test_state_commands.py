@@ -1,19 +1,11 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Tests for ``li state`` maintenance subcommands: ``stats``,
-``checkpoint``, ``vacuum``, ``prune``, and the ``ls --limit / --status``
-filter/pagination logic.
-
-These commands ship in commit ``d1269eebd`` as the operational tools
-that turn a growing ``state.db`` from a leak into a manageable artifact.
-Every test points the default DB at a temp file and seeds rows
-directly via ``StateDB`` so there are no real CLI / API dependencies.
-"""
+"""Tests for ``li state`` maintenance subcommands: stats, checkpoint, vacuum, prune, and ls --limit/--status."""
 
 from __future__ import annotations
 
+import contextlib
 import time
 import uuid
 from pathlib import Path
@@ -36,9 +28,7 @@ from lionagi.state.db import StateDB
 
 @pytest.fixture
 def temp_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Per-test temp file DB. ``li state`` commands open StateDB() without
-    arguments — they read DEFAULT_DB_PATH, so we patch that.
-    """
+    """Per-test temp file DB: patches DEFAULT_DB_PATH so li state uses a throw-away file."""
     db_path = tmp_path / "state.db"
     monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", db_path)
     return db_path
@@ -64,11 +54,10 @@ async def _seed_session(
         }
     )
     if updated_at is not None:
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET updated_at = ? WHERE id = ?",
             (updated_at, sid),
         )
-        await db.db.commit()
     return sid
 
 
@@ -79,9 +68,7 @@ async def _seed_session_with_messages(
     status: str = "completed",
     updated_at: float | None = None,
 ) -> tuple[str, list[str]]:
-    """Create a session + branch + N messages threaded through both
-    branch and session progressions. Returns (session_id, msg_ids).
-    """
+    """Seed a session + branch + N messages, threaded through both progressions. Returns (session_id, msg_ids)."""
     sid = str(uuid.uuid4())
     bid = str(uuid.uuid4())
     spid = str(uuid.uuid4())
@@ -122,11 +109,10 @@ async def _seed_session_with_messages(
         await db.append_to_progression(spid, mid)
         msg_ids.append(mid)
     if updated_at is not None:
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET updated_at = ? WHERE id = ?",
             (updated_at, sid),
         )
-        await db.db.commit()
     return sid, msg_ids
 
 
@@ -208,9 +194,7 @@ async def test_stats_reports_no_db_message_when_missing(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ):
-    """When state.db does not yet exist, stats prints a helpful hint
-    instead of crashing.
-    """
+    """When state.db does not yet exist, stats prints a helpful hint instead of crashing."""
     db_path = tmp_path / "never_created.db"
     monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", db_path)
     await _print_stats()
@@ -283,8 +267,8 @@ async def test_vacuum_runs_without_error(temp_db_path: Path):
 
     # Verify the DB is still usable after VACUUM.
     async with StateDB() as db:
-        cur = await db.db.execute("SELECT COUNT(*) AS n FROM sessions")
-        n = (await cur.fetchone())["n"]
+        row = await db.fetch_one("SELECT COUNT(*) AS n FROM sessions")
+        n = row["n"]
     assert n == 1
 
 
@@ -319,17 +303,7 @@ async def test_prune_dry_run_does_not_delete(temp_db_path: Path):
 async def test_prune_deletes_old_sessions_and_cascades_branches(
     temp_db_path: Path,
 ):
-    """The real prune deletes old sessions and cascade-drops branches.
-
-    Message sweep semantics: messages are dropped only when NO
-    progression anywhere references them. Today the deleted session's
-    progression row is NOT FK-cascaded (sessions.progression_id has no
-    ON DELETE CASCADE), so its messages remain referenced via the
-    orphaned progression — and the sweep is effectively a no-op in
-    this scenario. Documented as the current behavior; if a future
-    cascade or progression-sweep is added, this assertion will catch
-    the change.
-    """
+    """Prune deletes old sessions and cascade-drops branches; messages survive if their progression row is not FK-cascaded."""
     now = time.time()
     old_ts = now - (60 * 86400)
     async with StateDB() as db:
@@ -355,23 +329,21 @@ async def test_prune_deletes_old_sessions_and_cascades_branches(
         assert (await db.get_session(old_sid)) is None
         assert (await db.get_session(new_sid)) is not None
         # The branch row for the old session is gone (FK cascade).
-        cur = await db.db.execute(
+        row = await db.fetch_one(
             "SELECT COUNT(*) AS n FROM branches WHERE session_id = ?",
             (old_sid,),
         )
-        assert (await cur.fetchone())["n"] == 0
+        assert row["n"] == 0
         # Surviving session's branches are intact.
-        cur = await db.db.execute(
+        row = await db.fetch_one(
             "SELECT COUNT(*) AS n FROM branches WHERE session_id = ?",
             (new_sid,),
         )
-        assert (await cur.fetchone())["n"] == 1
+        assert row["n"] == 1
 
 
 async def test_prune_keeps_n_most_recent_even_when_old(temp_db_path: Path):
-    """``--keep-n`` always preserves the N most-recent sessions, even
-    if they're older than ``--keep-days``.
-    """
+    """``--keep-n`` preserves the N most-recent sessions even if they are older than ``--keep-days``."""
     now = time.time()
     old_ts = now - (60 * 86400)
     async with StateDB() as db:
@@ -391,9 +363,7 @@ async def test_prune_keeps_n_most_recent_even_when_old(temp_db_path: Path):
 
 
 async def test_prune_with_nothing_to_delete_returns_zero(temp_db_path: Path):
-    """If no sessions match the prune criteria, the result is all zeros
-    and no rows are touched.
-    """
+    """If no sessions match the prune criteria, all counts are zero and no rows are touched."""
     now = time.time()
     async with StateDB() as db:
         sid = await _seed_session(db, name="recent", status="completed", updated_at=now)
@@ -405,28 +375,24 @@ async def test_prune_with_nothing_to_delete_returns_zero(temp_db_path: Path):
         assert (await db.get_session(sid)) is not None
 
 
-# ── _doctor (li state doctor) — R5-A MED-2 ───────────────────────────────────
+# ── _doctor (li state doctor) ────────────────────────────────────────────────
 
 
 async def test_doctor_dry_run_does_not_modify_status(temp_db_path: Path):
-    """``_doctor --dry-run`` reports which sessions WOULD be swept but
-    leaves status='running' untouched.
-    """
+    """``_doctor --dry-run`` reports which sessions WOULD be swept but leaves status='running' untouched."""
     now = time.time()
     old = now - (48 * 3600)
     async with StateDB() as db:
         stale = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = ? WHERE id = ?",
             (old, stale),
         )
-        await db.db.commit()
         recent = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = ? WHERE id = ?",
             (now, recent),
         )
-        await db.db.commit()
 
     result = await _doctor(stale_hours=24, dry_run=True)
     assert result["running"] == 2
@@ -444,24 +410,20 @@ async def test_doctor_dry_run_does_not_modify_status(temp_db_path: Path):
 async def test_doctor_sweeps_stale_running_sessions_to_aborted(
     temp_db_path: Path,
 ):
-    """Sessions with started_at older than --stale-hours are reset to
-    the configured status (default 'aborted'); fresh ones are left alone.
-    """
+    """Sessions with started_at older than --stale-hours are reset to 'aborted'; fresh ones are left alone."""
     now = time.time()
     old = now - (48 * 3600)
     async with StateDB() as db:
         stale = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = ? WHERE id = ?",
             (old, stale),
         )
-        await db.db.commit()
         recent = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = ? WHERE id = ?",
             (now, recent),
         )
-        await db.db.commit()
 
     result = await _doctor(stale_hours=24, dry_run=False)
     assert result["swept"] == 1
@@ -476,16 +438,13 @@ async def test_doctor_sweeps_stale_running_sessions_to_aborted(
 
 
 async def test_doctor_handles_null_started_at_as_stale(temp_db_path: Path):
-    """A 'running' row with NULL started_at is itself a corruption
-    signal — doctor treats it as stale regardless of threshold.
-    """
+    """A 'running' row with NULL started_at is treated as stale regardless of the threshold."""
     async with StateDB() as db:
         sid = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = NULL WHERE id = ?",
             (sid,),
         )
-        await db.db.commit()
 
     result = await _doctor(stale_hours=24, dry_run=False)
     assert result["swept"] == 1
@@ -507,19 +466,8 @@ async def test_doctor_does_not_overwrite_session_that_completed_post_select(
     temp_db_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """R6: ``_doctor`` previously selected victims, then updated by id
-    only — a session that completed (teardown → status='completed')
-    AFTER selection but BEFORE update was overwritten back to 'aborted'.
-
-    The fix folds the ``status='running' AND stale`` predicate into the
-    UPDATE itself so the conditional only fires when the row is STILL
-    stale-running.
-
-    We simulate the race by monkeypatching ``_doctor`` indirectly: we
-    flip one row's status to 'completed' immediately after fetchall but
-    before the UPDATE fires. The race-safety property is exposed
-    cleanly by patching ``StateDB.update_session`` to inject the flip
-    just before doctor's UPDATE runs.
+    """A session that completes AFTER _doctor's SELECT but BEFORE its UPDATE must NOT be overwritten back to 'aborted'.
+    The fix folds the stale predicate into the UPDATE itself so it only fires when the row is still stale-running.
     """
     from lionagi.state.db import StateDB as _SDB
 
@@ -528,57 +476,38 @@ async def test_doctor_does_not_overwrite_session_that_completed_post_select(
 
     async with StateDB() as db:
         racy = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = ? WHERE id = ?",
             (old, racy),
         )
         truly_stale = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = ? WHERE id = ?",
             (old, truly_stale),
         )
-        await db.db.commit()
 
-    # Race injection: patch _doctor's underlying execute to flip `racy`
-    # to 'completed' just before the UPDATE runs.
-    class _RacyConn:
-        def __init__(self, real):
-            self._real = real
-            self._fired = False
+    # Race injection: flip `racy` to 'completed' between the doctor's SELECT
+    # and its CAS UPDATE. The doctor runs that UPDATE inside db._tx(), so wrap
+    # _tx: on first entry (the doctor's write) flip racy first, then delegate.
+    real_tx = _SDB._tx
+    fired = {"done": False}
 
-        async def execute(self, sql, params=None):
-            # Detect doctor's UPDATE; flip racy first.
-            if (
-                not self._fired
-                and "UPDATE sessions SET status" in sql
-                and "WHERE status = 'running'" in sql
-            ):
-                self._fired = True
-                await self._real.execute(
-                    "UPDATE sessions SET status = 'completed', ended_at = ? WHERE id = ?",
-                    (now, racy),
-                )
-                await self._real.commit()
-            return await self._real.execute(sql, params or ())
+    @contextlib.asynccontextmanager
+    async def racy_tx(self):
+        if not fired["done"]:
+            fired["done"] = True
+            await self.execute(
+                "UPDATE sessions SET status = 'completed', ended_at = ? WHERE id = ?",
+                (now, racy),
+            )
+        async with real_tx(self) as conn:
+            yield conn
 
-        async def commit(self):
-            return await self._real.commit()
-
-        def __getattr__(self, name):
-            return getattr(self._real, name)
-
-    real_db_prop = _SDB.db
-
-    def racy_db_getter(self):
-        real = real_db_prop.fget(self)
-        return _RacyConn(real)
-
-    monkeypatch.setattr(_SDB, "db", property(racy_db_getter))
+    monkeypatch.setattr(_SDB, "_tx", racy_tx)
 
     result = await _doctor(stale_hours=24, dry_run=False)
 
-    # The wrapper is no longer needed for the read-back.
-    monkeypatch.setattr(_SDB, "db", real_db_prop)
+    monkeypatch.setattr(_SDB, "_tx", real_tx)
     async with StateDB() as db:
         s_racy = await db.get_session(racy)
         s_truly = await db.get_session(truly_stale)
@@ -596,11 +525,10 @@ async def test_doctor_with_failed_new_status(temp_db_path: Path):
     old = now - (48 * 3600)
     async with StateDB() as db:
         sid = await _seed_session(db, status="running")
-        await db.db.execute(
+        await db.execute(
             "UPDATE sessions SET started_at = ? WHERE id = ?",
             (old, sid),
         )
-        await db.db.commit()
 
     await _doctor(stale_hours=24, dry_run=False, new_status="failed")
 

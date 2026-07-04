@@ -1,23 +1,77 @@
+# Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 import subprocess
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from lionagi.cli._process import pid_alive as _pid_is_live
+from fastapi import HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError as _SAOperationalError
+
+from lionagi.cli._util import pid_alive as _pid_is_live
+from lionagi.ln import now_utc
 from lionagi.state.db import ADMIN_TRANSITION_TARGETS as _ADMIN_TRANSITION_TARGETS
 from lionagi.state.db import DEFAULT_DB_PATH
-from lionagi.state.reasons import SessionReasons
+from lionagi.state.reasons import RunReasons, SessionReasons, validate_reason_code
 
+from ..registry import studio_route
 from ._db import open_db as _open_db
 
 _DB = str(DEFAULT_DB_PATH)
+_log = logging.getLogger(__name__)
+
+# Fallback mapping for deprecated 'reason' field without reason_code.
+_LEGACY_ADMIN_REASON_CODES: dict[str, str] = {
+    "failed": RunReasons.FAILED_EXCEPTION,
+    "aborted": RunReasons.ABORTED_USER,
+    "cancelled": RunReasons.CANCELLED_SYSTEM,
+}
 
 PhantomReason = Literal["process_dead", "missing_artifacts", "stale_lock"]
+
+
+class MaintenanceBody(BaseModel):
+    """Request body for POST /api/admin/maintenance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["vacuum", "checkpoint", "prune"] = Field(
+        ...,
+        description="DB maintenance action: 'vacuum', 'checkpoint', or 'prune'.",
+    )
+
+
+class PruneBody(BaseModel):
+    session_ids: list[str] | None = None
+    all_phantom: bool = False
+
+
+class PruneOldDataBody(BaseModel):
+    keep_days: int | None = Field(
+        default=None, ge=1, description="Retain sessions newer than this many days"
+    )
+
+
+class TransitionBody(BaseModel):
+    """ADR-0024/ADR-0028 admin session transition; reason_code preferred over deprecated reason field."""
+
+    session_ids: list[str] = Field(..., min_length=1)
+    target_status: Literal["failed", "aborted", "cancelled"]
+    reason_code: str | None = None
+    reason_summary: str = ""
+    evidence_refs: list[dict] = Field(default_factory=list)
+    # Deprecated; kept for backwards compatibility.
+    reason: str | None = Field(default=None, max_length=500)
+    actor: str = Field(default="admin", max_length=64)
 
 
 def db_health() -> dict[str, int]:
@@ -133,11 +187,8 @@ async def doctor(*, stale_hours: float = 1.0) -> dict[str, Any]:
     return {
         "phantom_sessions": await list_phantom_sessions(stale_hours=stale_hours),
         "db_health": db_health(),
-        "diagnostic_run_at": datetime.now(timezone.utc).isoformat(),
+        "diagnostic_run_at": now_utc().isoformat(),
     }
-
-
-# ─── ADR-0024: graduated health + transition (additive) ──────────────────────
 
 
 async def health_report() -> dict[str, Any]:
@@ -153,7 +204,7 @@ async def health_report() -> dict[str, Any]:
         return {
             "sessions": {"total": 0, "by_status": {}, "by_health": {}, "unhealthy": []},
             "db": db_health(),
-            "diagnostic_run_at": datetime.now(timezone.utc).isoformat(),
+            "diagnostic_run_at": now_utc().isoformat(),
         }
 
     now = time.time()
@@ -234,7 +285,7 @@ async def health_report() -> dict[str, Any]:
             "unhealthy": unhealthy,
         },
         "db": db_health(),
-        "diagnostic_run_at": datetime.now(timezone.utc).isoformat(),
+        "diagnostic_run_at": now_utc().isoformat(),
     }
 
 
@@ -274,7 +325,7 @@ async def transition_sessions(
     actor: str = "admin",
     legacy_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Mark running sessions terminal with an audit-log entry."""
+    """Transition running sessions to a terminal status with an audit-log entry."""
     from lionagi.state.reasons import validate_reason_code
 
     if target_status not in _ADMIN_TRANSITION_TARGETS:
@@ -364,79 +415,73 @@ async def transition_sessions(
                         }
                     )
 
-            await db.db.execute("BEGIN IMMEDIATE")
-            try:
-                cur = await db.db.execute(
-                    "UPDATE sessions SET status=?, ended_at=?, updated_at=?, "
-                    "  status_reason_code=?, status_reason_summary=?, status_evidence_refs=? "
-                    "WHERE id=? AND status='running'"
-                    "  AND (last_message_at IS ? OR last_message_at = ?)"
-                    "  AND (updated_at      IS ? OR updated_at      = ?)",
-                    (
-                        target_status,
-                        now,
-                        now,
-                        effective_reason_code,
-                        effective_reason_summary,
-                        json.dumps(effective_evidence_refs),
-                        sid,
-                        _snap_last_msg,
-                        _snap_last_msg,
-                        _snap_updated,
-                        _snap_updated,
+            # CAS: swap running→target only if the snapshot still holds, then
+            # record the transition atomically. transaction() opens BEGIN
+            # IMMEDIATE; a clean exit commits, any exception rolls back.
+            async with db.transaction() as conn:
+                result = await conn.execute(
+                    text(
+                        "UPDATE sessions SET status=:status, ended_at=:now, updated_at=:now, "
+                        "  status_reason_code=:rcode, status_reason_summary=:rsummary, "
+                        "  status_evidence_refs=:erefs "
+                        "WHERE id=:sid AND status='running'"
+                        "  AND (last_message_at IS :slast OR last_message_at = :slast)"
+                        "  AND (updated_at      IS :supd  OR updated_at      = :supd)"
                     ),
+                    {
+                        "status": target_status,
+                        "now": now,
+                        "rcode": effective_reason_code,
+                        "rsummary": effective_reason_summary,
+                        "erefs": json.dumps(effective_evidence_refs),
+                        "sid": sid,
+                        "slast": _snap_last_msg,
+                        "supd": _snap_updated,
+                    },
                 )
-                if cur.rowcount == 0:
-                    await db.db.rollback()
-                    existing = await db.get_session(sid)
-                    if existing is None:
-                        skipped.append({"session_id": sid, "reason": "not_found"})
-                    elif existing.get("status") == "running":
-                        skipped.append(
-                            {
-                                "session_id": sid,
-                                "reason": "changed_since_snapshot",
-                            }
-                        )
-                    else:
-                        skipped.append(
-                            {
-                                "session_id": sid,
-                                "reason": f"not_running:{existing.get('status')}",
-                            }
-                        )
-                    continue
-                await db.db.execute(
-                    "INSERT INTO status_transitions "
-                    "(id, entity_type, entity_id, previous_status, status, "
-                    " reason_code, reason_summary, evidence_refs, "
-                    " source, actor, created_at, metadata) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        uuid.uuid4().hex,
-                        "session",
-                        sid,
-                        "running",
-                        target_status,
-                        effective_reason_code,
-                        effective_reason_summary,
-                        json.dumps(effective_evidence_refs),
-                        "admin",
-                        actor,
-                        now,
-                        json.dumps(
-                            {
-                                "legacy_reason": legacy_reason,
-                                "health": health.value,
-                                "process_alive": process_alive,
-                            }
+                cas_hit = result.rowcount != 0
+                if cas_hit:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO status_transitions "
+                            "(id, entity_type, entity_id, previous_status, status, "
+                            " reason_code, reason_summary, evidence_refs, "
+                            " source, actor, created_at, metadata) "
+                            "VALUES (:id, :etype, :eid, :prev, :status, "
+                            " :rcode, :rsummary, :erefs, :source, :actor, :now, :meta)"
                         ),
-                    ),
-                )
-                await db.db.commit()
-            except BaseException:
-                await db.db.rollback()
-                raise
+                        {
+                            "id": uuid.uuid4().hex,
+                            "etype": "session",
+                            "eid": sid,
+                            "prev": "running",
+                            "status": target_status,
+                            "rcode": effective_reason_code,
+                            "rsummary": effective_reason_summary,
+                            "erefs": json.dumps(effective_evidence_refs),
+                            "source": "admin",
+                            "actor": actor,
+                            "now": now,
+                            "meta": json.dumps(
+                                {
+                                    "legacy_reason": legacy_reason,
+                                    "health": health.value,
+                                    "process_alive": process_alive,
+                                }
+                            ),
+                        },
+                    )
+            if not cas_hit:
+                existing = await db.get_session(sid)
+                if existing is None:
+                    skipped.append({"session_id": sid, "reason": "not_found"})
+                elif existing.get("status") == "running":
+                    skipped.append({"session_id": sid, "reason": "changed_since_snapshot"})
+                else:
+                    skipped.append(
+                        {"session_id": sid, "reason": f"not_running:{existing.get('status')}"}
+                    )
+                continue
             transitioned.append(sid)
 
         event_id = await db.insert_admin_event(
@@ -513,3 +558,148 @@ async def prune_phantom_sessions(*, stale_hours: float = 1.0) -> int:
     from lionagi.studio.services.lifecycle import reap_phantom_sessions
 
     return await reap_phantom_sessions(stale_hours=stale_hours, actor="admin_prune")
+
+
+# ---------------------------------------------------------------------------
+# Route handlers — admin area
+# ---------------------------------------------------------------------------
+
+
+@studio_route("/admin/doctor", method="GET", area="admin", name="doctor")
+async def doctor_route(
+    stale_hours: float = Query(default=1.0, gt=0),
+) -> dict[str, Any]:
+    return await doctor(stale_hours=stale_hours)
+
+
+@studio_route("/admin/health", method="GET", area="admin", name="health")
+async def health_route() -> dict[str, Any]:
+    """ADR-0024 §B: composite session health report."""
+    return await health_report()
+
+
+@studio_route("/admin/transition", method="POST", area="admin", name="transition")
+async def transition_route(body: TransitionBody) -> dict[str, Any]:
+    """ADR-0024/ADR-0028: mark running sessions terminal with a reason code."""
+    reason_code = body.reason_code
+    reason_summary = body.reason_summary
+
+    if reason_code is not None:
+        try:
+            reason_code = validate_reason_code(reason_code)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    elif body.reason:
+        reason_code = _LEGACY_ADMIN_REASON_CODES[body.target_status]
+        reason_summary = body.reason
+        _log.warning(
+            "Deprecated admin transition field 'reason' used without reason_code; "
+            "mapped target_status=%s to reason_code=%s",
+            body.target_status,
+            reason_code,
+        )
+    else:
+        raise HTTPException(status_code=400, detail="reason_code is required")
+
+    try:
+        return await transition_sessions(
+            body.session_ids,
+            target_status=body.target_status,
+            reason_code=reason_code,
+            reason_summary=reason_summary,
+            evidence_refs=body.evidence_refs,
+            actor=body.actor,
+            legacy_reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@studio_route("/admin/events", method="GET", area="admin", name="admin_events")
+async def admin_events_route(
+    action: str | None = Query(default=None),
+    target_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> dict[str, Any]:
+    events = await list_admin_events(action=action, target_id=target_id, limit=limit)
+    return {"events": events}
+
+
+@studio_route(
+    "/admin/prune-old-data",
+    method="POST",
+    area="admin",
+    name="prune_old_data",
+)
+async def prune_old_data_route(body: PruneOldDataBody) -> dict[str, int]:
+    """Remove terminal sessions/runs older than keep_days (default from config)."""
+    from ..services.db_maintenance import prune_old_data as _prune
+
+    return await _prune(keep_days=body.keep_days, actor="admin")
+
+
+@studio_route(
+    "/admin/maintenance",
+    method="POST",
+    area="admin",
+    name="run_maintenance",
+)
+async def run_maintenance_route(body: MaintenanceBody) -> dict[str, Any]:
+    """Run a DB maintenance action (vacuum | checkpoint | prune).
+
+    Returns 409 when SQLite cannot acquire the write lock (busy/locked); this is
+    intentional policy so the operator sees a retryable error instead of a generic 500.
+    """
+    from ..services.db_maintenance import (
+        checkpoint_state_db,
+        prune_old_data,
+        vacuum_state_db,
+    )
+
+    try:
+        if body.action == "vacuum":
+            result = await vacuum_state_db(actor="admin")
+            return {"action": "vacuum", **result}
+
+        if body.action == "checkpoint":
+            result = await checkpoint_state_db(actor="admin")
+            return {"action": "checkpoint", **result}
+
+        # action == "prune"
+        result = await prune_old_data(actor="admin")
+        return {"action": "prune", **result}
+
+    except (sqlite3.OperationalError, _SAOperationalError) as exc:
+        # Only genuine lock/busy contention is retry-able. Open/path failures
+        # ("unable to open database file") are configuration problems and must
+        # not tell the operator to retry shortly — let them surface as 500.
+        # SQLAlchemy wraps the driver error; inspect .orig too in case the
+        # wrapper message omits the underlying "database is locked" text.
+        msg = str(exc).lower()
+        orig = getattr(exc, "orig", None)
+        if orig is not None:
+            msg = f"{msg} {str(orig).lower()}"
+        if "locked" in msg or "in progress" in msg:
+            raise HTTPException(
+                status_code=409,
+                detail="State database is busy — another writer holds the lock. Try again shortly.",
+            ) from exc
+        raise
+
+
+@studio_route("/admin/prune", method="POST", area="admin", name="prune")
+async def prune_route(body: PruneBody) -> dict[str, int]:
+    has_ids = bool(body.session_ids)
+    has_all = body.all_phantom
+    if not has_ids and not has_all:
+        raise HTTPException(status_code=422, detail="Provide session_ids or all_phantom")
+    if has_ids and has_all:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either session_ids or all_phantom, not both",
+        )
+    if has_all:
+        count = await prune_phantom_sessions()
+    else:
+        count = await prune_sessions(body.session_ids or [])
+    return {"pruned": count}

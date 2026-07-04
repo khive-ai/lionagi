@@ -1,4 +1,4 @@
-"""Tests for lionagi.providers.ollama.chat.endpoint module."""
+"""Tests for lionagi.providers.ollama.chat module."""
 
 import contextlib
 import sys
@@ -17,11 +17,7 @@ from lionagi.service.connections.endpoint_config import EndpointConfig
 
 @pytest.fixture(autouse=True, scope="module")
 def _patch_ollama_module():
-    """Install the ollama mock into sys.modules for the duration of this module.
-
-    Captures any pre-existing real 'ollama' entry and restores it on teardown
-    so the mock never leaks to other test modules collected in the same session.
-    """
+    """Install and teardown the ollama mock in sys.modules for this module only."""
     _prior = sys.modules.get("ollama")
     sys.modules["ollama"] = mock_ollama
     yield mock_ollama
@@ -36,10 +32,7 @@ def _get_ollama_config(
     base_url: str = "http://localhost:11434/v1",
     **overrides,
 ) -> EndpointConfig:
-    """Create an Ollama chat endpoint config for testing.
-
-    Replacement for the removed _get_ollama_config helper.
-    """
+    """Create an Ollama chat endpoint config for testing."""
     defaults = dict(
         name=name,
         provider="ollama",
@@ -62,10 +55,9 @@ OLLAMA_CHAT_ENDPOINT_CONFIG = _get_ollama_config()
 class TestOllamaEndpointConfiguration:
     """Test Ollama endpoint configuration and initialization."""
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_ollama_chat_endpoint_init_success(self):
-        """Test successful OllamaChatEndpoint initialization."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         # Reset mock for this test
         mock_ollama.reset_mock()
@@ -78,18 +70,16 @@ class TestOllamaEndpointConfiguration:
         assert endpoint._pull is not None
         assert endpoint._list is not None
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", False)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", False)
     def test_ollama_chat_endpoint_init_missing_package(self):
-        """Test that OllamaChatEndpoint raises error when ollama not installed."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         with pytest.raises(ModuleNotFoundError, match="ollama is not installed"):
             OllamaChatEndpoint()
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_ollama_chat_endpoint_removes_api_key(self):
-        """Test that OllamaChatEndpoint removes api_key from kwargs."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         mock_ollama.reset_mock()
         mock_ollama.list = MagicMock()
@@ -101,10 +91,9 @@ class TestOllamaEndpointConfiguration:
         # Should not raise error
         assert endpoint is not None
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_ollama_chat_endpoint_custom_config(self):
-        """Test OllamaChatEndpoint with custom configuration."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         mock_ollama.reset_mock()
         mock_ollama.list = MagicMock()
@@ -120,10 +109,9 @@ class TestOllamaEndpointConfiguration:
 class TestOllamaPayloadCreation:
     """Test Ollama payload creation and handling."""
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_create_payload_removes_reasoning_effort(self):
-        """Test that create_payload removes reasoning_effort parameter."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         mock_ollama.reset_mock()
         mock_ollama.list = MagicMock()
@@ -143,10 +131,9 @@ class TestOllamaPayloadCreation:
         assert "model" in payload
         assert "messages" in payload
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_create_payload_with_basemodel(self):
-        """Test create_payload with Pydantic BaseModel request."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         mock_ollama.reset_mock()
         mock_ollama.list = MagicMock()
@@ -169,10 +156,9 @@ class TestOllamaPayloadCreation:
 class TestOllamaModelManagement:
     """Test Ollama model checking and pulling."""
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_check_model_already_available(self, caplog):
-        """Test _check_model when model is already available locally."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         # Mock model list
         mock_model = MagicMock()
@@ -185,16 +171,15 @@ class TestOllamaModelManagement:
         mock_ollama.pull = MagicMock()
 
         endpoint = OllamaChatEndpoint()
-        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat"):
             endpoint._check_model("llama2")
 
         # Verify output shows no pulling occurred
         assert "not found locally" not in caplog.text
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_check_model_not_available_pulls(self, caplog):
-        """Test _check_model pulls model when not available locally."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         # Mock empty model list
         mock_models_response = MagicMock()
@@ -207,16 +192,15 @@ class TestOllamaModelManagement:
         )
 
         endpoint = OllamaChatEndpoint()
-        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat"):
             endpoint._check_model("mistral")
 
         assert "not found locally" in caplog.text
         assert "successfully pulled" in caplog.text
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_check_model_handles_exception(self, caplog):
-        """Test _check_model handles exceptions gracefully."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         mock_ollama.reset_mock()
         mock_ollama.list = MagicMock(side_effect=ConnectionError("Connection failed"))
@@ -225,16 +209,15 @@ class TestOllamaModelManagement:
         endpoint = OllamaChatEndpoint()
 
         # Should not raise, but log warning
-        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat"):
             endpoint._check_model("llama2")
 
         assert "Connection failed" in caplog.text
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     @patch("tqdm.tqdm")
     def test_pull_model_with_progress(self, mock_tqdm):
-        """Test _pull_model displays progress bars correctly."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         # Mock progress stream
         progress_data = [
@@ -258,10 +241,9 @@ class TestOllamaModelManagement:
         assert mock_tqdm.called
         assert mock_progress_bar.update.call_count == 3
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_pull_model_status_messages(self, caplog):
-        """Test _pull_model logs status messages without digest."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         progress_data = [
             {"status": "pulling manifest"},
@@ -273,7 +255,7 @@ class TestOllamaModelManagement:
         mock_ollama.pull = MagicMock(return_value=iter(progress_data))
 
         endpoint = OllamaChatEndpoint()
-        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
+        with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat"):
             endpoint._pull_model("llama2")
 
         assert "pulling manifest" in caplog.text
@@ -284,10 +266,9 @@ class TestOllamaCall:
     """Test Ollama call method and integration."""
 
     @pytest.mark.asyncio
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     async def test_call_checks_model_before_request(self):
-        """Test that call() checks model availability before making request."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         # Mock available model
         mock_model = MagicMock()
@@ -318,10 +299,9 @@ class TestOllamaCall:
             mock_super_call.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     async def test_call_pulls_missing_model(self, caplog):
-        """Test that call() pulls model if not available."""
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         # Mock empty model list initially
         mock_models_response = MagicMock()
@@ -346,7 +326,7 @@ class TestOllamaCall:
                 "messages": [{"role": "user", "content": "hello"}],
             }
 
-            with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat.endpoint"):
+            with caplog.at_level("DEBUG", logger="lionagi.providers.ollama.chat"):
                 await endpoint.call(request)
 
             assert "not found locally" in caplog.text
@@ -356,7 +336,6 @@ class TestOllamaConfig:
     """Test Ollama configuration generation."""
 
     def test_get_ollama_config_defaults(self):
-        """Test _get_ollama_config returns correct defaults."""
         # _get_ollama_config is defined at the module level in this test file
 
         config = _get_ollama_config()
@@ -370,7 +349,6 @@ class TestOllamaConfig:
         assert config.openai_compatible is False
 
     def test_get_ollama_config_custom_overrides(self):
-        """Test _get_ollama_config with custom parameters."""
         # _get_ollama_config is defined at the module level in this test file
 
         config = _get_ollama_config(base_url="http://custom-host:9999/v1", name="custom_ollama")
@@ -381,7 +359,6 @@ class TestOllamaConfig:
         assert config.auth_type == "none"
 
     def test_ollama_chat_endpoint_config_module_level(self):
-        """Test that OLLAMA_CHAT_ENDPOINT_CONFIG is properly initialized."""
         # OLLAMA_CHAT_ENDPOINT_CONFIG is defined at the module level in this test file
 
         assert OLLAMA_CHAT_ENDPOINT_CONFIG is not None
@@ -389,62 +366,43 @@ class TestOllamaConfig:
 
 
 class TestOllamaPublicSurface:
-    """AUDIT-002 regression: __all__ must not export undefined names (F822).
+    """__all__ must not export undefined names (F822); star-import must succeed."""
 
-    The stale ``OLLAMA_CHAT_ENDPOINT_CONFIG`` entry was removed from ``__all__``
-    because no such symbol is defined in the module.  A star-import must succeed
-    and the resulting namespace must only contain names that actually exist.
-    """
-
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_star_import_succeeds(self):
-        """``from lionagi.providers.ollama.chat.endpoint import *`` must not raise."""
         import importlib
 
-        mod = importlib.import_module("lionagi.providers.ollama.chat.endpoint")
+        mod = importlib.import_module("lionagi.providers.ollama.chat")
         namespace = {}
         # Simulate star-import by executing each exported name.
         for name in mod.__all__:
             assert hasattr(mod, name), (
                 f"__all__ exports {name!r} but module has no such attribute — "
-                "remove the stale name or define the symbol (AUDIT-002 / F822)"
+                "remove the stale name or define the symbol (F822)"
             )
             namespace[name] = getattr(mod, name)
 
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     def test_all_does_not_contain_ollama_chat_endpoint_config(self):
-        """Stale OLLAMA_CHAT_ENDPOINT_CONFIG must be absent from __all__."""
         import importlib
 
-        mod = importlib.import_module("lionagi.providers.ollama.chat.endpoint")
+        mod = importlib.import_module("lionagi.providers.ollama.chat")
         assert "OLLAMA_CHAT_ENDPOINT_CONFIG" not in mod.__all__, (
             "OLLAMA_CHAT_ENDPOINT_CONFIG is in __all__ but not defined in the module; "
-            "remove it from __all__ to fix AUDIT-002 / F822"
+            "remove it from __all__ (F822)"
         )
 
 
 class TestOllamaAsyncCheckModel:
-    """AUDIT-003 regression: _check_model must not block the event loop.
-
-    The fix wraps the synchronous Ollama SDK calls in ``run_sync`` so they run
-    in a thread pool.  We verify that calling ``call()`` does NOT block by
-    confirming a concurrent ticker task keeps ticking while the (mocked) slow
-    model-check executes.
-    """
+    """_check_model must not block the event loop; sync SDK calls must run in a thread pool."""
 
     @pytest.mark.asyncio
-    @patch("lionagi.providers.ollama.chat.endpoint._HAS_OLLAMA", True)
+    @patch("lionagi.providers.ollama.chat._HAS_OLLAMA", True)
     async def test_call_check_model_runs_in_thread_not_blocking(self):
-        """A slow _check_model must not block concurrent async tasks (AUDIT-003).
-
-        We measure how many ticks a short-interval counter task completes while
-        ``call()`` is waiting on a "slow" (sleep-based) _check_model.  If the
-        event loop is blocked, the ticker gets zero ticks; if the fix is correct
-        it gets at least a few.
-        """
+        """A slow _check_model must not block concurrent async tasks; ticker must still tick."""
         import asyncio
 
-        from lionagi.providers.ollama.chat.endpoint import OllamaChatEndpoint
+        from lionagi.providers.ollama.chat import OllamaChatEndpoint
 
         mock_ollama.reset_mock()
         mock_ollama.list = MagicMock()
@@ -461,7 +419,6 @@ class TestOllamaAsyncCheckModel:
                 tick_count += 1
 
         def slow_check(model: str) -> None:
-            """Simulates a slow sync check — sleeps in the current thread."""
             import time
 
             time.sleep(0.1)
@@ -488,5 +445,5 @@ class TestOllamaAsyncCheckModel:
         # the 100 ms wait (10 ms interval).
         assert tick_count >= 2, (
             f"tick_count={tick_count}: event loop appears blocked during _check_model "
-            "— ensure _check_model is wrapped in run_sync (AUDIT-003)"
+            "— ensure _check_model is wrapped in run_sync"
         )

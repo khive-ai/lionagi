@@ -5,23 +5,20 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from lionagi.hooks.builtins import persist_message
 
-# StateDB is imported lazily inside persist_message, so we patch the module
-# it lives in — not lionagi.hooks.builtins.
-_STATEDB_PATH = "lionagi.state.db.StateDB"
+# get_shared_db is the singleton accessor used by every hook in builtins;
+# patching it controls which db instance the hooks operate on.
+_GET_SHARED_DB = "lionagi.state.db.get_shared_db"
 
 
-def _make_mock_db_ctx():
-    mock_db = AsyncMock()
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
-    mock_ctx.__aexit__ = AsyncMock(return_value=None)
-    return mock_db, mock_ctx
+def _make_mock_db():
+    return AsyncMock()
 
 
 # ── persist_message: dual progressions ───────────────────────────────────────
@@ -29,9 +26,9 @@ def _make_mock_db_ctx():
 
 async def test_persist_message_appends_to_branch_progression():
     msg = {"id": "msg1", "role": "user", "content": "hi"}
-    mock_db, mock_ctx = _make_mock_db_ctx()
+    mock_db = _make_mock_db()
 
-    with patch(_STATEDB_PATH, return_value=mock_ctx):
+    with patch(_GET_SHARED_DB, return_value=mock_db):
         await persist_message(
             message=msg,
             session_id="sess1",
@@ -45,9 +42,9 @@ async def test_persist_message_appends_to_branch_progression():
 
 async def test_persist_message_appends_to_session_progression():
     msg = {"id": "msg2", "role": "user", "content": "hi"}
-    mock_db, mock_ctx = _make_mock_db_ctx()
+    mock_db = _make_mock_db()
 
-    with patch(_STATEDB_PATH, return_value=mock_ctx):
+    with patch(_GET_SHARED_DB, return_value=mock_db):
         await persist_message(
             message=msg,
             session_id="sess1",
@@ -59,9 +56,9 @@ async def test_persist_message_appends_to_session_progression():
 
 async def test_persist_message_appends_to_both_progressions():
     msg = {"id": "msg3", "role": "assistant", "content": "reply"}
-    mock_db, mock_ctx = _make_mock_db_ctx()
+    mock_db = _make_mock_db()
 
-    with patch(_STATEDB_PATH, return_value=mock_ctx):
+    with patch(_GET_SHARED_DB, return_value=mock_db):
         await persist_message(
             message=msg,
             session_id="sess1",
@@ -77,9 +74,9 @@ async def test_persist_message_appends_to_both_progressions():
 
 async def test_persist_message_updates_system_msg_id_for_system_role():
     msg = {"id": "sys1", "role": "system", "content": "You are helpful."}
-    mock_db, mock_ctx = _make_mock_db_ctx()
+    mock_db = _make_mock_db()
 
-    with patch(_STATEDB_PATH, return_value=mock_ctx):
+    with patch(_GET_SHARED_DB, return_value=mock_db):
         await persist_message(
             message=msg,
             session_id="sess1",
@@ -91,9 +88,9 @@ async def test_persist_message_updates_system_msg_id_for_system_role():
 
 async def test_persist_message_no_system_msg_update_for_non_system_role():
     msg = {"id": "usr1", "role": "user", "content": "hello"}
-    mock_db, mock_ctx = _make_mock_db_ctx()
+    mock_db = _make_mock_db()
 
-    with patch(_STATEDB_PATH, return_value=mock_ctx):
+    with patch(_GET_SHARED_DB, return_value=mock_db):
         await persist_message(
             message=msg,
             session_id="sess1",
@@ -106,9 +103,9 @@ async def test_persist_message_no_system_msg_update_for_non_system_role():
 async def test_persist_message_legacy_progression_id_still_works():
     """Backward compat: progression_id acts as branch_progression_id."""
     msg = {"id": "msg_legacy", "role": "user", "content": "hi"}
-    mock_db, mock_ctx = _make_mock_db_ctx()
+    mock_db = _make_mock_db()
 
-    with patch(_STATEDB_PATH, return_value=mock_ctx):
+    with patch(_GET_SHARED_DB, return_value=mock_db):
         await persist_message(
             message=msg,
             session_id="sess1",
@@ -122,24 +119,33 @@ async def test_persist_message_legacy_progression_id_still_works():
 
 
 class TestPersistSessionStartReasonCode:
-    """Codex finding: persist_session_start writes status='running', which
-    routes through update_status() and REQUIRES a reason_code. There is no
-    canonical default for (session, running), so without an explicit code the
-    deprecation shim raises ValueError — and HookBus.emit() swallows it,
-    silently dropping every provenance field. Regression: the hook must run
-    against a real StateDB without raising and persist provenance + a reason.
-    """
+    """persist_session_start must write a reason_code or the bus silently drops every provenance field."""
 
     async def test_persist_session_start_persists_provenance_with_reason(
         self, monkeypatch, tmp_path
     ):
-        monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", tmp_path / "state.db")
+        import lionagi.state.db as _db_module
+        from lionagi.state.db import StateDB, get_shared_db, register_shared_db
+        from lionagi.state.engine import normalize_state_db_url
+
+        db_path = tmp_path / "state.db"
+        db_url = normalize_state_db_url(db_path)
+        null_url = normalize_state_db_url(None)
+        monkeypatch.setattr(_db_module, "DEFAULT_DB_PATH", db_path)
+        _db_module._SHARED.pop(db_url, None)
+        _db_module._SHARED.pop(null_url, None)
+
         from lionagi.hooks.builtins import persist_session_start
-        from lionagi.state.db import StateDB
         from lionagi.state.reasons import RunReasons
 
         sid = "sess-start-1"
-        async with StateDB() as db:
+        # Keep the db open so get_shared_db() (no-arg) finds it in _SHARED.
+        db = StateDB(db_path)
+        await db.open()
+        # Register under both the test URL and the null-arg key.
+        await register_shared_db(db)
+        _db_module._SHARED[null_url] = db
+        try:
             await db.create_progression("prog-start-1")
             await db.create_session(
                 {
@@ -149,17 +155,20 @@ class TestPersistSessionStartReasonCode:
                 }
             )
 
-        # Must NOT raise (the bug raised ValueError, swallowed by the bus).
-        await persist_session_start(
-            session_id=sid,
-            model="gpt-5.4-mini",
-            provider="openai",
-            effort="high",
-            agent_name="reviewer",
-        )
+            # Must NOT raise (the bug raised ValueError, swallowed by the bus).
+            await persist_session_start(
+                session_id=sid,
+                model="gpt-5.4-mini",
+                provider="openai",
+                effort="high",
+                agent_name="reviewer",
+            )
 
-        async with StateDB() as db:
             row = await db.get_session(sid)
+        finally:
+            await db.close()
+            _db_module._SHARED.pop(db_url, None)
+            _db_module._SHARED.pop(null_url, None)
 
         assert row is not None
         assert row["status"] == "running"
@@ -169,3 +178,605 @@ class TestPersistSessionStartReasonCode:
         assert row["provider"] == "openai"
         # A canonical "started" reason was recorded, not the deprecation default.
         assert row["status_reason_code"] == RunReasons.STARTED_OK
+
+
+# ── Singleton reuse: same instance returned across multiple firings ───────────
+
+
+async def test_shared_db_returns_same_instance(tmp_path, monkeypatch):
+    """get_shared_db() for the same path must return the identical StateDB instance."""
+    import lionagi.state.db as _db_module
+    from lionagi.state.engine import normalize_state_db_url
+
+    db_path = tmp_path / "state.db"
+    db_url = normalize_state_db_url(db_path)
+    monkeypatch.setattr(_db_module, "DEFAULT_DB_PATH", db_path)
+    _db_module._SHARED.pop(db_url, None)
+    _db_module._SHARED_OPEN_LOCK = None
+
+    from lionagi.state.db import get_shared_db
+
+    db1 = await get_shared_db()
+    db2 = await get_shared_db()
+    assert db1 is db2, "get_shared_db() must return the same instance on repeated calls"
+
+    # Cleanup
+    await db1.close()
+    _db_module._SHARED.pop(db_url, None)
+
+
+async def test_shared_db_connection_open_once(tmp_path, monkeypatch):
+    """StateDB.open() is called exactly once even when get_shared_db() is called N times."""
+    import lionagi.state.db as _db_module
+    from lionagi.state.engine import normalize_state_db_url
+
+    db_path = tmp_path / "state.db"
+    db_url = normalize_state_db_url(db_path)
+    # get_shared_db() with no arg uses normalize_state_db_url(None) = null_url.
+    null_url = normalize_state_db_url(None)
+    monkeypatch.setattr(_db_module, "DEFAULT_DB_PATH", db_path)
+    _db_module._SHARED.pop(db_url, None)
+    _db_module._SHARED.pop(null_url, None)
+    _db_module._SHARED_OPEN_LOCK = None
+
+    open_count = 0
+    original_open = _db_module.StateDB.open
+
+    async def counting_open(self):
+        nonlocal open_count
+        open_count += 1
+        return await original_open(self)
+
+    monkeypatch.setattr(_db_module.StateDB, "open", counting_open)
+
+    from lionagi.state.db import get_shared_db
+
+    # Call 5 times with the test URL so open() is invoked exactly once.
+    for _ in range(5):
+        await get_shared_db(db_path)
+
+    assert open_count == 1, f"StateDB.open() called {open_count} times; expected 1"
+
+    # Cleanup
+    db = _db_module._SHARED.pop(db_url, None)
+    if db is not None:
+        await db.close()
+
+
+async def test_concurrent_hook_firings_use_same_instance(tmp_path, monkeypatch):
+    """Concurrent get_shared_db() calls must all resolve to the same instance without error."""
+    import lionagi.state.db as _db_module
+    from lionagi.state.engine import normalize_state_db_url
+
+    db_path = tmp_path / "state.db"
+    db_url = normalize_state_db_url(db_path)
+    monkeypatch.setattr(_db_module, "DEFAULT_DB_PATH", db_path)
+    _db_module._SHARED.pop(db_url, None)
+    _db_module._SHARED_OPEN_LOCK = None
+
+    from lionagi.state.db import get_shared_db
+
+    # Fire 20 concurrent calls.
+    results = await asyncio.gather(*[get_shared_db() for _ in range(20)])
+    first = results[0]
+    assert all(r is first for r in results), "All concurrent calls must return the same instance"
+
+    # Cleanup
+    await first.close()
+    _db_module._SHARED.pop(db_url, None)
+
+
+# ── Lifecycle hook emission: SESSION_START / SESSION_END / BRANCH_CREATE ──────
+
+
+def _redirect_shared_db(monkeypatch, tmp_path):
+    """Redirect the singleton to tmp_path and return the URL key used by _SHARED."""
+    import lionagi.state.db as _db_module
+    from lionagi.state.engine import normalize_state_db_url
+
+    db_path = tmp_path / "lifecycle.db"
+    db_url = normalize_state_db_url(db_path)
+    null_url = normalize_state_db_url(None)
+    monkeypatch.setattr(_db_module, "DEFAULT_DB_PATH", db_path)
+    _db_module._SHARED.pop(db_url, None)
+    _db_module._SHARED.pop(null_url, None)
+    _db_module._SHARED_OPEN_LOCK = None
+    return db_url
+
+
+async def _shared(db_url):
+    from lionagi.state.db import _SHARED, get_shared_db
+    from lionagi.state.engine import normalize_state_db_url
+
+    db = await get_shared_db(db_url)
+    # Also register under the no-arg key so that _db() in builtins (which
+    # calls get_shared_db() without a path) resolves to the same test instance
+    # rather than opening the real LIONAGI_HOME/state.db.
+    null_key = normalize_state_db_url(None)
+    _SHARED[null_key] = db
+    return db
+
+
+async def _seed_session(db, sid, prog_id, status="running"):
+    await db.create_progression(prog_id)
+    await db.create_session({"id": sid, "progression_id": prog_id, "status": status})
+
+
+async def _seed_branch(db, bid, sid, prog_id):
+    await db.create_progression(prog_id)
+    await db.create_branch({"id": bid, "session_id": sid, "progression_id": prog_id})
+
+
+async def _transition_count(db, entity_id, reason_code):
+    row = await db.fetch_one(
+        "SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = ? AND reason_code = ?",
+        (entity_id, reason_code),
+    )
+    return row["n"]
+
+
+class TestSessionStartEmission:
+    """SESSION_START emit → persist handler fires and is idempotent."""
+
+    async def test_handler_fires_once_on_emit(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_session_start
+        from lionagi.hooks.bus import HookBus, HookPoint
+        from lionagi.state.reasons import RunReasons
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "ss-emit-1", "prog-ss-1"
+            await _seed_session(db, sid, prog_id)
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_START, persist_session_start)
+            await bus.emit(
+                HookPoint.SESSION_START,
+                session_id=sid,
+                model="claude",
+                provider="anthropic",
+                effort="high",
+            )
+
+            row = await db.get_session(sid)
+            assert row is not None
+            assert row["status"] == "running"
+            assert row["model"] == "claude"
+            assert row["status_reason_code"] == RunReasons.STARTED_OK
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_double_emit_is_idempotent(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_session_start
+        from lionagi.hooks.bus import HookBus, HookPoint
+        from lionagi.state.reasons import RunReasons
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "ss-idem-1", "prog-ss-2"
+            await _seed_session(db, sid, prog_id)
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_START, persist_session_start)
+
+            await bus.emit(
+                HookPoint.SESSION_START, session_id=sid, model="claude", provider="anthropic"
+            )
+            await bus.emit(
+                HookPoint.SESSION_START, session_id=sid, model="claude", provider="anthropic"
+            )
+
+            n = await _transition_count(db, sid, RunReasons.STARTED_OK)
+            assert n == 1, f"Expected 1 STARTED_OK transition, got {n}"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_uses_shared_db_singleton(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_session_start
+        from lionagi.hooks.bus import HookBus, HookPoint
+        from lionagi.state.db import get_shared_db
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db1 = await _shared(db_path)
+        try:
+            sid, prog_id = "ss-singleton-1", "prog-ss-3"
+            await _seed_session(db1, sid, prog_id)
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_START, persist_session_start)
+            await bus.emit(HookPoint.SESSION_START, session_id=sid, model="m", provider="p")
+
+            db2 = await get_shared_db(db_path)
+            assert db1 is db2, "Handler must use the shared singleton, not a fresh connection"
+        finally:
+            await db1.close()
+            import lionagi.state.db as _m
+
+            _m._SHARED.pop(db_path, None)
+
+
+class TestSessionEndEmission:
+    """SESSION_END emit → persist handler fires and is idempotent."""
+
+    async def test_handler_fires_on_emit(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_session_end
+        from lionagi.hooks.bus import HookBus, HookPoint
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "se-emit-1", "prog-se-1"
+            await _seed_session(db, sid, prog_id, status="running")
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_END, persist_session_end)
+            await bus.emit(HookPoint.SESSION_END, session_id=sid, status="completed")
+
+            row = await db.get_session(sid)
+            assert row is not None
+            assert row["status"] == "completed"
+            assert row["ended_at"] is not None
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_double_emit_is_idempotent(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_session_end
+        from lionagi.hooks.bus import HookBus, HookPoint
+        from lionagi.state.reasons import RunReasons
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "se-idem-1", "prog-se-2"
+            await _seed_session(db, sid, prog_id, status="running")
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_END, persist_session_end)
+
+            await bus.emit(HookPoint.SESSION_END, session_id=sid, status="completed")
+            await bus.emit(HookPoint.SESSION_END, session_id=sid, status="completed")
+
+            n = await _transition_count(db, sid, RunReasons.COMPLETED_OK)
+            assert n == 1, f"Expected 1 COMPLETED_OK transition, got {n}"
+
+            row = await db.get_session(sid)
+            assert row["status"] == "completed"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_already_terminal_skips_write(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_session_end
+        from lionagi.hooks.bus import HookBus, HookPoint
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "se-terminal-1", "prog-se-3"
+            await _seed_session(db, sid, prog_id, status="running")
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_END, persist_session_end)
+
+            await bus.emit(HookPoint.SESSION_END, session_id=sid, status="completed")
+            await bus.emit(HookPoint.SESSION_END, session_id=sid, status="failed")
+
+            row = await db.get_session(sid)
+            assert row["status"] == "completed", "Second emit must not overwrite terminal status"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_already_terminal_with_error_preserves_node_metadata(self, monkeypatch, tmp_path):
+        """already_terminal + error must not clobber node_metadata _teardown_common wrote.
+
+        _teardown_common() writes node_metadata (extras + identity markers)
+        and transitions the row to terminal status before SESSION_END fires.
+        If SESSION_END later carries an error (the exception/timeout teardown
+        path), the already_terminal branch must not overwrite that richer
+        node_metadata with a bare {"error": ...} dict — update_session() does
+        a plain column SET, not a merge, so any write there replaces the
+        whole column instead of adding to it.
+        """
+        import json
+
+        from lionagi.hooks.builtins import persist_session_end
+        from lionagi.hooks.bus import HookBus, HookPoint
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "se-terminal-error-1", "prog-se-4"
+            await _seed_session(db, sid, prog_id, status="running")
+
+            # Written as a JSON string, matching _teardown_common's own
+            # update_kwargs["node_metadata"] = json.dumps({**extras, **markers}).
+            rich_metadata = {"pid": 4242, "identity": "worker-abc", "cwd": "/work"}
+            await db.update_session(sid, node_metadata=json.dumps(rich_metadata))
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_END, persist_session_end)
+
+            # First emit mirrors _teardown_common's update_status() call:
+            # transitions the row to terminal, no error on this leg.
+            await bus.emit(HookPoint.SESSION_END, session_id=sid, status="failed")
+
+            row = await db.get_session(sid)
+            assert row["status"] == "failed"
+            assert row["node_metadata"] == rich_metadata, (
+                "sanity: metadata survives the transition emit"
+            )
+
+            # Second emit mirrors the exception/timeout teardown path: the
+            # row is already terminal, error is set, and usage fields are
+            # attached (as a real li agent invocation would pass them).
+            await bus.emit(
+                HookPoint.SESSION_END,
+                session_id=sid,
+                status="failed",
+                error="boom",
+                num_turns=5,
+            )
+
+            row = await db.get_session(sid)
+            assert row["num_turns"] == 5, (
+                "usage fields must still be written on the terminal+error path"
+            )
+            assert row["node_metadata"] == rich_metadata, (
+                "node_metadata must survive an already-terminal SESSION_END with an "
+                "error — _teardown_common owns it for terminal rows"
+            )
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_non_terminal_error_persists_usage_and_error(self, monkeypatch, tmp_path):
+        """A raw {"error": ...} dict bind must not silently drop usage data,
+        and must not clobber node_metadata the row already carries.
+
+        Before the fix, the not-already-terminal branch assigned
+        fields["node_metadata"] = {"error": error} as a bare dict.
+        update_session()'s dynamic UPDATE builder binds fields as raw SQL
+        parameters (no JSON bindparam), so sqlite3.InterfaceError aborted the
+        whole statement — taking input_tokens/output_tokens/total_cost_usd/
+        num_turns/status down with it — and HookBus.emit() swallows handler
+        exceptions, so the failure was silent.
+
+        Even once pre-serialized, update_session() does a plain column SET,
+        not a merge, so the fix must read the row's existing node_metadata
+        and merge {"error": error} into it rather than overwrite wholesale.
+        """
+        from lionagi.hooks.builtins import persist_session_end
+        from lionagi.hooks.bus import HookBus, HookPoint
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "se-err-nonterm-1", "prog-se-5"
+            await _seed_session(db, sid, prog_id, status="running")
+            await db.set_session_provenance(
+                sid, node_metadata={"identity": "marker-1", "kind": "cli"}
+            )
+
+            bus = HookBus()
+            bus.on(HookPoint.SESSION_END, persist_session_end)
+            await bus.emit(
+                HookPoint.SESSION_END,
+                session_id=sid,
+                status="failed",
+                error="ValueError: boom",
+                input_tokens=42,
+                output_tokens=7,
+                total_cost_usd=0.01,
+                num_turns=3,
+            )
+
+            row = await db.get_session(sid)
+            assert row["status"] == "failed"
+            assert row["input_tokens"] == 42
+            assert row["output_tokens"] == 7
+            assert row["total_cost_usd"] == 0.01
+            assert row["num_turns"] == 3
+            assert row["node_metadata"] == {
+                "identity": "marker-1",
+                "kind": "cli",
+                "error": "ValueError: boom",
+            }
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+
+class TestBranchCreateEmission:
+    """BRANCH_CREATE emit → persist handler fires and is idempotent."""
+
+    async def test_handler_fires_on_emit(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_branch_provenance
+        from lionagi.hooks.bus import HookBus, HookPoint
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, sprog = "bc-session-1", "prog-bc-s1"
+            bid, bprog = "bc-branch-1", "prog-bc-b1"
+            await _seed_session(db, sid, sprog)
+            await _seed_branch(db, bid, sid, bprog)
+
+            bus = HookBus()
+            bus.on(HookPoint.BRANCH_CREATE, persist_branch_provenance)
+            await bus.emit(
+                HookPoint.BRANCH_CREATE,
+                branch_id=bid,
+                model="gpt-5.4-mini",
+                provider="openai",
+                agent_name="coder",
+            )
+
+            row = await db.get_branch(bid)
+            assert row is not None
+            assert row["model"] == "gpt-5.4-mini"
+            assert row["provider"] == "openai"
+            assert row["agent_name"] == "coder"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_double_emit_is_idempotent(self, monkeypatch, tmp_path):
+        from lionagi.hooks.builtins import persist_branch_provenance
+        from lionagi.hooks.bus import HookBus, HookPoint
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, sprog = "bc-session-2", "prog-bc-s2"
+            bid, bprog = "bc-branch-2", "prog-bc-b2"
+            await _seed_session(db, sid, sprog)
+            await _seed_branch(db, bid, sid, bprog)
+
+            bus = HookBus()
+            bus.on(HookPoint.BRANCH_CREATE, persist_branch_provenance)
+
+            await bus.emit(HookPoint.BRANCH_CREATE, branch_id=bid, model="m", provider="p")
+            await bus.emit(HookPoint.BRANCH_CREATE, branch_id=bid, model="m", provider="p")
+
+            row = await db.get_branch(bid)
+            assert row["model"] == "m"
+            assert row["provider"] == "p"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+
+class TestDefaultHookBusEmissions:
+    """build_session_bus wires all three handlers; each fires on the correct point."""
+
+    async def test_session_start_handler_wired_in_default_bus(self, monkeypatch, tmp_path):
+        from lionagi.hooks.bus import HookPoint
+        from lionagi.hooks.loader import build_session_bus
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "dbus-ss-1", "prog-dbus-1"
+            await _seed_session(db, sid, prog_id)
+
+            bus = build_session_bus()
+            handlers = bus.handlers_for(HookPoint.SESSION_START)
+            assert len(handlers) == 1
+            await bus.emit(HookPoint.SESSION_START, session_id=sid, model="x", provider="y")
+
+            row = await db.get_session(sid)
+            assert row["model"] == "x"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_session_end_handler_wired_in_default_bus(self, monkeypatch, tmp_path):
+        from lionagi.hooks.bus import HookPoint
+        from lionagi.hooks.loader import build_session_bus
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, prog_id = "dbus-se-1", "prog-dbus-2"
+            await _seed_session(db, sid, prog_id, status="running")
+
+            bus = build_session_bus()
+            handlers = bus.handlers_for(HookPoint.SESSION_END)
+            assert len(handlers) == 1
+            await bus.emit(HookPoint.SESSION_END, session_id=sid, status="completed")
+
+            row = await db.get_session(sid)
+            assert row["status"] == "completed"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)
+
+    async def test_branch_create_handler_wired_in_default_bus(self, monkeypatch, tmp_path):
+        from lionagi.hooks.bus import HookPoint
+        from lionagi.hooks.loader import build_session_bus
+
+        db_path = _redirect_shared_db(monkeypatch, tmp_path)
+
+        db = await _shared(db_path)
+        try:
+            sid, sprog = "dbus-bc-s1", "prog-dbus-bs1"
+            bid, bprog = "dbus-bc-b1", "prog-dbus-bb1"
+            await _seed_session(db, sid, sprog)
+            await _seed_branch(db, bid, sid, bprog)
+
+            bus = build_session_bus()
+            handlers = bus.handlers_for(HookPoint.BRANCH_CREATE)
+            assert len(handlers) == 1
+            await bus.emit(HookPoint.BRANCH_CREATE, branch_id=bid, model="m2", provider="p2")
+
+            row = await db.get_branch(bid)
+            assert row["model"] == "m2"
+        finally:
+            await db.close()
+            import lionagi.state.db as _m
+            from lionagi.state.engine import normalize_state_db_url
+
+            _m._SHARED.pop(db_path, None)
+            _m._SHARED.pop(normalize_state_db_url(None), None)

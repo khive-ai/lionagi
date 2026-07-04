@@ -9,8 +9,9 @@ import contextlib
 import logging
 import os
 import re
-import signal
 import tempfile
+
+from lionagi.ln._proc import aterminate_process_group
 
 _log = logging.getLogger(__name__)
 
@@ -33,14 +34,10 @@ _IDENT_RE = _MODEL_RE
 
 
 def _validate_action_model(model: str) -> None:
-    """Raise ValueError if *model* could inject CLI flags into the subprocess.
+    """Raise ValueError if *model* could inject CLI flags (CWE-88).
 
-    A model value starting with '-' would be interpreted as a flag by the spawned
-    ``li`` process.  Values containing characters outside the safe set are also
-    rejected because they have no legitimate use in a model spec.
-
-    Policy: reject loudly rather than silently filtering so callers discover bad
-    data at write time rather than at fire time.
+    A value starting with '-' is interpreted as a flag by the spawned li process.
+    Fail loudly so callers discover bad data at write time, not fire time.
     """
     if not model:
         return
@@ -57,15 +54,10 @@ def _validate_action_model(model: str) -> None:
 
 
 def _validate_identifier(value: str, field_name: str) -> None:
-    """Raise ValueError if *value* (an identifier field) starts with '-'.
+    """Raise ValueError if *value* starts with '-' (covers action_agent/project/playbook).
 
-    Covers action_agent, action_project, and action_playbook.  These fields are
-    identifier-shaped (name a profile, project, or playbook) and must not start
-    with '-'.  A leading '-' would cause argparse to misinterpret the value as a
-    flag, producing an unexpected usage error rather than a flag toggle — still
-    fragile behaviour that callers should never be able to trigger.
-
-    Policy: loud rejection at write time (same as action_model).
+    A leading '-' causes argparse to misinterpret the value as a flag (CWE-88).
+    Fail loudly at write time, same policy as _validate_action_model.
     """
     if not value:
         return
@@ -82,21 +74,13 @@ def _validate_identifier(value: str, field_name: str) -> None:
 
 
 def _validate_extra_args(extra: list) -> None:
-    """Raise ValueError if any element of *extra* starts with '-'.
+    """Raise ValueError if any element starts with '-' (CWE-88 flag injection).
 
-    Elements starting with '-' are CLI flags and would be injected verbatim into
-    the argv of the spawned li process (CWE-88).  Positional tokens that do not
-    start with '-' are accepted.
+    Extra tokens are appended verbatim to argv; a leading '-' would toggle a flag
+    in the spawned li process. Fail loudly with the offending element named.
 
-    Policy: reject loudly with the offending element named so callers can fix the
-    schedule spec rather than silently receiving a process that behaves differently
-    from what was intended.
-
-    Note: extra tokens are appended after the subcommand's own positionals.
-    Parsers for agent/flow/fanout do not accept extra positionals, so non-empty
-    action_extra_args will cause those subcommands to exit rc 2 at fire time.
-    action_extra_args is only meaningful for future subcommand extensions or the
-    play kind; restrict its use accordingly.
+    Note: agent/flow/fanout parsers do not accept extra positionals; non-empty
+    action_extra_args causes those subcommands to exit rc 2 at fire time.
     """
     for item in extra:
         token = str(item)
@@ -148,18 +132,10 @@ def _validate_engine_options(opts: object) -> None:
 def _validate_prompt(prompt: str) -> None:
     """Raise ValueError if *prompt* is the literal end-of-options sentinel '--'.
 
-    The '--' sentinel is special to argparse: when placed as the first positional
-    after our own '--' sentinel, argparse consumes it as the separator token and
-    the actual prompt value reaches the runner as an empty string (or causes a
-    'required' error), rather than arriving as the prompt text.
-
-    Freeform prompts are otherwise unrestricted — any other content including
-    leading '-' characters (e.g. '--bypass', '--verbose') is safe because the
-    structural fix in build_argv places a '--' before all positionals.  The sole
-    forbidden value is the exact two-character token '--'.
-
-    Prompt values like '-- --', '-- text', or '--' embedded in longer strings
-    are all permitted; only the exact singleton '--' is rejected.
+    build_argv places '--' before positionals, so a prompt value of '--' would be
+    consumed by argparse as the separator token rather than reaching the runner.
+    All other content (including leading '-') is safe. Only the exact singleton
+    '--' is forbidden; '-- text' or '--' embedded in a longer string are fine.
     """
     if prompt == "--":
         raise ValueError(
@@ -192,7 +168,7 @@ def build_argv(schedule: dict, trigger_context: dict) -> tuple[list[str], str | 
     must be deleted after the subprocess exits (only set for ``flow_yaml``).
     """
     kind = schedule["action_kind"]
-    # Normalize legacy alias and validate against the closed set (LIONAGI-AUDIT-003).
+    # Normalize legacy alias and validate against the closed set.
     kind = _ALIAS_ACTION_KINDS.get(kind, kind)
     if kind not in _VALID_ACTION_KINDS:
         raise ValueError(
@@ -205,22 +181,13 @@ def build_argv(schedule: dict, trigger_context: dict) -> tuple[list[str], str | 
     project = schedule.get("action_project")
     extra = schedule.get("action_extra_args") or []
 
-    # Defensive validation: reject flag-injection vectors before touching argv.
-    # These checks mirror the service-layer boundary in services/schedules.py;
-    # having them here ensures the subprocess is never spawned with injected flags
-    # regardless of how the schedule dict was created.
+    # Reject flag-injection vectors before touching argv (mirrors service-layer
+    # boundary in services/schedules.py for defense-in-depth).
     #
-    # IMPORTANT — order of operations for action_prompt:
-    # action_prompt may contain {{var}} template placeholders that are expanded
-    # from trigger_context at fire time.  A stored prompt like '{{payload}}' passes
-    # pre-render validation but could render into the forbidden '--' sentinel when
-    # a trigger context supplies {"payload": "--"}.  To close this window we
-    # validate action_prompt AFTER rendering, not before.
-    #
-    # action_model, action_extra_args, action_agent, action_project, and
-    # action_playbook are NOT passed through _render_template — they are used
-    # verbatim from the schedule dict, so their validation before the render
-    # step is correct and sufficient.
+    # action_prompt is validated AFTER rendering: a stored '{{payload}}' passes
+    # pre-render checks but could render to the forbidden '--' sentinel when the
+    # trigger context supplies {"payload": "--"}.  Other fields are NOT templated,
+    # so validating them before rendering is correct and sufficient.
     _validate_action_model(model)
     if agent:
         _validate_identifier(agent, "action_agent")
@@ -244,21 +211,13 @@ def build_argv(schedule: dict, trigger_context: dict) -> tuple[list[str], str | 
     argv = ["uv", "run", "li"]
     tmp_path: str | None = None
 
-    # argv structure (CWE-88 hardening):
+    # CWE-88 hardening: named flags first, then '--' end-of-options sentinel,
+    # then positionals (model, prompt).  The sentinel makes action_prompt
+    # injection-proof: '--bypass' is parsed as the prompt value, not a flag.
     #
-    #   Named flags (--agent, --project, -f …) FIRST, then the '--' end-of-options
-    #   sentinel, then positional arguments (model, prompt).
-    #
-    # The '--' sentinel tells argparse to stop treating subsequent tokens as
-    # option strings, so a prompt like '--bypass' is parsed as the prompt VALUE
-    # rather than toggling the bypass flag — making action_prompt injection-proof
-    # without restricting freeform prompt text at all.
-    #
-    # flow_yaml is a special case: the YAML file supplies the prompt, so the
-    # prompt positional is OMITTED entirely.  Empirically verified: the CLI
-    # parser reads the prompt from the -f spec file (prompt: key) and overwrites
-    # args.prompt, so a positional prompt is redundant and would only open a
-    # second injection surface.  Shape: li o flow -f <tmp> -- <model>
+    # flow_yaml omits the prompt positional entirely — the CLI reads prompt from
+    # the -f spec file and overwrites args.prompt, so a positional would only
+    # open a second injection surface.  Shape: li o flow -f <tmp> -- <model>
 
     if kind == "agent":
         # Named flags first (--agent must come before --)
@@ -267,7 +226,31 @@ def build_argv(schedule: dict, trigger_context: dict) -> tuple[list[str], str | 
             flags += ["--agent", agent]
         if project:
             flags += ["--project", project]
-        argv += ["agent", *flags, "--", model, prompt]
+        # Omit the model positional entirely when action_model is unset: `li
+        # agent` treats a single positional as the prompt and falls through to
+        # the --agent profile's own default model. Passing an empty string as
+        # the model positional would instead be parsed as an explicit (blank)
+        # model spec, overriding the profile default and crashing Branch init.
+        #
+        # But omitting the model positional only holds the "extra positionals
+        # are rejected loudly" invariant when there are no extra args to
+        # append: with model omitted, a single action_extra_args token brings
+        # the positional count back up to 2 (the same arity as [model,
+        # prompt]), so the CLI's resolver would silently reparse the real
+        # prompt as MODEL and the extra-args token as PROMPT instead of
+        # failing. Reject that combination here rather than let it corrupt
+        # argument positions at fire time.
+        if not model and isinstance(extra, list) and extra:
+            raise ValueError(
+                "action_extra_args is not supported together with an empty "
+                "action_model for kind='agent': omitting the model "
+                "positional makes the extra-args token(s) indistinguishable "
+                "from an explicit [model, prompt] pair, which would silently "
+                "misroute action_prompt as the model. Set action_model "
+                "explicitly, or clear action_extra_args."
+            )
+        positionals = [model, prompt] if model else [prompt]
+        argv += ["agent", *flags, "--", *positionals]
 
     elif kind == "flow":
         flags = []
@@ -290,10 +273,39 @@ def build_argv(schedule: dict, trigger_context: dict) -> tuple[list[str], str | 
             argv.append(playbook)
 
     elif kind == "flow_yaml":
+        # Extra positionals have nowhere safe to land here: this launch emits
+        # no positionals at all (the spec file carries prompt and model), so
+        # `li o flow` would soak extra tokens into its optional model/prompt
+        # slots and silently override the model merged into the spec below.
+        # Fail at build time so no invocation row is created for a launch
+        # that cannot honor them.
+        if isinstance(extra, list) and extra:
+            raise ValueError(
+                "flow_yaml launches do not accept action_extra_args; "
+                "set model/prompt inside the flow spec instead"
+            )
         # Write the inline YAML spec to a temp file so `li o flow -f <path>`
         # can read it.  The caller is responsible for deleting tmp_path after
         # the subprocess exits.
         yaml_text = schedule.get("action_flow_yaml") or ""
+        if model:
+            # An explicit action_model is merged into the spec itself, never
+            # passed as a positional: when the file supplies its own model or
+            # agent, `li o flow -f` reclassifies a lone model positional as
+            # prompt text, so a positional cannot reliably override the file.
+            # Merging into the spec wins deterministically and leaves no
+            # positional surface at all. Unparseable or non-mapping specs are
+            # written unchanged — `li o flow` rejects them with its own parse
+            # error, which names the file.
+            import yaml
+
+            try:
+                spec = yaml.safe_load(yaml_text)
+            except Exception:
+                spec = None
+            if isinstance(spec, dict):
+                spec["model"] = model
+                yaml_text = yaml.safe_dump(spec, sort_keys=False, allow_unicode=True)
         fd, tmp_path = tempfile.mkstemp(suffix=".yaml", prefix="lionagi-sched-")
         try:
             with os.fdopen(fd, "w") as fh:
@@ -301,12 +313,13 @@ def build_argv(schedule: dict, trigger_context: dict) -> tuple[list[str], str | 
         except Exception:
             os.unlink(tmp_path)
             raise
-        # Named flags first (-f must come before --), then -- sentinel, then
-        # model positional only (no prompt positional — YAML supplies it).
+        # Named flags first (-f must come before --), then the -- sentinel.
+        # No positionals at all: the YAML file supplies the prompt, and any
+        # explicit model was merged into the spec above.
         flags = ["-f", tmp_path]
         if project:
             flags += ["--project", project]
-        argv += ["o", "flow", *flags, "--", model]
+        argv += ["o", "flow", *flags, "--"]
 
     elif kind == "engine":
         # engine def launch: argv shape is
@@ -343,9 +356,7 @@ def build_argv(schedule: dict, trigger_context: dict) -> tuple[list[str], str | 
             flags += ["--export-dir", export_dir]
         argv += ["engine", "run", *flags, "--", engine_kind, prompt]
 
-    # extra has already been validated above; extend argv with safe positional tokens.
-    # These are appended AFTER the subcommand's positionals, after '--', so they
-    # are treated as positional values by the subcommand's parser.
+    # Append validated extra positionals (safe, no leading '-').
     if kind != "engine" and isinstance(extra, list):
         argv.extend(str(a) for a in extra)
 
@@ -357,11 +368,18 @@ async def spawn_and_wait(
     invocation_id: str,
     *,
     tmp_path: str | None = None,
+    cwd: str | None = None,
 ) -> tuple[int, str]:
     """Spawn subprocess and wait for completion. Returns (exit_code, stderr_tail).
 
     If *tmp_path* is given it is deleted after the subprocess exits — used by
     the ``flow_yaml`` action kind which writes a temp spec file before spawning.
+
+    *cwd* pins the subprocess working directory. ``None`` inherits the
+    caller's own cwd (the daemon's launch directory) — callers should resolve
+    a concrete path (e.g. from ``action_project``) before spawning so `uv run
+    li` doesn't fail with "No such file or directory" when the daemon was
+    started somewhere with no project (see SchedulerEngine._resolve_action_cwd).
     """
     env = {**os.environ, "LIONAGI_INVOCATION_ID": invocation_id}
 
@@ -371,22 +389,15 @@ async def spawn_and_wait(
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        cwd=cwd,
         # `uv run li` forks the real worker (and that worker may fork
         # further). Put the whole tree in its own session/process group so a
         # cancel can signal the GROUP, not just the direct child — otherwise
         # grandchildren survive scheduler shutdown as orphans.
         start_new_session=True,
     )
-    # Capture the pgid NOW — once the child exits and is reaped,
-    # os.getpgid(proc.pid) raises ProcessLookupError and we'd skip the group
-    # kill. start_new_session=True makes pgid == proc.pid. Guard mocked pids
-    # in tests: a MagicMock.pid coerces to 1, and killpg(1, …) hits init.
-    # os.killpg is POSIX-only: on Windows leave _pgid None so the group-kill
-    # path is skipped and cleanup falls through to proc.terminate()/kill()
-    # instead of raising AttributeError.
-    _pgid: int | None = (
-        proc.pid if hasattr(os, "killpg") and isinstance(proc.pid, int) and proc.pid > 1 else None
-    )
+    # Pgid == proc.pid (start_new_session=True). The pid-guard and platform
+    # check live in aterminate_process_group.
 
     try:
         _, stderr = await proc.communicate()
@@ -396,21 +407,7 @@ async def spawn_and_wait(
         # to exit, then SIGKILL the group, before re-raising so the caller can
         # record the cancel.
         _log.warning("spawn_and_wait cancelled; terminating child for %s", invocation_id)
-        if _pgid is not None:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(_pgid, signal.SIGTERM)
-        with contextlib.suppress(ProcessLookupError):
-            proc.terminate()
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=5)
-        except (TimeoutError, asyncio.TimeoutError):
-            if _pgid is not None:
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(_pgid, signal.SIGKILL)
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                await proc.wait()
+        await aterminate_process_group(proc, grace=5.0)
         raise
     finally:
         if tmp_path is not None:

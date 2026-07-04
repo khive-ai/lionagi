@@ -1,16 +1,9 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Smoke tests for CodexCodeRequest.fast_mode (issue #964).
+"""Smoke tests for CodexCodeRequest.fast_mode.
 
-Tests verify that:
-1. fast_mode=False (default) emits no service_tier arg.
-2. fast_mode=True emits ``-c service_tier=fast`` in the command args.
-3. fast_mode does NOT cap or remove reasoning_effort.
-4. Profile frontmatter ``fast_mode: true`` is parsed and propagated to
-   CodexCodeRequest via build_imodel_from_spec (mocked iModel).
-5. ``li agent --fast`` and ``li play --fast`` flags are registered in
-   the argparse namespace via add_common_cli_args.
+Verifies: default emits no service_tier; fast_mode=True emits -c service_tier=fast; reasoning_effort is unaffected; profile frontmatter propagates; --fast CLI flag is registered.
 """
 
 from __future__ import annotations
@@ -19,13 +12,13 @@ import argparse
 
 import pytest
 
-from lionagi.cli._agents import _parse_profile
 from lionagi.cli._providers import (
     PROVIDER_FAST_KWARGS,
+    _parse_profile,
     add_common_cli_args,
     build_imodel_from_spec,
 )
-from lionagi.providers.openai.codex.models import CodexCodeRequest
+from lionagi.providers.openai.codex import CodexCodeRequest
 
 # ── 1. Default: no service_tier ─────────────────────────────────────────
 
